@@ -1,0 +1,13 @@
+name: cloudamqp-proxy
+version: 0.1.0
+
+authors:
+  - Carl Hörberg <carl.hoerberg@gmail.com>
+
+targets:
+  cloudamqp-proxy:
+    main: src/cloudamqp-proxy.cr
+
+crystal: 0.21.1
+
+license: MIT
