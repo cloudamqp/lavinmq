@@ -4,41 +4,31 @@ require "./cloudamqp-proxy/*"
 class Proxy
   START_FRAME = UInt8.slice(65, 77, 81, 80, 0, 0, 9, 1)
 
+  def copy(i, o)
+    slice = Bytes.new(4096)
+    loop do
+      bytes = i.read(slice)
+      return if bytes == 0
+
+      parse_frame slice
+      o.write slice[0, bytes]
+    end
+  end
+
   def handle_connection(socket)
     start = Bytes.new(8)
-    bytes = socket.read(start)
+    bytes = socket.read_fully(start)
 
     if bytes != 8 || start != START_FRAME
       socket.write(START_FRAME)
-      socket.close
       return
     end
 
-    TCPSocket.open("localhost", 5672) do |remote|
-      remote.write START_FRAME
-      slice = Bytes.new(4096)
-      loop do
-        ready = IO.select([socket, remote], nil, nil)
-        puts ready
-
-        ready.each do |s|
-          case s
-          when socket
-            bytes = socket.read(slice)
-            return if bytes == 0
-            parse_frame slice
-
-            remote.write slice[0, bytes]
-          when remote
-            bytes = remote.read(slice)
-            return if bytes == 0
-
-            parse_frame slice
-            socket.write slice[0, bytes]
-          end
-        end
-      end
-    end
+    remote = TCPSocket.new("localhost", 5672)
+    remote.write START_FRAME
+    spawn copy(remote, socket)
+    spawn copy(socket, remote)
+    sleep
   rescue ex : InvalidFrameEnd
     puts ex
     #socket.write Slice[1, 0, 0]
@@ -46,6 +36,7 @@ class Proxy
     puts ex
   ensure
     socket.close
+    remote.close if remote
     puts "conn closed"
   end
 
@@ -82,14 +73,14 @@ class Proxy
 
   CLASS_METHODS = {
     AMQPClass::Connection => {
-     10 => :start,
-     11 => :start_ok,
-     30 => :tune,
-     31 => :tune_ok,
-     40 => :open,
-     41 => :open_ok,
-     50 => :close,
-     51 => :close_ok
+      10 => :start,
+      11 => :start_ok,
+      30 => :tune,
+      31 => :tune_ok,
+      40 => :open,
+      41 => :open_ok,
+      50 => :close,
+      51 => :close_ok
     }, AMQPClass::Channel => {
       10 => :open,
       11 => :open_ok,
@@ -113,7 +104,10 @@ class Proxy
         version_major = IO::ByteFormat::BigEndian.decode(UInt8, args[0, 1])
         version_minor = IO::ByteFormat::BigEndian.decode(UInt8, args[1, 1])
         puts "version_major=#{version_major} version_minor=#{version_minor}"
-        offset = decode_hash(args[2, size - 2])
+        offset = 2
+        offset += decode_hash(args, offset)
+        offset += decode_string(args, offset)
+        offset += decode_string(args, offset)
       end
     end
   end
@@ -195,10 +189,12 @@ class Proxy
   def start
     server = TCPServer.new("localhost", 1234)
     loop do
+      puts "Waiting for connections"
       if socket = server.accept?
         puts "Accepted conn"
         # handle the client in a fiber
         spawn handle_connection(socket)
+        puts "Spawned fiber"
       else
         # another fiber closed the server
         break
