@@ -13,6 +13,15 @@ class Proxy
       parse_frame buf.to_slice
       o.write buf.to_slice[0, bytes]
     end
+  rescue ex : InvalidFrameEnd
+    puts ex
+    #socket.write Slice[1, 0, 0]
+  rescue ex : Errno
+    puts ex
+  ensure
+    i.close
+    o.close
+    puts "conn closed"
   end
 
   def handle_connection(socket)
@@ -21,6 +30,7 @@ class Proxy
 
     if bytes != 8 || start != START_FRAME
       socket.write(START_FRAME)
+      socket.close
       return
     end
 
@@ -28,16 +38,10 @@ class Proxy
     remote.write START_FRAME
     spawn copy(remote, socket)
     spawn copy(socket, remote)
-    sleep
-  rescue ex : InvalidFrameEnd
-    puts ex
-    #socket.write Slice[1, 0, 0]
   rescue ex : Errno
     puts ex
-  ensure
-    socket.close
     remote.close if remote
-    puts "conn closed"
+    socket.close
   end
 
   def parse_frame(slice)
