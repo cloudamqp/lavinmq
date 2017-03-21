@@ -99,7 +99,13 @@ class Proxy
     class_id = IO::ByteFormat::BigEndian.decode(UInt16, slice[0, 2])
     method_id = IO::ByteFormat::BigEndian.decode(UInt16, slice[2, 2])
     clz = AMQPClass.new(class_id)
-    puts "class_id=#{clz} method_id=#{CLASS_METHODS[clz][method_id] || method_id}"
+    methods = CLASS_METHODS[clz]?
+    if methods.nil?
+      puts "class=#{clz} method_id=#{method_id}"
+      return
+    end
+
+    puts "class=#{clz} method=#{methods[method_id]}"
     args = slice[4, size]
     case clz
     when AMQPClass::Connection
