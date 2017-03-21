@@ -5,13 +5,13 @@ class Proxy
   START_FRAME = UInt8.slice(65, 77, 81, 80, 0, 0, 9, 1)
 
   def copy(i, o)
-    slice = Bytes.new(4096)
+    buf = uninitialized UInt8[4096]
     loop do
-      bytes = i.read(slice)
+      bytes = i.read(buf.to_slice)
       return if bytes == 0
 
-      parse_frame slice
-      o.write slice[0, bytes]
+      parse_frame buf.to_slice
+      o.write buf.to_slice[0, bytes]
     end
   end
 
