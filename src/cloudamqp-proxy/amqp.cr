@@ -82,7 +82,6 @@ module AMQP
         puts "locales=#{locales}"
         offset += off
       when :start_ok
-
       end
     end
   end

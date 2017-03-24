@@ -1,4 +1,5 @@
 require "socket"
+require "amqp"
 require "./cloudamqp-proxy/*"
 
 module Proxy

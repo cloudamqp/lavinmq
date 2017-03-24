@@ -8,6 +8,11 @@ targets:
   cloudamqp-proxy:
     main: src/cloudamqp-proxy.cr
 
+dependencies:
+  amqp:
+    github: datanoise/amqp.cr
+    branch: master
+
 crystal: 0.21.1
 
 license: MIT
