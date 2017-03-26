@@ -2,7 +2,8 @@ module AMQP
   extend self
 
   def parse_frame(slice)
-    type = IO::ByteFormat::BigEndian.decode(UInt8, slice[0, 1])
+    io = IO::Memory.new(slice, false)
+    type = io.read_byte
     type_name =
       case type
       when 1 then "METHOD"
@@ -12,15 +13,123 @@ module AMQP
       else type
       end
 
-    channel = IO::ByteFormat::BigEndian.decode(UInt16, slice[1, 2])
-    size = IO::ByteFormat::BigEndian.decode(UInt32, slice[3, 4])
+    channel = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+    size = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
     frame_end = IO::ByteFormat::BigEndian.decode(UInt8, slice[size + 7, 1])
     puts "type=#{type_name} channel=#{channel} size=#{size} end=#{frame_end}"
     if frame_end != 206
       raise InvalidFrameEnd.new("Frame-end was #{frame_end}, expected 206")
     end
-    payload = slice[7, size + 7]
-    decode_method(payload, size) if type == 1
+    case type
+    when 1
+      decode_method(io, size)
+    end
+  end
+
+  def decode_method(io, size)
+    class_id = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+    method_id = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+    clz = AMQPClass.new(class_id)
+    methods = CLASS_METHODS[clz]?
+    if methods.nil?
+      puts "class=#{clz} method_id=#{method_id}"
+      return
+    end
+
+    puts "class=#{clz} method=#{methods[method_id]}"
+    offset = 0
+    case clz
+    when AMQPClass::Connection
+      case CLASS_METHODS[clz][method_id]
+      when :start
+        version_major = io.read_byte
+        version_minor = io.read_byte
+        hash = decode_table(io)
+        mech = decode_string(io)
+        locales = decode_string(io)
+        puts "version_major=#{version_major} version_minor=#{version_minor} server-properties=#{hash} mechanisms=#{mech} locales=#{locales}"
+      when :start_ok
+        hash = decode_table(io)
+        mech = decode_short_string(io)
+        auth = decode_string(io)
+        locale = decode_short_string(io)
+        puts "client-properties=#{hash} mechanism=#{hash} response=#{auth} locale=#{locale}"
+      when :tune
+      when :tune_ok
+      when :open
+        vhost = decode_short_string(io)
+        reserved1 = decode_short_string(io)
+        reserved2 = decode_boolean(io)
+        puts "vhost=#{vhost} reserved1=#{reserved1} reserved2=#{reserved2}"
+      when :open_ok
+      end
+    end
+  end
+
+  #enum Types
+  #  String       = 'S'
+  #  Integer      = 'I'
+  #  Time         = 'T'
+  #  Decimal      = 'D'
+  #  Hash         = 'F'
+  #  Array        = 'A'
+  #  Byte         = 'b'
+  #  Float64      = 'd'
+  #  Float32      = 'f'
+  #  Signed_64bit = 'l'
+  #  Signed_16bit = 's'
+  #  Boolean      = 't'
+  #  Byte_array   = 'x'
+  #  Void         = 'V'
+  #  Boolean_true  = 1
+  #  Boolean_false = 0
+  #end
+
+  def decode_table(io)
+    size = io.read_bytes(UInt32, IO::ByteFormat::BigEndian) + 4
+    hash = Hash(String, Field).new
+    while io.pos < size
+      key = decode_short_string(io)
+      type = io.read_byte
+      val = case type
+                 when 'S' then decode_string(io)
+                 when 'I' then decode_integer(io)
+                 when 'F' then decode_table(io)
+                 when 't' then decode_boolean(io)
+                 when 'V' then nil
+                 else raise "Unknown type: #{type}"
+                 end
+      hash[key] = val
+    end
+    hash
+  end
+
+  def decode_short_string(io)
+    size = io.read_byte.as(Int)
+    io.read_string(size)
+  end
+
+  def decode_boolean(io)
+    int = io.read_byte
+    raise "Unknown boolen value: #{int}" if int.nil? || int > 1
+    int == 1
+  end
+
+  def decode_uint32(io)
+    io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
+  end
+
+  def decode_uint16(io)
+    io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+  end
+
+  def decode_string(io)
+    size = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
+    io.read_string(size)
+  end
+
+  def decode_integer(io)
+    io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
   end
 
   enum AMQPClass : UInt16
@@ -52,141 +161,22 @@ module AMQP
     }
   }
 
-  def decode_method(slice, size)
-    class_id = IO::ByteFormat::BigEndian.decode(UInt16, slice[0, 2])
-    method_id = IO::ByteFormat::BigEndian.decode(UInt16, slice[2, 2])
-    clz = AMQPClass.new(class_id)
-    methods = CLASS_METHODS[clz]?
-    if methods.nil?
-      puts "class=#{clz} method_id=#{method_id}"
-      return
-    end
-
-    puts "class=#{clz} method=#{methods[method_id]}"
-    args = slice[4, size]
-    case clz
-    when AMQPClass::Connection
-      case CLASS_METHODS[clz][method_id]
-      when :start
-        version_major = IO::ByteFormat::BigEndian.decode(UInt8, args[0, 1])
-        version_minor = IO::ByteFormat::BigEndian.decode(UInt8, args[1, 1])
-        puts "version_major=#{version_major} version_minor=#{version_minor}"
-        offset = 2
-        off, hash = decode_table(args, offset)
-        puts "server-properties=#{hash}"
-        offset += off
-        off, mech = decode_string(args, offset)
-        puts "mechanisms=#{mech}"
-        offset += off
-        off, locales = decode_string(args, offset)
-        puts "locales=#{locales}"
-        offset += off
-      when :start_ok
-      end
-    end
-  end
-
-  #enum Types
-  #  String       = 'S'
-  #  Integer      = 'I'
-  #  Time         = 'T'
-  #  Decimal      = 'D'
-  #  Hash         = 'F'
-  #  Array        = 'A'
-  #  Byte         = 'b'
-  #  Float64      = 'd'
-  #  Float32      = 'f'
-  #  Signed_64bit = 'l'
-  #  Signed_16bit = 's'
-  #  Boolean      = 't'
-  #  Byte_array   = 'x'
-  #  Void         = 'V'
-  #  Boolean_true  = 1
-  #  Boolean_false = 0
-  #end
-
-  def decode_table(slice, offset = 0)
-    size = IO::ByteFormat::BigEndian.decode(UInt32, slice[offset, 4]) + 4
-    offset += 4
-    hash = Hash(String, Bool | UInt32 | String | Hash(String, Bool | String | UInt32)).new
-    while offset < size
-      key_size = IO::ByteFormat::BigEndian.decode(UInt8, slice[offset, 1])
-      offset += 1
-      key = String.new(slice[offset, key_size])
-      offset += key_size
-      type = IO::ByteFormat::BigEndian.decode(UInt8, slice[offset, 1])
-      offset += 1
-      off, val = case type
-                 when 'S' then decode_string(slice, offset)
-                 when 'I' then decode_integer(slice, offset)
-                 when 'F' then decode_hash(slice, offset)
-                 when 't' then decode_boolean(slice, offset)
-                 else raise "Unknown type: #{type}"
-                 end
-      offset += off
-      hash[key] = val
-    end
-    { size, hash }
-  end
-
-  def decode_hash(slice, offset)
-    off, val = decode_uint32(slice, offset)
-    size = val + 4
-    offset += off
-    hash = Hash(String, Bool | String | UInt32).new
-    while offset < size
-      off, key_size = decode_uint8(slice, offset)
-      offset += off
-      key = String.new(slice[offset, key_size])
-      offset += key_size
-      type = IO::ByteFormat::BigEndian.decode(UInt8, slice[offset, 1])
-      offset += 1
-      off, val = case type
-                 when 'S' then decode_string(slice, offset)
-                 when 'I' then decode_integer(slice, offset)
-                 when 't' then decode_boolean(slice, offset)
-                 else raise "Unknown type: #{type}"
-                 end
-      offset += off
-      hash[key] = val
-    end
-    { size, hash }
-  end
-
-  def decode_boolean(slice, offset)
-    int = IO::ByteFormat::BigEndian.decode(UInt8, slice[offset, 1])
-    raise "Unknown boolen value: #{int}" if int > 1
-    val = (int == 1)
-    { 1, val }
-  end
-
-  def decode_uint32(slice, offset)
-    val = IO::ByteFormat::BigEndian.decode(UInt32, slice[offset, 4])
-    { 4, val }
-  end
-
-  def decode_uint16(slice, offset)
-    val = IO::ByteFormat::BigEndian.decode(UInt16, slice[offset, 2])
-    { 2, val }
-  end
-
-  def decode_uint8(slice, offset)
-    val = IO::ByteFormat::BigEndian.decode(UInt8, slice[offset, 1])
-    { 1, val }
-  end
-
-  def decode_string(slice, offset)
-    size = IO::ByteFormat::BigEndian.decode(UInt32, slice[offset, 4])
-    val = String.new(slice[offset + 4, size])
-    { size + 4, val }
-  end
-
-  def decode_integer(slice, offset)
-    size = 4
-    val = IO::ByteFormat::BigEndian.decode(UInt32, slice[offset, size])
-    { size, val }
-  end
-
   class InvalidFrameEnd < Exception
   end
+
+  alias Field = Nil |
+                Bool |
+                UInt8 |
+                UInt16 |
+                UInt32 |
+                UInt64 |
+                Int32 |
+                Int64 |
+                Float32 |
+                Float64 |
+                String |
+                Array(Field) |
+                Array(UInt8) |
+                Time |
+                Hash(String, Field)
 end
