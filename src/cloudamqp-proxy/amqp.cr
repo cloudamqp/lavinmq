@@ -1,15 +1,63 @@
 module AMQP
   extend self
 
+  class IO < IO::Memory
+    def write_short_string(str : String)
+      raise "String too long" if str.bytesize > 255
+      write_byte(str.bytesize.to_u8)
+      write_utf8(str.to_slice)
+    end
+
+    def write_bool(val : Bool)
+      write_byte(val ? 1_u8 : 0_u8)
+    end
+
+    def write_int(int)
+      write_bytes(int, IO::ByteFormat::BigEndian)
+    end
+
+    def write_long_string(str : String)
+      size = write_bytes(str.bytesize.to_u32, IO::ByteFormat::BigEndian)
+      write_utf8(str.to_slice)
+    end
+
+    def write_table(hash : Hash(String, Field))
+      tmp = AMQP::IO.new
+      hash.each do |key, value|
+        tmp.write_short_string(key)
+        case value
+        when String
+          tmp.write_byte 'S'.ord.to_u8
+          tmp.write_long_string(value)
+        when Int
+          tmp.write_byte 'I'.ord.to_u8
+          tmp.write_int(value)
+        when Hash(String, Field)
+          tmp.write_byte 'F'.ord.to_u8
+          tmp.write_table(value)
+        when Bool
+          tmp.write_byte 't'.ord.to_u8
+          tmp.write_bool(value)
+        when nil
+          tmp.write_byte 'V'.ord.to_u8
+          nil
+        else raise "Unknown type: #{value.class}"
+        end
+      end
+      write_int(tmp.size)
+      write tmp.to_slice
+    end
+  end
+
   class Frame
     getter type, channel, size, payload
     def initialize(@type : UInt8, @channel : UInt16, @size : UInt32, @payload : Bytes)
     end
 
     enum Type : UInt8
-      Method
-      Header
-      Body
+      Method = 1
+      Header = 2
+      Body = 3
       Heartbeat = 8
     end
 
@@ -42,6 +90,107 @@ module AMQP
         raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
       end
       Frame.new(type, channel, size, payload[0, size])
+    end
+  end
+
+  abstract class Connection < Frame
+    def class_id
+      10_u16
+    end
+
+    def initialize
+      @type = Type::Method.value
+      @channel = 0_u16
+      @body = AMQP::IO.new
+      @body.write_bytes class_id, IO::ByteFormat::BigEndian
+      @body.write_bytes method_id, IO::ByteFormat::BigEndian
+      @payload = @body.to_slice
+      @size = @payload.size.to_u32
+    end
+  end
+
+  class Start < Connection
+    def method_id
+      10_u16
+    end
+
+    def initialize(@version_major = 0_u8, @version_minor = 9_u8,
+                   @server_props = { "Product" => "CloudAMQP" } of String => Field,
+                   @mechanisms = "PLAIN AMQPLAIN", @locales = "en_US")
+      super()
+      @body.write_byte(@version_major)
+      @body.write_byte(@version_minor)
+      @body.write_table(@server_props)
+      @body.write_long_string(@mechanisms)
+      @body.write_long_string(@locales)
+      @payload = @body.to_slice
+      @size = @payload.size.to_u32
+    end
+  end
+
+  class StartOk < Connection
+    def method_id
+      11_u16
+    end
+
+    def initialize(@client_props = {} of String => Field, @mechanism = "PLAIN",
+                   @response = "\u0000guest\u0000guest", @locale = "en_US")
+      super()
+      @body.write_table(@client_props)
+      @body.write_short_string(@mechanism)
+      @body.write_long_string(@response)
+      @body.write_short_string(@locale)
+      @payload = @body.to_slice
+      @size = @payload.size.to_u32
+    end
+  end
+
+  class Tune < Connection
+    def method_id
+      30_u16
+    end
+
+    def initialize(@channel_max = 0_u16, @frame_max = 131072_u32, @heartbeat = 60_u16)
+      super()
+      @body.write_int(@channel_max)
+      @body.write_int(@frame_max)
+      @body.write_int(@heartbeat)
+      @payload = @body.to_slice
+      @size = @payload.size.to_u32
+    end
+  end
+
+  class TuneOk < Tune
+    def method_id
+      31_u16
+    end
+  end
+
+  class Open < Connection
+    def method_id
+      40_u16
+    end
+
+    def initialize(@vhost = "/", @reserved1 = "", @reserved2 = false)
+      super()
+      @body.write_short_string(@vhost)
+      @body.write_short_string(@reserved1)
+      @body.write_bool(@reserved2)
+      @payload = @body.to_slice
+      @size = @payload.size.to_u32
+    end
+  end
+
+  class OpenOk < Connection
+    def method_id
+      41_u16
+    end
+
+    def initialize(@reserved1 = "")
+      super()
+      @body.write_short_string(@reserved1)
+      @payload = @body.to_slice
+      @size = @payload.size.to_u32
     end
   end
 
@@ -109,7 +258,7 @@ module AMQP
         mech = decode_short_string(io)
         auth = decode_string(io)
         locale = decode_short_string(io)
-        puts "client-properties=#{hash} mechanism=#{hash} response=#{auth} locale=#{locale}"
+        puts "client-properties=#{hash} mechanism=#{mech} response=#{auth} locale=#{locale}"
       when :tune
         channel_max = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
         frame_max = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
@@ -129,25 +278,6 @@ module AMQP
       end
     end
   end
-
-  #enum Types
-  #  String       = 'S'
-  #  Integer      = 'I'
-  #  Time         = 'T'
-  #  Decimal      = 'D'
-  #  Hash         = 'F'
-  #  Array        = 'A'
-  #  Byte         = 'b'
-  #  Float64      = 'd'
-  #  Float32      = 'f'
-  #  Signed_64bit = 'l'
-  #  Signed_16bit = 's'
-  #  Boolean      = 't'
-  #  Byte_array   = 'x'
-  #  Void         = 'V'
-  #  Boolean_true  = 1
-  #  Boolean_false = 0
-  #end
 
   def decode_table(io)
     size = io.read_bytes(UInt32, IO::ByteFormat::BigEndian) + 4

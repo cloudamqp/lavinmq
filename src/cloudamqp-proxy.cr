@@ -9,7 +9,9 @@ module Proxy
 
   def copy(i, o)
     loop do
-      frame = AMQP::Frame.parse i
+      frame = AMQP.parse_frame i
+      #frame = AMQP::Frame.parse i
+      #puts frame.to_slice
       o.write frame.to_slice
     end
 #  rescue ex : AMQP::InvalidFrameEnd
@@ -24,6 +26,46 @@ module Proxy
   end
 
   def handle_connection(socket)
+    negotiate_client(socket)
+
+    remote = TCPSocket.new("localhost", 5672)
+    negotiate_server(remote)
+
+    spawn copy(remote, socket)
+    spawn copy(socket, remote)
+  rescue ex : Errno
+    puts ex
+    remote.close if remote
+    socket.close
+  end
+
+  def negotiate_server(remote)
+    remote.write START_FRAME
+
+    start = AMQP::Frame.parse remote
+    AMQP.parse_frame IO::Memory.new(start.to_slice)
+
+    start_ok = AMQP::StartOk.new
+    puts "start_ok #{start_ok.to_slice}"
+    remote.write start_ok.to_slice
+
+    tune = AMQP::Frame.parse remote
+    puts "tune #{tune.to_slice}"
+
+    tune_ok = AMQP::TuneOk.new
+    puts "tune_ok #{tune_ok.to_slice}"
+    remote.write tune_ok.to_slice
+
+    open = AMQP::Open.new
+    AMQP.parse_frame IO::Memory.new(open.to_slice)
+    puts "open #{open.to_slice}"
+    remote.write open.to_slice
+
+    open_ok = AMQP::Frame.parse remote
+    puts "open_ok #{open_ok.to_slice}"
+  end
+
+  def negotiate_client(socket)
     start = Bytes.new(8)
     bytes = socket.read_fully(start)
 
@@ -33,14 +75,24 @@ module Proxy
       return
     end
 
-    remote = TCPSocket.new("localhost", 5672)
-    remote.write START_FRAME
-    spawn copy(remote, socket)
-    spawn copy(socket, remote)
-  rescue ex : Errno
-    puts ex
-    remote.close if remote
-    socket.close
+    start = AMQP::Start.new
+    AMQP.parse_frame IO::Memory.new(start.to_slice)
+    socket.write start.to_slice
+
+    start_ok = AMQP::Frame.parse socket
+    AMQP.parse_frame IO::Memory.new start_ok.to_slice
+
+    tune = AMQP::Tune.new
+    socket.write tune.to_slice
+
+    tune_ok = AMQP::Frame.parse socket
+    AMQP.parse_frame IO::Memory.new tune_ok.to_slice
+
+    open = AMQP::Frame.parse socket
+    AMQP.parse_frame IO::Memory.new open.to_slice
+
+    open_ok = AMQP::OpenOk.new
+    socket.write open_ok.to_slice
   end
 
   def start
@@ -48,12 +100,8 @@ module Proxy
     loop do
       puts "Waiting for connections"
       if socket = server.accept?
-        puts "Accepted conn"
-        # handle the client in a fiber
         spawn handle_connection(socket)
-        puts "Spawned fiber"
       else
-        # another fiber closed the server
         break
       end
     end
