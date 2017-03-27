@@ -9,14 +9,13 @@ module Proxy
 
   def copy(i, o)
     loop do
-      frame = AMQP.parse_frame i
-      o.write frame
+      frame = AMQP::Frame.parse i
+      o.write frame.to_slice
     end
 #  rescue ex : AMQP::InvalidFrameEnd
 #    puts ex
 #    #socket.write Slice[1, 0, 0]
   rescue ex : IO::EOFError | Errno
-  rescue ex
     puts ex
   ensure
     i.close

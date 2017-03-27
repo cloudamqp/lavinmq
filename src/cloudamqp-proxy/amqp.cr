@@ -1,6 +1,50 @@
 module AMQP
   extend self
 
+  class Frame
+    getter type, channel, size, payload
+    def initialize(@type : UInt8, @channel : UInt16, @size : UInt32, @payload : Bytes)
+    end
+
+    enum Type : UInt8
+      Method
+      Header
+      Body
+      Heartbeat = 8
+    end
+
+    def to_slice
+      io = IO::Memory.new(@size + 8)
+      io.write_byte(@type)
+      io.write_bytes(@channel, IO::ByteFormat::BigEndian)
+      io.write_bytes(@size, IO::ByteFormat::BigEndian)
+      io.write @payload
+      io.write_byte(206_u8)
+      io.to_slice
+    end
+
+    def self.parse(io)
+      buf = uninitialized UInt8[7]
+      io.read_fully(buf.to_slice)
+      mem = IO::Memory.new(buf.to_slice)
+
+      type = mem.read_byte
+      raise IO::EOFError.new if type.nil?
+      channel = mem.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+      size = mem.read_bytes(UInt32, IO::ByteFormat::BigEndian)
+      puts "type=#{type} channel=#{channel} size=#{size}"
+
+      payload = Bytes.new(size + 1)
+      io.read_fully(payload)
+
+      frame_end = payload.at(size)
+      if frame_end != 206
+        raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
+      end
+      Frame.new(type, channel, size, payload[0, size])
+    end
+  end
+
   def parse_frame(io)
     head_buf = uninitialized UInt8[7]
     io.read_fully(head_buf.to_slice)
