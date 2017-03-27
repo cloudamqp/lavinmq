@@ -3,8 +3,9 @@ module AMQP
 
   def parse_frame(io)
     head_buf = uninitialized UInt8[7]
-    bytes = io.read_fully(head_buf.to_slice)
+    io.read_fully(head_buf.to_slice)
     head = IO::Memory.new(head_buf.to_slice)
+
     type = head.read_byte
     type_name =
       case type
@@ -21,21 +22,20 @@ module AMQP
 
     frame = Bytes.new(size + 8)
     frame.copy_from(head_buf.to_slice)
-    io.read_fully(frame.to_slice[7, size + 1])
-    body = IO::Memory.new(frame)
+    io.read_fully(frame[7, size + 1])
 
-    body.seek(size + 7)
-    frame_end = body.read_byte
-    body.seek(7)
+    frame_end = frame.at(size + 7)
     if frame_end != 206
-      #puts "Frame-end was #{frame_end.to_s}, expected 206"
       raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
     end
+
+    body = IO::Memory.new(frame)
+    body.seek(7)
     case type
     when 1
       decode_method(body, size)
     end
-    frame.to_slice
+    frame
   end
 
   def decode_method(io, size)
