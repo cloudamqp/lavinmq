@@ -69,8 +69,8 @@ module Proxy
     start = Bytes.new(8)
     bytes = socket.read_fully(start)
 
-    if bytes != 8 || start != START_FRAME
-      socket.write(START_FRAME)
+    if start != START_FRAME
+      socket.write START_FRAME
       socket.close
       return
     end
