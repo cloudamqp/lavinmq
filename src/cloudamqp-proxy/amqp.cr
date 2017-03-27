@@ -1,8 +1,7 @@
 module AMQP
   extend self
 
-  def parse_frame(slice)
-    io = IO::Memory.new(slice, false)
+  def parse_frame(io)
     type = io.read_byte
     type_name =
       case type
@@ -15,15 +14,20 @@ module AMQP
 
     channel = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
     size = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
-    frame_end = IO::ByteFormat::BigEndian.decode(UInt8, slice[size + 7, 1])
-    puts "type=#{type_name} channel=#{channel} size=#{size} end=#{frame_end}"
+    puts "type=#{type_name} channel=#{channel} size=#{size}"
+    io.seek(size, IO::Seek::Current)
+    frame_end = io.read_byte
+    io.seek(7)
     if frame_end != 206
-      raise InvalidFrameEnd.new("Frame-end was #{frame_end}, expected 206")
+      puts "Frame-end was #{frame_end.to_s}, expected 206"
+      #raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
     end
-    case type
-    when 1
-      decode_method(io, size)
-    end
+    frame = case type
+            when 1
+              decode_method(io, size)
+            end
+    io.seek(size + 8)
+    frame
   end
 
   def decode_method(io, size)
@@ -31,9 +35,9 @@ module AMQP
     method_id = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
     clz = AMQPClass.new(class_id)
     methods = CLASS_METHODS[clz]?
-    if methods.nil?
-      puts "class=#{clz} method_id=#{method_id}"
-      return
+      if methods.nil?
+        puts "class=#{clz} method_id=#{method_id}"
+        return
     end
 
     puts "class=#{clz} method=#{methods[method_id]}"
@@ -55,6 +59,14 @@ module AMQP
         locale = decode_short_string(io)
         puts "client-properties=#{hash} mechanism=#{hash} response=#{auth} locale=#{locale}"
       when :tune
+        channel_max = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+        frame_max = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
+        heartbeat = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+        puts "channel_max=#{channel_max} frame_max=#{frame_max} heartbeat=#{heartbeat}"
+        io.seek(-6, IO::Seek::Current)
+
+        new_frame_max = UInt32.new(4096)
+        io.write_bytes(new_frame_max, IO::ByteFormat::BigEndian)
       when :tune_ok
       when :open
         vhost = decode_short_string(io)
@@ -92,13 +104,13 @@ module AMQP
       key = decode_short_string(io)
       type = io.read_byte
       val = case type
-                 when 'S' then decode_string(io)
-                 when 'I' then decode_integer(io)
-                 when 'F' then decode_table(io)
-                 when 't' then decode_boolean(io)
-                 when 'V' then nil
-                 else raise "Unknown type: #{type}"
-                 end
+            when 'S' then decode_string(io)
+            when 'I' then decode_integer(io)
+            when 'F' then decode_table(io)
+            when 't' then decode_boolean(io)
+            when 'V' then nil
+            else raise "Unknown type: #{type}"
+            end
       hash[key] = val
     end
     hash
@@ -165,18 +177,18 @@ module AMQP
   end
 
   alias Field = Nil |
-                Bool |
-                UInt8 |
-                UInt16 |
-                UInt32 |
-                UInt64 |
-                Int32 |
-                Int64 |
-                Float32 |
-                Float64 |
-                String |
-                Array(Field) |
-                Array(UInt8) |
-                Time |
-                Hash(String, Field)
+    Bool |
+    UInt8 |
+    UInt16 |
+    UInt32 |
+    UInt64 |
+    Int32 |
+    Int64 |
+    Float32 |
+    Float64 |
+    String |
+    Array(Field) |
+    Array(UInt8) |
+    Time |
+    Hash(String, Field)
 end

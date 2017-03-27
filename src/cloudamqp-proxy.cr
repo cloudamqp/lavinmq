@@ -1,6 +1,7 @@
 require "socket"
-require "amqp"
-require "./cloudamqp-proxy/*"
+#require "amqp"
+require "./cloudamqp-proxy/amqp"
+require "./cloudamqp-proxy/version"
 
 module Proxy
   extend self
@@ -10,15 +11,23 @@ module Proxy
     buf = uninitialized UInt8[4096]
     loop do
       bytes = i.read(buf.to_slice)
+      puts "Read #{bytes}b from socket"
       return if bytes == 0
 
-      AMQP.parse_frame buf.to_slice
+      io = IO::Memory.new(buf.to_slice)
+      #frame = AMQP::Protocol::Frame.decode(AMQP::Protocol::IO.new(io))
+      #puts frame
+      until io.pos >= bytes
+        AMQP.parse_frame io
+      end
       o.write buf.to_slice[0, bytes]
     end
-  rescue ex : AMQP::InvalidFrameEnd
-    puts ex
-    #socket.write Slice[1, 0, 0]
+#  rescue ex : AMQP::InvalidFrameEnd
+#    puts ex
+#    #socket.write Slice[1, 0, 0]
   rescue ex : Errno
+    puts ex
+  rescue ex
     puts ex
   ensure
     i.close
