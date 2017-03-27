@@ -8,25 +8,14 @@ module Proxy
   START_FRAME = UInt8.slice(65, 77, 81, 80, 0, 0, 9, 1)
 
   def copy(i, o)
-    buf = uninitialized UInt8[4096]
     loop do
-      bytes = i.read(buf.to_slice)
-      puts "Read #{bytes}b from socket"
-      return if bytes == 0
-
-      io = IO::Memory.new(buf.to_slice)
-      #frame = AMQP::Protocol::Frame.decode(AMQP::Protocol::IO.new(io))
-      #puts frame
-      until io.pos >= bytes
-        AMQP.parse_frame io
-      end
-      o.write buf.to_slice[0, bytes]
+      frame = AMQP.parse_frame i
+      o.write frame
     end
 #  rescue ex : AMQP::InvalidFrameEnd
 #    puts ex
 #    #socket.write Slice[1, 0, 0]
-  rescue ex : Errno
-    puts ex
+  rescue ex : IO::EOFError | Errno
   rescue ex
     puts ex
   ensure

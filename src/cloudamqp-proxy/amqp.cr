@@ -2,7 +2,10 @@ module AMQP
   extend self
 
   def parse_frame(io)
-    type = io.read_byte
+    head_buf = uninitialized UInt8[7]
+    bytes = io.read_fully(head_buf.to_slice)
+    head = IO::Memory.new(head_buf.to_slice)
+    type = head.read_byte
     type_name =
       case type
       when 1 then "METHOD"
@@ -12,22 +15,27 @@ module AMQP
       else type
       end
 
-    channel = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
-    size = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
+    channel = head.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+    size = head.read_bytes(UInt32, IO::ByteFormat::BigEndian)
     puts "type=#{type_name} channel=#{channel} size=#{size}"
-    io.seek(size, IO::Seek::Current)
-    frame_end = io.read_byte
-    io.seek(7)
+
+    frame = Bytes.new(size + 8)
+    frame.copy_from(head_buf.to_slice)
+    io.read_fully(frame.to_slice[7, size + 1])
+    body = IO::Memory.new(frame)
+
+    body.seek(size + 7)
+    frame_end = body.read_byte
+    body.seek(7)
     if frame_end != 206
-      puts "Frame-end was #{frame_end.to_s}, expected 206"
-      #raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
+      #puts "Frame-end was #{frame_end.to_s}, expected 206"
+      raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
     end
-    frame = case type
-            when 1
-              decode_method(io, size)
-            end
-    io.seek(size + 8)
-    frame
+    case type
+    when 1
+      decode_method(body, size)
+    end
+    frame.to_slice
   end
 
   def decode_method(io, size)
