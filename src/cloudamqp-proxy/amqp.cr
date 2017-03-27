@@ -129,6 +129,8 @@ module AMQP
   end
 
   class StartOk < Connection
+    getter client_props, mechanism, response, locale
+
     def method_id
       11_u16
     end
@@ -146,6 +148,7 @@ module AMQP
   end
 
   class Tune < Connection
+    getter channel_max, frame_max, heartbeat
     def method_id
       30_u16
     end
@@ -167,6 +170,7 @@ module AMQP
   end
 
   class Open < Connection
+    getter vhost, reserved1, reserved2
     def method_id
       40_u16
     end
@@ -182,6 +186,8 @@ module AMQP
   end
 
   class OpenOk < Connection
+    getter reserved1
+
     def method_id
       41_u16
     end
