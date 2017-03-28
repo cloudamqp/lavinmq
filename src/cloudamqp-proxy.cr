@@ -1,5 +1,4 @@
 require "socket"
-#require "amqp"
 require "./cloudamqp-proxy/amqp"
 require "./cloudamqp-proxy/version"
 
@@ -26,15 +25,17 @@ module Proxy
   end
 
   def handle_connection(socket)
+    puts "socket#sync=#{socket.sync?} socket#send_buffer_size=#{socket.send_buffer_size}"
     negotiate_client(socket)
 
     remote = TCPSocket.new("localhost", 5672)
+    puts "remote#sync=#{remote.sync?} remote#send_buffer_size=#{remote.send_buffer_size}"
     negotiate_server(remote)
 
     spawn copy(remote, socket)
     spawn copy(socket, remote)
   rescue ex : Errno
-    puts ex
+    puts "handle_connection #{ex}"
     remote.close if remote
     socket.close
   end
