@@ -2,16 +2,11 @@ name: cloudamqp-proxy
 version: 0.1.0
 
 authors:
-  - Carl Hörberg <carl.hoerberg@gmail.com>
+  - Carl Hörberg <carl@84codes.com>
 
 targets:
   cloudamqp-proxy:
     main: src/cloudamqp-proxy.cr
-
-dependencies:
-  amqp:
-    github: datanoise/amqp.cr
-    branch: master
 
 crystal: 0.21.1
 
