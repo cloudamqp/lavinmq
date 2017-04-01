@@ -46,6 +46,12 @@ module AMQP
       write tmp.to_slice
     end
 
+    def read_byte : UInt8
+      b = super()
+      raise EOFError.new if b.nil?
+      b
+    end
+
     def read_table
       start_pos = pos
       size = read_bytes(UInt32, IO::ByteFormat::BigEndian) + 4

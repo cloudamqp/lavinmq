@@ -8,19 +8,13 @@ module AMQP
     io.read_fully(head_buf.to_slice)
     head = IO::Memory.new(head_buf.to_slice)
 
-    type = head.read_byte
-    type_name =
-      case type
-      when 1 then "METHOD"
-      when 2 then "HEADER"
-      when 3 then "BODY"
-      when 8 then "HEARTBEAT"
-      else type
-      end
+    t = head.read_byte
+    raise IO::EOFError.new if t.nil?
+    type = Type.new(t)
 
     channel = head.read_bytes(UInt16, IO::ByteFormat::BigEndian)
     size = head.read_bytes(UInt32, IO::ByteFormat::BigEndian)
-    puts "type=#{type_name} channel=#{channel} size=#{size}"
+    puts "type=#{type} channel=#{channel} size=#{size}"
 
     frame = Bytes.new(size + 8)
     frame.copy_from(head_buf.to_slice)
@@ -31,8 +25,7 @@ module AMQP
       raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
     end
 
-    body = IO::Memory.new(frame)
-    body.seek(7)
+    body = IO::Memory.new(frame[0, size])
     case type
     when 1
       decode_method(body, size)
@@ -182,4 +175,12 @@ module AMQP
     Array(UInt8) |
     Time |
     Hash(String, Field)
+
+  enum Type : UInt8
+    Method = 1
+    Header = 2
+    Body = 3
+    Heartbeat = 8
+  end
+
 end

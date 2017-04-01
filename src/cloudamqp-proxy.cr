@@ -8,9 +8,9 @@ module Proxy
 
   def copy(i, o)
     loop do
-      frame = AMQP.parse_frame i
-      #frame = AMQP::Frame.parse i
-      #puts frame.to_slice
+      #frame = AMQP.parse_frame i
+      frame = AMQP::Frame.parse i
+      puts frame.to_slice
       o.write frame.to_slice
     end
 #  rescue ex : AMQP::InvalidFrameEnd
