@@ -4,20 +4,23 @@ module AMQP
     def initialize(@type : UInt8, @channel : UInt16)
     end
 
-    abstract def body : Bytes
+    abstract def to_slice : Bytes
 
-    def to_slice
-      b = self.body
-      io = IO::Memory.new(b.size + 8)
+    def encode(io)
+      io.write self.to_slice
+    end
+
+    def to_slice(body : Bytes)
+      io = IO::Memory.new(8 + body.size)
       io.write_byte(@type)
       io.write_bytes(@channel, IO::ByteFormat::BigEndian)
-      io.write_bytes(b.size, IO::ByteFormat::BigEndian)
-      io.write b
+      io.write_bytes(body.size.to_u32, IO::ByteFormat::BigEndian)
+      io.write body
       io.write_byte(206_u8)
       io.to_slice
     end
 
-    def self.parse(io)
+    def self.decode(io)
       buf = uninitialized UInt8[7]
       io.read_fully(buf.to_slice)
       mem = IO::Memory.new(buf.to_slice)
@@ -37,10 +40,10 @@ module AMQP
       end
       body = payload[0, size]
       case type
-      when Type::Method then MethodFrame.parse(channel, payload)
-      #when Type::Header then HeaderFrame.parse(channel, payload)
-      #when Type::Body then BodyFrame.parse(channel, payload)
-      #when Type::Heartbeat then HeartbeatFrame.parse
+      when Type::Method then MethodFrame.decode(channel, payload)
+      #when Type::Header then HeaderFrame.decode(channel, payload)
+      #when Type::Body then BodyFrame.decode(channel, payload)
+      #when Type::Heartbeat then HeartbeatFrame.decode
       else GenericFrame.new(type, channel, body)
       end
     end
@@ -51,51 +54,64 @@ module AMQP
     def initialize(@type : UInt8, @channel : UInt16,  @body : Bytes)
     end
 
-    def body
-      @body
+    def to_slice
+      super(@body)
     end
   end
 
   abstract class MethodFrame < Frame
-    def initialize(@channel : UInt16, @body : Bytes)
+    def initialize(@channel : UInt16)
       @type = Type::Method.value
     end
 
-    def self.parse(channel, payload)
+    def to_slice(body : Bytes)
+      io = IO::Memory.new(4 + body.size)
+      io.write_bytes class_id, IO::ByteFormat::BigEndian
+      io.write_bytes method_id, IO::ByteFormat::BigEndian
+      io.write body
+      super(io.to_slice)
+    end
+
+    def self.decode(channel, payload)
       body = AMQP::IO.new(payload)
       class_id = body.read_uint16
-      raise "Class-ID is not 10 in method frame" if class_id != 10
+      case class_id
+      when 10
+        Connection.decode(body)
+      else raise "Unknown ClassID #{class_id}"
+      end
+    end
+  end
+
+  abstract class Connection < MethodFrame
+    def class_id
+      10_u16
+    end
+
+    abstract def method_id : UInt16
+
+    def initialize(@channel = 0_u16)
+      super
+    end
+
+    def decode(io)
       method_id = body.read_uint16
       case method_id
-      when 10 then Start.parse(body)
-      when 11 then StartOk.parse(body)
-      when 30 then Tune.parse(body)
-      when 31 then TuneOk.parse(body)
-      when 40 then Open.parse(body)
-      when 41 then OpenOk.parse(body)
-      when 50 then Close.parse(body)
-      when 51 then CloseOk.parse(body)
+      when 10 then Start.decode(body)
+      when 11 then StartOk.decode(body)
+      when 30 then Tune.decode(body)
+      when 31 then TuneOk.decode(body)
+      when 40 then Open.decode(body)
+      when 41 then OpenOk.decode(body)
+      when 50 then Close.decode(body)
+      when 51 then CloseOk.decode(body)
       else raise "Unknown method_id #{method_id}"
       end
     end
   end
 
-  abstract class Connection < Frame
-    def class_id
-      10_u16
-    end
+  abstract class Channel < MethodFrame
 
-    def initialize
-      @type = Type::Method.value
-      @channel = 0_u16
-    end
-
-    def body
-      body = AMQP::IO.new
-      body.write_bytes class_id, IO::ByteFormat::BigEndian
-      body.write_bytes method_id, IO::ByteFormat::BigEndian
-      body.to_slice
-    end
   end
 
   class Start < Connection
@@ -103,14 +119,14 @@ module AMQP
       10_u16
     end
 
-    def body
+    def to_slice
       body = AMQP::IO.new
       body.write_byte(@version_major)
       body.write_byte(@version_minor)
       body.write_table(@server_props)
       body.write_long_string(@mechanisms)
       body.write_long_string(@locales)
-      body.to_slice
+      super(body.to_slice)
     end
 
     def initialize(@version_major = 0_u8, @version_minor = 9_u8,
@@ -119,7 +135,7 @@ module AMQP
       super()
     end
 
-    def self.parse(io)
+    def self.decode(io)
       version_major = io.read_byte
       version_minor = io.read_byte
       server_props = io.read_table
@@ -142,16 +158,16 @@ module AMQP
       super()
     end
 
-    def body
+    def to_slice
       body = AMQP::IO.new
       body.write_table(@client_props)
       body.write_short_string(@mechanism)
       body.write_long_string(@response)
       body.write_short_string(@locale)
-      body.to_slice
+      super(body.to_slice)
     end
 
-    def self.parse(io)
+    def self.decode(io)
       hash = io.read_table
       mech = io.read_short_string
       auth = io.read_long_string
@@ -171,15 +187,15 @@ module AMQP
       super()
     end
 
-    def body
-      body = AMQP::IO.new
+    def to_slice
+      body = AMQP::IO.new(4 + 2 + 4 + 2)
       body.write_int(@channel_max)
       body.write_int(@frame_max)
       body.write_int(@heartbeat)
-      body.to_slice
+      super(body.to_slice)
     end
 
-    def self.parse(io)
+    def self.decode(io)
       channel_max = io.read_uint16
       frame_max = io.read_uint32
       heartbeat = io.read_uint16
@@ -207,15 +223,15 @@ module AMQP
       super()
     end
 
-    def body
-      body = AMQP::IO.new(1 + @vhost.size + 1 + @reserved1.size + 1)
+    def to_slice
+      body = AMQP::IO.new(4 + 1 + @vhost.size + 1 + @reserved1.size + 1)
       body.write_short_string(@vhost)
       body.write_short_string(@reserved1)
       body.write_bool(@reserved2)
-      body.to_slice
+      super(body.to_slice)
     end
 
-    def self.parse(io)
+    def self.decode(io)
       vhost = io.read_short_string
       reserved1 = io.read_short_string
       reserved2 = io.read_bool
@@ -235,13 +251,13 @@ module AMQP
       super()
     end
 
-    def body
-      body = AMQP::IO.new(@reserved1.size + 1)
+    def to_slice
+      body = AMQP::IO.new(4 + @reserved1.size + 1)
       body.write_short_string(@reserved1)
-      body.to_slice
+      super(body.to_slice)
     end
 
-    def self.parse(io)
+    def self.decode(io)
       reserved1 = io.read_short_string
       puts "reserved1=#{reserved1}"
       OpenOk.new(reserved1)
@@ -257,16 +273,16 @@ module AMQP
       super()
     end
 
-    def body
-      io = AMQP::IO.new(2 + 1 + @reply_text.size + 2 + 2)
+    def to_slice
+      io = AMQP::IO.new(4 + 2 + 1 + @reply_text.size + 2 + 2)
       io.write_int(@reply_code)
       io.write_short_string(@reply_text)
       io.write_int(@failing_class_id)
       io.write_int(@failing_method_id)
-      io.to_slice
+      super(io.to_slice)
     end
 
-    def self.parse(io)
+    def self.decode(io)
       code = io.read_uint16
       text = io.read_short_string
       failing_class_id = io.read_uint16
@@ -280,7 +296,11 @@ module AMQP
       51_u16
     end
 
-    def self.parse(io)
+    def to_slice
+      super Bytes.new(0)
+    end
+
+    def self.decode(io)
       CloseOk.new
     end
   end
