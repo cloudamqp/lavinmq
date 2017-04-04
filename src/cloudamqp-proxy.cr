@@ -44,20 +44,20 @@ module Proxy
     remote.write START_FRAME
 
     start = AMQP::Frame.decode remote
-    AMQP.parse_frame IO::Memory.new(start.to_slice)
+    #AMQP.parse_frame IO::Memory.new(start.to_slice)
 
-    start_ok = AMQP::StartOk.new
+    start_ok = AMQP::Connection::StartOk.new
     puts "start_ok #{start_ok.to_slice}"
     remote.write start_ok.to_slice
 
     tune = AMQP::Frame.decode remote
     puts "tune #{tune.to_slice}"
 
-    tune_ok = AMQP::TuneOk.new
+    tune_ok = AMQP::Connection::TuneOk.new
     puts "tune_ok #{tune_ok.to_slice}"
     remote.write tune_ok.to_slice
 
-    open = AMQP::Open.new
+    open = AMQP::Connection::Open.new
     AMQP.parse_frame IO::Memory.new(open.to_slice)
     puts "open #{open.to_slice}"
     remote.write open.to_slice
@@ -77,7 +77,7 @@ module Proxy
     end
 
     puts "sending start"
-    start = AMQP::Start.new
+    start = AMQP::Connection::Start.new
     socket.write start.to_slice
     puts "sent start"
 
@@ -86,7 +86,7 @@ module Proxy
     puts "read start_ok"
 
     puts "sending tune"
-    tune = AMQP::Tune.new
+    tune = AMQP::Connection::Tune.new
     socket.write tune.to_slice
     puts "sent tune"
 
@@ -94,7 +94,7 @@ module Proxy
 
     open = AMQP::Frame.decode socket
 
-    open_ok = AMQP::OpenOk.new
+    open_ok = AMQP::Connection::OpenOk.new
     socket.write open_ok.to_slice
   end
 
