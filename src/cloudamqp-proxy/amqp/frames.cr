@@ -41,9 +41,9 @@ module AMQP
       end
       body = payload[0, size]
       case type
-      when Type::Method then MethodFrame.decode(channel, payload)
-      #when Type::Header then HeaderFrame.decode(channel, payload)
-      #when Type::Body then BodyFrame.decode(channel, payload)
+      when Type::Method then MethodFrame.decode(channel, body)
+      #when Type::Header then HeaderFrame.decode(channel, body)
+      #when Type::Body then BodyFrame.decode(channel, body)
       #when Type::Heartbeat then HeartbeatFrame.decode
       else GenericFrame.new(type, channel, body)
       end
@@ -85,7 +85,9 @@ module AMQP
       #when 50_u16 then Queue.decode(channel, body)
       #when 60_u16 then Basic.decode(channel, body)
       #when 90_u16 then Tx.decode(channel, body)
-      else raise "Unknown class-id: #{class_id}"
+      else
+        puts "class-id #{class_id} not implemented yet"
+        GenericFrame.new(Type::Method, channel, payload)
       end
     end
   end
