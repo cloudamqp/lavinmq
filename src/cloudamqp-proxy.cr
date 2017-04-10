@@ -54,7 +54,7 @@ module Proxy
     tune = AMQP::Frame.decode remote
     puts "tune #{tune.to_slice}"
 
-    tune_ok = AMQP::Connection::TuneOk.new
+    tune_ok = AMQP::Connection::TuneOk.new(heartbeat: 0_u16)
     puts "tune_ok #{tune_ok.to_slice}"
     remote.write tune_ok.to_slice
 
@@ -86,7 +86,7 @@ module Proxy
     puts "read start_ok"
 
     puts "sending tune"
-    tune = AMQP::Connection::Tune.new
+    tune = AMQP::Connection::Tune.new(heartbeat: 0_u16)
     socket.write tune.to_slice
     puts "sent tune"
 
