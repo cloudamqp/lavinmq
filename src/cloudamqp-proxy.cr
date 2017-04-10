@@ -8,10 +8,12 @@ module Proxy
 
   def copy(i, o)
     loop do
-      #frame = AMQP.parse_frame i
       frame = AMQP::Frame.decode i
-      puts frame.to_slice
-      o.write frame.to_slice
+      if frame.type == AMQP::Type::Heartbeat
+        i.write frame.to_slice
+      else
+        o.write frame.to_slice
+      end
     end
 #  rescue ex : AMQP::InvalidFrameEnd
 #    puts ex
