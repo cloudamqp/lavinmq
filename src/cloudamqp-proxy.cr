@@ -6,7 +6,7 @@ module Proxy
   extend self
 
   def create_token_bucket(length, interval)
-    bucket = Channel::Buffered(nil).new(length)
+    bucket = Channel::Buffered(Nil).new(length)
     spawn do
       loop do
         length.times do
