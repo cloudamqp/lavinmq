@@ -59,6 +59,21 @@ module AMQP
     end
   end
 
+  class HeartbeatFrame < Frame
+    def initialize
+      @type = Type::Heartbeat
+      @channel = 0_u16
+    end
+
+    def to_slice
+      super(Slice(UInt8).new(0))
+    end
+
+    def decode
+      self.new
+    end
+  end
+
   abstract class MethodFrame < Frame
     def initialize(@channel : UInt16)
       @type = Type::Method
