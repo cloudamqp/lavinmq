@@ -5,8 +5,24 @@ require "./cloudamqp-proxy/version"
 module Proxy
   extend self
 
+  def create_token_bucket(length, interval)
+    bucket = Channel::Buffered(nil).new(length)
+    spawn do
+      loop do
+        length.times do
+          break if bucket.full?
+          bucket.send nil
+        end
+        sleep interval
+      end
+    end
+    bucket
+  end
+
   def copy(i, o)
+    bucket = create_token_bucket(10, 1.seconds)
     loop do
+      bucket.receive # block waiting for tokens
       frame = AMQP::Frame.decode i
       if frame.type == AMQP::Type::Heartbeat
         i.write frame.to_slice
