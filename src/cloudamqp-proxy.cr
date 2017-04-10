@@ -4,7 +4,6 @@ require "./cloudamqp-proxy/version"
 
 module Proxy
   extend self
-  START_FRAME = UInt8.slice(65, 77, 81, 80, 0, 0, 9, 1)
 
   def copy(i, o)
     loop do
@@ -43,7 +42,7 @@ module Proxy
   end
 
   def negotiate_server(remote)
-    remote.write START_FRAME
+    remote.write AMQP::PROTOCOL_START
 
     start = AMQP::Frame.decode remote
 
@@ -70,8 +69,8 @@ module Proxy
     start = Bytes.new(8)
     bytes = socket.read_fully(start)
 
-    if start != START_FRAME
-      socket.write START_FRAME
+    if start != AMQP::PROTOCOL_START
+      socket.write AMQP::PROTOCOL_START
       socket.close
       return
     end
