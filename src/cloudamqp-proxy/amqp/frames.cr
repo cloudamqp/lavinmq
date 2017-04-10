@@ -205,7 +205,7 @@ module AMQP
       end
 
       def to_slice
-        body = AMQP::IO.new(4 + 2 + 4 + 2)
+        body = AMQP::IO.new(2 + 4 + 2)
         body.write_int(@channel_max)
         body.write_int(@frame_max)
         body.write_int(@heartbeat)
@@ -217,16 +217,21 @@ module AMQP
         frame_max = io.read_uint32
         heartbeat = io.read_uint16
         puts "Connection#tune channel_max=#{channel_max} frame_max=#{frame_max} heartbeat=#{heartbeat}"
-        Tune.new(channel_max, frame_max, heartbeat)
-        #io.seek(-6, IO::Seek::Current)
-        #new_frame_max = UInt32.new(4096)
-        #io.write_bytes(new_frame_max, IO::ByteFormat::BigEndian)
+        self.new(channel_max, frame_max, heartbeat)
       end
     end
 
     class TuneOk < Tune
       def method_id
         31_u16
+      end
+
+      def self.decode(io)
+        channel_max = io.read_uint16
+        frame_max = io.read_uint32
+        heartbeat = io.read_uint16
+        puts "Connection#tune-ok channel_max=#{channel_max} frame_max=#{frame_max} heartbeat=#{heartbeat}"
+        self.new(channel_max, frame_max, heartbeat)
       end
     end
 
