@@ -116,6 +116,10 @@ module AMQP
       super(0_u16)
     end
 
+    def to_s(io)
+      io << "class=Connection "
+    end
+
     def self.decode(channel, body)
       method_id = body.read_uint16
       case method_id
@@ -173,6 +177,12 @@ module AMQP
       def initialize(@client_props = {} of String => Field, @mechanism = "PLAIN",
                      @response = "\u0000guest\u0000guest", @locale = "en_US")
         super()
+      end
+
+      def to_s(io)
+        super(io)
+        io << "method=#start-ok "
+        io << "client-properties=#{@client_props} mechanism=#{@mechanism} response=#{@response} locale=#{@locale}"
       end
 
       def to_slice

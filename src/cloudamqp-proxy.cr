@@ -58,60 +58,61 @@ module Proxy
     socket.close
   end
 
-  def negotiate_server(remote)
-    remote.write AMQP::PROTOCOL_START
+  def negotiate_server(server)
+    server.write AMQP::PROTOCOL_START
 
-    start = AMQP::Frame.decode remote
+    start = AMQP::Frame.decode server
+    puts "server#start #{start.to_slice}"
 
     start_ok = AMQP::Connection::StartOk.new
-    puts "start_ok #{start_ok.to_slice}"
-    remote.write start_ok.to_slice
+    puts "proxy#start_ok #{start_ok}"
+    server.write start_ok.to_slice
 
-    tune = AMQP::Frame.decode remote
-    puts "tune #{tune.to_slice}"
+    tune = AMQP::Frame.decode server
+    puts "server#tune #{tune.to_slice}"
 
     tune_ok = AMQP::Connection::TuneOk.new(heartbeat: 0_u16)
-    puts "tune_ok #{tune_ok.to_slice}"
-    remote.write tune_ok.to_slice
+    puts "proxy#tune_ok #{tune_ok.to_slice}"
+    server.write tune_ok.to_slice
 
     open = AMQP::Connection::Open.new
-    puts "open #{open.to_slice}"
-    remote.write open.to_slice
+    puts "proxy#open #{open.to_slice}"
+    server.write open.to_slice
 
-    open_ok = AMQP::Frame.decode remote
-    puts "open_ok #{open_ok.to_slice}"
+    open_ok = AMQP::Frame.decode server
+    puts "server#open_ok #{open_ok.to_slice}"
   end
 
-  def negotiate_client(socket)
+  def negotiate_client(client)
     start = Bytes.new(8)
-    bytes = socket.read_fully(start)
+    bytes = client.read_fully(start)
 
     if start != AMQP::PROTOCOL_START
-      socket.write AMQP::PROTOCOL_START
-      socket.close
+      client.write AMQP::PROTOCOL_START
+      client.close
       return
     end
 
-    puts "sending start"
     start = AMQP::Connection::Start.new
-    socket.write start.to_slice
-    puts "sent start"
+    puts "proxy#start #{start.to_slice}"
+    client.write start.to_slice
 
-    puts "reading start_ok"
-    start_ok = AMQP::Frame.decode socket
-    puts "read start_ok"
+    start_ok = AMQP::Frame.decode client
+    puts "client#start_ok #{start_ok.to_slice}"
 
-    puts "sending tune"
     tune = AMQP::Connection::Tune.new(heartbeat: 0_u16)
-    socket.write tune.to_slice
-    puts "sent tune"
+    puts "proxy#tune #{tune.to_slice}"
+    client.write tune.to_slice
 
-    tune_ok = AMQP::Frame.decode socket
+    tune_ok = AMQP::Frame.decode client
+    puts "client#tune_ok #{tune_ok.to_slice}"
 
-    open = AMQP::Frame.decode socket
+    open = AMQP::Frame.decode client
+    puts "client#open #{open.to_slice}"
 
     open_ok = AMQP::Connection::OpenOk.new
-    socket.write open_ok.to_slice
+    puts "proxy#open_ok #{open_ok.to_slice}"
+    client.write open_ok.to_slice
   end
 
   def start
