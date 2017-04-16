@@ -30,7 +30,7 @@ module AMQP
       type = Type.new(t)
       channel = mem.read_bytes(UInt16, IO::ByteFormat::BigEndian)
       size = mem.read_bytes(UInt32, IO::ByteFormat::BigEndian)
-      puts "type=#{type} channel=#{channel} size=#{size}"
+      #puts "type=#{type} channel=#{channel} size=#{size}"
 
       payload = Bytes.new(size + 1)
       io.read_fully(payload)
@@ -116,10 +116,6 @@ module AMQP
       super(0_u16)
     end
 
-    def to_s(io)
-      io << "class=Connection "
-    end
-
     def self.decode(channel, body)
       method_id = body.read_uint16
       case method_id
@@ -141,7 +137,7 @@ module AMQP
       end
 
       def to_slice
-        body = AMQP::IO.new
+        body = AMQP::IO.new(1 + 1 + 1 + @mechanisms.size + 1 + @locales.size)
         body.write_byte(@version_major)
         body.write_byte(@version_minor)
         body.write_table(@server_props)
@@ -152,7 +148,7 @@ module AMQP
 
       def initialize(@version_major = 0_u8, @version_minor = 9_u8,
                      @server_props = { "Product" => "CloudAMQP" } of String => Field,
-                     @mechanisms = "PLAIN AMQPLAIN", @locales = "en_US")
+                     @mechanisms = "PLAIN", @locales = "en_US")
         super()
       end
 
@@ -162,7 +158,6 @@ module AMQP
         server_props = io.read_table
         mech = io.read_long_string
         locales = io.read_long_string
-        puts "Connection#start version_major=#{version_major} version_minor=#{version_minor} server-properties=#{server_props} mechanisms=#{mech} locales=#{locales}"
         Start.new(version_major, version_minor, server_props, mech, locales)
       end
     end
@@ -179,14 +174,8 @@ module AMQP
         super()
       end
 
-      def to_s(io)
-        super(io)
-        io << "method=#start-ok "
-        io << "client-properties=#{@client_props} mechanism=#{@mechanism} response=#{@response} locale=#{@locale}"
-      end
-
       def to_slice
-        body = AMQP::IO.new
+        body = AMQP::IO.new(1 + @mechanism.size + 4 + @response.size + 1 + @locale.size)
         body.write_table(@client_props)
         body.write_short_string(@mechanism)
         body.write_long_string(@response)
@@ -199,7 +188,6 @@ module AMQP
         mech = io.read_short_string
         auth = io.read_long_string
         locale = io.read_short_string
-        puts "Connection#start-ok client-properties=#{props} mechanism=#{mech} response=#{auth} locale=#{locale}"
         StartOk.new(props, mech, auth, locale)
       end
     end
@@ -226,7 +214,6 @@ module AMQP
         channel_max = io.read_uint16
         frame_max = io.read_uint32
         heartbeat = io.read_uint16
-        puts "Connection#tune channel_max=#{channel_max} frame_max=#{frame_max} heartbeat=#{heartbeat}"
         self.new(channel_max, frame_max, heartbeat)
       end
     end
@@ -234,14 +221,6 @@ module AMQP
     class TuneOk < Tune
       def method_id
         31_u16
-      end
-
-      def self.decode(io)
-        channel_max = io.read_uint16
-        frame_max = io.read_uint32
-        heartbeat = io.read_uint16
-        puts "Connection#tune-ok channel_max=#{channel_max} frame_max=#{frame_max} heartbeat=#{heartbeat}"
-        self.new(channel_max, frame_max, heartbeat)
       end
     end
 
@@ -256,7 +235,7 @@ module AMQP
       end
 
       def to_slice
-        body = AMQP::IO.new(4 + 1 + @vhost.size + 1 + @reserved1.size + 1)
+        body = AMQP::IO.new(1 + @vhost.size + 1 + @reserved1.size + 1)
         body.write_short_string(@vhost)
         body.write_short_string(@reserved1)
         body.write_bool(@reserved2)
@@ -267,7 +246,6 @@ module AMQP
         vhost = io.read_short_string
         reserved1 = io.read_short_string
         reserved2 = io.read_bool
-        puts "Connection#open vhost=#{vhost} reserved1=#{reserved1} reserved2=#{reserved2}"
         Open.new(vhost, reserved1, reserved2)
       end
     end
@@ -284,15 +262,13 @@ module AMQP
       end
 
       def to_slice
-        body = AMQP::IO.new(4 + @reserved1.size + 1)
+        body = AMQP::IO.new(1 + @reserved1.size)
         body.write_short_string(@reserved1)
         super(body.to_slice)
       end
 
       def self.decode(io)
         reserved1 = io.read_short_string
-        puts "reserved1=#{reserved1}"
-        puts "Connection#open-ok reserved1=#{reserved1}"
         OpenOk.new(reserved1)
       end
     end
@@ -307,7 +283,7 @@ module AMQP
       end
 
       def to_slice
-        io = AMQP::IO.new(4 + 2 + 1 + @reply_text.size + 2 + 2)
+        io = AMQP::IO.new(2 + 1 + @reply_text.size + 2 + 2)
         io.write_int(@reply_code)
         io.write_short_string(@reply_text)
         io.write_int(@failing_class_id)
@@ -320,8 +296,7 @@ module AMQP
         text = io.read_short_string
         failing_class_id = io.read_uint16
         failing_method_id = io.read_uint16
-        puts "Connection#close code=#{code} text=#{text} class_id=#{failing_class_id} method_id=#{failing_class_id}"
-        Close.new(code, text, failing_class_id, failing_method_id)
+        self.new(code, text, failing_class_id, failing_method_id)
       end
     end
 
@@ -335,8 +310,7 @@ module AMQP
       end
 
       def self.decode(io)
-        puts "Connection#close"
-        CloseOk.new
+        self.new
       end
     end
   end
@@ -378,7 +352,6 @@ module AMQP
 
       def self.decode(channel, io)
         reserved1 = io.read_short_string
-        puts "Channel#open channel=#{channel} reserved1=#{reserved1}"
         Open.new channel, reserved1
       end
     end
@@ -402,7 +375,6 @@ module AMQP
 
       def self.decode(channel, io)
         reserved1 = io.read_long_string
-        puts "Channel#open-ok channel=#{channel} reserved1=#{reserved1}"
         OpenOk.new channel, reserved1
       end
     end
@@ -432,7 +404,6 @@ module AMQP
         reply_text = io.read_short_string
         classid = io.read_uint16
         methodid = io.read_uint16
-        puts "Channel#close channel=#{channel} reply_code=#{reply_code} reply_text=#{reply_text} class_id=#{classid} method_id=#{methodid}"
         Close.new channel, reply_code, reply_text, classid, methodid
       end
     end

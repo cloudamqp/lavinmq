@@ -20,10 +20,11 @@ module Proxy
   end
 
   def copy(i, o)
-    bucket = create_token_bucket(10, 1.seconds)
+    bucket = create_token_bucket(100, 5.seconds)
     loop do
       bucket.receive # block waiting for tokens
       frame = AMQP::Frame.decode i
+      #puts frame.inspect
       case frame.type
       when AMQP::Type::Heartbeat
         i.write frame.to_slice
@@ -45,10 +46,12 @@ module Proxy
   def handle_connection(socket)
     puts "socket#sync=#{socket.sync?} socket#send_buffer_size=#{socket.send_buffer_size} socket#recv_buffer_size=#{socket.recv_buffer_size}"
     negotiate_client(socket)
+    puts "Client connection opened"
 
     remote = TCPSocket.new("localhost", 5672)
     puts "remote#sync=#{remote.sync?} remote#send_buffer_size=#{remote.send_buffer_size} socket#recv_buffer_size=#{remote.recv_buffer_size}"
     negotiate_server(remote)
+    puts "Server connection opened"
 
     spawn copy(remote, socket)
     spawn copy(socket, remote)
@@ -62,25 +65,19 @@ module Proxy
     server.write AMQP::PROTOCOL_START
 
     start = AMQP::Frame.decode server
-    puts "server#start #{start.to_slice}"
 
     start_ok = AMQP::Connection::StartOk.new
-    puts "proxy#start_ok #{start_ok}"
     server.write start_ok.to_slice
 
     tune = AMQP::Frame.decode server
-    puts "server#tune #{tune.to_slice}"
 
     tune_ok = AMQP::Connection::TuneOk.new(heartbeat: 0_u16)
-    puts "proxy#tune_ok #{tune_ok.to_slice}"
     server.write tune_ok.to_slice
 
     open = AMQP::Connection::Open.new
-    puts "proxy#open #{open.to_slice}"
     server.write open.to_slice
 
     open_ok = AMQP::Frame.decode server
-    puts "server#open_ok #{open_ok.to_slice}"
   end
 
   def negotiate_client(client)
@@ -94,31 +91,25 @@ module Proxy
     end
 
     start = AMQP::Connection::Start.new
-    puts "proxy#start #{start.to_slice}"
     client.write start.to_slice
 
     start_ok = AMQP::Frame.decode client
-    puts "client#start_ok #{start_ok.to_slice}"
+    puts start_ok.inspect
 
-    tune = AMQP::Connection::Tune.new(heartbeat: 0_u16)
-    puts "proxy#tune #{tune.to_slice}"
+    tune = AMQP::Connection::Tune.new(heartbeat: 60_u16)
     client.write tune.to_slice
 
     tune_ok = AMQP::Frame.decode client
-    puts "client#tune_ok #{tune_ok.to_slice}"
 
     open = AMQP::Frame.decode client
-    puts "client#open #{open.to_slice}"
 
     open_ok = AMQP::Connection::OpenOk.new
-    puts "proxy#open_ok #{open_ok.to_slice}"
     client.write open_ok.to_slice
   end
 
   def start
     server = TCPServer.new("localhost", 1234)
     loop do
-      puts "Waiting for connections"
       if socket = server.accept?
         spawn handle_connection(socket)
       else
