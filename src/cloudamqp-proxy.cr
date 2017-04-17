@@ -112,6 +112,7 @@ module Proxy
 
   def start
     server = TCPServer.new("localhost", 1234)
+    puts "Started CloudAMQP-Proxy on port 1234"
     loop do
       if socket = server.accept?
         spawn handle_connection(socket)
