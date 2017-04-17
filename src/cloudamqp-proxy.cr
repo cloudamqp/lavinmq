@@ -39,7 +39,7 @@ module Proxy
 #    puts ex
 #    #socket.write Slice[1, 0, 0]
   rescue ex : IO::EOFError | Errno
-    puts ex
+    puts ex.inspect
   ensure
     i.close
     o.close
