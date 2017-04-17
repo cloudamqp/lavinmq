@@ -25,9 +25,12 @@ module Proxy
       bucket.receive # block waiting for tokens
       frame = AMQP::Frame.decode i
       #puts frame.inspect
-      case frame.type
-      when AMQP::Type::Heartbeat
-        i.write frame.to_slice
+      case frame
+      #when AMQP::HeartbeatFrame
+        #i.write frame.to_slice # Echo heartbeats frames back
+      when AMQP::Connection::CloseOk
+        o.write frame.to_slice
+        break
       else
         o.write frame.to_slice
       end
