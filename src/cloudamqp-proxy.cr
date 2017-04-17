@@ -20,9 +20,9 @@ module Proxy
   end
 
   def copy(i, o)
-    bucket = create_token_bucket(100, 5.seconds)
+    #bucket = create_token_bucket(100, 5.seconds)
     loop do
-      bucket.receive # block waiting for tokens
+      #bucket.receive # block waiting for tokens
       frame = AMQP::Frame.decode i
       #puts frame.inspect
       case frame
