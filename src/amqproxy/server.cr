@@ -2,7 +2,7 @@ require "socket"
 require "./amqp"
 require "./token_bucket"
 
-module Proxy
+module AMQProxy
   class Server
     def initialize(@upstream_address : String, @upstream_port : Int32)
     end

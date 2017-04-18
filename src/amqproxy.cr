@@ -16,5 +16,5 @@ OptionParser.parse! do |parser|
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
 end
 
-server = Proxy::Server.new(upstream_address, upstream_port)
+server = AMQProxy::Server.new(upstream_address, upstream_port)
 server.listen(port)

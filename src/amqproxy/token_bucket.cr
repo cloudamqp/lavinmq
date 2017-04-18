@@ -1,4 +1,4 @@
-module Proxy
+module AMQProxy
   class TokenBucket
     def initialize(@length : Int32, @interval : Time::Span)
       @bucket = Channel::Buffered(Nil).new(@length)
