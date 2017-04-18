@@ -1,28 +1,15 @@
 require "socket"
 require "./cloudamqp-proxy/amqp"
+require "./cloudamqp-proxy/token_bucket"
 require "./cloudamqp-proxy/version"
 
 module Proxy
   extend self
 
-  def create_token_bucket(length, interval)
-    bucket = Channel::Buffered(Nil).new(length)
-    spawn do
-      loop do
-        length.times do
-          break if bucket.full?
-          bucket.send nil
-        end
-        sleep interval
-      end
-    end
-    bucket
-  end
-
   def copy(i, o)
-    #bucket = create_token_bucket(100, 5.seconds)
+    bucket = TokenBucket.new(100, 5.seconds)
     loop do
-      #bucket.receive # block waiting for tokens
+      bucket.receive # block waiting for tokens
       frame = AMQP::Frame.decode i
       #puts frame.inspect
       case frame
