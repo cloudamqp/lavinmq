@@ -4,12 +4,14 @@ An intelligent AMQP proxy, with AMQP frame rate limiting, connection pooling/reu
 
 ## Installation
 
+```
 shards build
 bin/amqproxy
+```
 
 ## Usage
 
-bin/amqproxy -p PORT -u UPSTREAM:PORT
+`bin/amqproxy -p PORT -u UPSTREAM:PORT`
 
 ## Development
 
