@@ -1,14 +1,15 @@
-# cloudamqp-proxy
+# AMQProxy
 
-TODO: Write a description here
+An intelligent AMQP proxy, with AMQP frame rate limiting, connection pooling/reusing etc.
 
 ## Installation
 
-TODO: Write installation instructions here
+shards build
+bin/amqproxy
 
 ## Usage
 
-TODO: Write usage instructions here
+bin/amqproxy -p PORT -u UPSTREAM:PORT
 
 ## Development
 
@@ -16,7 +17,7 @@ TODO: Write development instructions here
 
 ## Contributing
 
-1. Fork it ( https://github.com/[your-github-name]/cloudamqp-proxy/fork )
+1. Fork it ( https://github.com/cloudamqp/amqproxy/fork )
 2. Create your feature branch (git checkout -b my-new-feature)
 3. Commit your changes (git commit -am 'Add some feature')
 4. Push to the branch (git push origin my-new-feature)
@@ -24,4 +25,4 @@ TODO: Write development instructions here
 
 ## Contributors
 
-- [[your-github-name]](https://github.com/[your-github-name]) Carl Hörberg - creator, maintainer
+- [carlhoerberg](https://github.com/carlhoerberg) Carl Hörberg - creator, maintainer

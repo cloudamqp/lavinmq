@@ -1,2 +1,2 @@
 require "spec"
-require "../src/cloudamqp-proxy"
+require "../src/amqproxy"
