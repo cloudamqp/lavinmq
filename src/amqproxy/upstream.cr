@@ -1,4 +1,5 @@
 require "socket"
+
 module AMQProxy
   class Upstream
     def initialize(@upstream_address : String, @upstream_port : Int32)
@@ -25,10 +26,10 @@ module AMQProxy
         @channel.send frame
       end
     rescue ex : Errno | IO::EOFError
-      puts "decode frame: #{ex.inspect}"
+      puts "proxy decode frame: #{ex.inspect}"
       raise ex
     ensure
-      puts "decode_frames ended"
+      puts "proxy decode_frames ended"
     end
 
     def next_frame
@@ -47,7 +48,7 @@ module AMQProxy
       @open_channels.each do |ch|
         puts "Closing client channel #{ch}"
         @socket.write AMQP::Channel::Close.new(ch, 200_u16, "", 0_u16, 0_u16).to_slice
-        @open_channels.delete ch
+        @channel.receive
       end
     end
 
@@ -71,4 +72,3 @@ module AMQProxy
     end
   end
 end
-
