@@ -17,10 +17,10 @@ module AMQProxy
         frame = AMQP::Frame.decode @socket
         case frame
         when AMQP::Channel::OpenOk
-          puts "Channeled open ok #{frame.channel}"
+          #puts "Channeled open ok #{frame.channel}"
           @open_channels.add frame.channel
         when AMQP::Channel::CloseOk
-          puts "Channeled close ok #{frame.channel}"
+          #puts "Channeled close ok #{frame.channel}"
           @open_channels.delete frame.channel
         end
         @channel.send frame

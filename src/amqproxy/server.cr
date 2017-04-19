@@ -36,12 +36,8 @@ module AMQProxy
             idx, frame = Channel.select([upstream.next_frame, client.next_frame])
             case idx
             when 0
-              if frame.nil?
-                puts "WTF, nil frame from upstream"
-                break
-              else
-                client.write frame.to_slice
-              end
+              break if frame.nil?
+              client.write frame.to_slice
             when 1
               if frame.nil?
                 upstream.close_all_open_channels

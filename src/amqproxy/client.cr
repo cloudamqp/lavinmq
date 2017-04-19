@@ -46,7 +46,6 @@ module AMQProxy
       client.write start.to_slice
 
       start_ok = AMQP::Frame.decode client
-      puts start_ok.inspect
 
       tune = AMQP::Connection::Tune.new(heartbeat: 60_u16)
       client.write tune.to_slice
@@ -59,6 +58,4 @@ module AMQProxy
       client.write open_ok.to_slice
     end
   end
-
 end
-

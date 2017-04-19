@@ -9,7 +9,6 @@ module AMQProxy
 
     def borrow(&block : T -> _)
       s = @pool.receive
-      puts "Socket borrowed"
       block.call s
     ensure
       if s.nil?
@@ -17,7 +16,6 @@ module AMQProxy
       elsif s.closed?
         puts "Socket closed when returned"
       else
-        puts "Socket returned to pool"
         @pool.send s
       end
     end
