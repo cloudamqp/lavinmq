@@ -1,6 +1,6 @@
 version: 1.0
 shards:
   amqp:
-    github: datanoise/amqp.cr
-    commit: 6c143494a447e77fce1dbcc351b91a2e40e8f730
+    github: cloudamqp/amqp.cr
+    commit: 692200ba05bb5e6479ec1e3eeaed38d67c61b3a4
 

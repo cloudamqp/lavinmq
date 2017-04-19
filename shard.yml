@@ -10,7 +10,7 @@ targets:
 
 development_dependencies:
   amqp:
-    github: datanoise/amqp.cr
+    github: cloudamqp/amqp.cr
 
 crystal: 0.21.1
 
