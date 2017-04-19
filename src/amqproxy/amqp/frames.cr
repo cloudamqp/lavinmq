@@ -159,7 +159,7 @@ module AMQProxy
           server_props = io.read_table
           mech = io.read_long_string
           locales = io.read_long_string
-          Start.new(version_major, version_minor, server_props, mech, locales)
+          self.new(version_major, version_minor, server_props, mech, locales)
         end
       end
 
@@ -189,7 +189,7 @@ module AMQProxy
           mech = io.read_short_string
           auth = io.read_long_string
           locale = io.read_short_string
-          StartOk.new(props, mech, auth, locale)
+          self.new(props, mech, auth, locale)
         end
       end
 
