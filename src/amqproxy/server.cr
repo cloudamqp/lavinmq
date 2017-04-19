@@ -1,4 +1,5 @@
 require "socket"
+require "uri"
 require "./amqp"
 require "./token_bucket"
 require "./pool"
@@ -7,9 +8,19 @@ require "./upstream"
 
 module AMQProxy
   class Server
-    def initialize(upstream_address : String, upstream_port : Int32)
+    def initialize(upstream_url : String)
+      puts "Proxy upstream: #{upstream_url}"
+      uri = URI.parse upstream_url
+      tls = uri.scheme == "amqps"
+      host = uri.host || "localhost"
+      port = uri.port || (tls ? 5671 : 5672)
+      user = uri.user || "guest"
+      pass = uri.password || "guest"
+      path = uri.path || ""
+      vhost = path.empty? ? "/" : path[1..-1]
+
       @pool = Pool(Upstream).new(1) do
-        Upstream.new(upstream_address, upstream_port)
+        Upstream.new(host, port, user, pass, vhost, tls)
       end
     end
 
