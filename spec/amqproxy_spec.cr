@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe Cloudamqp::Proxy do
+describe AMQProxy do
   # TODO: Write tests
 
   it "works" do
