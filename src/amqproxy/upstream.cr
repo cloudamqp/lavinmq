@@ -6,7 +6,6 @@ module AMQProxy
     def initialize(@host : String, @port : Int32,
                    @user : String, @password : String, @vhost : String,
                    @tls : Bool)
-
       @socket = uninitialized IO
       @frame_channel = Channel(AMQP::Frame?).new
       @open_channels = Set(UInt16).new
@@ -16,7 +15,6 @@ module AMQProxy
     def connect!
       tcp_socket = TCPSocket.new(@host, @port)
       @socket = if @tls
-                  #raise "TLS not implemented yet"
                   context = OpenSSL::SSL::Context::Client.new
                   @socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context)
                 else
@@ -31,19 +29,15 @@ module AMQProxy
         frame = AMQP::Frame.decode @socket
         case frame
         when AMQP::Channel::OpenOk
-          #puts "Channeled open ok #{frame.channel}"
           @open_channels.add frame.channel
         when AMQP::Channel::CloseOk
-          #puts "Channeled close ok #{frame.channel}"
           @open_channels.delete frame.channel
         end
         @frame_channel.send frame
       end
     rescue ex : Errno | IO::EOFError
-      puts "proxy decode frame: #{ex.inspect}"
+      puts "proxy decode frame, should reconnect: #{ex.inspect}"
       raise ex
-    ensure
-      puts "proxy decode_frames ended"
     end
 
     def next_frame
