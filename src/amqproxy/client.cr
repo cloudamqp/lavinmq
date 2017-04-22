@@ -20,7 +20,7 @@ module AMQProxy
         @channel.send frame
       end
     rescue ex : IO::EOFError
-      puts "Client conn closed"
+      puts "Client conn closed #{ex.inspect}"
       @channel.send nil
     end
 

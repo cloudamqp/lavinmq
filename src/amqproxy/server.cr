@@ -61,6 +61,7 @@ module AMQProxy
         rescue ex : IO::EOFError | Errno
           puts "Client loop #{ex.inspect}"
         ensure
+          puts "Client connection closed"
           socket.close
         end
       end

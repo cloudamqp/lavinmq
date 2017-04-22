@@ -7,21 +7,26 @@ module AMQProxy
                    @user : String, @password : String, @vhost : String,
                    @tls : Bool)
       @socket = uninitialized IO
+      @connection_commands = Channel(Nil).new
       @frame_channel = Channel(AMQP::Frame?).new
       @open_channels = Set(UInt16).new
-      connect!
+      spawn connect!
     end
 
     def connect!
-      tcp_socket = TCPSocket.new(@host, @port)
-      @socket = if @tls
-                  context = OpenSSL::SSL::Context::Client.new
-                  @socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context)
-                else
-                  tcp_socket
-                end
-      negotiate_server
-      spawn decode_frames
+      loop do
+        tcp_socket = TCPSocket.new(@host, @port)
+        @socket = if @tls
+                    context = OpenSSL::SSL::Context::Client.new
+                    @socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context)
+                  else
+                    tcp_socket
+                  end
+        negotiate_server
+        spawn decode_frames
+        puts "Connected to upstream"
+        @connection_commands.receive
+      end
     end
 
     def decode_frames
@@ -36,8 +41,10 @@ module AMQProxy
         @frame_channel.send frame
       end
     rescue ex : Errno | IO::EOFError
-      puts "proxy decode frame, should reconnect: #{ex.inspect}"
-      raise ex
+      puts "proxy decode frame, reconnect: #{ex.inspect}"
+      @open_channels.clear
+      @frame_channel.receive?
+      @connection_commands.send nil
     end
 
     def next_frame
@@ -46,6 +53,11 @@ module AMQProxy
 
     def write(bytes : Slice(UInt8))
       @socket.write bytes
+    rescue ex : Errno | IO::EOFError
+      puts "proxy write bytes, reconnect: #{ex.inspect}"
+      @connection_commands.send nil
+      Fiber.yield
+      write(bytes)
     end
 
     def closed?
