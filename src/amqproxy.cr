@@ -2,10 +2,11 @@ require "./amqproxy/version"
 require "./amqproxy/server"
 require "option_parser"
 require "file"
+require "ini"
 
 url = "amqp://guest:guest@localhost:5672"
 port = 1234
-config = nil
+config = ""
 
 OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
@@ -20,7 +21,7 @@ OptionParser.parse! do |parser|
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
 
-if config
+unless config.empty?
   puts "Trying to read config #{config}"
   #abort "Config could not be found" unless File.file?(config)
   ini = INI.parse(File.read(config))
