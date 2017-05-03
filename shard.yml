@@ -1,4 +1,4 @@
-name: amqproxy
+name: amqpserver
 version: 0.1.0
 
 authors:
@@ -6,12 +6,12 @@ authors:
 
 targets:
   amqproxy:
-    main: src/amqproxy.cr
+    main: src/amqpserver.cr
 
 development_dependencies:
   amqp:
     github: cloudamqp/amqp.cr
 
-crystal: 0.21.1
+crystal: 0.22.0
 
 license: MIT

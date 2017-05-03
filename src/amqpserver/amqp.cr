@@ -1,6 +1,6 @@
 require "./amqp/*"
 
-module AMQProxy
+module AMQPServer
   module AMQP
     PROTOCOL_START = UInt8.slice(65, 77, 81, 80, 0, 0, 9, 1)
     class InvalidFrameEnd < Exception

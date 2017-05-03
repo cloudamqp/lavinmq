@@ -1,4 +1,4 @@
-module AMQProxy
+module AMQPServer
   module AMQP
     abstract class Frame
       getter type, channel
@@ -97,7 +97,7 @@ module AMQProxy
         case class_id
         when 10_u16 then Connection.decode(channel, body)
         when 20_u16 then Channel.decode(channel, body)
-          #when 40_u16 then Exchange.decode(channel, body)
+        when 40_u16 then Exchange.decode(channel, body)
           #when 50_u16 then Queue.decode(channel, body)
           #when 60_u16 then Basic.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
@@ -420,6 +420,105 @@ module AMQProxy
 
         def self.decode(channel, io)
           CloseOk.new channel
+        end
+      end
+    end
+
+    abstract class Exchange < MethodFrame
+      def class_id
+        20_u16
+      end
+
+      def self.decode(channel, body)
+        method_id = body.read_uint16
+        case method_id
+        when 10_u16 then Declare.decode(channel, body)
+        when 11_u16 then DeclareOk.decode(channel, body)
+        when 20_u16 then Delete.decode(channel, body)
+        when 21_u16 then DeleteOk.decode(channel, body)
+        else raise "Unknown method_id #{method_id}"
+        end
+      end
+
+      class Declare < Exchange
+        def method_id
+          10_u16
+        end
+
+        getter reserved1, exchange_name, exchange_type, passive, durable, arguments
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @exchange_name : String, @exchange_type : String, @passive : Bool, @durable : Bool, @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          name = io.read_short_string
+          type = io.read_short_string
+          passive = io.read_bool
+          durable = io.read_bool
+          reserved2 = io.read_bool
+          reserved3 = io.read_bool
+          nowait = io.read_bool
+          args = io.read_table
+          self.new channel, reserved1, name, type, passive, durable, args
+        end
+      end
+
+      class DeclareOk < Exchange
+        def method_id
+          11_u16
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(io)
+          self.new
+        end
+      end
+
+      class Delete < Exchange
+        def method_id
+          20_u16
+        end
+
+        getter reserved1, exchange_name, exchange_type, if_unused
+
+        def initialize(channel : UInt16, @reserved1 : String, @exchange_name : String,
+                       @if_unused : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_short_string
+          name = io.read_short_string
+          if_unused = io.read_bool
+          nowait = io.read_bool
+          self.new channel, reserved1, name, if_unused
+        end
+      end
+
+      class DeleteOk < Exchange
+        def method_id
+          21_u16
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(io)
+          self.new
         end
       end
     end

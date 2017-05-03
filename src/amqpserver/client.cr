@@ -1,6 +1,6 @@
 require "socket"
 
-module AMQProxy
+module AMQPServer
   class Client
     def initialize(@socket : TCPSocket)
       negotiate_client(@socket)
@@ -19,7 +19,7 @@ module AMQProxy
         end
         @channel.send frame
       end
-    rescue ex : IO::EOFError
+    rescue ex : IO::EOFError | Errno
       puts "Client conn closed #{ex.inspect}"
       @channel.send nil
     end
@@ -47,10 +47,11 @@ module AMQProxy
 
       start_ok = AMQP::Frame.decode client
 
-      tune = AMQP::Connection::Tune.new(heartbeat: 60_u16)
+      tune = AMQP::Connection::Tune.new(heartbeat: 0_u16)
       client.write tune.to_slice
 
       tune_ok = AMQP::Frame.decode client
+      puts "client tune #{tune_ok.inspect}"
 
       open = AMQP::Frame.decode client
 

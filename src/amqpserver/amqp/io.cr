@@ -1,6 +1,6 @@
 require "io/memory"
 
-module AMQProxy
+module AMQPServer
   module AMQP
     class IO < IO::Memory
       def write_short_string(str : String)
