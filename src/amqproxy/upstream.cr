@@ -4,24 +4,21 @@ require "uri"
 
 module AMQProxy
   class Upstream
-    def initialize(uri)
-      parse_uri(uri)
+    def initialize(url)
+      uri = URI.parse url
+      @tls = (uri.scheme == "amqps").as(Bool)
+      @host = uri.host || "localhost"
+      @port = uri.port || (@tls ? 5671 : 5672)
+      @user = uri.user || "guest"
+      @password = uri.password || "guest"
+      path = uri.path || ""
+      @vhost = path.empty? ? "/" : path[1..-1]
+
       @socket = uninitialized IO
       @connection_commands = Channel(Nil).new
       @frame_channel = Channel(AMQP::Frame?).new
       @open_channels = Set(UInt16).new
       spawn connect!
-    end
-
-    def parse_uri(url)
-      uri = URI.parse url
-      tls = uri.scheme == "amqps"
-      @host = uri.host || "localhost"
-      @port = uri.port || (tls ? 5671 : 5672)
-      @user = uri.user || "guest"
-      @pass = uri.password || "guest"
-      path = uri.path || ""
-      @vhost = path.empty? ? "/" : path[1..-1]
     end
 
     def connect!
