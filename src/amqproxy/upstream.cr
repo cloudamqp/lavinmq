@@ -23,17 +23,22 @@ module AMQProxy
 
     def connect!
       loop do
-        tcp_socket = TCPSocket.new(@host, @port)
-        @socket = if @tls
-                    context = OpenSSL::SSL::Context::Client.new
-                    @socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context)
-                  else
-                    tcp_socket
-                  end
-        negotiate_server
-        spawn decode_frames
-        puts "Connected to upstream #{@host}:#{@port}"
-        @connection_commands.receive
+        begin
+          tcp_socket = TCPSocket.new(@host, @port)
+          @socket = if @tls
+                      context = OpenSSL::SSL::Context::Client.new
+                      @socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context)
+                    else
+                      tcp_socket
+                    end
+          negotiate_server
+          spawn decode_frames
+          puts "Connected to upstream #{@host}:#{@port}"
+          @connection_commands.receive
+        rescue ex : Errno
+          puts ex.message
+          sleep 1
+        end
       end
     end
 
