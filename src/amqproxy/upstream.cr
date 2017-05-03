@@ -1,16 +1,27 @@
 require "socket"
 require "openssl"
+require "uri"
 
 module AMQProxy
   class Upstream
-    def initialize(@host : String, @port : Int32,
-                   @user : String, @password : String, @vhost : String,
-                   @tls : Bool)
+    def initialize(uri)
+      parse_uri(uri)
       @socket = uninitialized IO
       @connection_commands = Channel(Nil).new
       @frame_channel = Channel(AMQP::Frame?).new
       @open_channels = Set(UInt16).new
       spawn connect!
+    end
+
+    def parse_uri(url)
+      uri = URI.parse url
+      tls = uri.scheme == "amqps"
+      @host = uri.host || "localhost"
+      @port = uri.port || (tls ? 5671 : 5672)
+      @user = uri.user || "guest"
+      @pass = uri.password || "guest"
+      path = uri.path || ""
+      @vhost = path.empty? ? "/" : path[1..-1]
     end
 
     def connect!
@@ -24,7 +35,7 @@ module AMQProxy
                   end
         negotiate_server
         spawn decode_frames
-        puts "Connected to upstream"
+        puts "Connected to upstream #{@host}:#{@port}"
         @connection_commands.receive
       end
     end
