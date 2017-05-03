@@ -1,6 +1,6 @@
 module AMQProxy
   class Pool(T)
-    def initialize(@max_size, min_size = 1, &create : -> T)
+    def initialize(@max_size : Int32, min_size = 1, &create : -> T)
       @pool = Channel::Buffered(T).new(@max_size)
       @create = create
       @size = 0
