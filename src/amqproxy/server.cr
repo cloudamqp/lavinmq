@@ -19,7 +19,7 @@ module AMQProxy
       path = uri.path || ""
       vhost = path.empty? ? "/" : path[1..-1]
 
-      @pool = Pool(Upstream).new(1) do
+      @pool = Pool(Upstream).new(250) do
         Upstream.new(host, port, user, pass, vhost, tls)
       end
     end

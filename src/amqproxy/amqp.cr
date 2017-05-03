@@ -6,7 +6,8 @@ module AMQProxy
     class InvalidFrameEnd < Exception
     end
 
-    alias Field = Nil |
+    alias Field =
+      Nil |
       Bool |
       UInt8 |
       UInt16 |
