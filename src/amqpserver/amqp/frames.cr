@@ -45,7 +45,7 @@ module AMQPServer
         when Type::Method then MethodFrame.decode(channel, body)
           #when Type::Header then HeaderFrame.decode(channel, body)
           #when Type::Body then BodyFrame.decode(channel, body)
-          #when Type::Heartbeat then HeartbeatFrame.decode
+        when Type::Heartbeat then HeartbeatFrame.decode
         else GenericFrame.new(type, channel, body)
         end
       end
@@ -70,7 +70,7 @@ module AMQPServer
         super(Slice(UInt8).new(0))
       end
 
-      def decode
+      def self.decode
         self.new
       end
     end
