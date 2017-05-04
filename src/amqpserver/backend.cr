@@ -17,6 +17,8 @@ module AMQPServer
       when AMQP::Exchange::Declare
         @open_channels.delete frame.channel
         @frame_channel.send AMQP::Exchange::DeclareOk.new(frame.channel)
+      when AMQP::Connection::Close
+        @frame_channel.send AMQP::Connection::CloseOk.new
       end
     end
 

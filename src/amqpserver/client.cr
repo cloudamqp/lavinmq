@@ -3,60 +3,55 @@ require "socket"
 module AMQPServer
   class Client
     def initialize(@socket : TCPSocket)
-      negotiate_client(@socket)
-      @channel = Channel(AMQP::Frame?).new
-      spawn decode_frames
+      @socket.sync = false
+      @open_channels = Set(UInt16).new
+      negotiate_client
     end
 
-    def decode_frames
+    def run_loop
       loop do
         frame = AMQP::Frame.decode @socket
+        puts "=> #{frame.inspect}"
         case frame
+        when AMQP::Channel::Open
+          @open_channels.add frame.channel
+          send AMQP::Channel::OpenOk.new(frame.channel)
+        when AMQP::Channel::Close
+          @open_channels.delete frame.channel
+          send AMQP::Channel::CloseOk.new(frame.channel)
+        when AMQP::Exchange::Declare
+          send AMQP::Exchange::DeclareOk.new(frame.channel)
         when AMQP::Connection::Close
-          @socket.write AMQP::Connection::CloseOk.new.to_slice
-          @channel.send nil
-          break
+          send AMQP::Connection::CloseOk.new
         end
-        @channel.send frame
       end
-    rescue ex : IO::EOFError | Errno
-      puts "Client conn closed #{ex.inspect}"
-      @channel.send nil
     end
 
-    def next_frame
-      @channel.receive_select_action
+    def send(frame : AMQP::Frame)
+      puts "<= #{frame.inspect}"
+      @socket.write frame.to_slice
+      @socket.flush
     end
 
-    def write(bytes : Slice(UInt8))
-      @socket.write bytes
-    end
-
-    private def negotiate_client(client)
+    private def negotiate_client
       start = Bytes.new(8)
-      bytes = client.read_fully(start)
+      bytes = @socket.read_fully(start)
 
       if start != AMQP::PROTOCOL_START
-        client.write AMQP::PROTOCOL_START
-        client.close
+        @socket.write AMQP::PROTOCOL_START
+        @socket.close
         return
       end
 
       start = AMQP::Connection::Start.new
-      client.write start.to_slice
-
-      start_ok = AMQP::Frame.decode client
-
+      send start
+      start_ok = AMQP::Frame.decode @socket
       tune = AMQP::Connection::Tune.new(heartbeat: 0_u16)
-      client.write tune.to_slice
-
-      tune_ok = AMQP::Frame.decode client
-      puts "client tune #{tune_ok.inspect}"
-
-      open = AMQP::Frame.decode client
-
+      send tune
+      tune_ok = AMQP::Frame.decode @socket
+      open = AMQP::Frame.decode @socket
       open_ok = AMQP::Connection::OpenOk.new
-      client.write open_ok.to_slice
+      send open_ok
     end
   end
 end
