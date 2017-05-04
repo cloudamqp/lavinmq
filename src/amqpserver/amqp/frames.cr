@@ -542,6 +542,7 @@ module AMQPServer
           40_u16
         end
 
+        getter exchange, routing_key, mandatory, immediate
         def initialize(channel, @reserved1 : UInt16, @exchange : String,
                        @routing_key : String, @mandatory : Bool, @immediate : Bool)
           super(channel)
@@ -564,6 +565,7 @@ module AMQPServer
     end
 
     class HeaderFrame < Frame
+      getter body_size
       def initialize(@channel : UInt16, @class_id : UInt16, @weight : UInt16,
                      @body_size : UInt64)
         @type = Type::Header
@@ -584,6 +586,8 @@ module AMQPServer
     end
 
     class BodyFrame < Frame
+      getter body
+
       def initialize(@channel : UInt16,  @body : Bytes)
         @type = Type::Body
       end
