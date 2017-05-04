@@ -56,10 +56,10 @@ module AMQPServer
       end
 
       def read_table
+        sz = read_uint32
         start_pos = pos
-        size = read_bytes(UInt32, IO::ByteFormat::BigEndian) + 4
         hash = Hash(String, Field).new
-        while pos < start_pos + size
+        while pos < start_pos + sz
           key = read_short_string
           type = read_byte
           val = case type
