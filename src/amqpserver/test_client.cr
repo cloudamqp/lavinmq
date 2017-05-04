@@ -15,7 +15,7 @@ AMQP::Connection.start(conf) do |conn|
     puts "CHANNEL CLOSED: #{code} - #{msg}"
   end
 
-  exchange = channel.topic("amq.topic", durable: true)
+  exchange = channel.direct("amq.direct", durable: true)
   #queue = channel.queue("test")
   #queue.bind(exchange, "r.*")
   #queue.subscribe do |msg|
@@ -29,7 +29,7 @@ AMQP::Connection.start(conf) do |conn|
 
   msgs.to_i.times do |idx|
     msg = AMQP::Message.new("test message: #{idx+1}")
-    exchange.publish(msg, "r.k")
+    exchange.publish(msg, "rk")
   end
 end
 
