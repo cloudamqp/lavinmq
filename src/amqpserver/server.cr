@@ -21,9 +21,6 @@ module AMQPServer
     def handle_connection(socket)
       client = Client.new(socket)
       client.run_loop
-    ensure
-      puts "Client connection closed"
-      socket.close unless socket.closed?
     end
   end
 end

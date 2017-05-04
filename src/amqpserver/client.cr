@@ -23,8 +23,12 @@ module AMQPServer
           send AMQP::Exchange::DeclareOk.new(frame.channel)
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
+          break
         end
       end
+    ensure
+      puts "Client connection closed"
+      @socket.close unless @socket.closed?
     end
 
     def send(frame : AMQP::Frame)

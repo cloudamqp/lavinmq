@@ -31,7 +31,7 @@ module AMQPServer
         type = Type.new(t)
         channel = mem.read_bytes(UInt16, IO::ByteFormat::BigEndian)
         size = mem.read_bytes(UInt32, IO::ByteFormat::BigEndian)
-        #puts "type=#{type} channel=#{channel} size=#{size}"
+        puts "type=#{type} channel=#{channel} size=#{size}"
 
         payload = Bytes.new(size + 1)
         io.read_fully(payload)
@@ -43,8 +43,8 @@ module AMQPServer
         body = payload[0, size]
         case type
         when Type::Method then MethodFrame.decode(channel, body)
-          #when Type::Header then HeaderFrame.decode(channel, body)
-          #when Type::Body then BodyFrame.decode(channel, body)
+        when Type::Header then HeaderFrame.decode(channel, body)
+        when Type::Body then BodyFrame.new(channel, body)
         when Type::Heartbeat then HeartbeatFrame.decode
         else GenericFrame.new(type, channel, body)
         end
@@ -99,7 +99,7 @@ module AMQPServer
         when 20_u16 then Channel.decode(channel, body)
         when 40_u16 then Exchange.decode(channel, body)
           #when 50_u16 then Queue.decode(channel, body)
-          #when 60_u16 then Basic.decode(channel, body)
+        when 60_u16 then Basic.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
           #puts "class-id #{class_id} not implemented yet"
@@ -521,6 +521,75 @@ module AMQPServer
         def self.decode(io)
           self.new
         end
+      end
+    end
+
+    abstract class Basic < MethodFrame
+      def class_id
+        60_u16
+      end
+
+      def self.decode(channel, body)
+        method_id = body.read_uint16
+        case method_id
+        when 40_u16 then Publish.decode(channel, body)
+        else raise "Unknown method_id #{method_id}"
+        end
+      end
+
+      class Publish < Basic
+        def method_id
+          40_u16
+        end
+
+        def initialize(channel, @reserved1 : UInt16, @exchange : String,
+                       @routing_key : String, @mandatory : Bool, @immediate : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          exchange = io.read_short_string
+          routing_key = io.read_short_string
+          bits = io.read_byte
+          mandatory = bits & (1 << 0) == 1
+          immediate = bits & (1 << 1) == 1
+          self.new channel, reserved1, exchange, routing_key, mandatory, immediate
+        end
+      end
+    end
+
+    class HeaderFrame < Frame
+      def initialize(@channel : UInt16, @class_id : UInt16, @weight : UInt16,
+                     @body_size : UInt64)
+        @type = Type::Header
+      end
+
+      def to_slice
+        raise "Not implemented"
+      end
+
+      def self.decode(channel, io)
+        body = AMQP::IO.new(io)
+        class_id = body.read_uint16
+        weight = body.read_uint16
+        body_size = body.read_uint64
+        flags = body.read_uint16
+        self.new channel, class_id, weight, body_size
+      end
+    end
+
+    class BodyFrame < Frame
+      def initialize(@channel : UInt16,  @body : Bytes)
+        @type = Type::Body
+      end
+
+      def to_slice
+        super(@body)
       end
     end
   end
