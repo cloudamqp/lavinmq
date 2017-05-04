@@ -51,7 +51,7 @@ module AMQPServer
 
       def read_byte : UInt8
         b = super()
-        raise EOFError.new if b.nil?
+        raise EOFError.new("Byte was nil") if b.nil?
         b
       end
 
