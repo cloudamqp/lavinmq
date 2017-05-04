@@ -65,6 +65,7 @@ module AMQPServer
           val = case type
                 when 'S' then read_long_string
                 when 'I' then read_int
+                when 'l' then read_uint64
                 when 'F' then read_table
                 when 't' then read_bool
                 when 'V' then nil
@@ -88,6 +89,10 @@ module AMQPServer
 
       def read_uint32
         read_bytes(UInt32, IO::ByteFormat::BigEndian)
+      end
+
+      def read_uint64
+        read_bytes(UInt64, IO::ByteFormat::BigEndian)
       end
 
       def read_uint16
