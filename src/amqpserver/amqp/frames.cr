@@ -426,7 +426,7 @@ module AMQPServer
 
     abstract class Exchange < MethodFrame
       def class_id
-        20_u16
+        40_u16
       end
 
       def self.decode(channel, body)
@@ -459,11 +459,12 @@ module AMQPServer
           reserved1 = io.read_uint16
           name = io.read_short_string
           type = io.read_short_string
-          passive = io.read_bool
-          durable = io.read_bool
-          reserved2 = io.read_bool
-          reserved3 = io.read_bool
-          nowait = io.read_bool
+          bits = io.read_byte
+          passive = bits & (1 << 0) == 1
+          durable = bits & (1 << 1) == 1
+          auto_delete = bits & (1 << 2) == 1
+          internal = bits & (1 << 3) == 1
+          no_wait = bits & (1 << 4) == 1
           args = io.read_table
           self.new channel, reserved1, name, type, passive, durable, args
         end
