@@ -2,7 +2,7 @@ require "io/memory"
 
 module AMQPServer
   module AMQP
-    class IO < IO::Memory
+    module IO
       def write_short_string(str : String)
         raise "String too long" if str.bytesize > 255
         write_byte(str.bytesize.to_u8)
@@ -14,16 +14,16 @@ module AMQPServer
       end
 
       def write_int(int)
-        write_bytes(int, IO::ByteFormat::BigEndian)
+        write_bytes(int, ::IO::ByteFormat::BigEndian)
       end
 
       def write_long_string(str : String)
-        size = write_bytes(str.bytesize.to_u32, IO::ByteFormat::BigEndian)
+        size = write_bytes(str.bytesize.to_u32, ::IO::ByteFormat::BigEndian)
         write_utf8(str.to_slice)
       end
 
       def write_table(hash : Hash(String, Field))
-        tmp = AMQP::IO.new
+        tmp = MemoryIO.new
         hash.each do |key, value|
           tmp.write_short_string(key)
           case value
@@ -51,7 +51,7 @@ module AMQPServer
 
       def read_byte : UInt8
         b = super()
-        raise EOFError.new("Byte was nil") if b.nil?
+        raise ::IO::EOFError.new("Byte was nil") if b.nil?
         b
       end
 
@@ -88,25 +88,29 @@ module AMQPServer
       end
 
       def read_uint32
-        read_bytes(UInt32, IO::ByteFormat::BigEndian)
+        read_bytes(UInt32, ::IO::ByteFormat::BigEndian)
       end
 
       def read_uint64
-        read_bytes(UInt64, IO::ByteFormat::BigEndian)
+        read_bytes(UInt64, ::IO::ByteFormat::BigEndian)
       end
 
       def read_uint16
-        read_bytes(UInt16, IO::ByteFormat::BigEndian)
+        read_bytes(UInt16, ::IO::ByteFormat::BigEndian)
       end
 
       def read_long_string
-        size = read_bytes(UInt32, IO::ByteFormat::BigEndian)
+        size = read_bytes(UInt32, ::IO::ByteFormat::BigEndian)
         read_string(size)
       end
 
       def read_int
-        read_bytes(UInt32, IO::ByteFormat::BigEndian)
+        read_bytes(UInt32, ::IO::ByteFormat::BigEndian)
       end
+    end
+
+    class MemoryIO < ::IO::Memory
+      include AMQP::IO
     end
   end
 end
