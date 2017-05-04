@@ -10,7 +10,8 @@ targets:
 
 development_dependencies:
   amqp:
-    github: cloudamqp/amqp.cr
+    #github: cloudamqp/amqp.cr
+    path: ../amqp.cr
 
 crystal: 0.22.0
 
