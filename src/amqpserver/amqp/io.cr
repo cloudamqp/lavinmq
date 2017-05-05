@@ -87,6 +87,15 @@ module AMQPServer
         int == 1
       end
 
+      def read_timestamp
+        ms = read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+        Time.epoch_ms(ms)
+      end
+
+      def write_timestamp(ts)
+        write_bytes(ts.epoch.to_i64, ::IO::ByteFormat::BigEndian)
+      end
+
       def read_uint32
         read_bytes(UInt32, ::IO::ByteFormat::BigEndian)
       end

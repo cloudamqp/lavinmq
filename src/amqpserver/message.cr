@@ -1,18 +1,13 @@
 module AMQPServer
   class Message
-    getter exchange_name, routing_key, size, body
+    getter exchange_name, routing_key, size, body, properties
 
-    def initialize(@exchange_name : String, @routing_key : String, @size = 0_u64)
+    def initialize(@exchange_name : String, @routing_key : String, @size : UInt64, @properties : AMQP::Properties)
       @body = IO::Memory.new(@size)
     end
 
-    def body_size=(size)
-      @size = size
-      @body = IO::Memory.new(size)
-    end
-
     def add_content(bytes)
-      @body.write bytes
+      @body.write bytes 
     end
 
     def full?

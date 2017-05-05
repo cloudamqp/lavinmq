@@ -11,7 +11,7 @@ module AMQPServer
       when "direct"
         @bindings[routing_key]
       when "fanout"
-        @bindings.values
+        @bindings.values.flatten
       when "topic"
         @bindings.select do |binding_key|
           next true if routing_key == binding_key

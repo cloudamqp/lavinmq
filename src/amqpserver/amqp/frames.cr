@@ -489,10 +489,9 @@ module AMQPServer
           20_u16
         end
 
-        getter reserved1, exchange_name, exchange_type, if_unused
-
+        getter reserved1, exchange_name, exchange_type, if_unused, no_wait
         def initialize(channel : UInt16, @reserved1 : String, @exchange_name : String,
-                       @if_unused : Bool)
+                       @if_unused : Bool, @no_wait : Bool)
           super(channel)
         end
 
@@ -503,9 +502,10 @@ module AMQPServer
         def self.decode(channel, io)
           reserved1 = io.read_short_string
           name = io.read_short_string
-          if_unused = io.read_bool
-          nowait = io.read_bool
-          self.new channel, reserved1, name, if_unused
+          bits = io.read_byte
+          if_unused = bits & (1 << 0) == 1
+          no_wait = bits & (1 << 1) == 1
+          self.new channel, reserved1, name, if_unused, no_wait
         end
       end
 
@@ -652,6 +652,7 @@ module AMQPServer
         when 40_u16 then Publish.decode(channel, body)
         when 70_u16 then Get.decode(channel, body)
         when 71_u16 then GetOk.decode(channel, body)
+        when 72_u16 then GetEmpty.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
         end
       end
@@ -709,7 +710,6 @@ module AMQPServer
           71_u16
         end
 
-        getter queue, no_ack
         def initialize(channel, @delivery_tag : UInt64, @redelivered : Bool,
                        @exchange : String, @routing_key : String, @message_count : UInt32)
           super(channel)
@@ -729,13 +729,34 @@ module AMQPServer
           raise "Not implemented"
         end
       end
+
+      class GetEmpty < Basic
+        def method_id
+          72_u16
+        end
+
+        def initialize(channel, @reserved1 = 0_u16)
+          super(channel)
+        end
+
+        def to_slice
+          io = AMQP::MemoryIO.new(2)
+          io.write_int @reserved1
+          super(io.to_slice)
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          self.new channel, reserved1
+        end
+      end
     end
 
     class HeaderFrame < Frame
-      getter body_size
-      def initialize(@channel : UInt16, @class_id : UInt16, @weight : UInt16,
-                     @body_size : UInt64)
-        @type = Type::Header
+      getter body_size, properties
+      def initialize(channel : UInt16, @class_id : UInt16, @weight : UInt16,
+                     @body_size : UInt64, @properties : Properties)
+        super(Type::Header, channel)
       end
 
       def to_slice
@@ -743,6 +764,7 @@ module AMQPServer
         body.write_int @class_id
         body.write_int @weight
         body.write_int @body_size
+        body.write @properties.to_slice
         super body.to_slice
       end
 
@@ -751,9 +773,10 @@ module AMQPServer
         class_id = body.read_uint16
         weight = body.read_uint16
         body_size = body.read_uint64
-        flags = body.read_uint16
-        self.new channel, class_id, weight, body_size
+        props = Properties.decode(body)
+        self.new channel, class_id, weight, body_size, props
       end
+
     end
 
     class BodyFrame < Frame

@@ -32,17 +32,19 @@ module AMQPServer
           @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
         when AMQP::Basic::Get
           msg = @channels[frame.channel].get(frame.queue, frame.no_ack)
-          send AMQP::Basic::GetOk.new(frame.channel, 1_u64, false, msg.exchange_name, msg.routing_key, 1_u32)
-          send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size)
-          send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
+          if msg
+            send AMQP::Basic::GetOk.new(frame.channel, 1_u64, false, msg.exchange_name, msg.routing_key, 1_u32)
+            send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+            send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
+          else
+            send AMQP::Basic::GetEmpty.new(frame.channel)
+          end
         when AMQP::HeaderFrame
-          @channels[frame.channel].next_msg_body_size(frame.body_size)
+          @channels[frame.channel].next_msg_headers(frame.body_size, frame.properties)
         when AMQP::BodyFrame
           @channels[frame.channel].add_content(frame.body)
         end
       end
-    rescue ex : IO::EOFError
-      puts "Client unexpecedly closed connection. #{ex.message}"
     ensure
       puts "Conn closed"
       @socket.close unless @socket.closed?

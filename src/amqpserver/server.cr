@@ -34,7 +34,7 @@ module AMQPServer
       def initialize
         @exchanges = {
           "amq.direct" => Exchange.new("amq.direct", type: "direct", durable: true, 
-                                       bindings: { "rk" => [Queue.new("q1")] })
+                                       bindings: { "q1" => [Queue.new("q1")] })
         }
         @queues = {
           "q1" => Queue.new("q1")
