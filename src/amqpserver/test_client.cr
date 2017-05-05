@@ -16,7 +16,7 @@ AMQP::Connection.start(conf) do |conn|
   end
 
   exchange = channel.direct("amq.direct", durable: true)
-  #queue = channel.queue("test")
+  queue = channel.queue("q1")
   #queue.bind(exchange, "r.*")
   #queue.subscribe do |msg|
   #  puts "Received msg (1): #{msg.key} #{String.new(msg.body)}"
@@ -31,6 +31,5 @@ AMQP::Connection.start(conf) do |conn|
     msg = AMQP::Message.new("test message: #{idx+1}")
     exchange.publish(msg, "rk")
   end
+  puts queue.get
 end
-
-puts "Done"

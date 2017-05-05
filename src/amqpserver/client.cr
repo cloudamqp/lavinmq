@@ -20,7 +20,11 @@ module AMQPServer
           @channels.delete frame.channel
           send AMQP::Channel::CloseOk.new(frame.channel)
         when AMQP::Exchange::Declare
+          # change state
           send AMQP::Exchange::DeclareOk.new(frame.channel)
+        when AMQP::Queue::Declare
+          # change state
+          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
           break
@@ -37,8 +41,10 @@ module AMQPServer
           @channels[frame.channel].add_content(frame.body)
         end
       end
+    rescue ex : IO::EOFError
+      puts "Client unexpecedly closed connection. #{ex.message}"
     ensure
-      puts "Client connection closed"
+      puts "Conn closed"
       @socket.close unless @socket.closed?
     end
 

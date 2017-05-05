@@ -98,7 +98,7 @@ module AMQPServer
         when 10_u16 then Connection.decode(channel, body)
         when 20_u16 then Channel.decode(channel, body)
         when 40_u16 then Exchange.decode(channel, body)
-          #when 50_u16 then Queue.decode(channel, body)
+        when 50_u16 then Queue.decode(channel, body)
         when 60_u16 then Basic.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
@@ -524,6 +524,123 @@ module AMQPServer
       end
     end
 
+    abstract class Queue < MethodFrame
+      def class_id
+        50_u16
+      end
+
+      def self.decode(channel, body)
+        method_id = body.read_uint16
+        case method_id
+        when 10_u16 then Declare.decode(channel, body)
+        when 11_u16 then DeclareOk.decode(channel, body)
+        when 40_u16 then Delete.decode(channel, body)
+        when 41_u16 then DeleteOk.decode(channel, body)
+        else raise "Unknown method_id #{method_id}"
+        end
+      end
+
+      class Declare < Queue
+        def method_id
+          10_u16
+        end
+
+        getter reserved1, queue_name, passive, durable, arguments
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
+                       @passive : Bool, @durable : Bool, @exclusive : Bool,
+                       @auto_delete : Bool, @no_wait : Bool, @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          name = io.read_short_string
+          bits = io.read_byte
+          passive = bits & (1 << 0) == 1
+          durable = bits & (1 << 1) == 1
+          exclusive = bits & (1 << 2) == 1
+          auto_delete = bits & (1 << 3) == 1
+          no_wait = bits & (1 << 4) == 1
+          args = io.read_table
+          self.new channel, reserved1, name, passive, durable, exclusive, auto_delete, no_wait, args
+        end
+      end
+
+      class DeclareOk < Queue
+        def method_id
+          11_u16
+        end
+
+        def initialize(channel : UInt16, @queue_name : String, @message_count : UInt32, @consumer_count : UInt32)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new
+          io.write_short_string @queue_name
+          io.write_int @message_count
+          io.write_int @consumer_count
+          super io.to_slice
+        end
+
+        def self.decode(io)
+          raise "Not implemented"
+        end
+      end
+
+      class Delete < Queue
+        def method_id
+          40_u16
+        end
+
+        getter reserved1, exchange_name, exchange_type, if_unused
+
+        def initialize(channel : UInt16, @reserved1 : String, @queue_name : String,
+                       @if_unused : Bool, @if_empty : Bool, @no_wait : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_short_string
+          name = io.read_short_string
+          bits = io.read_byte
+          if_unused = bits & (1 << 0) == 1
+          if_empty = bits & (1 << 1) == 1
+          nowait = io.read_bool
+          self.new channel, reserved1, name, if_unused, if_empty, nowait
+        end
+      end
+
+      class DeleteOk < Exchange
+        def method_id
+          41_u16
+        end
+
+        def initialize(channel : UInt16, @message_count : UInt32)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new
+          io.write_int @message_count
+          super io.to_slice
+        end
+
+        def self.decode(io)
+          raise "Not implemented"
+        end
+      end
+    end
+
     abstract class Basic < MethodFrame
       def class_id
         60_u16
@@ -622,7 +739,11 @@ module AMQPServer
       end
 
       def to_slice
-        raise "Not implemented"
+        body = AMQP::MemoryIO.new
+        body.write_int @class_id
+        body.write_int @weight
+        body.write_int @body_size
+        super body.to_slice
       end
 
       def self.decode(channel, io)

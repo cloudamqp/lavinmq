@@ -3,7 +3,6 @@ module AMQPServer
     getter exchange_name, routing_key, size, body
 
     def initialize(@exchange_name : String, @routing_key : String, @size = 0_u64)
-      @size = 0_u64
       @body = IO::Memory.new(@size)
     end
 
