@@ -34,6 +34,13 @@ module AMQPServer
         raise "Queue #{queue_name} does not exist" if q.nil?
         q.get
       end
+
+      def consume(client, consume_frame)
+        q = @state.queues[consume_frame.queue]
+        q.add_consumer do |msg|
+          client.deliver consume_frame, msg
+        end
+      end
     end
   end
 end

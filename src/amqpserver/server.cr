@@ -25,19 +25,19 @@ module AMQPServer
 
     def handle_connection(socket)
       client = Client.new(socket, @state)
-      client.run_loop
+      client.read_loop
     end
 
     class State
       getter exchanges, queues
 
       def initialize
-        @exchanges = {
-          "amq.direct" => Exchange.new("amq.direct", type: "direct", durable: true, 
-                                       bindings: { "q1" => [Queue.new("q1")] })
-        }
         @queues = {
           "q1" => Queue.new("q1")
+        }
+        @exchanges = {
+          "" => Exchange.new("", type: "direct", durable: true,
+                             bindings: { "q1" => [@queues["q1"]] })
         }
       end
     end

@@ -649,7 +649,10 @@ module AMQPServer
       def self.decode(channel, body)
         method_id = body.read_uint16
         case method_id
+        when 20_u16 then Consume.decode(channel, body)
+        when 21_u16 then ConsumeOk.decode(channel, body)
         when 40_u16 then Publish.decode(channel, body)
+        when 60_u16 then Deliver.decode(channel, body)
         when 70_u16 then Get.decode(channel, body)
         when 71_u16 then GetOk.decode(channel, body)
         when 72_u16 then GetEmpty.decode(channel, body)
@@ -680,6 +683,31 @@ module AMQPServer
           mandatory = bits & (1 << 0) == 1
           immediate = bits & (1 << 1) == 1
           self.new channel, reserved1, exchange, routing_key, mandatory, immediate
+        end
+      end
+
+      class Deliver < Basic
+        def method_id
+          60_u16
+        end
+
+        def initialize(channel, @consumer_tag : String, @delivery_tag : UInt64,
+                       @redelivered : Bool, @exchange : String, @routing_key : String)
+          super(channel)
+        end
+
+        def to_slice
+          io = AMQP::MemoryIO.new
+          io.write_short_string @consumer_tag
+          io.write_int @delivery_tag
+          io.write_bool @redelivered
+          io.write_short_string @exchange
+          io.write_short_string @routing_key
+          super(io.to_slice)
+        end
+
+        def self.decode(channel, io)
+          raise "Not implemented"
         end
       end
 
@@ -748,6 +776,57 @@ module AMQPServer
         def self.decode(channel, io)
           reserved1 = io.read_uint16
           self.new channel, reserved1
+        end
+      end
+
+      class Consume < Basic
+        def method_id
+          20_u16
+        end
+
+        getter queue, consumer_tag, no_local, no_ack, exclusive, no_wait, arguments
+        def initialize(channel, @reserved1 : UInt16, @queue : String, @consumer_tag : String,
+                       @no_local : Bool, @no_ack : Bool, @exclusive : Bool, @no_wait : Bool,
+                       @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          queue = io.read_short_string
+          consumer_tag = io.read_short_string
+          bits = io.read_byte
+          no_local = bits & (1 << 0) == 1
+          no_ack = bits & (1 << 1) == 1
+          exclusive = bits & (1 << 2) == 1
+          no_wait = bits & (1 << 3) == 1
+          args = io.read_table
+          self.new channel, reserved1, queue, consumer_tag, no_local, no_ack, exclusive, no_wait, args
+        end
+      end
+
+      class ConsumeOk < Basic
+        def method_id
+          21_u16
+        end
+
+        getter consumer_tag
+        def initialize(channel, @consumer_tag : String)
+          super(channel)
+        end
+
+        def to_slice
+          io = AMQP::MemoryIO.new(1 + @consumer_tag.size)
+          io.write_short_string @consumer_tag
+          super(io.to_slice)
+        end
+
+        def self.decode(channel, io)
+          raise "Not implemented"
         end
       end
     end
