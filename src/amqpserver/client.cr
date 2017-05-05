@@ -1,4 +1,5 @@
 require "socket"
+require "./client/*"
 
 module AMQPServer
   class Client
@@ -24,13 +25,16 @@ module AMQPServer
           send AMQP::Connection::CloseOk.new
           break
         when AMQP::Basic::Publish
-          ex = frame.exchange
-          rk = frame.routing_key
-          @channels[frame.channel].start_publish(ex, rk)
+          @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
+        when AMQP::Basic::Get
+          msg = @channels[frame.channel].get(frame.queue, frame.no_ack)
+          send AMQP::Basic::GetOk.new(frame.channel, 1_u64, false, msg.exchange_name, msg.routing_key, 1_u32)
+          send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size)
+          send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
         when AMQP::HeaderFrame
-          @channels[frame.channel].write_body_size(frame.body_size)
+          @channels[frame.channel].next_msg_body_size(frame.body_size)
         when AMQP::BodyFrame
-          @channels[frame.channel].write_content(frame.body)
+          @channels[frame.channel].add_content(frame.body)
         end
       end
     ensure
@@ -41,7 +45,6 @@ module AMQPServer
     def send(frame : AMQP::Frame)
       puts "<= #{frame.inspect}"
       @socket.write frame.to_slice
-      @socket.flush
     end
 
     private def negotiate_client
@@ -63,45 +66,6 @@ module AMQPServer
       open = AMQP::Frame.decode @socket
       open_ok = AMQP::Connection::OpenOk.new
       send open_ok
-    end
-
-    class Channel
-      def initialize(@state : Server::State)
-        @publish_queues = Array(Server::Queue).new
-      end
-
-      def start_publish(exchange_name, routing_key)
-        #make sure exchange is declared
-        ex = @state.exchanges[exchange_name]
-        if ex.nil?
-          raise "Exchange not declared"
-        end
-        case ex[:type]
-        when "direct"
-          queues = ex[:bindings][routing_key]
-          if queues.nil? || queues.empty?
-            puts "No queue to publish to"
-          else
-            queues.each do |q|
-              q.write_head(exchange_name, routing_key)
-            end
-            @publish_queues = queues
-          end
-        else raise "Exchange type #{ex[:type]} not implemented"
-        end
-      end
-
-      def write_body_size(size)
-        @publish_queues.each do |q|
-          q.write_body_size size
-        end
-      end
-
-      def write_content(bytes)
-        @publish_queues.each do |q|
-          q.write_content bytes
-        end
-      end
     end
   end
 end

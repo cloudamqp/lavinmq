@@ -1,0 +1,43 @@
+module AMQPServer
+  class Exchange
+    getter name, type, durable, bindings
+
+    def initialize(@name : String, @type : String, @durable : Bool,
+                   @bindings : Hash(String, Array(Queue)))
+    end
+
+    def queues_matching(routing_key)
+      case @type
+      when "direct"
+        @bindings[routing_key]
+      when "fanout"
+        @bindings.values
+      when "topic"
+        @bindings.select do |binding_key|
+          next true if routing_key == binding_key
+          rk_parts = binding_key.split(".")
+          routing_key.split(".").each_with_index do |part|
+          end
+        end.values.flatten
+      else raise "Exchange type #{@type} not implemented"
+      end
+    end
+
+    class RKMather
+      def self.topic(rk, binding_keys)
+        rk_parts = rk.split(".")
+        binding_keys.select do |bk|
+          ok = false
+          bk.split(".").each_with_index do |part, i|
+            if rk_parts.size < i + 1
+              ok = false
+              break
+            end
+            ok = true if part == "*" || part == rk_parts[i]
+          end
+          ok
+        end
+      end
+    end
+  end
+end

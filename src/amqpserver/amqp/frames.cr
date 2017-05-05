@@ -533,6 +533,8 @@ module AMQPServer
         method_id = body.read_uint16
         case method_id
         when 40_u16 then Publish.decode(channel, body)
+        when 70_u16 then Get.decode(channel, body)
+        when 71_u16 then GetOk.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
         end
       end
@@ -560,6 +562,54 @@ module AMQPServer
           mandatory = bits & (1 << 0) == 1
           immediate = bits & (1 << 1) == 1
           self.new channel, reserved1, exchange, routing_key, mandatory, immediate
+        end
+      end
+
+      class Get < Basic
+        def method_id
+          70_u16
+        end
+
+        getter queue, no_ack
+        def initialize(channel, @reserved1 : UInt16, @queue : String, @no_ack : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          queue = io.read_short_string
+          no_ack = io.read_bool
+          self.new channel, reserved1, queue, no_ack
+        end
+      end
+
+      class GetOk < Basic
+        def method_id
+          71_u16
+        end
+
+        getter queue, no_ack
+        def initialize(channel, @delivery_tag : UInt64, @redelivered : Bool,
+                       @exchange : String, @routing_key : String, @message_count : UInt32)
+          super(channel)
+        end
+
+        def to_slice
+          io = AMQP::MemoryIO.new
+          io.write_int @delivery_tag
+          io.write_bool @redelivered
+          io.write_short_string @exchange
+          io.write_short_string @routing_key
+          io.write_int @message_count
+          super(io.to_slice)
+        end
+
+        def self.decode(channel, io)
+          raise "Not implemented"
         end
       end
     end
