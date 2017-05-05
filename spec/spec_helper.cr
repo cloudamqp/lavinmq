@@ -1,2 +1,2 @@
 require "spec"
-require "../src/amqproxy"
+require "../src/amqpserver/server"
