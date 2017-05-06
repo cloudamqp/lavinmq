@@ -5,14 +5,13 @@ module AMQPServer
     end
 
     def initialize(@name : String)
-      @consumers = Array(Message -> Void).new
+      @consumers = Array(Client::Channel::Consumer).new
       @wfile = QueueFile.open("/tmp/#{@name}.q", "a")
       @rfile = QueueFile.open("/tmp/#{@name}.q", "r")
     end
 
     def write_msg(msg : Message)
-      puts "consumers: #{@consumers.size}"
-      @consumers.each { |blk| puts "calling conume block"; blk.call(msg) }
+      @consumers.each { |c| c.deliver(msg) }
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       @wfile.write_int msg.size
@@ -34,9 +33,12 @@ module AMQPServer
       msg
     end
 
-    def add_consumer(&blk : Message -> _)
-      @consumers.push blk
-      puts "consumers: #{@consumers.size}"
+    def add_consumer(consumer : Client::Channel::Consumer)
+      @consumers.push consumer
+    end
+
+    def rm_consumer(consumer : Client::Channel::Consumer)
+      @consumers.delete consumer
     end
   end
 end

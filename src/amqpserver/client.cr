@@ -30,6 +30,7 @@ module AMQPServer
           @channels[frame.channel] = Client::Channel.new(@server_state)
           send AMQP::Channel::OpenOk.new(frame.channel)
         when AMQP::Channel::Close
+          @channels[frame.channel].stop
           @channels.delete frame.channel
           send AMQP::Channel::CloseOk.new(frame.channel)
         when AMQP::Exchange::Declare
@@ -64,11 +65,11 @@ module AMQPServer
       end
     end
 
-    def deliver(frame : AMQP::Basic::Consume, msg : Message)
-      send AMQP::Basic::Deliver.new(frame.channel, frame.consumer_tag, 1_u64, false,
+    def deliver(channel : UInt16, consumer_tag : String, msg : Message)
+      send AMQP::Basic::Deliver.new(channel, consumer_tag, 1_u64, false,
                                     msg.exchange_name, msg.routing_key)
-      send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-      send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
+      send AMQP::HeaderFrame.new(channel, 60_u16, 0_u16, msg.size, msg.properties)
+      send AMQP::BodyFrame.new(channel, msg.body.to_slice)
     end
 
     def send(frame : AMQP::Frame)
