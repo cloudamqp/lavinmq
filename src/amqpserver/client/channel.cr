@@ -18,7 +18,7 @@ module AMQPServer
       def add_content(bytes)
         msg = @next_msg
         raise "No msg to write to" if msg.nil?
-        msg.add_content bytes
+        msg << bytes
         send_msg_to_queue(msg) if msg.full?
       end
 
@@ -27,7 +27,7 @@ module AMQPServer
         raise "Exchange not declared" if ex.nil?
         queues = ex.queues_matching(msg.routing_key)
         queues.each do |q|
-          q.write_msg(msg)
+          q.publish(msg)
         end
       end
 

@@ -6,7 +6,7 @@ module AMQPServer
       @body = IO::Memory.new(@size)
     end
 
-    def add_content(bytes)
+    def <<(bytes)
       @body.write bytes 
     end
 
