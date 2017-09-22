@@ -5,7 +5,7 @@ authors:
   - Carl Hörberg <carl@cloudamqp.com>
 
 targets:
-  amqproxy:
+  amqpserver:
     main: src/amqpserver.cr
 
 development_dependencies:
