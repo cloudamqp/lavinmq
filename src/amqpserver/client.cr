@@ -131,6 +131,8 @@ module AMQPServer
           open_channel(frame)
         when AMQP::Channel::Close
           close_channel(frame)
+        when AMQP::Channel::CloseOk
+          # nothing to do
         when AMQP::Exchange::Declare
           declare_exchange(frame)
         when AMQP::Queue::Declare
