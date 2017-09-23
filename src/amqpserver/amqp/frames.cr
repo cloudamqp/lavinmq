@@ -460,11 +460,11 @@ module AMQPServer
           name = io.read_short_string
           type = io.read_short_string
           bits = io.read_byte
-          passive = bits & (1 << 0) == 1
-          durable = bits & (1 << 1) == 1
-          auto_delete = bits & (1 << 2) == 1
-          internal = bits & (1 << 3) == 1
-          no_wait = bits & (1 << 4) == 1
+          passive = bits.bit(0) == 1
+          durable = bits.bit(1) == 1
+          auto_delete = bits.bit(2) == 1
+          internal = bits.bit(3) == 1
+          no_wait = bits.bit(4) == 1
           args = io.read_table
           self.new channel, reserved1, name, type, passive, durable, args
         end
@@ -503,8 +503,8 @@ module AMQPServer
           reserved1 = io.read_short_string
           name = io.read_short_string
           bits = io.read_byte
-          if_unused = bits & (1 << 0) == 1
-          no_wait = bits & (1 << 1) == 1
+          if_unused = bits.bit(0) == 1
+          no_wait = bits.bit(1) == 1
           self.new channel, reserved1, name, if_unused, no_wait
         end
       end
@@ -561,11 +561,11 @@ module AMQPServer
           reserved1 = io.read_uint16
           name = io.read_short_string
           bits = io.read_byte
-          passive = bits & (1 << 0) == 1
-          durable = bits & (1 << 1) == 1
-          exclusive = bits & (1 << 2) == 1
-          auto_delete = bits & (1 << 3) == 1
-          no_wait = bits & (1 << 4) == 1
+          passive = bits.bit(0)  == 1
+          durable = bits.bit(1) == 1
+          exclusive = bits.bit(2) == 1
+          auto_delete = bits.bit(3) == 1
+          no_wait = bits.bit(4) == 1
           args = io.read_table
           self.new channel, reserved1, name, passive, durable, exclusive, auto_delete, no_wait, args
         end
@@ -613,8 +613,8 @@ module AMQPServer
           reserved1 = io.read_short_string
           name = io.read_short_string
           bits = io.read_byte
-          if_unused = bits & (1 << 0) == 1
-          if_empty = bits & (1 << 1) == 1
+          if_unused = bits.bit(0) == 1
+          if_empty = bits.bit(1) == 1
           nowait = io.read_bool
           self.new channel, reserved1, name, if_unused, if_empty, nowait
         end
@@ -680,8 +680,8 @@ module AMQPServer
           exchange = io.read_short_string
           routing_key = io.read_short_string
           bits = io.read_byte
-          mandatory = bits & (1 << 0) == 1
-          immediate = bits & (1 << 1) == 1
+          mandatory = bits.bit(0) == 1
+          immediate = bits.bit(1) == 1
           self.new channel, reserved1, exchange, routing_key, mandatory, immediate
         end
       end
@@ -800,10 +800,10 @@ module AMQPServer
           queue = io.read_short_string
           consumer_tag = io.read_short_string
           bits = io.read_byte
-          no_local = bits & (1 << 0) == 1
-          no_ack = bits & (1 << 1) == 1
-          exclusive = bits & (1 << 2) == 1
-          no_wait = bits & (1 << 3) == 1
+          no_local = bits.bit(0) == 1
+          no_ack = bits.bit(1) == 1
+          exclusive = bits.bit(2) == 1
+          no_wait = bits.bit(3) == 1
           args = io.read_table
           self.new channel, reserved1, queue, consumer_tag, no_local, no_ack, exclusive, no_wait, args
         end
