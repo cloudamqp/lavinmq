@@ -113,9 +113,9 @@ module AMQPServer
                                       frame.class_id, frame.method_id)
       else
         @vhost.queues[frame.queue_name] =
-          Queue.new(frame.queue_name, frame.durable, frame.exclusive, frame.auto_delete,
-                    frame.arguments)
-          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+          Queue.new(frame.queue_name, frame.durable, frame.exclusive, frame.auto_delete, frame.arguments)
+        @vhost.exchanges[""].bindings[frame.queue_name] = [@vhost.queues[frame.queue_name]]
+        send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
       end
     end
 
