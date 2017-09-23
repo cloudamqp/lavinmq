@@ -270,7 +270,7 @@ module AMQPServer
 
         def self.decode(io)
           reserved1 = io.read_short_string
-          OpenOk.new(reserved1)
+          self.new(reserved1)
         end
       end
 

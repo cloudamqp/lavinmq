@@ -1,15 +1,16 @@
 module AMQPServer
   class Exchange
-    getter name, type, durable, bindings
+    getter name, type, durable, bindings, arguments
 
     def initialize(@name : String, @type : String, @durable : Bool,
-                   @bindings : Hash(String, Array(Queue)))
+                   @arguments : Hash(String, AMQP::Field),
+                   @bindings = Hash(String, Array(Queue)).new)
     end
 
     def queues_matching(routing_key)
       case @type
       when "direct"
-        @bindings[routing_key]
+        @bindings[routing_key]? || Array(Queue).new
       when "fanout"
         @bindings.values.flatten
       when "topic"

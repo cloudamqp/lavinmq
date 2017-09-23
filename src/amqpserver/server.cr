@@ -9,6 +9,7 @@ module AMQPServer
   class Server
     def initialize
       @state = State.new
+      @connections = Array(Client).new
     end
 
     def listen(port : Int)
@@ -24,21 +25,30 @@ module AMQPServer
     end
 
     def handle_connection(socket)
-      client = Client.new(socket, @state)
-      client.read_loop
+      if client = Client.start(socket, @state)
+        @connections.push client
+      end
     end
 
     class State
-      getter exchanges, queues
-
+      getter vhosts
       def initialize
-        @queues = {
-          "q1" => Queue.new("q1")
-        }
-        @exchanges = {
-          "" => Exchange.new("", type: "direct", durable: true,
-                             bindings: { "q1" => [@queues["q1"]] })
-        }
+        @vhosts = { "default" => VHost.new("default") }
+      end
+
+      class VHost
+        getter name, exchanges, queues
+
+        def initialize(@name : String)
+          @queues = {
+            "q1" => Queue.new("q1")
+          }
+          @exchanges = {
+            "" => Exchange.new("", type: "direct", durable: true,
+                               arguments: {} of String => AMQP::Field,
+                               bindings: { "q1" => [@queues["q1"]] })
+          }
+        end
       end
     end
   end

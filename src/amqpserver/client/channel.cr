@@ -1,7 +1,7 @@
 module AMQPServer
   class Client
     class Channel
-      def initialize(@state : Server::State)
+      def initialize(@client : Client, @vhost : Server::State::VHost)
         @consumers = Array(Consumer).new
       end
 
@@ -23,7 +23,7 @@ module AMQPServer
       end
 
       private def send_msg_to_queue(msg)
-        ex = @state.exchanges[msg.exchange_name]
+        ex = @vhost.exchanges[msg.exchange_name]
         raise "Exchange not declared" if ex.nil?
         queues = ex.queues_matching(msg.routing_key)
         queues.each do |q|
@@ -31,15 +31,9 @@ module AMQPServer
         end
       end
 
-      def get(queue_name, no_ack)
-        q = @state.queues[queue_name]
-        raise "Queue #{queue_name} does not exist" if q.nil?
-        q.get
-      end
-
-      def consume(client, consume_frame)
-        q = @state.queues[consume_frame.queue]
-        c = Consumer.new(client, consume_frame.channel, consume_frame.consumer_tag, q)
+      def consume(consume_frame)
+        q = @vhost.queues[consume_frame.queue]
+        c = Consumer.new(@client, consume_frame.channel, consume_frame.consumer_tag, q)
         c.register
         @consumers.push c
       end
