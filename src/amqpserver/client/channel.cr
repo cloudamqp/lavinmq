@@ -24,7 +24,6 @@ module AMQPServer
 
       private def send_msg_to_queue(msg)
         ex = @vhost.exchanges[msg.exchange_name]
-        raise "Exchange not declared" if ex.nil?
         queues = ex.queues_matching(msg.routing_key)
         queues.each do |q|
           q.publish(msg)
