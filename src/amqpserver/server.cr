@@ -10,6 +10,9 @@ module AMQPServer
     def initialize
       @state = State.new
       @connections = Array(Client).new
+      @conn_opened = Channel(Client).new
+      @conn_closed = Channel(Client).new
+      spawn handle_connection_events
     end
 
     def listen(port : Int)
@@ -26,7 +29,22 @@ module AMQPServer
 
     def handle_connection(socket)
       if client = Client.start(socket, @state)
-        @connections.push client
+        @conn_opened.send client
+        client.on_close { |c| @conn_closed.send c }
+      end
+    end
+
+    def handle_connection_events
+      loop do
+        idx, conn = Channel.select(@conn_opened.receive_select_action,
+                                   @conn_closed.receive_select_action)
+        case idx
+        when 0 # open
+          @connections.push conn if conn
+        when 1 # close
+          @connections.delete conn if conn
+        end
+        print "connection#count=", @connections.size, "\n"
       end
     end
 

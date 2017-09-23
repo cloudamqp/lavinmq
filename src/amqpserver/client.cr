@@ -43,19 +43,22 @@ module AMQPServer
       nil
     end
 
-    def closed?
-      @socket.closed?
+    def on_close(&blk : Client -> Nil)
+      @on_close_callback = blk
     end
 
-    def send_loop
+    private def send_loop
       loop do
         frame = @send_chan.receive
         puts "<= #{frame.inspect}"
         @socket.write frame.to_slice
       end
+    rescue ex : IO::EOFError
+      puts "Client connection closed #{@socket.remote_address}"
     ensure
-      puts "Conn closed"
-      @socket.close unless @socket.closed?
+      if cb = @on_close_callback
+        cb.call self
+      end
     end
 
     private def open_channel(frame)
@@ -147,7 +150,7 @@ module AMQPServer
       end
     end
 
-    def read_loop
+    private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
         puts "=> #{frame.inspect}"
@@ -182,7 +185,10 @@ module AMQPServer
       end
     rescue ex : IO::EOFError
       puts "Client connection closed #{@socket.remote_address}"
-      # notify server that conn is closed, eg. with over a Channel(Client)
+    ensure
+      if cb = @on_close_callback
+        cb.call self
+      end
     end
 
     def deliver(channel : UInt16, consumer_tag : String, msg : Message)
@@ -192,7 +198,7 @@ module AMQPServer
       send AMQP::BodyFrame.new(channel, msg.body.to_slice)
     end
 
-    def send(frame : AMQP::Frame)
+    private def send(frame : AMQP::Frame)
       @send_chan.send frame
     end
   end
