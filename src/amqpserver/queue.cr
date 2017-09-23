@@ -4,7 +4,8 @@ module AMQPServer
       include AMQP::IO
     end
 
-    def initialize(@name : String)
+    getter name, durable, exclusive, auto_delete, arguments
+    def initialize(@name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
       @consumers = Array(Client::Channel::Consumer).new
       @wfile = QueueFile.open("/tmp/#{@name}.q", "a")
       @rfile = QueueFile.open("/tmp/#{@name}.q", "r")
@@ -14,6 +15,14 @@ module AMQPServer
         last_pos = @index.read_uint32
         @rfile.seek(last_pos)
       end
+    end
+
+    def message_count
+      0_u32 #FIXME
+    end
+
+    def consumer_count
+      @consumers.size.to_u32
     end
 
     def publish(msg : Message)

@@ -71,7 +71,7 @@ module AMQPServer
     end
 
     private def declare_exchange(frame)
-      if e = @vhost.exchanges[frame.exchange_name]
+      if e = @vhost.exchanges[frame.exchange_name]?
         if e.type == frame.exchange_type &&
             e.durable == frame.durable &&
             e.arguments == frame.arguments
@@ -85,7 +85,11 @@ module AMQPServer
           end
         end
       elsif frame.passive
-        # raise error on channel, dont create
+        send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
+                                      frame.class_id, frame.method_id)
+        if ch = @channels.delete(frame.channel)
+          ch.stop
+        end
       else
         @vhost.exchanges[frame.exchange_name] =
           Exchange.new(frame.exchange_name, frame.exchange_type, frame.durable,
@@ -95,8 +99,33 @@ module AMQPServer
     end
 
     private def declare_queue(frame)
-      # change state
-      send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+      if q = @vhost.queues[frame.queue_name]?
+        if q.durable == frame.durable &&
+            q.exclusive == frame.exclusive &&
+            q.auto_delete == frame.auto_delete &&
+            q.arguments == frame.arguments
+          send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
+                                          q.message_count, q.consumer_count)
+        else
+          send AMQP::Channel::Close.new(frame.channel, 401_u16,
+                                        "Existing queue declared with other arguments",
+                                        frame.class_id, frame.method_id)
+          if ch = @channels.delete(frame.channel)
+            ch.stop
+          end
+        end
+      elsif frame.passive
+        send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
+                                      frame.class_id, frame.method_id)
+        if ch = @channels.delete(frame.channel)
+          ch.stop
+        end
+      else
+        @vhost.queues[frame.queue_name] =
+          Queue.new(frame.queue_name, frame.durable, frame.exclusive, frame.auto_delete,
+                       frame.arguments)
+          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+      end
     end
 
     private def basic_get(frame)
