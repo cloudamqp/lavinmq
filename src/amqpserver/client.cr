@@ -75,24 +75,18 @@ module AMQPServer
 
     private def declare_exchange(frame)
       if e = @vhost.exchanges[frame.exchange_name]?
-        if e.type == frame.exchange_type &&
-            e.durable == frame.durable &&
-            e.arguments == frame.arguments
-          send AMQP::Exchange::DeclareOk.new(frame.channel)
-        else
-          send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                        "Existing exchange declared with other arguments",
-                                        frame.class_id, frame.method_id)
-          if ch = @channels.delete(frame.channel)
-            ch.stop
-          end
-        end
+          if e.type == frame.exchange_type &&
+          e.durable == frame.durable &&
+          e.arguments == frame.arguments
+        send AMQP::Exchange::DeclareOk.new(frame.channel)
+      else
+        send AMQP::Channel::Close.new(frame.channel, 401_u16,
+                                      "Existing exchange declared with other arguments",
+                                      frame.class_id, frame.method_id)
+      end
       elsif frame.passive
         send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
                                       frame.class_id, frame.method_id)
-        if ch = @channels.delete(frame.channel)
-          ch.stop
-        end
       else
         @vhost.exchanges[frame.exchange_name] =
           Exchange.new(frame.exchange_name, frame.exchange_type, frame.durable,
@@ -103,50 +97,41 @@ module AMQPServer
 
     private def declare_queue(frame)
       if q = @vhost.queues[frame.queue_name]?
-        if q.durable == frame.durable &&
-            q.exclusive == frame.exclusive &&
-            q.auto_delete == frame.auto_delete &&
-            q.arguments == frame.arguments
-          send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
-                                          q.message_count, q.consumer_count)
-        else
-          send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                        "Existing queue declared with other arguments",
-                                        frame.class_id, frame.method_id)
-          if ch = @channels.delete(frame.channel)
-            ch.stop
-          end
-        end
+          if q.durable == frame.durable &&
+          q.exclusive == frame.exclusive &&
+          q.auto_delete == frame.auto_delete &&
+          q.arguments == frame.arguments
+        send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
+                                        q.message_count, q.consumer_count)
+      else
+        send AMQP::Channel::Close.new(frame.channel, 401_u16,
+                                      "Existing queue declared with other arguments",
+                                      frame.class_id, frame.method_id)
+      end
       elsif frame.passive
         send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
                                       frame.class_id, frame.method_id)
-        if ch = @channels.delete(frame.channel)
-          ch.stop
-        end
       else
         @vhost.queues[frame.queue_name] =
           Queue.new(frame.queue_name, frame.durable, frame.exclusive, frame.auto_delete,
-                       frame.arguments)
+                    frame.arguments)
           send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
       end
     end
 
     private def basic_get(frame)
       if q = @vhost.queues[frame.queue]?
-        if msg = q.get
-          send AMQP::Basic::GetOk.new(frame.channel, 1_u64, false, msg.exchange_name,
-                                      msg.routing_key, 1_u32)
-          send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-          send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
-        else
-          send AMQP::Basic::GetEmpty.new(frame.channel)
-        end
+          if msg = q.get
+            send AMQP::Basic::GetOk.new(frame.channel, 1_u64, false, msg.exchange_name,
+                                        msg.routing_key, 1_u32)
+            send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+            send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
+      else
+        send AMQP::Basic::GetEmpty.new(frame.channel)
+      end
       else
         reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@vhost.name}'"
         send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code, frame.class_id, frame.method_id)
-        if ch = @channels.delete(frame.channel)
-          ch.stop
-        end
       end
     end
 
@@ -158,13 +143,18 @@ module AMQPServer
         when AMQP::Connection::Close
           @socket.write AMQP::Connection::CloseOk.new.to_slice
           @socket.close
+          if cb = @on_close_callback
+            cb.call self
+          end
           break
         when AMQP::Channel::Open
           open_channel(frame)
         when AMQP::Channel::Close
           close_channel(frame)
         when AMQP::Channel::CloseOk
-          # nothing to do
+          if ch = @channels.delete(frame.channel)
+            ch.stop
+          end
         when AMQP::Exchange::Declare
           declare_exchange(frame)
         when AMQP::Queue::Declare
