@@ -4,7 +4,7 @@ require "option_parser"
 require "file"
 require "ini"
 
-port = 1234
+port = 5672
 config = ""
 
 OptionParser.parse! do |parser|
