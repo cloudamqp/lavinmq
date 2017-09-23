@@ -112,6 +112,9 @@ module AMQPServer
       else
         reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@vhost.name}'"
         send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code, frame.class_id, frame.method_id)
+        if ch = @channels.delete(frame.channel)
+          ch.stop
+        end
       end
     end
 
