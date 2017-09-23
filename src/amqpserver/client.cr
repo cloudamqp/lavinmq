@@ -151,6 +151,9 @@ module AMQPServer
         else puts "[ERROR] Unhandled frame #{frame.inspect}"
         end
       end
+    rescue ex : IO::EOFError
+      puts "Client connection closed #{@socket.remote_address}"
+      # notify server that conn is closed, eg. with over a Channel(Client)
     end
 
     def deliver(channel : UInt16, consumer_tag : String, msg : Message)
