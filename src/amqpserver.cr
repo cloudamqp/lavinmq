@@ -1,5 +1,6 @@
 require "./amqpserver/version"
 require "./amqpserver/server"
+require "./amqpserver/http_server"
 require "option_parser"
 require "file"
 require "ini"
@@ -23,5 +24,15 @@ unless config.empty?
   ini = INI.parse(File.read(config))
   p ini
 end
-server = AMQPServer::Server.new
-server.listen(port)
+
+amqp_server = AMQPServer::Server.new
+spawn do
+  amqp_server.listen(port)
+end
+
+http_server = AMQPServer::HTTPServer.new(amqp_server, 8080)
+spawn do
+  http_server.listen
+end
+
+sleep
