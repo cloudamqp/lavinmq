@@ -1,7 +1,7 @@
 module AMQPServer
   class Client
     class Channel
-      def initialize(@client : Client, @vhost : Server::State::VHost)
+      def initialize(@client : Client, @vhost : VHost)
         @consumers = Array(Consumer).new
       end
 

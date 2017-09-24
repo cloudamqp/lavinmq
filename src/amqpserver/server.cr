@@ -1,17 +1,20 @@
 require "socket"
 require "./amqp"
 require "./client"
-require "./message"
+require "./vhost"
 require "./exchange"
 require "./queue"
 
 module AMQPServer
   class Server
+    getter connections
+    getter vhosts
+
     def initialize
-      @state = State.new
       @connections = Array(Client).new
       @conn_opened = Channel(Client).new
       @conn_closed = Channel(Client).new
+      @vhosts = { "default" => VHost.new("default") }
       spawn handle_connection_events
     end
 
@@ -28,7 +31,7 @@ module AMQPServer
     end
 
     def handle_connection(socket)
-      if client = Client.start(socket, @state)
+      if client = Client.start(socket, @vhosts)
         @conn_opened.send client
         client.on_close { |c| @conn_closed.send c }
       end
@@ -48,26 +51,5 @@ module AMQPServer
       end
     end
 
-    class State
-      getter vhosts
-      def initialize
-        @vhosts = { "default" => VHost.new("default") }
-      end
-
-      class VHost
-        getter name, exchanges, queues
-
-        def initialize(@name : String)
-          @queues = {
-            "q1" => Queue.new("q1", durable: true, auto_delete: false, exclusive: false, arguments: {} of String => AMQP::Field)
-          }
-          @exchanges = {
-            "" => Exchange.new("", type: "direct", durable: true,
-                               arguments: {} of String => AMQP::Field,
-                               bindings: { "q1" => [@queues["q1"]] })
-          }
-        end
-      end
-    end
   end
 end

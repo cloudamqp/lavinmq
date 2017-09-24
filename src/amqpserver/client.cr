@@ -1,16 +1,17 @@
 require "socket"
+require "./message"
 require "./client/*"
 
 module AMQPServer
   class Client
-    def initialize(@socket : TCPSocket, @vhost : Server::State::VHost)
+    def initialize(@socket : TCPSocket, @vhost : VHost)
       @channels = Hash(UInt16, Client::Channel).new
       @send_chan = ::Channel(AMQP::Frame).new(16)
       spawn read_loop
       spawn send_loop
     end
 
-    def self.start(socket, state)
+    def self.start(socket, vhosts)
       start = Bytes.new(8)
       bytes = socket.read_fully(start)
 
@@ -25,7 +26,7 @@ module AMQPServer
       socket.write AMQP::Connection::Tune.new(heartbeat: 60_u16).to_slice
       tune_ok = AMQP::Frame.decode socket
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
-      if vhost = state.vhosts[open.vhost]?
+      if vhost = vhosts[open.vhost]?
           socket.write AMQP::Connection::OpenOk.new.to_slice
         return self.new(socket, vhost)
       else
