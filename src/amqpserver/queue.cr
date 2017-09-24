@@ -17,6 +17,10 @@ module AMQPServer
       end
     end
 
+    def to_json(json : JSON::Builder)
+      { name: @name, durable: @durable, exclusive: @exclusive, auto_delete: @auto_delete, consumers: @consumers.size }.to_json(json)
+    end
+
     def message_count
       0_u32 #FIXME
     end

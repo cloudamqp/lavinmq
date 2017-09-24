@@ -7,6 +7,10 @@ module AMQPServer
                    @bindings = Hash(String, Array(Queue)).new)
     end
 
+    def to_json(json : JSON::Builder)
+      { name: @name, type: @type, durable: @durable }.to_json(json)
+    end
+
     def queues_matching(routing_key)
       case @type
       when "direct"

@@ -47,6 +47,13 @@ module AMQPServer
       @on_close_callback = blk
     end
 
+    def to_json(json : JSON::Builder)
+      {
+        address: @socket.remote_address.to_s,
+        channels: @channels.size,
+      }.to_json(json)
+    end
+
     private def send_loop
       loop do
         frame = @send_chan.receive
