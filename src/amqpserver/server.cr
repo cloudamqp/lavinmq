@@ -20,7 +20,7 @@ module AMQPServer
 
     def listen(port : Int)
       server = TCPServer.new("localhost", port)
-      puts "Server listening on #{server.local_address}"
+      print "Server listening on ", server.local_address, "\n"
       loop do
         if socket = server.accept?
           spawn handle_connection(socket)

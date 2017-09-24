@@ -31,7 +31,6 @@ module AMQPServer
         type = Type.new(t)
         channel = mem.read_uint16
         size = mem.read_uint32
-        puts "type=#{type} channel=#{channel} size=#{size}"
 
         payload = Bytes.new(size + 1)
         io.read_fully(payload)
@@ -102,7 +101,7 @@ module AMQPServer
         when 60_u16 then Basic.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
-          #puts "class-id #{class_id} not implemented yet"
+          puts "class-id #{class_id} not implemented yet"
           GenericFrame.new(Type::Method, channel, payload)
         end
       end

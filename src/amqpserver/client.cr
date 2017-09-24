@@ -30,7 +30,7 @@ module AMQPServer
           socket.write AMQP::Connection::OpenOk.new.to_slice
         return self.new(socket, vhost)
       else
-        puts "Access denied for #{socket.remote_address} to vhost #{open.vhost}"
+        print "Access denied for", socket.remote_address, " to vhost ", open.vhost, "\n"
         socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
                                                  open.class_id, open.method_id).to_slice
         socket.close
@@ -58,11 +58,11 @@ module AMQPServer
     private def send_loop
       loop do
         frame = @send_chan.receive
-        puts "<= #{frame.inspect}"
+        print "<= ", frame.inspect, "\n"
         @socket.write frame.to_slice
       end
     rescue ex : IO::EOFError
-      puts "Client connection closed #{@socket.remote_address}"
+      print "Client connection closed ", @socket.remote_address, "\n"
     ensure
       if cb = @on_close_callback
         cb.call self
@@ -146,7 +146,7 @@ module AMQPServer
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        puts "=> #{frame.inspect}"
+        print "=> ", frame.inspect, "\n"
         case frame
         when AMQP::Connection::Close
           @socket.write AMQP::Connection::CloseOk.new.to_slice
@@ -180,11 +180,11 @@ module AMQPServer
           basic_get(frame)
         when AMQPServer::AMQP::HeartbeatFrame
           send AMQPServer::AMQP::HeartbeatFrame.new
-        else puts "[ERROR] Unhandled frame #{frame.inspect}"
+        else print "[ERROR] Unhandled frame ", frame.inspect, "\n"
         end
       end
     rescue ex : IO::EOFError
-      puts "Client connection closed #{@socket.remote_address}"
+      print "Client connection closed ", @socket.remote_address, "\n"
     ensure
       if cb = @on_close_callback
         cb.call self
