@@ -7,7 +7,7 @@ module AMQPServer
     def initialize(@name : String, @data_dir : String)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
-      @save = Channel(AMQP::Frame).new
+      @save = Channel(AMQP::Exchange::Declare | AMQP::Queue::Declare | AMQP::Queue::Bind).new
       load!
       compact!
       spawn save!
@@ -16,7 +16,18 @@ module AMQPServer
     def save!
       File.open(File.join(@data_dir, @name, "definitions.amqp"), "a") do |f|
         loop do
-          @save.receive.encode(f)
+          frame = @save.receive
+          case frame
+          when AMQP::Exchange::Declare, AMQP::Queue::Declare
+            next if !frame.durable || frame.auto_delete
+          when AMQP::Queue::Bind
+            e = @exchanges[frame.exchange_name]
+            next if !e.durable || e.auto_delete
+            q = @queues[frame.queue_name]
+            next if !q.durable || q.auto_delete
+          end
+          frame.encode(f)
+          f.flush
         end
       end
     end
