@@ -24,7 +24,7 @@ module AMQPServer
     def apply(f : AMQP::Exchange::Declare)
       @save.send f
       @exchanges[f.exchange_name] =
-        Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.arguments)
+        Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
     end
 
     def apply(f : AMQP::Queue::Declare)
@@ -47,7 +47,7 @@ module AMQPServer
             case f
             when AMQP::Exchange::Declare
               @exchanges[f.exchange_name] =
-                Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.arguments)
+                Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
             when AMQP::Exchange::Delete
               @exchanges.delete f.exchange_name
             when AMQP::Queue::Declare
@@ -69,8 +69,9 @@ module AMQPServer
       File.open(File.join(@data_dir, @name, "definitions.amqp"), "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable
+          next if e.auto_delete
           f = AMQP::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
-                                          false, e.durable, e.arguments)
+                                          false, e.durable, e.auto_delete, e.internal, false, e.arguments)
           f.encode(io)
         end
         @queues.each do |name, q|
@@ -89,6 +90,7 @@ module AMQPServer
       }
       @exchanges = {
         "" => Exchange.new("", type: "direct", durable: true,
+                           auto_delete: false, internal: true,
                            arguments: {} of String => AMQP::Field,
                            bindings: { "q1" => [@queues["q1"]] })
       }

@@ -1,8 +1,9 @@
 module AMQPServer
   class Exchange
-    getter name, type, durable, bindings, arguments
+    getter name, type, durable, auto_delete, internal, bindings, arguments
 
     def initialize(@name : String, @type : String, @durable : Bool,
+                   @auto_delete : Bool, @internal : Bool,
                    @arguments : Hash(String, AMQP::Field),
                    @bindings = Hash(String, Array(Queue)).new)
     end
