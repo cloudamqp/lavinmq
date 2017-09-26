@@ -623,7 +623,7 @@ module AMQPServer
           20_u16
         end
 
-        getter reserved1, queue_name, exchange_name, no_wait, arguments
+        getter reserved1, queue_name, exchange_name, routing_key, no_wait, arguments
 
         def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
                        @exchange_name : String, @routing_key : String, @no_wait : Bool,
