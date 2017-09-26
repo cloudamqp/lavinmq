@@ -10,11 +10,11 @@ module AMQPServer
     getter connections
     getter vhosts
 
-    def initialize
+    def initialize(data_dir : String)
       @connections = Array(Client).new
       @conn_opened = Channel(Client).new
       @conn_closed = Channel(Client).new
-      @vhosts = { "default" => VHost.new("default") }
+      @vhosts = { "default" => VHost.new("default", data_dir) }
       spawn handle_connection_events
     end
 

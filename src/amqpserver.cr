@@ -25,7 +25,7 @@ unless config.empty?
   p ini
 end
 
-amqp_server = AMQPServer::Server.new
+amqp_server = AMQPServer::Server.new("/tmp")
 spawn do
   amqp_server.listen(port)
 end
