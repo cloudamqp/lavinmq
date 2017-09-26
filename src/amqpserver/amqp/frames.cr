@@ -546,6 +546,8 @@ module AMQPServer
         case method_id
         when 10_u16 then Declare.decode(channel, body)
         when 11_u16 then DeclareOk.decode(channel, body)
+        when 20_u16 then Bind.decode(channel, body)
+        when 21_u16 then BindOk.decode(channel, body)
         when 40_u16 then Delete.decode(channel, body)
         when 41_u16 then DeleteOk.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
@@ -613,6 +615,49 @@ module AMQPServer
 
         def self.decode(io)
           raise "Not implemented"
+        end
+      end
+
+      class Bind < Queue
+        def method_id
+          20_u16
+        end
+
+        getter reserved1, queue_name, exchange_name, no_wait, arguments
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
+                       @exchange_name : String, @routing_key : String, @no_wait : Bool,
+                       @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          queue_name = io.read_short_string
+          exchange_name = io.read_short_string
+          routing_key = io.read_short_string
+          bits = io.read_byte
+          no_wait = bits.bit(0) == 1
+          args = io.read_table
+          self.new channel, reserved1, queue_name, exchange_name, routing_key, no_wait, args
+        end
+      end
+
+      class BindOk < Queue
+        def method_id
+          21_u16
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(channel, io)
+          self.new(channel)
         end
       end
 
