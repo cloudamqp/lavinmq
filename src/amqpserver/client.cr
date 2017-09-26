@@ -163,6 +163,8 @@ module AMQPServer
           declare_exchange(frame)
         when AMQP::Queue::Declare
           declare_queue(frame)
+        when AMQP::Queue::Bind
+          bind_queue(frame)
         when AMQP::Basic::Publish
           @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
         when AMQP::HeaderFrame
