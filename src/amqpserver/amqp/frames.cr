@@ -632,7 +632,14 @@ module AMQPServer
         end
 
         def to_slice
-          raise "Not implemented"
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @queue_name
+          io.write_short_string @exchange_name
+          io.write_short_string @routing_key
+          io.write_bool @no_wait
+          io.write_table @arguments
+          super io.to_slice
         end
 
         def self.decode(channel, io)
