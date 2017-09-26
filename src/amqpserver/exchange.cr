@@ -4,21 +4,21 @@ module AMQPServer
 
     def initialize(@name : String, @type : String, @durable : Bool,
                    @arguments : Hash(String, AMQP::Field),
-                   @bindings = Hash(String, Array(Queue)).new)
+                   @bindings = Hash(String, Array(Queue)))
     end
 
     def to_json(json : JSON::Builder)
       { name: @name, type: @type, durable: @durable }.to_json(json)
     end
 
-    def queues_matching(routing_key)
+    def queues_matching(routing_key) : Array(Queue)
       case @type
       when "direct"
-        @bindings[routing_key]? || Array(Queue).new
+        @bindings.fetch(routing_key, Array(Queue).new)
       when "fanout"
         @bindings.values.flatten
       when "topic"
-        @bindings.select do |binding_key|
+        @bindings.select do |binding_key, queues|
           next true if routing_key == binding_key
           rk_parts = binding_key.split(".")
           routing_key.split(".").each_with_index do |part|
