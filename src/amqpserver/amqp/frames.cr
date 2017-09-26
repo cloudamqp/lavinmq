@@ -444,14 +444,27 @@ module AMQPServer
           10_u16
         end
 
-        getter reserved1, exchange_name, exchange_type, passive, durable, arguments
+        getter reserved1, exchange_name, exchange_type, passive, durable, auto_delete, internal, no_wait, arguments
 
-        def initialize(channel : UInt16, @reserved1 : UInt16, @exchange_name : String, @exchange_type : String, @passive : Bool, @durable : Bool, @arguments : Hash(String, Field))
+        def initialize(channel : UInt16, @reserved1 : UInt16, @exchange_name : String, @exchange_type : String, @passive : Bool, @durable : Bool, @auto_delete : Bool,
+                       @internal : Bool, @no_wait : Bool, @arguments : Hash(String, Field))
           super(channel)
         end
 
         def to_slice
-          raise "Not implemented"
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @exchange_name
+          io.write_short_string @exchange_type
+          bits = 0_u8
+          bits = bits | (1 << 0) if @passive
+          bits = bits | (1 << 1) if @durable
+          bits = bits | (1 << 2) if @auto_delete
+          bits = bits | (1 << 3) if @internal
+          bits = bits | (1 << 4) if @no_wait
+          io.write_byte(bits)
+          io.write_table @arguments
+          super io.to_slice
         end
 
         def self.decode(channel, io)
@@ -465,7 +478,7 @@ module AMQPServer
           internal = bits.bit(3) == 1
           no_wait = bits.bit(4) == 1
           args = io.read_table
-          self.new channel, reserved1, name, type, passive, durable, args
+          self.new channel, reserved1, name, type, passive, durable, auto_delete, internal, no_wait, args
         end
       end
 
@@ -488,7 +501,7 @@ module AMQPServer
           20_u16
         end
 
-        getter reserved1, exchange_name, exchange_type, if_unused, no_wait
+        getter reserved1, exchange_name, if_unused, no_wait
         def initialize(channel : UInt16, @reserved1 : String, @exchange_name : String,
                        @if_unused : Bool, @no_wait : Bool)
           super(channel)
@@ -553,7 +566,18 @@ module AMQPServer
         end
 
         def to_slice
-          raise "Not implemented"
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @queue_name
+          bits = 0_u8
+          bits = bits | (1 << 0) if @passive
+          bits = bits | (1 << 1) if @durable
+          bits = bits | (1 << 2) if @exclusive
+          bits = bits | (1 << 3) if @auto_delete
+          bits = bits | (1 << 4) if @no_wait
+          io.write_byte(bits)
+          io.write_table @arguments
+          super io.to_slice
         end
 
         def self.decode(channel, io)
@@ -597,7 +621,7 @@ module AMQPServer
           40_u16
         end
 
-        getter reserved1, exchange_name, exchange_type, if_unused
+        getter reserved1, queue_name, if_unused, if_empty, no_wait
 
         def initialize(channel : UInt16, @reserved1 : String, @queue_name : String,
                        @if_unused : Bool, @if_empty : Bool, @no_wait : Bool)
