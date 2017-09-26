@@ -131,7 +131,7 @@ module AMQPServer
     private def bind_queue(frame)
       if @vhost.queues.has_key? frame.queue_name && @vhost.exchanges.has_key? frame.exchange_name
         @vhost.apply(frame)
-        send AMQP::Queue::BindOk.new
+        send AMQP::Queue::BindOk.new(frame.channel)
       else
         send AMQP::Channel::Close.new(frame.channel, 401_u16,
                                       "Queue or exchange does not exists",
