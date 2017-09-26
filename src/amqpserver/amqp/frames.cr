@@ -559,7 +559,7 @@ module AMQPServer
           10_u16
         end
 
-        getter reserved1, queue_name, passive, durable, exclusive, auto_delete, no_wait, arguments
+        property reserved1, queue_name, passive, durable, exclusive, auto_delete, no_wait, arguments
 
         def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
                        @passive : Bool, @durable : Bool, @exclusive : Bool,
