@@ -96,10 +96,8 @@ module AMQPServer
         send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
                                       frame.class_id, frame.method_id)
       else
-        @vhost.exchanges[frame.exchange_name] =
-          Exchange.new(frame.exchange_name, frame.exchange_type, frame.durable,
-                       frame.arguments)
-          send AMQP::Exchange::DeclareOk.new(frame.channel)
+        @vhost.apply(frame)
+        send AMQP::Exchange::DeclareOk.new(frame.channel)
       end
     end
 
@@ -120,9 +118,7 @@ module AMQPServer
         send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
                                       frame.class_id, frame.method_id)
       else
-        @vhost.queues[frame.queue_name] =
-          Queue.new(frame.queue_name, frame.durable, frame.exclusive, frame.auto_delete, frame.arguments)
-        @vhost.exchanges[""].bindings[frame.queue_name] = [@vhost.queues[frame.queue_name]]
+        @vhost.apply(frame)
         send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
       end
     end

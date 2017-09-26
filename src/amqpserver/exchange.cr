@@ -4,25 +4,12 @@ module AMQPServer
 
     def initialize(@name : String, @type : String, @durable : Bool,
                    @arguments : Hash(String, AMQP::Field),
-                   @bindings = Hash(String, Array(Queue)))
+                   @bindings = Hash(String, Array(Queue)).new)
     end
 
-    JSON.mapping({
-      name: String,
-      type: String,
-      durable: Bool,
-      arguments: Hash(String, AMQP::Field),
-      bindings: Hash(String, Array(Queue))
-    })
-
-    #def initialize(parser : JSON::PullParser)
-    #  parser.on_key("name")
-    #  p parser.raw_value
-    #end
-
-    #def to_json(json : JSON::Builder)
-      #{ name: @name, type: @type, durable: @durable, arguments: @arguments, }.to_json(json)
-    #end
+    def to_json(builder : JSON::Builder)
+      { name: @name, type: @type, durable: @durable, arguments: @arguments, }.to_json(builder)
+    end
 
     def queues_matching(routing_key) : Array(Queue)
       case @type

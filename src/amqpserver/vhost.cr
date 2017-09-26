@@ -5,36 +5,80 @@ module AMQPServer
     getter name, exchanges, queues
 
     def initialize(@name : String, @data_dir : String)
+      @exchanges = Hash(String, Exchange).new
+      @queues = Hash(String, Queue).new
+      @save = Channel(AMQP::Frame).new
       load!
-    end
-
-    def declare_exchange(name, type, durable, arguments)
-      @exchanges[name] = Exchange.new(name, type, durable, arguments)
-      save! if durable
-    end
-
-    def load!
-      File.open(File.join(@data_dir, @name, "exchanges.json.gz")) do |f|
-        Gzip::Reader.open(f) do |gz|
-          @exchanges = Hash(String, Exchange).from_json(gz)
-        end
-      end
-      File.open(File.join(@data_dir, @name, "queues.json.gz")) do |f|
-        Gzip::Reader.open(f) do |gz|
-          @queues = Hash(String, Queue).from_json(gz)
-        end
-      end
+      compact!
+      spawn save!
     end
 
     def save!
-      File.open(File.join(@data_dir, @name, "exchanges.json.gz"), "w") do |f|
-        Gzip::Writer.open(f) do |gz|
-          @exchanges.select { |e| e.durable }.to_json(gz)
+      File.open(File.join(@data_dir, @name, "definitions.amqp"), "a") do |f|
+        loop do
+          @save.receive.encode(f)
         end
       end
-      File.open(File.join(@data_dir, @name, "queues.json.gz"), "w") do |f|
-        Gzip::Writer.open(f) do |gz|
-          @queues.select { |e| e.durable }.to_json(gz)
+    end
+
+    def apply(f : AMQP::Exchange::Declare)
+      @save.send f
+      @exchanges[f.exchange_name] =
+        Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.arguments)
+    end
+
+    def apply(f : AMQP::Queue::Declare)
+      @save.send f
+      @queues[f.queue_name] =
+        Queue.new(f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
+      @exchanges[""].bindings[f.queue_name] = [@queues[f.queue_name]]
+    end
+
+    def apply(f : AMQP::Queue::Bind)
+      @save.send f
+      @exchanges[f.exchange_name].bindings[f.queue_name] = [@vhost.queues[f.queue_name]]
+    end
+
+    def load!
+      File.open(File.join(@data_dir, @name, "definitions.amqp"), "r") do |io|
+        loop do
+          begin
+            f = AMQP::Frame.decode(io)
+            case f
+            when AMQP::Exchange::Declare
+              @exchanges[f.exchange_name] =
+                Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.arguments)
+            when AMQP::Exchange::Delete
+              @exchanges.delete f.exchange_name
+            when AMQP::Queue::Declare
+              @queues[f.queue_name] =
+                Queue.new(f.queue_name, f.durable, f.auto_delete, f.exclusive, f.arguments)
+            when AMQP::Queue::Delete
+              @queues.delete f.queue_name
+            end
+          rescue ex : IO::EOFError
+            break
+          end
+        end
+      end
+    rescue Errno
+      load_default_definitions
+    end
+
+    def compact!
+      File.open(File.join(@data_dir, @name, "definitions.amqp"), "w") do |io|
+        @exchanges.each do |name, e|
+          next unless e.durable
+          f = AMQP::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
+                                          false, e.durable, e.arguments)
+          f.encode(io)
+        end
+        @queues.each do |name, q|
+          next unless q.durable
+          next if q.auto_delete
+          f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
+                                       q.auto_delete, false, q.arguments)
+          f.encode(io)
         end
       end
     end
