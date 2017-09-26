@@ -35,19 +35,18 @@ module AMQPServer
     def apply(f : AMQP::Exchange::Declare)
       @save.send f
       @exchanges[f.exchange_name] =
-        Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
+        Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
     end
 
     def apply(f : AMQP::Queue::Declare)
       @save.send f
       @queues[f.queue_name] =
         Queue.new(f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
-      @exchanges[""].bindings[f.queue_name] = [@queues[f.queue_name]]
     end
 
     def apply(f : AMQP::Queue::Bind)
       @save.send f
-      @exchanges[f.exchange_name].bindings[f.queue_name] = [@vhost.queues[f.queue_name]]
+      @exchanges[f.exchange_name].bindings[f.routing_key] << f.queue_name
     end
 
     def load!
@@ -58,7 +57,7 @@ module AMQPServer
             case f
             when AMQP::Exchange::Declare
               @exchanges[f.exchange_name] =
-                Exchange.new(f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
+                Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
             when AMQP::Exchange::Delete
               @exchanges.delete f.exchange_name
             when AMQP::Queue::Declare
@@ -96,15 +95,8 @@ module AMQPServer
     end
 
     def load_default_definitions
-      @queues = {
-        "q1" => Queue.new("q1", durable: true, auto_delete: false, exclusive: false, arguments: {} of String => AMQP::Field)
-      }
-      @exchanges = {
-        "" => Exchange.new("", type: "direct", durable: true,
-                           auto_delete: false, internal: true,
-                           arguments: {} of String => AMQP::Field,
-                           bindings: { "q1" => [@queues["q1"]] })
-      }
+      @queues["q1"] = Queue.new("q1", durable: true, auto_delete: false, exclusive: false, arguments: {} of String => AMQP::Field)
+      @exchanges[""] = DefaultExchange.new(self)
     end
   end
 end

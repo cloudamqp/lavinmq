@@ -19,14 +19,9 @@ module AMQPServer
         msg = @next_msg
         raise "No msg to write to" if msg.nil?
         msg << bytes
-        send_msg_to_queue(msg) if msg.full?
-      end
-
-      private def send_msg_to_queue(msg)
-        ex = @vhost.exchanges[msg.exchange_name]
-        queues = ex.queues_matching(msg.routing_key)
-        queues.each do |q|
-          q.publish(msg)
+        if msg.full?
+          ex = @vhost.exchanges[msg.exchange_name]
+          ex.publish(msg)
         end
       end
 
