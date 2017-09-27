@@ -141,6 +141,17 @@ module AMQPServer
       end
     end
 
+    private def unbind_queue(frame)
+      if @vhost.queues.has_key? frame.queue_name && @vhost.exchanges.has_key? frame.exchange_name
+        @vhost.apply(frame)
+        send AMQP::Queue::UnbindOk.new(frame.channel)
+      else
+        send AMQP::Channel::Close.new(frame.channel, 401_u16,
+                                      "Queue or exchange does not exists",
+                                      frame.class_id, frame.method_id)
+      end
+    end
+
     private def basic_get(frame)
       if q = @vhost.queues.fetch(frame.queue, nil)
         if msg = q.get
@@ -183,6 +194,8 @@ module AMQPServer
           declare_queue(frame)
         when AMQP::Queue::Bind
           bind_queue(frame)
+        when AMQP::Queue::Unbind
+          unbind_queue(frame)
         when AMQP::Basic::Publish
           @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
         when AMQP::HeaderFrame

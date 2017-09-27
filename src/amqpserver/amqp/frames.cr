@@ -550,6 +550,8 @@ module AMQPServer
         when 21_u16 then BindOk.decode(channel, body)
         when 40_u16 then Delete.decode(channel, body)
         when 41_u16 then DeleteOk.decode(channel, body)
+        when 50_u16 then Unbind.decode(channel, body)
+        when 51_u16 then UnbindOk.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
         end
       end
@@ -712,6 +714,18 @@ module AMQPServer
 
         def self.decode(io)
           raise "Not implemented"
+        end
+      end
+
+      class Unbind < Bind
+        def method_id
+          50_u16
+        end
+      end
+
+      class UnbindOk < BindOk
+        def method_id
+          51_u16
         end
       end
     end
