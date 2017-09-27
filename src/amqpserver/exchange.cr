@@ -11,7 +11,7 @@ module AMQPServer
     def to_json(builder : JSON::Builder)
       {
         name: @name, type: @type, durable: @durable, auto_delete: @auto_delete,
-        internal: @internal, arguments: @arguments,
+        internal: @internal, arguments: @arguments, vhost: @vhost.name,
       }.to_json(builder)
     end
 

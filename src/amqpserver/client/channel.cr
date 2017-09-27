@@ -1,7 +1,7 @@
 module AMQPServer
   class Client
     class Channel
-      def initialize(@client : Client, @vhost : VHost)
+      def initialize(@client : Client)
         @consumers = Array(Consumer).new
       end
 
@@ -20,13 +20,13 @@ module AMQPServer
         raise "No msg to write to" if msg.nil?
         msg << bytes
         if msg.full?
-          ex = @vhost.exchanges[msg.exchange_name]
+          ex = @client.vhost.exchanges[msg.exchange_name]
           ex.publish(msg)
         end
       end
 
       def consume(consume_frame)
-        q = @vhost.queues[consume_frame.queue]
+        q = @client.vhost.queues[consume_frame.queue]
         c = Consumer.new(@client, consume_frame.channel, consume_frame.consumer_tag, q)
         c.register
         @consumers.push c

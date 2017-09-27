@@ -4,6 +4,8 @@ require "./client/*"
 
 module AMQPServer
   class Client
+    getter :socket, :vhost
+
     def initialize(@socket : TCPSocket, @vhost : VHost)
       @channels = Hash(UInt16, Client::Channel).new
       @send_chan = ::Channel(AMQP::Frame).new(16)
@@ -70,7 +72,7 @@ module AMQPServer
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, @vhost)
+      @channels[frame.channel] = Client::Channel.new(self)
       send AMQP::Channel::OpenOk.new(frame.channel)
     end
 

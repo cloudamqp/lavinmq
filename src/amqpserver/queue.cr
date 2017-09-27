@@ -5,7 +5,7 @@ module AMQPServer
     end
 
     getter name, durable, exclusive, auto_delete, arguments
-    def initialize(@name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
+    def initialize(@vhost : VHost, @name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
       @consumers = Array(Client::Channel::Consumer).new
       @wfile = QueueFile.open("/tmp/#{@name}.q", "a")
       @rfile = QueueFile.open("/tmp/#{@name}.q", "r")
@@ -21,7 +21,7 @@ module AMQPServer
       {
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
-        consumers: @consumers.size,
+        consumers: @consumers.size, vhost: @vhost.name,
       }.to_json(json)
     end
 

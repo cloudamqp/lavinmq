@@ -41,7 +41,7 @@ module AMQPServer
     def apply(f : AMQP::Queue::Declare)
       @save.send f
       @queues[f.queue_name] =
-        Queue.new(f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
+        Queue.new(self, f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
     end
 
     def apply(f : AMQP::Queue::Bind)
@@ -62,7 +62,7 @@ module AMQPServer
               @exchanges.delete f.exchange_name
             when AMQP::Queue::Declare
               @queues[f.queue_name] =
-                Queue.new(f.queue_name, f.durable, f.auto_delete, f.exclusive, f.arguments)
+                Queue.new(self, f.queue_name, f.durable, f.auto_delete, f.exclusive, f.arguments)
             when AMQP::Queue::Delete
               @queues.delete f.queue_name
             end
