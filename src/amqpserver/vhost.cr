@@ -96,8 +96,13 @@ module AMQPServer
     end
 
     def load_default_definitions
-      @queues["q1"] = Queue.new("q1", durable: true, auto_delete: false, exclusive: false, arguments: {} of String => AMQP::Field)
       @exchanges[""] = DefaultExchange.new(self)
+      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", "direct",
+                                                    true, false, true)
+      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", "fanout",
+                                                    true, false, true)
+      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", "topic",
+                                                  true, false, true)
     end
   end
 end

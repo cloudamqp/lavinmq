@@ -4,7 +4,7 @@ module AMQPServer
 
     def initialize(@vhost : VHost, @name : String, @type : String, @durable : Bool,
                    @auto_delete : Bool, @internal : Bool,
-                   @arguments : Hash(String, AMQP::Field))
+                   @arguments = Hash(String, AMQP::Field).new)
       @bindings = Hash(String, Array(String)).new { |k| Array(String).new }
     end
 
