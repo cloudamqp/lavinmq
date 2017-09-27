@@ -76,6 +76,7 @@ module AMQPServer
     end
 
     def compact!
+      Dir.mkdir_p File.join(@data_dir, @name)
       File.open(File.join(@data_dir, @name, "definitions.amqp"), "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable
