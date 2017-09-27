@@ -131,13 +131,17 @@ module AMQPServer
     end
 
     private def bind_queue(frame)
-      if @vhost.queues.has_key? frame.queue_name && @vhost.exchanges.has_key? frame.exchange_name
+      if !@vhost.queues.has_key? frame.queue_name
+        send AMQP::Channel::Close.new(frame.channel, 401_u16,
+                                      "Queue doesn't exists",
+                                      frame.class_id, frame.method_id)
+      elsif !@vhost.exchanges.has_key? frame.exchange_name
+        send AMQP::Channel::Close.new(frame.channel, 401_u16,
+                                      "Exchange doesn't exists",
+                                      frame.class_id, frame.method_id)
+      else
         @vhost.apply(frame)
         send AMQP::Queue::BindOk.new(frame.channel)
-      else
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Queue or exchange does not exists",
-                                      frame.class_id, frame.method_id)
       end
     end
 
