@@ -38,6 +38,7 @@ module AMQPServer
         @exchanges[f.exchange_name].bindings[f.routing_key] << f.queue_name
       when AMQP::Queue::Unbind
         @exchanges[f.exchange_name].bindings[f.routing_key].delete(f.queue_name)
+      else raise "Cannot apply frame #{f.class} in vhost #@name"
       end
     end
 
