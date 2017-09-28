@@ -46,6 +46,15 @@ module AMQPServer
       nil
     end
 
+    def close
+      @channels.each do |_id, ch|
+        ch.stop
+      end
+      if cb = @on_close_callback
+        cb.call self
+      end
+    end
+
     def on_close(&blk : Client -> Nil)
       @on_close_callback = blk
     end
@@ -66,9 +75,7 @@ module AMQPServer
     rescue ex : IO::EOFError
       print "Client connection closed ", @socket.remote_address, "\n"
     ensure
-      if cb = @on_close_callback
-        cb.call self
-      end
+      close
     end
 
     private def open_channel(frame)
@@ -180,9 +187,7 @@ module AMQPServer
         when AMQP::Connection::Close
           @socket.write AMQP::Connection::CloseOk.new.to_slice
           @socket.close
-          if cb = @on_close_callback
-            cb.call self
-          end
+          close
           break
         when AMQP::Channel::Open
           open_channel(frame)
@@ -219,9 +224,7 @@ module AMQPServer
     rescue ex : IO::EOFError
       print "Client connection closed ", @socket.remote_address, "\n"
     ensure
-      if cb = @on_close_callback
-        cb.call self
-      end
+      close
     end
 
     def deliver(channel : UInt16, consumer_tag : String, msg : Message)

@@ -71,6 +71,9 @@ module AMQPServer
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       @consumers.delete consumer
+      if @auto_delete && @consumers.size == 0
+        @vhost.queues.delete @name
+      end
     end
   end
 end
