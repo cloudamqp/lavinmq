@@ -4,13 +4,17 @@ module AMQPServer
   class VHost
     getter name, exchanges, queues
 
-    def initialize(@name : String, @data_dir : String)
+    def initialize(@name : String, @server_data_dir : String)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new
       load!
       compact!
       spawn save!
+    end
+
+    def data_dir
+      File.join(@server_data_dir, @name)
     end
 
     def apply(f, loading = false)
@@ -35,15 +39,19 @@ module AMQPServer
         @queues[f.queue_name] =
           Queue.new(self, f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
       when AMQP::Queue::Bind
-        @exchanges[f.exchange_name].bindings[f.routing_key] << f.queue_name
+        @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
-        @exchanges[f.exchange_name].bindings[f.routing_key].delete(f.queue_name)
+        @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key)
       else raise "Cannot apply frame #{f.class} in vhost #@name"
       end
     end
 
+    def close
+      @queues.each { |_, q| q.close }
+    end
+
     private def load!
-      File.open(File.join(@data_dir, @name, "definitions.amqp"), "r") do |io|
+      File.open(File.join(data_dir, "definitions.amqp"), "r") do |io|
         loop do
           begin
             apply AMQP::Frame.decode(io), loading: true
@@ -67,8 +75,8 @@ module AMQPServer
     end
 
     private def compact!
-      Dir.mkdir_p File.join(@data_dir, @name)
-      File.open(File.join(@data_dir, @name, "definitions.amqp"), "w") do |io|
+      Dir.mkdir_p data_dir
+      File.open(File.join(data_dir, "definitions.amqp"), "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable
           next if e.auto_delete
@@ -94,7 +102,7 @@ module AMQPServer
     end
 
     private def save!
-      File.open(File.join(@data_dir, @name, "definitions.amqp"), "a") do |f|
+      File.open(File.join(data_dir, "definitions.amqp"), "a") do |f|
         loop do
           frame = @save.receive
           case frame
