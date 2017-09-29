@@ -4,9 +4,10 @@ require "./client/*"
 
 module AMQPServer
   class Client
-    getter :socket, :vhost
+    getter :socket, :vhost, :channels
 
     def initialize(@socket : TCPSocket, @vhost : VHost)
+      @delivery_tag = 0_u64
       @channels = Hash(UInt16, Client::Channel).new
       @send_chan = ::Channel(AMQP::Frame).new(16)
       spawn read_loop
@@ -227,10 +228,11 @@ module AMQPServer
       close
     end
 
-    def deliver(channel : UInt16, consumer_tag : String, msg : Message)
-      send AMQP::Basic::Deliver.new(channel, consumer_tag, 1_u64, false,
+    def deliver(channel : UInt16, consumer_tag : String, redelivered : Bool, msg : Message)
+      send AMQP::Basic::Deliver.new(channel, consumer_tag, @delivery_tag += 1, redelivered,
                                     msg.exchange_name, msg.routing_key)
       send AMQP::HeaderFrame.new(channel, 60_u16, 0_u16, msg.size, msg.properties)
+      # TODO: split body in FRAME_MAX sizes
       send AMQP::BodyFrame.new(channel, msg.body.to_slice)
     end
 
