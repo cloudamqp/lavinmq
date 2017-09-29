@@ -35,4 +35,17 @@ spawn do
   http_server.listen
 end
 
+Signal::HUP.trap do
+  puts "Reloading"
+end
+shutdown = -> (s : Signal) do
+  print "Terminating..."
+  http_server.close
+  print "HTTP Done..."
+  amqp_server.close
+  print "AMQP Done!\n"
+  exit 0
+end
+Signal::INT.trap &shutdown
+Signal::TERM.trap &shutdown
 sleep
