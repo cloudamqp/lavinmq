@@ -68,10 +68,11 @@ module AMQPServer
       msg << bytes
 
       @index.write_int @rfile.pos.to_u32
+      @message_count -= 1
 
       msg
     rescue ex : IO::EOFError
-      puts "EOF of queue"
+      print "EOF of queue ", @name, "\n"
       nil
     end
 
