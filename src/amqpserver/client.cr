@@ -6,7 +6,10 @@ module AMQPServer
   class Client
     getter :socket, :vhost, :channels
 
+    @remote_address : Socket::IPAddress
+
     def initialize(@socket : TCPSocket, @vhost : VHost)
+      @remote_address = @socket.remote_address
       @delivery_tag = 0_u64
       @channels = Hash(UInt16, Client::Channel).new
       @send_chan = ::Channel(AMQP::Frame).new(16)
@@ -63,7 +66,7 @@ module AMQPServer
 
     def to_json(json : JSON::Builder)
       {
-        address: @socket.remote_address.to_s,
+        address: @remote_address.to_s,
         channels: @channels.size,
       }.to_json(json)
     end
@@ -75,7 +78,7 @@ module AMQPServer
         @socket.write frame.to_slice
       end
     rescue ex : IO::Error | Errno
-      print "Client connection closed ", @socket.remote_address, "\n"
+      print "Client connection ", @remote_address, " closed: ", ex.message, "\n"
     ensure
       close
     end
@@ -224,7 +227,7 @@ module AMQPServer
         end
       end
     rescue ex : IO::Error | Errno
-      print "Client connection closed ", @socket.remote_address, "\n"
+      print "Client connection ", @remote_address, " closed: ", ex.message, "\n"
     ensure
       close
     end
