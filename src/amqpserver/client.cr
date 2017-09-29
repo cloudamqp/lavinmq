@@ -48,6 +48,7 @@ module AMQPServer
     end
 
     def close
+      # FIXME send Connection::Close frame
       @channels.each do |_id, ch|
         ch.close
       end
