@@ -73,7 +73,7 @@ module AMQPServer
         print "<= ", frame.inspect, "\n"
         @socket.write frame.to_slice
       end
-    rescue ex : IO::EOFError
+    rescue ex : IO::Error, Errno
       print "Client connection closed ", @socket.remote_address, "\n"
     ensure
       close
