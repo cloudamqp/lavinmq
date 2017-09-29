@@ -4,18 +4,40 @@ module AMQPServer
       include AMQP::IO
     end
 
+    @message_count : UInt32
     getter name, durable, exclusive, auto_delete, arguments, message_count
+
     def initialize(@vhost : VHost, @name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
       @consumers = Array(Client::Channel::Consumer).new
-      @wfile = QueueFile.open(File.join(@vhost.data_dir, "#@name.q"), "a")
-      @rfile = QueueFile.open(File.join(@vhost.data_dir, "#@name.q"), "r")
-      @index = QueueFile.open(File.join(@vhost.data_dir, "#@name.idx"), "a")
+      @wfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "a")
+      @rfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "r")
+      @index = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.idx"), "a")
       if @index.pos > 0
         @index.seek(-4, IO::Seek::End)
         last_pos = @index.read_uint32
         @rfile.seek(last_pos)
       end
-      @message_count = 0_u32
+      @message_count = count_messages
+    end
+
+    def count_messages : UInt32
+      count = 0_u32
+      loop do
+        begin
+          ex_length = @rfile.read_byte.as(Int)
+          @rfile.seek(ex_length, IO::Seek::Current)
+          rk_length = @rfile.read_byte.as(Int)
+          @rfile.seek(rk_length, IO::Seek::Current)
+          tbl_length = @rfile.read_uint32
+          @rfile.seek(tbl_length, IO::Seek::Current)
+          sz = @rfile.read_uint64
+          @rfile.seek(sz, IO::Seek::Current)
+          count += 1
+        rescue ex : IO::EOFError
+          break
+        end
+      end
+      count
     end
 
     def close(deleting = false)
@@ -29,8 +51,8 @@ module AMQPServer
     def delete
       close(deleting: true)
       @vhost.queues.delete @name
-      File.delete File.join(@vhost.data_dir, "#@name.q")
-      File.delete File.join(@vhost.data_dir, "#@name.idx")
+      File.delete File.join(@vhost.data_dir, "#{@name}.q")
+      File.delete File.join(@vhost.data_dir, "#{@name}.idx")
     end
 
     def to_json(json : JSON::Builder)
@@ -38,6 +60,7 @@ module AMQPServer
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
         consumers: @consumers.size, vhost: @vhost.name,
+        messages: message_count
       }.to_json(json)
     end
 
