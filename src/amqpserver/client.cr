@@ -71,7 +71,7 @@ module AMQPServer
     private def send_loop
       loop do
         frame = @send_chan.receive
-        print "<= ", frame.inspect, "\n"
+        print "<= ", frame.inspect, "\n" if DEBUG
         @socket.write frame.to_slice
       end
     rescue ex : IO::Error, Errno
@@ -184,7 +184,7 @@ module AMQPServer
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        print "=> ", frame.inspect, "\n"
+        print "=> ", frame.inspect, "\n" if DEBUG
         case frame
         when AMQP::Connection::Close
           @socket.write AMQP::Connection::CloseOk.new.to_slice

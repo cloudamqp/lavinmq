@@ -5,6 +5,12 @@ require "option_parser"
 require "file"
 require "ini"
 
+{% if flag?(:release) %}
+  DEBUG = false
+{% else %}
+  DEBUG = true
+{% end %}
+
 port = 5672
 config = ""
 
