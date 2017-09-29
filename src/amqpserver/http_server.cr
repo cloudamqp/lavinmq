@@ -32,5 +32,9 @@ module AMQPServer
       print "HTTP API listening on ", server.local_address, "\n"
       @http.listen
     end
+
+    def close
+      @http.close
+    end
   end
 end

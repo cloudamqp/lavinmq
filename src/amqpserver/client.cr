@@ -48,7 +48,7 @@ module AMQPServer
 
     def close
       @channels.each do |_id, ch|
-        ch.stop
+        ch.close
       end
       if cb = @on_close_callback
         cb.call self
@@ -85,7 +85,7 @@ module AMQPServer
 
     private def close_channel(frame)
       if ch = @channels.delete(frame.channel)
-        ch.stop
+        ch.close
       end
       send AMQP::Channel::CloseOk.new(frame.channel)
     end
@@ -195,7 +195,7 @@ module AMQPServer
           close_channel(frame)
         when AMQP::Channel::CloseOk
           if ch = @channels.delete(frame.channel)
-            ch.stop
+            ch.close
           end
         when AMQP::Exchange::Declare
           declare_exchange(frame)

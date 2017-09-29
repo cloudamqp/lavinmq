@@ -1,6 +1,7 @@
 module AMQPServer
   class Client
     class Channel
+      getter :consumers
       def initialize(@client : Client)
         @consumers = Array(Consumer).new
       end
@@ -27,30 +28,27 @@ module AMQPServer
 
       def consume(consume_frame)
         q = @client.vhost.queues[consume_frame.queue]
-        c = Consumer.new(@client, consume_frame.channel, consume_frame.consumer_tag, q)
-        c.register
-        @consumers.push c
+        Consumer.new(@client, consume_frame.channel, consume_frame.consumer_tag, q)
       end
 
-      def stop
-        @consumers.each { |c| c.deregister }
+      def close
+        @consumers.each { |c| c.close }
       end
 
       class Consumer
         def initialize(@client : Client, @channel : UInt16,
                        @tag : String, @queue : AMQPServer::Queue)
-        end
-
-        def register
           @queue.add_consumer(self)
+          @client.channels[@channel].consumers.push(self)
         end
 
-        def deregister
+        def close
           @queue.rm_consumer(self)
+          @client.channels[@channel].consumers.delete(self)
         end
 
         def deliver(msg)
-          @client.deliver @channel, @tag, msg
+          @client.deliver @channel, @tag, false, msg
         end
       end
     end

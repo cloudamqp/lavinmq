@@ -4,17 +4,33 @@ module AMQPServer
       include AMQP::IO
     end
 
-    getter name, durable, exclusive, auto_delete, arguments
+    getter name, durable, exclusive, auto_delete, arguments, message_count
     def initialize(@vhost : VHost, @name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
       @consumers = Array(Client::Channel::Consumer).new
-      @wfile = QueueFile.open("/tmp/#{@name}.q", "a")
-      @rfile = QueueFile.open("/tmp/#{@name}.q", "r")
-      @index = QueueFile.open("/tmp/#{@name}.idx", "a")
+      @wfile = QueueFile.open(File.join(@vhost.data_dir, "#@name.q"), "a")
+      @rfile = QueueFile.open(File.join(@vhost.data_dir, "#@name.q"), "r")
+      @index = QueueFile.open(File.join(@vhost.data_dir, "#@name.idx"), "a")
       if @index.pos > 0
         @index.seek(-4, IO::Seek::End)
         last_pos = @index.read_uint32
         @rfile.seek(last_pos)
       end
+      @message_count = 0_u32
+    end
+
+    def close(deleting = false)
+      @consumers.each { |c| c.close }
+      @wfile.close
+      @rfile.close
+      @index.close
+      delete if !deleting && @auto_delete
+    end
+
+    def delete
+      close(deleting: true)
+      @vhost.queues.delete @name
+      File.delete File.join(@vhost.data_dir, "#@name.q")
+      File.delete File.join(@vhost.data_dir, "#@name.idx")
     end
 
     def to_json(json : JSON::Builder)
