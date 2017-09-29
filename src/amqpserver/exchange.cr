@@ -40,12 +40,18 @@ module AMQPServer
     end
 
     abstract def queues_matching(routing_key : String) : Array(String)
-    abstract def bind(queue : String, routing_key : String, arguments : Hash(String, AMQP::Field))
+    abstract def bind(queue : String, routing_key : String,
+                      arguments : Hash(String, AMQP::Field))
+    abstract def unbind(queue : String, routing_key : String)
   end
 
   class DirectExchange < Exchange
     def bind(queue_name, routing_key, arguments)
       @bindings[routing_key] << queue_name
+    end
+
+    def unbind(queue_name, routing_key)
+      @bindings[routing_key].delete queue_name
     end
 
     def queues_matching(routing_key)
@@ -65,7 +71,12 @@ module AMQPServer
 
   class FanoutExchange < Exchange
     def bind(queue_name, routing_key, arguments)
+      print "Binding ", queue_name, " to ", @name, "\n"
       @bindings[""] << queue_name
+    end
+
+    def unbind(queue_name, routing_key)
+      @bindings[""].delete queue_name
     end
 
     def queues_matching(routing_key)
@@ -76,6 +87,10 @@ module AMQPServer
   class TopicExchange < Exchange
     def bind(queue_name, routing_key, arguments)
       @bindings[routing_key] << queue_name
+    end
+
+    def unbind(queue_name, routing_key)
+      @bindings[routing_key].delete queue_name
     end
 
     def queues_matching(routing_key)
