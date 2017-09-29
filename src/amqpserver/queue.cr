@@ -103,8 +103,10 @@ module AMQPServer
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      while msg = get
-        consumer.deliver msg
+      spawn do
+        while msg = get
+          consumer.deliver msg
+        end
       end
       @consumers.push consumer
     end
