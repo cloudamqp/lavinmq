@@ -69,14 +69,17 @@ module AMQPServer
     end
 
     def publish(msg : Message)
-      @consumers.sample.deliver(msg) if @consumers.size > 0
-      @wfile.write_short_string msg.exchange_name
-      @wfile.write_short_string msg.routing_key
-      @wfile.write_int msg.size
-      msg.properties.encode @wfile
-      @wfile.write msg.body.to_slice
-      @wfile.flush #if msg.properties.delivery_mode.try { |v| v > 0 }
-      @message_count += 1
+      if @consumers.size > 0
+        @consumers.sample.deliver(msg)
+      else
+        @wfile.write_short_string msg.exchange_name
+        @wfile.write_short_string msg.routing_key
+        @wfile.write_int msg.size
+        msg.properties.encode @wfile
+        @wfile.write msg.body.to_slice
+        @wfile.flush if msg.properties.delivery_mode.try { |v| v > 0 }
+        @message_count += 1
+      end
     end
 
     def get
