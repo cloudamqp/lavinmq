@@ -5,13 +5,14 @@ module AMQPServer
     def initialize(@vhost : VHost, @name : String, @type : String, @durable : Bool,
                    @auto_delete : Bool, @internal : Bool,
                    @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Array(String)).new { |k| Array(String).new }
+      @bindings = Hash(String, Array(String)).new { |h, k| h[k] = Array(String).new }
     end
 
     def to_json(builder : JSON::Builder)
       {
         name: @name, type: @type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
+        bindings: @bindings
       }.to_json(builder)
     end
 
