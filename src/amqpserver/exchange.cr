@@ -5,7 +5,7 @@ module AMQPServer
     def initialize(@vhost : VHost, @name : String, @type : String, @durable : Bool,
                    @auto_delete : Bool, @internal : Bool,
                    @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Array(String)).new { |h, k| h[k] = Array(String).new }
+      @bindings = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
     end
 
     def to_json(builder : JSON::Builder)
@@ -65,13 +65,12 @@ module AMQPServer
     end
 
     def queues_matching(routing_key)
-      @bindings[routing_key] + [routing_key]
+      @bindings[routing_key] & Set.new([routing_key])
     end
   end
 
   class FanoutExchange < Exchange
     def bind(queue_name, routing_key, arguments)
-      print "Binding ", queue_name, " to ", @name, "\n"
       @bindings[""] << queue_name
     end
 
