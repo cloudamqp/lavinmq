@@ -30,14 +30,19 @@ module AMQPServer
       end
     end
 
-    def handle_connection(socket)
+    def close
+      @connections.each { |c| c.close }
+      @vhosts.each { |_, v| v.close }
+    end
+
+    private def handle_connection(socket)
       if client = Client.start(socket, @vhosts)
         @conn_opened.send client
         client.on_close { |c| @conn_closed.send c }
       end
     end
 
-    def handle_connection_events
+    private def handle_connection_events
       loop do
         idx, conn = Channel.select(@conn_opened.receive_select_action,
                                    @conn_closed.receive_select_action)
@@ -50,6 +55,5 @@ module AMQPServer
         print "connection#count=", @connections.size, "\n"
       end
     end
-
   end
 end
