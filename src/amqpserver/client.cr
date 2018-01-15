@@ -58,6 +58,7 @@ module AMQPServer
       if cb = @on_close_callback
         cb.call self
       end
+      @socket.close
     end
 
     def on_close(&blk : Client -> Nil)
@@ -75,6 +76,7 @@ module AMQPServer
       loop do
         frame = @send_chan.receive
         print "<= ", frame.inspect, "\n" if DEBUG
+        break if frame.nil?
         @socket.write frame.to_slice
       end
     rescue ex : IO::Error | Errno
