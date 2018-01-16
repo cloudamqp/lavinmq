@@ -121,7 +121,7 @@ module AMQPServer
 
     private def declare_queue(frame)
       if frame.queue_name.empty?
-        frame.queue_name = "amq.gen-#{SecureRandom.urlsafe_base64(24)}"
+        frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
       end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.durable == frame.durable &&
