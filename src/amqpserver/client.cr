@@ -28,9 +28,9 @@ module AMQPServer
       end
 
       socket.write AMQP::Connection::Start.new.to_slice
-      start_ok = AMQP::Frame.decode socket
+      start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
       socket.write AMQP::Connection::Tune.new(heartbeat: 60_u16).to_slice
-      tune_ok = AMQP::Frame.decode socket
+      tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
           socket.write AMQP::Connection::OpenOk.new.to_slice
