@@ -1,7 +1,15 @@
+require "./amqp/io"
+
 module AMQPServer
   class Queue
     class QueueFile < File
       include AMQP::IO
+    end
+    enum Event
+      ConsumerAdded
+      ConsumerRemoved
+      MessagePublished
+      Close
     end
 
     @message_count : UInt32
@@ -12,35 +20,72 @@ module AMQPServer
       @wfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "a")
       @rfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "r")
       @index = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.idx"), "a")
-      if @index.pos > 0
-        @index.seek(-4, IO::Seek::End)
-        last_pos = @index.read_uint32
-        @rfile.seek(last_pos)
-      end
       @message_count = count_messages
+      @event_channel = Channel(Event).new
+      spawn deliver_loop
+    end
+
+    def reset_rfile_to_index
+      if @index.pos > 3
+        @index.seek(-4, IO::Seek::End)
+        last_pos = @index.read_uint32.to_i
+        @rfile.seek(last_pos)
+      else
+        @rfile.seek(0)
+      end
+    end
+
+    def deliver_loop
+      loop do
+        if @consumers.size > 0
+          if msg = get
+            @consumers.sample.deliver(msg)
+            next
+          end
+        end
+        puts "Waiting for events"
+        event = @event_channel.receive
+        puts event
+        break if event == Event::Close
+      end
     end
 
     def count_messages : UInt32
+      reset_rfile_to_index
+      print "Queue ", @name, ": Counting messages\n"
       count = 0_u32
       loop do
         begin
-          ex_length = @rfile.read_byte.as(Int)
+          puts "rfile pos: #{@rfile.pos}"
+          ex_length = @rfile.read_byte.to_i
+          puts "ex_length: #{ex_length}"
           @rfile.seek(ex_length, IO::Seek::Current)
-          rk_length = @rfile.read_byte.as(Int)
+          puts "rfile pos: #{@rfile.pos}"
+          rk_length = @rfile.read_byte.to_i
+          puts "rk_length: #{rk_length}"
           @rfile.seek(rk_length, IO::Seek::Current)
-          tbl_length = @rfile.read_uint32
+          puts "rfile pos: #{@rfile.pos}"
+          tbl_length = @rfile.read_uint32.to_i
+          puts "tbl_length: #{tbl_length}"
           @rfile.seek(tbl_length, IO::Seek::Current)
-          sz = @rfile.read_uint64
+          puts "rfile pos: #{@rfile.pos}"
+          sz = @rfile.read_uint64.to_i
+          puts "msg sz: #{sz}"
           @rfile.seek(sz, IO::Seek::Current)
+          puts "rfile pos: #{@rfile.pos}"
           count += 1
         rescue ex : IO::EOFError
+          puts "rfile pos: #{@rfile.pos}"
+          reset_rfile_to_index
           break
         end
       end
+      print "Queue ", @name, ": Has ", count, " messages\n"
       count
     end
 
     def close(deleting = false)
+      @event_channel.send Event::Close
       @consumers.each { |c| c.close }
       @wfile.close
       @rfile.close
@@ -69,17 +114,14 @@ module AMQPServer
     end
 
     def publish(msg : Message)
-      if @consumers.size > 0
-        @consumers.sample.deliver(msg)
-      else
-        @wfile.write_short_string msg.exchange_name
-        @wfile.write_short_string msg.routing_key
-        @wfile.write_int msg.size
-        msg.properties.encode @wfile
-        @wfile.write msg.body.to_slice
-        @wfile.flush if msg.properties.delivery_mode.try { |v| v > 0 }
-        @message_count += 1
-      end
+      @wfile.write_short_string msg.exchange_name
+      @wfile.write_short_string msg.routing_key
+      msg.properties.encode @wfile
+      @wfile.write_int msg.size
+      @wfile.write msg.body.to_slice
+      @wfile.flush if msg.properties.delivery_mode.try { |v| v > 0 }
+      @message_count += 1
+      @event_channel.send Event::MessagePublished
     end
 
     def get
@@ -103,15 +145,12 @@ module AMQPServer
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      spawn do
-        while msg = get
-          consumer.deliver msg
-        end
-      end
       @consumers.push consumer
+      @event_channel.send Event::ConsumerAdded
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
+      @event_channel.send Event::ConsumerRemoved
       @consumers.delete consumer
       if @auto_delete && @consumers.size == 0
         delete

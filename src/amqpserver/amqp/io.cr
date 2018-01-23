@@ -45,7 +45,7 @@ module AMQPServer
           else raise "Unknown type: #{value.class}"
           end
         end
-        write_int(tmp.size)
+        write_int(tmp.size.to_u32)
         write tmp.to_slice
       end
 
