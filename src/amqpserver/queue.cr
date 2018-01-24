@@ -43,9 +43,8 @@ module AMQPServer
             next
           end
         end
-        puts "Waiting for events"
         event = @event_channel.receive
-        puts event
+        puts "Queue event #{@name}: #{event}"
         break if event == Event::Close
       end
     end
@@ -74,8 +73,8 @@ module AMQPServer
     end
 
     def close(deleting = false)
-      @event_channel.send Event::Close
       @consumers.each { |c| c.close }
+      @event_channel.send Event::Close
       @wfile.close
       @rfile.close
       @index.close

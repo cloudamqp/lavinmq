@@ -51,9 +51,13 @@ module AMQPServer
     end
 
     def close
+      puts "close channels for connection #{@remote_address}"
       @channels.each_value do |ch|
         ch.close
       end
+      puts "close connection #{@remote_address}"
+      return if @socket.closed?
+      puts "close connection #{@remote_address}, sedning frames"
       send AMQP::Connection::Close.new(200_u16, "Bye", 0_u16, 0_u16)
       send nil
     end
