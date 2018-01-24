@@ -32,7 +32,7 @@ module AMQPServer
 
     def close
       @connections.each { |c| c.close }
-      @vhosts.each { |_, v| v.close }
+      @vhosts.each_value { |v| v.close }
     end
 
     private def handle_connection(socket)

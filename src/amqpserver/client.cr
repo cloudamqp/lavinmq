@@ -12,7 +12,7 @@ module AMQPServer
       @remote_address = @socket.remote_address
       @delivery_tag = 0_u64
       @channels = Hash(UInt16, Client::Channel).new
-      @send_chan = ::Channel(AMQP::Frame).new(16)
+      @send_chan = ::Channel(AMQP::Frame | Nil).new(16)
       spawn read_loop
       spawn send_loop
     end
@@ -51,14 +51,11 @@ module AMQPServer
     end
 
     def close
-      # FIXME send Connection::Close frame
-      @channels.each do |_id, ch|
+      @channels.each_value do |ch|
         ch.close
       end
-      if cb = @on_close_callback
-        cb.call self
-      end
-      @socket.close
+      send AMQP::Connection::Close.new(200_u16, "Bye", 0_u16, 0_u16)
+      send nil
     end
 
     def on_close(&blk : Client -> Nil)
@@ -79,10 +76,15 @@ module AMQPServer
         break if frame.nil?
         @socket.write frame.to_slice
       end
+      puts "closeing write"
+      @socket.close_write
     rescue ex : IO::Error | Errno
-      print "Client connection ", @remote_address, " closed: ", ex.message, "\n"
+      print "Client connection ", @remote_address, " write closed: ", ex.inspect, "\n"
+      @socket.close
     ensure
-      close
+      if cb = @on_close_callback
+        cb.call self
+      end
     end
 
     private def open_channel(frame)
@@ -192,9 +194,11 @@ module AMQPServer
         print "=> ", frame.inspect, "\n" if DEBUG
         case frame
         when AMQP::Connection::Close
-          @socket.write AMQP::Connection::CloseOk.new.to_slice
-          @socket.close
-          close
+          send AMQP::Connection::CloseOk.new
+          send nil
+          break
+        when AMQP::Connection::CloseOk.new
+          send nil
           break
         when AMQP::Channel::Open
           open_channel(frame)
@@ -228,10 +232,16 @@ module AMQPServer
         else print "[ERROR] Unhandled frame ", frame.inspect, "\n"
         end
       end
+      puts "closeing read"
+      @socket.close_read
     rescue ex : IO::Error | Errno
-      print "Client connection ", @remote_address, " closed: ", ex.message, "\n"
+      print "Client connection ", @remote_address, " read closed: ", ex.inspect, "\n"
+      @socket.close
+      send nil
     ensure
-      close
+      if cb = @on_close_callback
+        cb.call self
+      end
     end
 
     def deliver(channel : UInt16, consumer_tag : String, redelivered : Bool, msg : Message)
@@ -242,7 +252,7 @@ module AMQPServer
       send AMQP::BodyFrame.new(channel, msg.body.to_slice)
     end
 
-    private def send(frame : AMQP::Frame)
+    private def send(frame : AMQP::Frame | Nil)
       @send_chan.send frame
     end
   end
