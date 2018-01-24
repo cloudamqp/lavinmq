@@ -56,26 +56,15 @@ module AMQPServer
       count = 0_u32
       loop do
         begin
-          puts "rfile pos: #{@rfile.pos}"
           ex_length = @rfile.read_byte.to_i
-          puts "ex_length: #{ex_length}"
           @rfile.seek(ex_length, IO::Seek::Current)
-          puts "rfile pos: #{@rfile.pos}"
           rk_length = @rfile.read_byte.to_i
-          puts "rk_length: #{rk_length}"
           @rfile.seek(rk_length, IO::Seek::Current)
-          puts "rfile pos: #{@rfile.pos}"
-          tbl_length = @rfile.read_uint32.to_i
-          puts "tbl_length: #{tbl_length}"
-          @rfile.seek(tbl_length, IO::Seek::Current)
-          puts "rfile pos: #{@rfile.pos}"
+          AMQP::Properties.seek_past @rfile
           sz = @rfile.read_uint64.to_i
-          puts "msg sz: #{sz}"
           @rfile.seek(sz, IO::Seek::Current)
-          puts "rfile pos: #{@rfile.pos}"
           count += 1
         rescue ex : IO::EOFError
-          puts "rfile pos: #{@rfile.pos}"
           reset_rfile_to_index
           break
         end
@@ -127,8 +116,8 @@ module AMQPServer
     def get
       ex = @rfile.read_short_string
       rk = @rfile.read_short_string
-      sz = @rfile.read_uint64
       pr = AMQP::Properties.decode @rfile
+      sz = @rfile.read_uint64
       bytes = Bytes.new(sz)
       @rfile.read(bytes)
 

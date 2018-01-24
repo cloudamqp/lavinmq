@@ -77,6 +77,24 @@ module AMQPServer
                      @reserved1 : String?)
       end
 
+      def self.seek_past(io)
+        flags = io.read_uint16
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_CONTENT_TYPE > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_CONTENT_ENCODING > 0
+        io.seek(io.read_uint64.to_i, ::IO::Seek::Current)   if flags & FLAG_HEADERS > 0
+        io.seek(1, ::IO::Seek::Current)                     if flags & FLAG_DELIVERY_MODE > 0
+        io.seek(1, ::IO::Seek::Current)                     if flags & FLAG_PRIORITY > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_CORRELATION_ID > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_REPLY_TO > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_EXPIRATION > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_MESSAGE_ID > 0
+        io.seek(4, ::IO::Seek::Current)                     if flags & FLAG_TIMESTAMP > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_TYPE > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_USER_ID > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_APP_ID > 0
+        io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_RESERVED1 > 0
+      end
+
       def self.decode(io)
         flags = io.read_uint16
         content_type = io.read_short_string     if flags & FLAG_CONTENT_TYPE > 0
