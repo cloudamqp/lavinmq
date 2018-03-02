@@ -8,7 +8,7 @@ module AMQPServer
 
     @remote_address : Socket::IPAddress
 
-    def initialize(@socket : TCPSocket, @vhost : VHost)
+    def initialize(@socket : TCPSocket, @vhost : VHost, @log : Logger)
       @remote_address = @socket.remote_address
       @delivery_tag = 0_u64
       @channels = Hash(UInt16, Client::Channel).new
@@ -17,7 +17,7 @@ module AMQPServer
       spawn send_loop
     end
 
-    def self.start(socket, vhosts)
+    def self.start(socket, vhosts, log)
       start = Bytes.new(8)
       bytes = socket.read_fully(start)
 
@@ -33,10 +33,11 @@ module AMQPServer
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
-          socket.write AMQP::Connection::OpenOk.new.to_slice
-        return self.new(socket, vhost)
+        socket.write AMQP::Connection::OpenOk.new.to_slice
+        log.info "Accepting connection from #{socket.remote_address} to vhost #{open.vhost}"
+        return self.new(socket, vhost, log)
       else
-        print "Access denied for", socket.remote_address, " to vhost ", open.vhost, "\n"
+        log.warn "Access denied for #{socket.remote_address} to vhost #{open.vhost}"
         socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
                                                  open.class_id, open.method_id).to_slice
         socket.close
@@ -73,14 +74,14 @@ module AMQPServer
     private def send_loop
       loop do
         frame = @send_chan.receive
-        print "<= ", frame.inspect, "\n" if DEBUG
+        @log.debug "<= #{frame.inspect}"
         break if frame.nil?
         @socket.write frame.to_slice
       end
-      puts "closeing write"
+      @log.debug "closeing write"
       @socket.close_write
     rescue ex : IO::Error | Errno
-      print "Client connection ", @remote_address, " write closed: ", ex.inspect, "\n"
+      @log.error "Client connection #@remote_address write closed: #{ex.inspect}"
       @socket.close
     ensure
       if cb = @on_close_callback
@@ -192,7 +193,7 @@ module AMQPServer
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        print "=> ", frame.inspect, "\n" if DEBUG
+        @log.debug "=> #{frame.inspect}"
         case frame
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
@@ -230,13 +231,13 @@ module AMQPServer
           basic_get(frame)
         when AMQPServer::AMQP::HeartbeatFrame
           send AMQPServer::AMQP::HeartbeatFrame.new
-        else print "[ERROR] Unhandled frame ", frame.inspect, "\n"
+        else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
         end
       end
-      puts "closeing read"
+      @log.info "closeing read"
       @socket.close_read
     rescue ex : IO::Error | Errno
-      print "Client connection ", @remote_address, " read closed: ", ex.inspect, "\n"
+      @log.error "Client connection #@remote_address read closed: #{ex.inspect}"
       @socket.close
       send nil
     ensure

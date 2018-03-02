@@ -4,7 +4,7 @@ module AMQPServer
   class VHost
     getter name, exchanges, queues
 
-    def initialize(@name : String, @server_data_dir : String)
+    def initialize(@name : String, @server_data_dir : String, @log : Logger)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new
