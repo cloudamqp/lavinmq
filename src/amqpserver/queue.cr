@@ -1,3 +1,4 @@
+require "logger"
 require "./amqp/io"
 
 module AMQPServer
@@ -13,9 +14,11 @@ module AMQPServer
     end
 
     @message_count : UInt32
+    @log : Logger
     getter name, durable, exclusive, auto_delete, arguments, message_count
 
     def initialize(@vhost : VHost, @name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
+      @log = @vhost.log
       @consumers = Array(Client::Channel::Consumer).new
       @wfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "a")
       @rfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "r")
@@ -44,14 +47,14 @@ module AMQPServer
           end
         end
         event = @event_channel.receive
-        puts "Queue event #{@name}: #{event}"
+        @log.debug "Queue event #{@name}: #{event}"
         break if event == Event::Close
       end
     end
 
     def count_messages : UInt32
       reset_rfile_to_index
-      print "Queue ", @name, ": Counting messages\n"
+      @log.debug "Queue #@name: Counting messages"
       count = 0_u32
       loop do
         begin
@@ -68,7 +71,7 @@ module AMQPServer
           break
         end
       end
-      print "Queue ", @name, ": Has ", count, " messages\n"
+      @log.debug "Queue #@name: Has #{count} messages"
       count
     end
 
@@ -128,7 +131,7 @@ module AMQPServer
 
       msg
     rescue ex : IO::EOFError
-      print "EOF of queue ", @name, "\n"
+      @log.info "EOF of queue #@name"
       nil
     end
 

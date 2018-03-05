@@ -13,6 +13,9 @@ module AMQPServer
 
     def initialize(data_dir : String, log_level = Logger::INFO)
       @log = Logger.new(STDOUT)
+      @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
+        io << message
+      end
       @connections = Array(Client).new
       @conn_opened = Channel(Client).new
       @conn_closed = Channel(Client).new
@@ -21,7 +24,7 @@ module AMQPServer
     end
 
     def listen(port : Int)
-      server = TCPServer.new("localhost", port)
+      server = TCPServer.new("::", port)
       @log.info "Server listening on #{server.local_address}"
       loop do
         if socket = server.accept?

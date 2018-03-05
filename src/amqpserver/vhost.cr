@@ -2,7 +2,7 @@ require "json"
 
 module AMQPServer
   class VHost
-    getter name, exchanges, queues
+    getter name, exchanges, queues, log
 
     def initialize(@name : String, @server_data_dir : String, @log : Logger)
       @exchanges = Hash(String, Exchange).new

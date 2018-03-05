@@ -44,10 +44,7 @@ module AMQPServer
         return nil
       end
     rescue ex
-      puts ex.inspect
-      ex.backtrace.each do |l|
-        puts l
-      end
+      log.error ex.inspect_with_backtrace
       nil
     end
 
