@@ -2,3 +2,5 @@
 /lib/
 /bin/
 /.shards/
+/.vagrant/
+*.log
