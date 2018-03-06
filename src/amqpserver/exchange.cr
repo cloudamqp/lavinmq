@@ -16,13 +16,6 @@ module AMQPServer
       }.to_json(builder)
     end
 
-    def publish(msg)
-      queues = queues_matching(msg.routing_key)
-      queues.each do |q|
-        @vhost.queues[q].publish(msg)
-      end
-    end
-
     def self.make(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"

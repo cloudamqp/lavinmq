@@ -17,25 +17,17 @@ module AMQPServer
     @log : Logger
     getter name, durable, exclusive, auto_delete, arguments, message_count
 
-    def initialize(@vhost : VHost, @name : String, @durable : Bool, @exclusive : Bool, @auto_delete : Bool, @arguments : Hash(String, AMQP::Field))
+    def initialize(@vhost : VHost, @name : String, @durable : Bool,
+                   @exclusive : Bool, @auto_delete : Bool,
+                   @arguments : Hash(String, AMQP::Field))
       @log = @vhost.log
       @consumers = Array(Client::Channel::Consumer).new
-      @wfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "a")
-      @rfile = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.q"), "r")
-      @index = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.idx"), "a")
       @message_count = count_messages
       @event_channel = Channel(Event).new
+      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a")
+      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a")
+      @msgs = QueueFile.open(File.join(@vhost.data_dir, "messages.0"), "r")
       spawn deliver_loop
-    end
-
-    def reset_rfile_to_index
-      if @index.pos > 3
-        @index.seek(-4, IO::Seek::End)
-        last_pos = @index.read_uint32.to_i
-        @rfile.seek(last_pos)
-      else
-        @rfile.seek(0)
-      end
     end
 
     def deliver_loop
@@ -53,42 +45,47 @@ module AMQPServer
     end
 
     def count_messages : UInt32
-      reset_rfile_to_index
-      @log.debug "Queue #@name: Counting messages"
-      count = 0_u32
-      loop do
-        begin
-          ex_length = @rfile.read_byte.to_i
-          @rfile.seek(ex_length, IO::Seek::Current)
-          rk_length = @rfile.read_byte.to_i
-          @rfile.seek(rk_length, IO::Seek::Current)
-          AMQP::Properties.seek_past @rfile
-          sz = @rfile.read_uint64.to_i
-          @rfile.seek(sz, IO::Seek::Current)
-          count += 1
-        rescue ex : IO::EOFError
-          reset_rfile_to_index
-          break
-        end
+      @log.debug "Queue #{@name}: Counting messages"
+      last_ack = 0_u64
+      begin
+        rack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "r")
+        rack.seek(-4, IO::Seek::End)
+        last_ack = rack.read_uint64
+      rescue ex : IO::EOFError
+      ensure
+        rack.close
       end
-      @log.debug "Queue #@name: Has #{count} messages"
-      count
+
+      begin
+        renq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "r")
+        loop do
+          enq_offset = renq.read_uint64
+          break if enq_offset >= last_ack
+        end
+        msgs_since_last_ack = (renq.size - renq.pos) / 4
+        @log.debug "Queue #{@name}: Has #{msgs_since_last_ack} messages"
+        msgs_since_last_ack
+      rescue ex : IO::EOFError
+        return 0
+      ensure
+        renq.close
+      end
     end
 
     def close(deleting = false)
       @consumers.each { |c| c.close }
       @event_channel.send Event::Close
-      @wfile.close
-      @rfile.close
-      @index.close
+      @ack.close
+      @enq.close
+      @msgs.close
       delete if !deleting && @auto_delete
     end
 
     def delete
       close(deleting: true)
       @vhost.queues.delete @name
-      File.delete File.join(@vhost.data_dir, "#{@name}.q")
-      File.delete File.join(@vhost.data_dir, "#{@name}.idx")
+      File.delete File.join(@vhost.data_dir, "#{@name}.enq")
+      File.delete File.join(@vhost.data_dir, "#{@name}.ack")
     end
 
     def to_json(json : JSON::Builder)
@@ -104,13 +101,9 @@ module AMQPServer
       @consumers.size.to_u32
     end
 
-    def publish(msg : Message)
-      @wfile.write_short_string msg.exchange_name
-      @wfile.write_short_string msg.routing_key
-      msg.properties.encode @wfile
-      @wfile.write_int msg.size
-      @wfile.write msg.body.to_slice
-      @wfile.flush if msg.properties.delivery_mode.try { |v| v > 0 }
+    def publish(offset, flush = false)
+      @wfile.write_int offset
+      @wfile.flush if flush
       @message_count += 1
       @event_channel.send Event::MessagePublished
     end
