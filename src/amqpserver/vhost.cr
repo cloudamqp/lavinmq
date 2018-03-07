@@ -1,5 +1,5 @@
 require "json"
-require "./message_store"
+require "./amqp/io"
 
 module AMQPServer
   class VHost
@@ -8,34 +8,35 @@ module AMQPServer
     end
     getter name, exchanges, queues, log
 
+    @offset : UInt64
     def initialize(@name : String, @server_data_dir : String, @log : Logger)
+      @offset = last_offset
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new
+      @wfile = MessageFile.open(File.join(data_dir, "messages.0"), "a")
       load!
       compact!
       spawn save!
-      @offset = last_offset
-      @wfile = MessageFile.open(File.join(data_dir, "messages.0"), "a")
     end
 
-    def last_offset
-      offset = 0
+    def last_offset : UInt64
+      offset = 0_u64
       filename = File.join(data_dir, "messages.0")
       return offset unless File.exists? filename
       file = MessageFile.open(filename, "r")
       loop do
         offset = file.read_uint64
-        header_size = file.read_u32
+        header_size = file.read_uint32
         file.seek(header_size, ::IO::Seek::Current)
-        body_size = file.read_u32
+        body_size = file.read_uint32
         file.seek(body_size, ::IO::Seek::Current)
       end
-      offset
-    rescue ex : IO::EOFError
-      return offset
+      offset.not_nil!
+    rescue
+      offset.not_nil!
     ensure
-      file.close
+      file.close if file
     end
 
     def publish(msg : Message)
@@ -54,10 +55,9 @@ module AMQPServer
       msg.properties.encode @wfile
       @wfile.write_int msg.size
       @wfile.write msg.body.to_slice
-      @wfile.write 
       flush = msg.properties.delivery_mode.try { |v| v > 0 }
       @wfile.flush if flush
-      queues.publish(offset, flush)
+      queues.each { |q| @queues[q].publish(@offset, flush) }
     end
 
     def data_dir

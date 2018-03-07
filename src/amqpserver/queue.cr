@@ -27,14 +27,16 @@ module AMQPServer
       @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a")
       @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a")
       @msgs = QueueFile.open(File.join(@vhost.data_dir, "messages.0"), "r")
+      @unacked = Set(UInt64).new
       spawn deliver_loop
     end
 
     def deliver_loop
       loop do
         if @consumers.size > 0
-          if msg = get
-            @consumers.sample.deliver(msg)
+          c = @consumers.sample 
+          if msg = get(c.no_ack)
+            c.deliver(msg)
             next
           end
         end
@@ -47,8 +49,8 @@ module AMQPServer
     def count_messages : UInt32
       @log.debug "Queue #{@name}: Counting messages"
       last_ack = 0_u64
+      rack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "r")
       begin
-        rack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "r")
         rack.seek(-4, IO::Seek::End)
         last_ack = rack.read_uint64
       rescue ex : IO::EOFError
@@ -56,17 +58,17 @@ module AMQPServer
         rack.close
       end
 
+      renq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "r")
       begin
-        renq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "r")
         loop do
           enq_offset = renq.read_uint64
           break if enq_offset >= last_ack
         end
         msgs_since_last_ack = (renq.size - renq.pos) / 4
         @log.debug "Queue #{@name}: Has #{msgs_since_last_ack} messages"
-        msgs_since_last_ack
+        msgs_since_last_ack.to_u32
       rescue ex : IO::EOFError
-        return 0
+        return 0_u32
       ensure
         renq.close
       end
@@ -102,26 +104,30 @@ module AMQPServer
     end
 
     def publish(offset, flush = false)
-      @wfile.write_int offset
-      @wfile.flush if flush
+      @enq.write_int offset
+      @enq.flush if flush
       @message_count += 1
       @event_channel.send Event::MessagePublished
     end
 
-    def get
-      ex = @rfile.read_short_string
-      rk = @rfile.read_short_string
-      pr = AMQP::Properties.decode @rfile
-      sz = @rfile.read_uint64
-      bytes = Bytes.new(sz)
-      @rfile.read(bytes)
+    def get(no_ack = true)
+      offset = @enq.read_uint64
+      if no_ack
+        @ack.write_int offset
+        @message_count -= 1
+      else
+        @unacked << offset
+      end
 
+      hs = @msgs.read_uint32
+      ex = @msgs.read_short_string
+      rk = @msgs.read_short_string
+      pr = AMQP::Properties.decode @msgs
+      sz = @msgs.read_uint64
+      bd = Bytes.new(sz)
+      @msgs.read(bd)
       msg = Message.new(ex, rk, sz, pr)
-      msg << bytes
-
-      @index.write_int @rfile.pos.to_u32
-      @message_count -= 1
-
+      msg << bd
       msg
     rescue ex : IO::EOFError
       @log.info "EOF of queue #@name"

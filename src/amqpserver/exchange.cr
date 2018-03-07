@@ -32,7 +32,7 @@ module AMQPServer
       end
     end
 
-    abstract def queues_matching(routing_key : String) : Array(String)
+    abstract def queues_matching(routing_key : String) : Set(String)
     abstract def bind(queue : String, routing_key : String,
                       arguments : Hash(String, AMQP::Field))
     abstract def unbind(queue : String, routing_key : String)
@@ -97,7 +97,7 @@ module AMQPServer
           ok = true if part == "*" || part == rk_parts[i]
         end
         ok
-      end.values.flatten
+      end.values
     end
   end
 end

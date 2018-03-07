@@ -10,9 +10,8 @@ module AMQPServer
 
     def initialize(@socket : TCPSocket, @vhost : VHost, @log : Logger)
       @remote_address = @socket.remote_address
-      @delivery_tag = 0_u64
       @channels = Hash(UInt16, Client::Channel).new
-      @send_chan = ::Channel(AMQP::Frame | Nil).new(16)
+      @outbox = ::Channel(AMQP::Frame | Nil).new(16)
       spawn read_loop
       spawn send_loop
     end
@@ -70,7 +69,7 @@ module AMQPServer
 
     private def send_loop
       loop do
-        frame = @send_chan.receive
+        frame = @outbox.receive
         @log.debug "<= #{frame.inspect}"
         break if frame.nil?
         @socket.write frame.to_slice
@@ -89,13 +88,6 @@ module AMQPServer
     private def open_channel(frame)
       @channels[frame.channel] = Client::Channel.new(self)
       send AMQP::Channel::OpenOk.new(frame.channel)
-    end
-
-    private def close_channel(frame)
-      if ch = @channels.delete(frame.channel)
-        ch.close
-      end
-      send AMQP::Channel::CloseOk.new(frame.channel)
     end
 
     private def declare_exchange(frame)
@@ -171,22 +163,6 @@ module AMQPServer
       end
     end
 
-    private def basic_get(frame)
-      if q = @vhost.queues.fetch(frame.queue, nil)
-        if msg = q.get
-          send AMQP::Basic::GetOk.new(frame.channel, 1_u64, false, msg.exchange_name,
-                                      msg.routing_key, 1_u32)
-          send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-          send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
-        else
-          send AMQP::Basic::GetEmpty.new(frame.channel)
-        end
-      else
-        reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@vhost.name}'"
-        send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code, frame.class_id, frame.method_id)
-      end
-    end
-
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
@@ -202,7 +178,10 @@ module AMQPServer
         when AMQP::Channel::Open
           open_channel(frame)
         when AMQP::Channel::Close
-          close_channel(frame)
+          if ch = @channels.delete(frame.channel)
+            ch.close
+          end
+          send AMQP::Channel::CloseOk.new(frame.channel)
         when AMQP::Channel::CloseOk
           if ch = @channels.delete(frame.channel)
             ch.close
@@ -225,7 +204,7 @@ module AMQPServer
           @channels[frame.channel].consume(frame)
           send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         when AMQP::Basic::Get
-          basic_get(frame)
+          @channels[frame.channel].basic_get(frame)
         when AMQPServer::AMQP::HeartbeatFrame
           send AMQPServer::AMQP::HeartbeatFrame.new
         else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
@@ -234,7 +213,7 @@ module AMQPServer
       @log.info "closeing read"
       @socket.close_read
     rescue ex : IO::Error | Errno
-      @log.error "Client connection #@remote_address read closed: #{ex.inspect}"
+      @log.error "Client connection #{@remote_address} read closed: #{ex.inspect}"
       @socket.close
       send nil
     ensure
@@ -243,16 +222,8 @@ module AMQPServer
       end
     end
 
-    def deliver(channel : UInt16, consumer_tag : String, redelivered : Bool, msg : Message)
-      send AMQP::Basic::Deliver.new(channel, consumer_tag, @delivery_tag += 1, redelivered,
-                                    msg.exchange_name, msg.routing_key)
-      send AMQP::HeaderFrame.new(channel, 60_u16, 0_u16, msg.size, msg.properties)
-      # TODO: split body in FRAME_MAX sizes
-      send AMQP::BodyFrame.new(channel, msg.body.to_slice)
-    end
-
-    private def send(frame : AMQP::Frame | Nil)
-      @send_chan.send frame
+    def send(frame : AMQP::Frame | Nil)
+      @outbox.send frame
     end
   end
 end
