@@ -205,6 +205,8 @@ module AMQPServer
           send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         when AMQP::Basic::Get
           @channels[frame.channel].basic_get(frame)
+        when AMQP::Basic::Ack
+          @channels[frame.channel].basic_ack(frame)
         when AMQPServer::AMQP::HeartbeatFrame
           send AMQPServer::AMQP::HeartbeatFrame.new
         else @log.error "[ERROR] Unhandled frame #{frame.inspect}"

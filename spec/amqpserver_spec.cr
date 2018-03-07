@@ -10,7 +10,7 @@ describe AMQPServer::Server do
       ch1 = conn.channel
       ch2 = conn.channel
       q = ch2.queue("", auto_delete: true, durable: false, exclusive: true)
-      x = ch1.exchange("amq.direct", "direct", auto_delete: false, durable: true)
+      x = ch1.exchange("", "direct", auto_delete: false, durable: true)
       pmsg = AMQP::Message.new("test message")
       x.publish pmsg, q.name
       msg = q.get

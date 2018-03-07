@@ -35,8 +35,9 @@ module AMQPServer
       loop do
         if @consumers.size > 0
           c = @consumers.sample 
-          if msg = get(c.no_ack)
-            c.deliver(msg)
+          msg, offset = get(c.no_ack)
+          if msg
+            c.deliver(msg, offset, self)
             next
           end
         end
@@ -72,6 +73,8 @@ module AMQPServer
       ensure
         renq.close
       end
+    rescue ex : Errno
+      0_u32
     end
 
     def close(deleting = false)
@@ -110,7 +113,7 @@ module AMQPServer
       @event_channel.send Event::MessagePublished
     end
 
-    def get(no_ack = true)
+    def get(no_ack = true) : Tuple(Message | Nil, UInt64)
       offset = @enq.read_uint64
       if no_ack
         @ack.write_int offset
@@ -128,10 +131,16 @@ module AMQPServer
       @msgs.read(bd)
       msg = Message.new(ex, rk, sz, pr)
       msg << bd
-      msg
+      { msg, offset }
     rescue ex : IO::EOFError
       @log.info "EOF of queue #@name"
-      nil
+      { nil, 0_u64 }
+    end
+
+    def ack(offset : UInt64)
+      @ack.write_int offset
+      @message_count -= 1
+      @unacked.delete(offset)
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)

@@ -745,6 +745,7 @@ module AMQPServer
         when 70_u16 then Get.decode(channel, body)
         when 71_u16 then GetOk.decode(channel, body)
         when 72_u16 then GetEmpty.decode(channel, body)
+        when 80_u16 then Ack.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
         end
       end
@@ -865,6 +866,27 @@ module AMQPServer
         def self.decode(channel, io)
           reserved1 = io.read_uint16
           self.new channel, reserved1
+        end
+      end
+
+      class Ack < Basic
+        def method_id
+          80_u16
+        end
+
+        getter :delivery_tag, :multiple
+        def initialize(channel, @delivery_tag : UInt64, @multiple : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          delivery_tag = io.read_uint64
+          multiple = io.read_bool
+          self.new channel, delivery_tag, multiple
         end
       end
 
