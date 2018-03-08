@@ -23,18 +23,21 @@ module AMQPServer
       @log = @vhost.log
       @consumers = Array(Client::Channel::Consumer).new
       @message_count = count_messages
+      @log.info "Queue #{@name}: Has #{@message_count} messages"
       @event_channel = Channel(Event).new
-      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a")
-      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a")
+      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a+")
+      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a+")
       @msgs = QueueFile.open(File.join(@vhost.data_dir, "messages.0"), "r")
       @unacked = Set(UInt64).new
+      @queue = Deque(UInt64).new
       spawn deliver_loop
     end
 
     def deliver_loop
       loop do
+        @log.info "Delivery loop stage 1"
         if @consumers.size > 0
-          c = @consumers.sample 
+          c = @consumers.sample
           msg, offset = get(c.no_ack)
           if msg
             c.deliver(msg, offset, self)
@@ -45,35 +48,29 @@ module AMQPServer
         @log.debug "Queue event #{@name}: #{event}"
         break if event == Event::Close
       end
+    rescue ex
+      @log.error "Queue delivery loop: #{ex.inspect}"
+      raise ex
     end
 
     def count_messages : UInt32
-      @log.debug "Queue #{@name}: Counting messages"
+      @log.info "Queue #{@name}: Counting messages"
       last_ack = 0_u64
-      rack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "r")
-      begin
+      QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "r") do |rack|
         rack.seek(-4, IO::Seek::End)
         last_ack = rack.read_uint64
-      rescue ex : IO::EOFError
-      ensure
-        rack.close
       end
 
-      renq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "r")
-      begin
+      QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "r") do |renq|
         loop do
           enq_offset = renq.read_uint64
           break if enq_offset >= last_ack
         end
         msgs_since_last_ack = (renq.size - renq.pos) / 4
-        @log.debug "Queue #{@name}: Has #{msgs_since_last_ack} messages"
-        msgs_since_last_ack.to_u32
-      rescue ex : IO::EOFError
-        return 0_u32
-      ensure
-        renq.close
+        @log.info "Queue #{@name}: Has #{msgs_since_last_ack} messages"
+        return msgs_since_last_ack.to_u32
       end
-    rescue ex : Errno
+    rescue
       0_u32
     end
 
@@ -87,6 +84,7 @@ module AMQPServer
     end
 
     def delete
+      @log.info "deleting queue #{@name}"
       close(deleting: true)
       @vhost.queues.delete @name
       File.delete File.join(@vhost.data_dir, "#{@name}.enq")
@@ -107,14 +105,19 @@ module AMQPServer
     end
 
     def publish(offset, flush = false)
+      @log.info "Publihsing message #{offset} in queue #{@name}"
+      @queue.push offset
       @enq.write_int offset
       @enq.flush if flush
       @message_count += 1
       @event_channel.send Event::MessagePublished
+      @log.info "Published message #{offset} in queue #{@name}"
     end
 
     def get(no_ack = true) : Tuple(Message | Nil, UInt64)
-      offset = @enq.read_uint64
+      @log.info "Getting message from queue #{@name}"
+      offset = @queue.pop
+      @log.info "Trying to read message #{offset} for queue #{@name}"
       if no_ack
         @ack.write_int offset
         @message_count -= 1
@@ -122,6 +125,8 @@ module AMQPServer
         @unacked << offset
       end
 
+      @log.info "@msgs pos: #{@msgs.pos}"
+      os = @msgs.read_uint64
       hs = @msgs.read_uint32
       ex = @msgs.read_short_string
       rk = @msgs.read_short_string
@@ -131,9 +136,10 @@ module AMQPServer
       @msgs.read(bd)
       msg = Message.new(ex, rk, sz, pr)
       msg << bd
+      @log.info "Got message from queue #{@name}"
       { msg, offset }
-    rescue ex : IO::EOFError
-      @log.info "EOF of queue #@name"
+    rescue ex : IO::EOFError | Errno
+      @log.info "EOF of queue #{@name}"
       { nil, 0_u64 }
     end
 
@@ -149,6 +155,7 @@ module AMQPServer
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
+      @log.info "Removing consumer from queue #{@name}"
       @event_channel.send Event::ConsumerRemoved
       @consumers.delete consumer
       if @auto_delete && @consumers.size == 0

@@ -58,7 +58,7 @@ module AMQPServer
     end
 
     def queues_matching(routing_key)
-      @bindings[routing_key] & Set.new([routing_key])
+      @bindings[routing_key].concat([routing_key])
     end
   end
 

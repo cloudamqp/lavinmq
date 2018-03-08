@@ -70,14 +70,14 @@ module AMQPServer
     private def send_loop
       loop do
         frame = @outbox.receive
-        @log.debug "<= #{frame.inspect}"
+        @log.info "<= #{frame.inspect}"
         break if frame.nil?
         @socket.write frame.to_slice
       end
       @log.debug "closeing write"
       @socket.close_write
     rescue ex : IO::Error | Errno
-      @log.error "Client connection #@remote_address write closed: #{ex.inspect}"
+      @log.error "Client connection #{@remote_address} write closed: #{ex.inspect}"
       @socket.close
     ensure
       if cb = @on_close_callback
@@ -166,7 +166,7 @@ module AMQPServer
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.debug "=> #{frame.inspect}"
+        @log.info "=> #{frame.inspect}"
         case frame
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
@@ -202,7 +202,6 @@ module AMQPServer
           @channels[frame.channel].add_content(frame.body)
         when AMQP::Basic::Consume
           @channels[frame.channel].consume(frame)
-          send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         when AMQP::Basic::Get
           @channels[frame.channel].basic_get(frame)
         when AMQP::Basic::Ack

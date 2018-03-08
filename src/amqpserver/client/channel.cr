@@ -1,7 +1,7 @@
 module AMQPServer
   class Client
     class Channel
-      getter :client, :consumers
+      getter :client
 
       def initialize(@client : Client)
         @consumers = Array(Consumer).new
@@ -28,7 +28,9 @@ module AMQPServer
 
       def consume(frame)
         q = @client.vhost.queues[frame.queue]
-        Consumer.new(self, frame.channel, frame.consumer_tag, q, frame.no_ack)
+        c = Consumer.new(self, frame.channel, frame.consumer_tag, q, frame.no_ack)
+        @consumers.push(c)
+        @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
       end
 
       def basic_get(frame)
@@ -66,6 +68,7 @@ module AMQPServer
 
       def close
         @consumers.each { |c| c.close }
+        @consumers.clear
       end
 
       def next_delivery_tag(offset : UInt64, queue : Queue) : UInt64
@@ -79,12 +82,10 @@ module AMQPServer
         def initialize(@channel : Client::Channel, @channel_id : UInt16,
                        @tag : String, @queue : AMQPServer::Queue, @no_ack : Bool)
           @queue.add_consumer(self)
-          @channel.consumers.push(self)
         end
 
         def close
           @queue.rm_consumer(self)
-          @channel.consumers.delete(self)
         end
 
         def deliver(msg, offset, queue, redelivered = false)

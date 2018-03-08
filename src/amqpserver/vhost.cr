@@ -40,9 +40,11 @@ module AMQPServer
     end
 
     def publish(msg : Message)
+      @log.info "Publihsing message"
       ex = @exchanges[msg.exchange_name]?
       return if ex.nil?
       queues = ex.queues_matching(msg.routing_key)
+      @log.info "Matching queues: #{queues}"
       return if queues.empty?
 
       @wfile.write_int(@offset += 1)
@@ -55,7 +57,7 @@ module AMQPServer
       msg.properties.encode @wfile
       @wfile.write_int msg.size
       @wfile.write msg.body.to_slice
-      flush = msg.properties.delivery_mode.try { |v| v > 0 }
+      flush = true #msg.properties.delivery_mode.try { |v| v > 0 }
       @wfile.flush if flush
       queues.each { |q| @queues[q].publish(@offset, flush) }
     end
@@ -88,6 +90,8 @@ module AMQPServer
         @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key)
       else raise "Cannot apply frame #{f.class} in vhost #@name"
       end
+    rescue ex
+      puts "vhost apply error: #{ex.inspect}"
     end
 
     def close
@@ -109,6 +113,7 @@ module AMQPServer
     end
 
     private def load_default_definitions
+      @log.info "Loading default definitions"
       @exchanges[""] = DefaultExchange.new(self)
       @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", "direct",
                                                     true, false, true)

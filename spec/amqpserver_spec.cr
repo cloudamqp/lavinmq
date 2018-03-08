@@ -3,7 +3,7 @@ require "amqp"
 
 describe AMQPServer::Server do
   it "accepts connections" do
-    s = AMQPServer::Server.new("/tmp/spec", Logger::ERROR)
+    s = AMQPServer::Server.new("/tmp/spec", Logger::DEBUG)
     spawn { s.listen(5674) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
