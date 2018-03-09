@@ -82,10 +82,8 @@ module AMQPServer
           end
         end
       when AMQP::Queue::Bind
-        puts "binding"
         @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
-        puts "unbinding"
         @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end

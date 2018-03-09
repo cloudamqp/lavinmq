@@ -13,29 +13,31 @@ module AMQPServer
       Close
     end
 
-    @message_count : UInt32
     @log : Logger
-    getter name, durable, exclusive, auto_delete, arguments, message_count
+    getter name, durable, exclusive, auto_delete, arguments
 
     def initialize(@vhost : VHost, @name : String, @durable : Bool,
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
       @log = @vhost.log
       @consumers = Array(Client::Channel::Consumer).new
-      @message_count = count_messages
-      @log.info "Queue #{@name}: Has #{@message_count} messages"
       @event_channel = Channel(Event).new
       @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a+")
       @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a+")
       @msgs = QueueFile.open(File.join(@vhost.data_dir, "messages.0"), "r")
       @unacked = Set(UInt64).new
-      @queue = Deque(UInt64).new
+      @ready = Deque(UInt64).new
+      restore_index
       spawn deliver_loop
+      @log.info "Queue #{@name}: Has #{message_count} messages"
+    end
+
+    def message_count : UInt32
+      @ready.size.to_u32
     end
 
     def deliver_loop
       loop do
-        @log.info "Delivery loop stage 1"
         if @consumers.size > 0
           c = @consumers.sample
           msg, offset = get(c.no_ack)
@@ -45,7 +47,7 @@ module AMQPServer
           end
         end
         event = @event_channel.receive
-        @log.debug "Queue event #{@name}: #{event}"
+        @log.info "Queue event #{@name}: #{event}"
         break if event == Event::Close
       end
     rescue ex
@@ -53,25 +55,20 @@ module AMQPServer
       raise ex
     end
 
-    def count_messages : UInt32
-      @log.info "Queue #{@name}: Counting messages"
-      last_ack = 0_u64
-      QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "r") do |rack|
-        rack.seek(-4, IO::Seek::End)
-        last_ack = rack.read_uint64
+    def restore_index
+      @log.info "Queue #{@name}: Restoring index"
+      acked = Set(UInt64).new(@ack.size / 8)
+      loop do
+        acked << @ack.read_uint64
+      rescue ex : IO::EOFError
+        break
       end
-
-      QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "r") do |renq|
-        loop do
-          enq_offset = renq.read_uint64
-          break if enq_offset >= last_ack
-        end
-        msgs_since_last_ack = (renq.size - renq.pos) / 4
-        @log.info "Queue #{@name}: Has #{msgs_since_last_ack} messages"
-        return msgs_since_last_ack.to_u32
+      loop do
+        offset = @enq.read_uint64
+        @ready << offset unless acked.includes? offset
+      rescue ex : IO::EOFError
+        break
       end
-    rescue
-      0_u32
     end
 
     def close(deleting = false)
@@ -96,7 +93,9 @@ module AMQPServer
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
         consumers: @consumers.size, vhost: @vhost.name,
-        messages: message_count
+        messages: @ready.size + @unacked.size,
+        ready: @read.size,
+        unacked: @unacked.size
       }.to_json(json)
     end
 
@@ -106,22 +105,21 @@ module AMQPServer
 
     def publish(offset, flush = false)
       @log.info "Publihsing message #{offset} in queue #{@name}"
-      @queue.push offset
+      @ready.push offset
       @enq.write_int offset
       @enq.flush if flush
-      @message_count += 1
       @event_channel.send Event::MessagePublished
       @log.info "Published message #{offset} in queue #{@name}"
     end
 
     def get(no_ack = true) : Tuple(Message | Nil, UInt64)
       @log.info "Getting message from queue #{@name}"
-      offset = @queue.pop? || return { nil, 0_u64 }
+      offset = @ready.pop? || return { nil, 0_u64 }
       @log.info "Trying to read message #{offset} for queue #{@name}"
       if no_ack
         @ack.write_int offset
-        @message_count -= 1
       else
+        # TODO: must couple with a consumer
         @unacked << offset
       end
 
@@ -135,7 +133,6 @@ module AMQPServer
       @msgs.read(bd)
       msg = Message.new(ex, rk, sz, pr)
       msg << bd
-      @log.info "Got message from queue #{@name}"
       { msg, offset }
     rescue ex : IO::EOFError | Errno
       @log.info "EOF of queue #{@name}"
@@ -144,7 +141,6 @@ module AMQPServer
 
     def ack(offset : UInt64)
       @ack.write_int offset
-      @message_count -= 1
       @unacked.delete(offset)
     end
 
