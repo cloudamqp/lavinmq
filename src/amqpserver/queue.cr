@@ -116,7 +116,7 @@ module AMQPServer
 
     def get(no_ack = true) : Tuple(Message | Nil, UInt64)
       @log.info "Getting message from queue #{@name}"
-      offset = @queue.pop
+      offset = @queue.pop? || return { nil, 0_u64 }
       @log.info "Trying to read message #{offset} for queue #{@name}"
       if no_ack
         @ack.write_int offset

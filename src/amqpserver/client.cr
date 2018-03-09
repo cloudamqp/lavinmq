@@ -47,12 +47,17 @@ module AMQPServer
       nil
     end
 
-    def close
+    def close(server_initiated = true)
+      @log.info "Closing client #{@remote_address}"
       @channels.each_value do |ch|
         ch.close
       end
       return if @socket.closed?
-      send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
+      if server_initiated
+        send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
+      else
+        send AMQP::Connection::CloseOk.new
+      end
       send nil
     end
 
@@ -74,7 +79,7 @@ module AMQPServer
         break if frame.nil?
         @socket.write frame.to_slice
       end
-      @log.debug "closeing write"
+      @log.info "closeing write"
       @socket.close_write
     rescue ex : IO::Error | Errno
       @log.error "Client connection #{@remote_address} write closed: #{ex.inspect}"
@@ -169,11 +174,10 @@ module AMQPServer
         @log.info "=> #{frame.inspect}"
         case frame
         when AMQP::Connection::Close
-          send AMQP::Connection::CloseOk.new
-          send nil
+          close(false)
           break
         when AMQP::Connection::CloseOk.new
-          send nil
+          close(true)
           break
         when AMQP::Channel::Open
           open_channel(frame)
@@ -204,6 +208,7 @@ module AMQPServer
           @channels[frame.channel].consume(frame)
         when AMQP::Basic::Get
           @channels[frame.channel].basic_get(frame)
+          puts "after basic get"
         when AMQP::Basic::Ack
           @channels[frame.channel].basic_ack(frame)
         when AMQPServer::AMQP::HeartbeatFrame

@@ -39,7 +39,7 @@ module AMQPServer
   end
 
   class DirectExchange < Exchange
-    def bind(queue_name, routing_key, arguments)
+    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[routing_key] << queue_name
     end
 
@@ -63,7 +63,7 @@ module AMQPServer
   end
 
   class FanoutExchange < Exchange
-    def bind(queue_name, routing_key, arguments)
+    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[""] << queue_name
     end
 
@@ -77,7 +77,7 @@ module AMQPServer
   end
 
   class TopicExchange < Exchange
-    def bind(queue_name, routing_key, arguments)
+    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[routing_key] << queue_name
     end
 
@@ -85,19 +85,31 @@ module AMQPServer
       @bindings[routing_key].delete queue_name
     end
 
-    def queues_matching(routing_key)
+    def queues_matching(routing_key) : Set(String)
       rk_parts = routing_key.split(".")
-      @bindings.select do |bk|
+      s = Set(String).new
+      @bindings.each do |bk, q|
         ok = false
         bk.split(".").each_with_index do |part, i|
-          if rk_parts.size < i + 1
+          if part == "#"
+            ok = true 
+            break
+          end
+          if rk_parts.size > i + 1
             ok = false
             break
           end
-          ok = true if part == "*" || part == rk_parts[i]
-        end
-        ok
-      end.values
+          if part == "*" || part == rk_parts[i]
+            ok = true
+            next
+          else
+            ok = false
+            break
+          end
+        end 
+        s.concat(q) if ok
+      end
+      s
     end
   end
 end

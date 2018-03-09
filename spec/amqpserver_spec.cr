@@ -3,17 +3,19 @@ require "amqp"
 
 describe AMQPServer::Server do
   it "accepts connections" do
-    s = AMQPServer::Server.new("/tmp/spec", Logger::DEBUG)
+    s = AMQPServer::Server.new("/tmp/spec3", Logger::DEBUG)
     spawn { s.listen(5674) }
     sleep 0.001
-    AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
-      ch1 = conn.channel
-      ch2 = conn.channel
-      q = ch2.queue("", auto_delete: true, durable: false, exclusive: true)
-      x = ch1.exchange("", "direct", auto_delete: false, durable: true)
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "/")) do |conn|
+      ch = conn.channel
+      x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
+      q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
+      q.bind(x, "#")
       pmsg = AMQP::Message.new("test message")
       x.publish pmsg, q.name
-      msg = q.get
+      x.publish pmsg, q.name
+      sleep 0.001
+      msg = q.get(no_ack: true)
       msg.to_s.should eq("test message")
     end
     s.close

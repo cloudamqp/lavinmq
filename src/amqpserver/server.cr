@@ -16,6 +16,7 @@ module AMQPServer
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         io << message
       end
+      @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
       @conn_opened = Channel(Client).new
       @conn_closed = Channel(Client).new
@@ -24,18 +25,27 @@ module AMQPServer
     end
 
     def listen(port : Int)
-      server = TCPServer.new("::", port)
-      @log.info "Server listening on #{server.local_address}"
+      s = TCPServer.new("::", port)
+      s.keepalive = true
+      s.tcp_nodelay = true
+      s.tcp_keepalive_idle = 60
+      s.tcp_keepalive_count = 3
+      s.tcp_keepalive_interval = 10
+      @listeners << s
+      @log.info "Server listening on #{s.local_address}"
       loop do
-        if socket = server.accept?
+        if socket = s.accept?
           spawn handle_connection(socket)
         else
           break
         end
       end
+    ensure
+      @listeners.delete(s)
     end
 
     def close
+      @listeners.each { |l| l.close }
       @connections.each { |c| c.close }
       @vhosts.each_value { |v| v.close }
     end
@@ -45,6 +55,9 @@ module AMQPServer
         @conn_opened.send client
         client.on_close { |c| @conn_closed.send c }
       end
+    rescue ex
+      @log.error "Exception in handle_connection: #{ex.inspect}"
+      raise ex
     end
 
     private def handle_connection_events
@@ -59,6 +72,9 @@ module AMQPServer
         end
         @log.info "connection#count=#{@connections.size}"
       end
+    rescue ex
+      @log.error "Exception in handle_connection_events: #{ex.inspect}"
+      raise ex
     end
   end
 end

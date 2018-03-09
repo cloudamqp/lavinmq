@@ -10,6 +10,7 @@ module AMQPServer
 
     @offset : UInt64
     def initialize(@name : String, @server_data_dir : String, @log : Logger)
+      Dir.mkdir_p data_dir
       @offset = last_offset
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
@@ -79,19 +80,22 @@ module AMQPServer
           Queue.new(self, f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
       when AMQP::Queue::Delete
         @queues.delete f.queue_name
-        @exchanges.each do |_name, e|
-          e.bindings.each do |_rk, queues|
+        @exchanges.each_value do |e|
+          e.bindings.each_value do |queues|
             queues.delete f.queue_name
           end
         end
       when AMQP::Queue::Bind
+        puts "binding"
         @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
+        puts "unbinding"
         @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key)
-      else raise "Cannot apply frame #{f.class} in vhost #@name"
+      else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
     rescue ex
       puts "vhost apply error: #{ex.inspect}"
+      raise ex
     end
 
     def close
