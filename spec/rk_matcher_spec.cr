@@ -24,11 +24,23 @@ describe AMQPServer::TopicExchange do
     x.queues_matching("rk2").should eq(Set.new(["q2"]))
   end
 
+  it "matches star-wildcards but not too much" do
+    x.bind("q2", "*")
+    x.queues_matching("rk2.a").should eq(Set(String).new())
+  end
+
   it "should not match with too many star-wildcards" do
     x.bind("q3", "a.*")
     x.queues_matching("b.c").should eq(Set(String).new)
   end
 
-  it "should not match with too few star-wildcards" do
+  it "should match star-wildcards in the middle" do
+    x.bind("q4", "c.*.d")
+    x.queues_matching("c.a.d").should eq(Set.new(["q4"]))
+  end
+
+  it "should match catch-all" do
+    x.bind("q5", "d.#")
+    x.queues_matching("d.a.d").should eq(Set.new(["q5"]))
   end
 end

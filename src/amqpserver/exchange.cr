@@ -90,23 +90,24 @@ module AMQPServer
       s = Set(String).new
       @bindings.each do |bk, q|
         ok = false
-        bk.split(".").each_with_index do |part, i|
+        bk_parts = bk.split(".")
+        bk_parts.each_with_index do |part, i|
           if part == "#"
             ok = true 
             break
           end
-          if rk_parts.size > i + 1
-            ok = false
-            break
-          end
           if part == "*" || part == rk_parts[i]
-            ok = true
+            if bk_parts.size == i + 1 && rk_parts.size > i + 1
+              ok = false
+            else
+              ok = true
+            end
             next
           else
             ok = false
             break
           end
-        end 
+        end
         s.concat(q) if ok
       end
       s
