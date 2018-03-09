@@ -208,7 +208,6 @@ module AMQPServer
           @channels[frame.channel].consume(frame)
         when AMQP::Basic::Get
           @channels[frame.channel].basic_get(frame)
-          puts "after basic get"
         when AMQP::Basic::Ack
           @channels[frame.channel].basic_ack(frame)
         when AMQPServer::AMQP::HeartbeatFrame

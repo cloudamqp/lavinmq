@@ -67,7 +67,6 @@ module AMQPServer
       end
 
       def close
-        puts "closing channel"
         @consumers.each { |c| c.close }
         @consumers.clear
       end

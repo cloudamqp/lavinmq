@@ -87,9 +87,6 @@ module AMQPServer
         @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
-    rescue ex
-      puts "vhost apply error: #{ex.inspect}"
-      raise ex
     end
 
     def close

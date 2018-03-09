@@ -101,7 +101,7 @@ module AMQPServer
         when 60_u16 then Basic.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
-          puts "struct-id #{class_id} not implemented yet"
+          puts "class-id #{class_id} not implemented yet"
           GenericFrame.new(Type::Method, channel, payload)
         end
       end

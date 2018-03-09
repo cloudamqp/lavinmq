@@ -94,7 +94,7 @@ module AMQPServer
         auto_delete: @auto_delete, arguments: @arguments,
         consumers: @consumers.size, vhost: @vhost.name,
         messages: @ready.size + @unacked.size,
-        ready: @read.size,
+        ready: @ready.size,
         unacked: @unacked.size
       }.to_json(json)
     end
