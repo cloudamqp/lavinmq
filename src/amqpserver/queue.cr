@@ -127,7 +127,6 @@ module AMQPServer
 
       @log.info "@msgs pos: #{@msgs.pos}"
       os = @msgs.read_uint64
-      hs = @msgs.read_uint32
       ex = @msgs.read_short_string
       rk = @msgs.read_short_string
       pr = AMQP::Properties.decode @msgs

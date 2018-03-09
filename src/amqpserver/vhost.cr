@@ -49,10 +49,6 @@ module AMQPServer
       return if queues.empty?
 
       @wfile.write_int(@offset += 1)
-      headers_size = 1 + msg.exchange_name.size +
-             1 + msg.routing_key.size +
-             msg.properties.to_slice.size
-      @wfile.write_int(headers_size.to_u32)
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       msg.properties.encode @wfile
