@@ -75,7 +75,7 @@ module AMQPServer
     private def send_loop
       loop do
         frame = @outbox.receive
-        @log.info "<= #{frame.inspect}"
+        @log.debug { "<= #{frame.inspect}" }
         break if frame.nil?
         @socket.write frame.to_slice
       end
@@ -171,7 +171,7 @@ module AMQPServer
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.info "=> #{frame.inspect}"
+        @log.debug { "=> #{frame.inspect}" }
         case frame
         when AMQP::Connection::Close
           close(false)

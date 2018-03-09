@@ -47,12 +47,9 @@ module AMQPServer
           end
         end
         event = @event_channel.receive
-        @log.info "Queue event #{@name}: #{event}"
+        @log.info { "Queue event #{@name}: #{event}" }
         break if event == Event::Close
       end
-    rescue ex
-      @log.error "Queue delivery loop: #{ex.inspect}"
-      raise ex
     end
 
     def restore_index

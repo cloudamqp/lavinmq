@@ -45,10 +45,10 @@ module AMQPServer
       ex = @exchanges[msg.exchange_name]?
       return if ex.nil?
       queues = ex.queues_matching(msg.routing_key)
-      @log.info "Matching queues: #{queues}"
       return if queues.empty?
 
       @wfile.write_int(@offset += 1)
+      #@wfile.write msg.to_slice
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       msg.properties.encode @wfile

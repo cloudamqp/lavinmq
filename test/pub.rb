@@ -12,7 +12,7 @@ end
 b = Bunny.new("amqp://guest:guest@localhost/default").start
 ch2 = b.create_channel
 e = ch2.exchange("amq.fanout", type: :fanout)
-msg = "hej"
+msg = "a" * 1024
 loop do
   e.publish msg
   j += 1

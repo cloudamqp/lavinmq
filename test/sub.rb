@@ -1,7 +1,6 @@
 require 'bunny'
 
-
-i =  0
+i = 0
 Thread.new do
   loop do
     i = 0

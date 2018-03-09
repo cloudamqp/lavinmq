@@ -11,8 +11,9 @@ module AMQPServer
     getter connections
     getter vhosts
 
-    def initialize(data_dir : String, log_level = Logger::INFO)
+    def initialize(data_dir : String, log_level = Logger::WARN)
       @log = Logger.new(STDOUT)
+      @log.level = log_level
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         io << message
       end
@@ -55,9 +56,6 @@ module AMQPServer
         @conn_opened.send client
         client.on_close { |c| @conn_closed.send c }
       end
-    rescue ex
-      @log.error "Exception in handle_connection: #{ex.inspect}"
-      raise ex
     end
 
     private def handle_connection_events
@@ -72,9 +70,6 @@ module AMQPServer
         end
         @log.info "connection#count=#{@connections.size}"
       end
-    rescue ex
-      @log.error "Exception in handle_connection_events: #{ex.inspect}"
-      raise ex
     end
   end
 end

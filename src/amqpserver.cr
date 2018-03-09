@@ -5,6 +5,7 @@ require "option_parser"
 require "file"
 require "ini"
 
+debug = false
 port = 5672
 config = ""
 
@@ -14,10 +15,10 @@ OptionParser.parse! do |parser|
     config = c
   end
   parser.on("-p PORT", "--port=PORT", "Port to listen on") { |p| port = p.to_i }
+  parser.on("-d", "--debug", "Verbose logging") { debug = true }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
-
 unless config.empty?
   puts "Trying to read config #{config}"
   #abort "Config could not be found" unless File.file?(config)
@@ -25,7 +26,7 @@ unless config.empty?
   p ini
 end
 
-amqp_server = AMQPServer::Server.new("/tmp", Logger::INFO)
+amqp_server = AMQPServer::Server.new("/tmp", debug ? Logger::DEBUG : Logger::ERROR)
 spawn do
   amqp_server.listen(port)
 end
