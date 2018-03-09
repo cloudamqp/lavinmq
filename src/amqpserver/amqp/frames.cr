@@ -1,6 +1,6 @@
 module AMQPServer
   module AMQP
-    abstract class Frame
+    abstract struct Frame
       getter type, channel
       def initialize(@type : Type, @channel : UInt16)
       end
@@ -50,7 +50,7 @@ module AMQPServer
       end
     end
 
-    class GenericFrame < Frame
+    struct GenericFrame < Frame
       def initialize(@type : Type, @channel : UInt16,  @body : Bytes)
       end
 
@@ -59,7 +59,7 @@ module AMQPServer
       end
     end
 
-    class HeartbeatFrame < Frame
+    struct HeartbeatFrame < Frame
       def initialize
         @type = Type::Heartbeat
         @channel = 0_u16
@@ -74,7 +74,7 @@ module AMQPServer
       end
     end
 
-    abstract class MethodFrame < Frame
+    abstract struct MethodFrame < Frame
       def initialize(@channel : UInt16)
         @type = Type::Method
       end
@@ -101,13 +101,13 @@ module AMQPServer
         when 60_u16 then Basic.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
-          puts "class-id #{class_id} not implemented yet"
+          puts "struct-id #{class_id} not implemented yet"
           GenericFrame.new(Type::Method, channel, payload)
         end
       end
     end
 
-    abstract class Connection < MethodFrame
+    abstract struct Connection < MethodFrame
       def class_id
         10_u16
       end
@@ -131,7 +131,7 @@ module AMQPServer
         end
       end
 
-      class Start < Connection
+      struct Start < Connection
         def method_id
           10_u16
         end
@@ -162,7 +162,7 @@ module AMQPServer
         end
       end
 
-      class StartOk < Connection
+      struct StartOk < Connection
         getter client_props, mechanism, response, locale
 
         def method_id
@@ -192,7 +192,7 @@ module AMQPServer
         end
       end
 
-      class Tune < Connection
+      struct Tune < Connection
         getter channel_max, frame_max, heartbeat
         def method_id
           30_u16
@@ -218,13 +218,33 @@ module AMQPServer
         end
       end
 
-      class TuneOk < Tune
+      struct TuneOk < Connection
+        getter channel_max, frame_max, heartbeat
         def method_id
           31_u16
         end
+
+        def initialize(@channel_max = 0_u16, @frame_max = 131072_u32, @heartbeat = 60_u16)
+          super()
+        end
+
+        def to_slice
+          body = AMQP::MemoryIO.new(2 + 4 + 2)
+          body.write_int(@channel_max)
+          body.write_int(@frame_max)
+          body.write_int(@heartbeat)
+          super(body.to_slice)
+        end
+
+        def self.decode(io)
+          channel_max = io.read_uint16
+          frame_max = io.read_uint32
+          heartbeat = io.read_uint16
+          self.new(channel_max, frame_max, heartbeat)
+        end
       end
 
-      class Open < Connection
+      struct Open < Connection
         getter vhost, reserved1, reserved2
         def method_id
           40_u16
@@ -250,7 +270,7 @@ module AMQPServer
         end
       end
 
-      class OpenOk < Connection
+      struct OpenOk < Connection
         getter reserved1
 
         def method_id
@@ -273,7 +293,7 @@ module AMQPServer
         end
       end
 
-      class Close < Connection
+      struct Close < Connection
         def method_id
           50_u16
         end
@@ -300,7 +320,7 @@ module AMQPServer
         end
       end
 
-      class CloseOk < Connection
+      struct CloseOk < Connection
         def method_id
           51_u16
         end
@@ -315,7 +335,7 @@ module AMQPServer
       end
     end
 
-    abstract class Channel < MethodFrame
+    abstract struct Channel < MethodFrame
       def class_id
         20_u16
       end
@@ -333,7 +353,7 @@ module AMQPServer
         end
       end
 
-      class Open < Channel
+      struct Open < Channel
         def method_id
           10_u16
         end
@@ -356,7 +376,7 @@ module AMQPServer
         end
       end
 
-      class OpenOk < Channel
+      struct OpenOk < Channel
         def method_id
           11_u16
         end
@@ -379,14 +399,14 @@ module AMQPServer
         end
       end
 
-      class Close < Channel
+      struct Close < Channel
         def method_id
           40_u16
         end
 
-        getter reply_code, reply_text, classid, methodid
+        getter reply_code, reply_text, structid, methodid
 
-        def initialize(channel : UInt16, @reply_code : UInt16, @reply_text : String, @classid : UInt16, @methodid : UInt16)
+        def initialize(channel : UInt16, @reply_code : UInt16, @reply_text : String, @structid : UInt16, @methodid : UInt16)
           super(channel)
         end
 
@@ -394,7 +414,7 @@ module AMQPServer
           io = AMQP::MemoryIO.new(2 + 1 + @reply_text.size + 2 + 2)
           io.write_int(@reply_code)
           io.write_short_string(@reply_text)
-          io.write_int(@classid)
+          io.write_int(@structid)
           io.write_int(@methodid)
           super(io.to_slice)
         end
@@ -402,13 +422,13 @@ module AMQPServer
         def self.decode(channel, io)
           reply_code = io.read_uint16
           reply_text = io.read_short_string
-          classid = io.read_uint16
+          structid = io.read_uint16
           methodid = io.read_uint16
-          Close.new channel, reply_code, reply_text, classid, methodid
+          Close.new channel, reply_code, reply_text, structid, methodid
         end
       end
 
-      class CloseOk < Channel
+      struct CloseOk < Channel
         def method_id
           41_u16
         end
@@ -423,7 +443,7 @@ module AMQPServer
       end
     end
 
-    abstract class Exchange < MethodFrame
+    abstract struct Exchange < MethodFrame
       def class_id
         40_u16
       end
@@ -439,7 +459,7 @@ module AMQPServer
         end
       end
 
-      class Declare < Exchange
+      struct Declare < Exchange
         def method_id
           10_u16
         end
@@ -482,7 +502,7 @@ module AMQPServer
         end
       end
 
-      class DeclareOk < Exchange
+      struct DeclareOk < Exchange
         def method_id
           11_u16
         end
@@ -496,7 +516,7 @@ module AMQPServer
         end
       end
 
-      class Delete < Exchange
+      struct Delete < Exchange
         def method_id
           20_u16
         end
@@ -521,7 +541,7 @@ module AMQPServer
         end
       end
 
-      class DeleteOk < Exchange
+      struct DeleteOk < Exchange
         def method_id
           21_u16
         end
@@ -536,7 +556,7 @@ module AMQPServer
       end
     end
 
-    abstract class Queue < MethodFrame
+    abstract struct Queue < MethodFrame
       def class_id
         50_u16
       end
@@ -556,7 +576,7 @@ module AMQPServer
         end
       end
 
-      class Declare < Queue
+      struct Declare < Queue
         def method_id
           10_u16
         end
@@ -598,7 +618,7 @@ module AMQPServer
         end
       end
 
-      class DeclareOk < Queue
+      struct DeclareOk < Queue
         def method_id
           11_u16
         end
@@ -620,7 +640,7 @@ module AMQPServer
         end
       end
 
-      class Bind < Queue
+      struct Bind < Queue
         def method_id
           20_u16
         end
@@ -656,7 +676,7 @@ module AMQPServer
         end
       end
 
-      class BindOk < Queue
+      struct BindOk < Queue
         def method_id
           21_u16
         end
@@ -670,7 +690,7 @@ module AMQPServer
         end
       end
 
-      class Delete < Queue
+      struct Delete < Queue
         def method_id
           40_u16
         end
@@ -697,7 +717,7 @@ module AMQPServer
         end
       end
 
-      class DeleteOk < Exchange
+      struct DeleteOk < Queue
         def method_id
           41_u16
         end
@@ -717,20 +737,58 @@ module AMQPServer
         end
       end
 
-      class Unbind < Bind
+      struct Unbind < Queue
         def method_id
           50_u16
         end
+
+        getter reserved1, queue_name, exchange_name, routing_key, no_wait, arguments
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
+                       @exchange_name : String, @routing_key : String, @no_wait : Bool,
+                       @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @queue_name
+          io.write_short_string @exchange_name
+          io.write_short_string @routing_key
+          io.write_bool @no_wait
+          io.write_table @arguments
+          super io.to_slice
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          queue_name = io.read_short_string
+          exchange_name = io.read_short_string
+          routing_key = io.read_short_string
+          bits = io.read_byte
+          no_wait = bits.bit(0) == 1
+          args = io.read_table
+          self.new channel, reserved1, queue_name, exchange_name, routing_key, no_wait, args
+        end
       end
 
-      class UnbindOk < BindOk
+      struct UnbindOk < Queue
         def method_id
           51_u16
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(channel, io)
+          self.new(channel)
         end
       end
     end
 
-    abstract class Basic < MethodFrame
+    abstract struct Basic < MethodFrame
       def class_id
         60_u16
       end
@@ -750,7 +808,7 @@ module AMQPServer
         end
       end
 
-      class Publish < Basic
+      struct Publish < Basic
         def method_id
           40_u16
         end
@@ -776,7 +834,7 @@ module AMQPServer
         end
       end
 
-      class Deliver < Basic
+      struct Deliver < Basic
         def method_id
           60_u16
         end
@@ -801,7 +859,7 @@ module AMQPServer
         end
       end
 
-      class Get < Basic
+      struct Get < Basic
         def method_id
           70_u16
         end
@@ -823,7 +881,7 @@ module AMQPServer
         end
       end
 
-      class GetOk < Basic
+      struct GetOk < Basic
         def method_id
           71_u16
         end
@@ -848,7 +906,7 @@ module AMQPServer
         end
       end
 
-      class GetEmpty < Basic
+      struct GetEmpty < Basic
         def method_id
           72_u16
         end
@@ -869,7 +927,7 @@ module AMQPServer
         end
       end
 
-      class Ack < Basic
+      struct Ack < Basic
         def method_id
           80_u16
         end
@@ -890,7 +948,7 @@ module AMQPServer
         end
       end
 
-      class Consume < Basic
+      struct Consume < Basic
         def method_id
           20_u16
         end
@@ -920,7 +978,7 @@ module AMQPServer
         end
       end
 
-      class ConsumeOk < Basic
+      struct ConsumeOk < Basic
         def method_id
           21_u16
         end
@@ -942,7 +1000,7 @@ module AMQPServer
       end
     end
 
-    class HeaderFrame < Frame
+    struct HeaderFrame < Frame
       getter body_size, properties
       def initialize(channel : UInt16, @class_id : UInt16, @weight : UInt16,
                      @body_size : UInt64, @properties : Properties)
@@ -966,10 +1024,9 @@ module AMQPServer
         props = Properties.decode(body)
         self.new channel, class_id, weight, body_size, props
       end
-
     end
 
-    class BodyFrame < Frame
+    struct BodyFrame < Frame
       getter body
 
       def initialize(@channel : UInt16,  @body : Bytes)
