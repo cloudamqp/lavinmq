@@ -8,36 +8,16 @@ module AMQPServer
     end
     getter name, exchanges, queues, log
 
-    @offset : UInt64
     def initialize(@name : String, @server_data_dir : String, @log : Logger)
       Dir.mkdir_p data_dir
-      @offset = last_offset
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new
       @wfile = MessageFile.open(File.join(data_dir, "messages.0"), "a")
+      @wfile.seek(0, IO::Seek::End)
       load!
       compact!
       spawn save!
-    end
-
-    def last_offset : UInt64
-      offset = 0_u64
-      filename = File.join(data_dir, "messages.0")
-      return offset unless File.exists? filename
-      file = MessageFile.open(filename, "r")
-      loop do
-        offset = file.read_uint64
-        header_size = file.read_uint32
-        file.seek(header_size, ::IO::Seek::Current)
-        body_size = file.read_uint32
-        file.seek(body_size, ::IO::Seek::Current)
-      end
-      offset.not_nil!
-    rescue
-      offset.not_nil!
-    ensure
-      file.close if file
     end
 
     def publish(msg : Message)
@@ -47,8 +27,7 @@ module AMQPServer
       queues = ex.queues_matching(msg.routing_key)
       return if queues.empty?
 
-      @wfile.write_int(@offset += 1)
-      #@wfile.write msg.to_slice
+      pos = @wfile.pos.to_i32
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       msg.properties.encode @wfile
@@ -56,7 +35,7 @@ module AMQPServer
       @wfile.write msg.body.to_slice
       flush = true #msg.properties.delivery_mode.try { |v| v > 0 }
       @wfile.flush if flush
-      queues.each { |q| @queues[q].publish(@offset, flush) }
+      queues.each { |q| @queues[q].publish(pos, flush) }
     end
 
     def data_dir
@@ -119,7 +98,6 @@ module AMQPServer
     end
 
     private def compact!
-      Dir.mkdir_p data_dir
       File.open(File.join(data_dir, "definitions.amqp"), "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable

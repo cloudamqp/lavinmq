@@ -25,8 +25,8 @@ module AMQPServer
       @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a+")
       @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a+")
       @msgs = QueueFile.open(File.join(@vhost.data_dir, "messages.0"), "r")
-      @unacked = Set(UInt64).new
-      @ready = Deque(UInt64).new
+      @unacked = Set(Int32).new
+      @ready = Deque(Int32).new
       restore_index
       spawn deliver_loop
       @log.info "Queue #{@name}: Has #{message_count} messages"
@@ -40,9 +40,9 @@ module AMQPServer
       loop do
         if @consumers.size > 0
           c = @consumers.sample
-          msg, offset = get(c.no_ack)
+          msg, pos = get(c.no_ack)
           if msg
-            c.deliver(msg, offset, self)
+            c.deliver(msg, pos, self)
             next
           end
         end
@@ -54,17 +54,15 @@ module AMQPServer
 
     def restore_index
       @log.info "Queue #{@name}: Restoring index"
-      acked = Set(UInt64).new(@ack.size / 8)
+      acked = Set(Int32).new(@ack.size / 4)
       loop do
-        acked << @ack.read_uint64
-      rescue ex : IO::EOFError
-        break
+        break if @ack.pos == @ack.size
+        acked << @ack.read_int32
       end
       loop do
-        offset = @enq.read_uint64
-        @ready << offset unless acked.includes? offset
-      rescue ex : IO::EOFError
-        break
+        break if @enq.pos == @enq.size
+        pos = @enq.read_int32
+        @ready << pos unless acked.includes? pos
       end
     end
 
@@ -100,28 +98,27 @@ module AMQPServer
       @consumers.size.to_u32
     end
 
-    def publish(offset, flush = false)
-      @log.info "Publihsing message #{offset} in queue #{@name}"
-      @ready.push offset
-      @enq.write_int offset
+    def publish(pos : Int32, flush = false)
+      @log.info "Publihsing message #{pos} in queue #{@name}"
+      @ready.push pos
+      @enq.write_int pos
       @enq.flush if flush
       @event_channel.send Event::MessagePublished
-      @log.info "Published message #{offset} in queue #{@name}"
+      @log.info "Published message #{pos} in queue #{@name}"
     end
 
-    def get(no_ack = true) : Tuple(Message | Nil, UInt64)
+    def get(no_ack = true) : Tuple(Message | Nil, Int32)
       @log.info "Getting message from queue #{@name}"
-      offset = @ready.pop? || return { nil, 0_u64 }
-      @log.info "Trying to read message #{offset} for queue #{@name}"
+      pos = @ready.pop? || return { nil, 0 }
+      @log.info "Trying to read message #{pos} for queue #{@name}"
       if no_ack
-        @ack.write_int offset
+        @ack.write_int pos
       else
         # TODO: must couple with a consumer
-        @unacked << offset
+        @unacked << pos
       end
 
-      @log.info "@msgs pos: #{@msgs.pos}"
-      os = @msgs.read_uint64
+      @msgs.seek(pos, IO::Seek::Set)
       ex = @msgs.read_short_string
       rk = @msgs.read_short_string
       pr = AMQP::Properties.decode @msgs
@@ -130,15 +127,12 @@ module AMQPServer
       @msgs.read(bd)
       msg = Message.new(ex, rk, sz, pr)
       msg << bd
-      { msg, offset }
-    rescue ex : IO::EOFError | Errno
-      @log.info "EOF of queue #{@name}"
-      { nil, 0_u64 }
+      { msg, pos }
     end
 
-    def ack(offset : UInt64)
-      @ack.write_int offset
-      @unacked.delete(offset)
+    def ack(pos : Int32)
+      @ack.write_int pos
+      @unacked.delete(pos)
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)

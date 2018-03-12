@@ -2,7 +2,7 @@ require "./spec_helper"
 
 describe AMQPServer::DefaultExchange do
   it "matches exact rk" do
-    log = Logger.new(File.new("/dev/null"))
+    log = Logger.new(File.open("/dev/null", "w"))
     vhost = AMQPServer::VHost.new("x", "/tmp/spec", log)
     x = AMQPServer::DefaultExchange.new(vhost)
     x.queues_matching("q1").should eq(Set.new(["q1"]))
@@ -10,7 +10,7 @@ describe AMQPServer::DefaultExchange do
 end
 
 describe AMQPServer::TopicExchange do
-  log = Logger.new(File.new("/dev/null"))
+  log = Logger.new(File.open("/dev/null", "w"))
   vhost = AMQPServer::VHost.new("x", "/tmp/spec", log)
   x = AMQPServer::TopicExchange.new(vhost, "t", "topic", false, false, true)
 

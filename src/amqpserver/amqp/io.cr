@@ -64,7 +64,7 @@ module AMQPServer
           type = read_byte
           val = case type
                 when 'S' then read_long_string
-                when 'I' then read_int
+                when 'I' then read_uint32
                 when 'l' then read_uint64
                 when 'F' then read_table
                 when 't' then read_bool
@@ -113,8 +113,12 @@ module AMQPServer
         read_string(size)
       end
 
-      def read_int
+      def read_uint32
         read_bytes(UInt32, ::IO::ByteFormat::BigEndian)
+      end
+
+      def read_int32
+        read_bytes(Int32, ::IO::ByteFormat::BigEndian)
       end
     end
 

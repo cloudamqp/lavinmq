@@ -6,7 +6,7 @@ module AMQPServer
       def initialize(@client : Client)
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
-        @map = {} of UInt64 => Tuple(UInt64, Queue)
+        @map = {} of UInt64 => Tuple(Int32, Queue)
       end
 
       def start_publish(exchange_name : String, routing_key : String)
@@ -71,9 +71,9 @@ module AMQPServer
         @consumers.clear
       end
 
-      def next_delivery_tag(offset : UInt64, queue : Queue) : UInt64
+      def next_delivery_tag(pos : Int32, queue : Queue) : UInt64
         @delivery_tag += 1
-        @map[@delivery_tag] = { offset, queue }
+        @map[@delivery_tag] = { pos, queue }
         @delivery_tag
       end
 
