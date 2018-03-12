@@ -23,6 +23,7 @@ module AMQPServer
       load!
       compact!
       spawn save!
+      spawn gc_loop
     end
 
     def publish(msg : Message)
@@ -155,7 +156,7 @@ module AMQPServer
     end
 
     private def last_segment : UInt32
-      last_segment = Dir.glob(File.join(data_dir, "messages.*")).last { nil }
+      last_segment = Dir.glob(File.join(data_dir, "msgs.*")).last { nil }
       if last_segment
         if md = last_segment.match(%r(/\d+$/))
           md.string.to_u32
@@ -164,6 +165,30 @@ module AMQPServer
         end
       else
         0_u32
+      end
+    end
+
+    private def gc_loop
+      loop do
+        gc_segments!
+        sleep 60
+      end
+    end
+
+    private def gc_segments!
+      @log.info "GC segments"
+      referenced_segments = Set(UInt32).new
+      @queues.each_value do |q|
+        q.report_referenced_segments(referenced_segments)
+      end
+      @log.info "GC segments: #{referenced_segments.size} in use"
+
+      Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
+        if md = /\d+$/.match(f)
+          next if referenced_segments.includes? md.string.to_u32
+          @log.info "GC segments: Deleting segment #{f}"
+          File.delete File.join(data_dir, f)
+        end
       end
     end
   end

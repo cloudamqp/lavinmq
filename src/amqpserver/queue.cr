@@ -39,6 +39,11 @@ module AMQPServer
       @ready.size.to_u32
     end
 
+    def report_referenced_segments(s)
+      @ready.each { |sp| s << sp.segment }
+      @unacked.each { |sp| s << sp.segment }
+    end
+
     def deliver_loop
       loop do
         if @consumers.size > 0
