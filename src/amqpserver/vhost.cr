@@ -157,15 +157,8 @@ module AMQPServer
 
     private def last_segment : UInt32
       last_segment = Dir.glob(File.join(data_dir, "msgs.*")).last { nil }
-      if last_segment
-        if md = last_segment.match(%r(/\d+$/))
-          md.string.to_u32
-        else
-          0_u32
-        end
-      else
-        0_u32
-      end
+      return 0_u32 if last_segment.nil?
+      last_segment[/\d+$/].to_u32
     end
 
     private def gc_loop
@@ -184,11 +177,10 @@ module AMQPServer
       @log.info "GC segments: #{referenced_segments.size} in use"
 
       Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
-        if md = /\d+$/.match(f)
-          next if referenced_segments.includes? md.string.to_u32
-          @log.info "GC segments: Deleting segment #{f}"
-          File.delete File.join(data_dir, f)
-        end
+        seg = f[/\d+$/].to_u32
+        next if referenced_segments.includes? seg
+        @log.info "GC segments: Deleting segment #{f}"
+        File.delete f
       end
     end
   end
