@@ -1,5 +1,6 @@
 require "logger"
 require "./amqp/io"
+require "./segment_position"
 
 module AMQPServer
   class Queue
@@ -22,12 +23,14 @@ module AMQPServer
       @log = @vhost.log
       @consumers = Array(Client::Channel::Consumer).new
       @event_channel = Channel(Event).new
+      @unacked = Set(SegmentPosition).new
+      @ready = Deque(SegmentPosition).new
       @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a+")
       @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a+")
-      @msgs = QueueFile.open(File.join(@vhost.data_dir, "messages.0"), "r")
-      @unacked = Set(Int32).new
-      @ready = Deque(Int32).new
       restore_index
+      @segments = Hash(UInt32, QueueFile).new do |h, seg|
+        h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
+      end
       spawn deliver_loop
       @log.info "Queue #{@name}: Has #{message_count} messages"
     end
@@ -40,9 +43,9 @@ module AMQPServer
       loop do
         if @consumers.size > 0
           c = @consumers.sample
-          msg, pos = get(c.no_ack)
-          if msg
-            c.deliver(msg, pos, self)
+          if msg_sp = get(c.no_ack)
+            msg, sp = msg_sp
+            c.deliver(msg, sp, self)
             next
           end
         end
@@ -54,15 +57,15 @@ module AMQPServer
 
     def restore_index
       @log.info "Queue #{@name}: Restoring index"
-      acked = Set(Int32).new(@ack.size / 4)
+      acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
       loop do
         break if @ack.pos == @ack.size
-        acked << @ack.read_int32
+        acked << SegmentPosition.decode @ack
       end
       loop do
         break if @enq.pos == @enq.size
-        pos = @enq.read_int32
-        @ready << pos unless acked.includes? pos
+        sp = SegmentPosition.decode @enq
+        @ready << sp unless acked.includes? sp
       end
     end
 
@@ -71,7 +74,7 @@ module AMQPServer
       @event_channel.send Event::Close
       @ack.close
       @enq.close
-      @msgs.close
+      @segments.each_value { |s| s.close }
       delete if !deleting && @auto_delete
     end
 
@@ -98,41 +101,47 @@ module AMQPServer
       @consumers.size.to_u32
     end
 
-    def publish(pos : Int32, flush = false)
-      @log.info "Publihsing message #{pos} in queue #{@name}"
-      @ready.push pos
-      @enq.write_int pos
+    def publish(sp : SegmentPosition, flush = false)
+      @log.info "Publihsing message #{sp} in queue #{@name}"
+      @ready.push sp
+      sp.encode @enq
       @enq.flush if flush
       @event_channel.send Event::MessagePublished
-      @log.info "Published message #{pos} in queue #{@name}"
+      @log.info "Published message #{sp} in queue #{@name}"
     end
 
-    def get(no_ack = true) : Tuple(Message | Nil, Int32)
+    def get(no_ack = true) : Tuple(Message, SegmentPosition) | Nil
       @log.info "Getting message from queue #{@name}"
-      pos = @ready.pop? || return { nil, 0 }
-      @log.info "Trying to read message #{pos} for queue #{@name}"
+      sp = @ready.pop? || return nil
+      @log.info "Trying to read message #{sp} for queue #{@name}"
       if no_ack
-        @ack.write_int pos
+        sp.encode @ack
       else
         # TODO: must couple with a consumer
-        @unacked << pos
+        @unacked << sp
       end
 
-      @msgs.seek(pos, IO::Seek::Set)
-      ex = @msgs.read_short_string
-      rk = @msgs.read_short_string
-      pr = AMQP::Properties.decode @msgs
-      sz = @msgs.read_uint64
+      seg = @segments[sp.segment]
+      seg.seek(sp.position, IO::Seek::Set)
+      ex = seg.read_short_string
+      rk = seg.read_short_string
+      pr = AMQP::Properties.decode seg
+      sz = seg.read_uint64
       bd = Bytes.new(sz)
-      @msgs.read(bd)
+      seg.read(bd)
       msg = Message.new(ex, rk, sz, pr)
       msg << bd
-      { msg, pos }
+      { msg, sp }
     end
 
-    def ack(pos : Int32)
-      @ack.write_int pos
-      @unacked.delete(pos)
+    def ack(sp : SegmentPosition)
+      sp.encode @ack
+      @unacked.delete sp
+    end
+
+    def reject(sp : SegmentPosition)
+      @unacked.delete sp 
+      @queue.unshift sp
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)

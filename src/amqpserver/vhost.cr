@@ -1,5 +1,6 @@
 require "json"
 require "./amqp/io"
+require "./segment_position"
 
 module AMQPServer
   class VHost
@@ -8,12 +9,16 @@ module AMQPServer
     end
     getter name, exchanges, queues, log
 
+    MAX_SEGMENT_SIZE = 16 * 1024**2
+    @segment : UInt32
+
     def initialize(@name : String, @server_data_dir : String, @log : Logger)
-      Dir.mkdir_p data_dir
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new
-      @wfile = MessageFile.open(File.join(data_dir, "messages.0"), "a")
+      Dir.mkdir_p data_dir
+      @segment = last_segment
+      @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
       @wfile.seek(0, IO::Seek::End)
       load!
       compact!
@@ -21,13 +26,13 @@ module AMQPServer
     end
 
     def publish(msg : Message)
-      @log.info "Publihsing message"
       ex = @exchanges[msg.exchange_name]?
       return if ex.nil?
       queues = ex.queues_matching(msg.routing_key)
       return if queues.empty?
 
-      pos = @wfile.pos.to_i32
+      pos = @wfile.pos.to_u32
+      sp = SegmentPosition.new(@segment, pos)
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       msg.properties.encode @wfile
@@ -35,7 +40,14 @@ module AMQPServer
       @wfile.write msg.body.to_slice
       flush = true #msg.properties.delivery_mode.try { |v| v > 0 }
       @wfile.flush if flush
-      queues.each { |q| @queues[q].publish(pos, flush) }
+      queues.each { |q| @queues[q].publish(sp, flush) }
+
+      if @wfile.pos >= MAX_SEGMENT_SIZE
+        @segment += 1
+        @wfile.close
+        @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
+        @wfile.seek(0, IO::Seek::End)
+      end
     end
 
     def data_dir
@@ -139,6 +151,19 @@ module AMQPServer
           frame.encode(f)
           f.flush
         end
+      end
+    end
+
+    private def last_segment : UInt32
+      last_segment = Dir.glob(File.join(data_dir, "messages.*")).last { nil }
+      if last_segment
+        if md = last_segment.match(%r(/\d+$/))
+          md.string.to_u32
+        else
+          0_u32
+        end
+      else
+        0_u32
       end
     end
   end

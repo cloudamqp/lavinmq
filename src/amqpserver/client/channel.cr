@@ -6,7 +6,7 @@ module AMQPServer
       def initialize(@client : Client)
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
-        @map = {} of UInt64 => Tuple(Int32, Queue)
+        @map = {} of UInt64 => Tuple(SegmentPosition, Queue)
       end
 
       def start_publish(exchange_name : String, routing_key : String)
@@ -35,9 +35,9 @@ module AMQPServer
 
       def basic_get(frame)
         if q = @client.vhost.queues.fetch(frame.queue, nil)
-          msg, offset = q.get(frame.no_ack)
-          if msg
-            delivery_tag = next_delivery_tag(offset, q)
+          if msg_sp = q.get(frame.no_ack)
+            msg, sp = msg_sp
+            delivery_tag = next_delivery_tag(sp, q)
             @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
                                                 false, msg.exchange_name,
                                                 msg.routing_key, q.message_count)
@@ -55,9 +55,9 @@ module AMQPServer
       end
 
       def basic_ack(frame)
-        if oq = @map.delete(frame.delivery_tag)
-          offset, queue = oq
-          queue.ack(offset)
+        if spq = @map.delete(frame.delivery_tag)
+          sp, queue = spq
+          queue.ack(sp)
         else
           reply_code = "No matching delivery tag on this channel"
           @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
@@ -71,9 +71,9 @@ module AMQPServer
         @consumers.clear
       end
 
-      def next_delivery_tag(pos : Int32, queue : Queue) : UInt64
+      def next_delivery_tag(sp, queue : Queue) : UInt64
         @delivery_tag += 1
-        @map[@delivery_tag] = { pos, queue }
+        @map[@delivery_tag] = { sp, queue }
         @delivery_tag
       end
 
@@ -88,9 +88,9 @@ module AMQPServer
           @queue.rm_consumer(self)
         end
 
-        def deliver(msg, offset, queue, redelivered = false)
+        def deliver(msg, sp, queue, redelivered = false)
           @channel.client.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                @channel.next_delivery_tag(offset, queue),
+                                                @channel.next_delivery_tag(sp, queue),
                                                 redelivered,
                                                 msg.exchange_name, msg.routing_key)
           @channel.client.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
