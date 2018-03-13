@@ -117,7 +117,7 @@ module AMQPServer
 
     def get(no_ack = true) : Tuple(Message, SegmentPosition) | Nil
       @log.info "Getting message from queue #{@name}"
-      sp = @ready.pop? || return nil
+      sp = @ready.shift? || return nil
       @log.info "Trying to read message #{sp} for queue #{@name}"
       if no_ack
         sp.encode @ack
