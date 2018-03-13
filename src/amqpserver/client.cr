@@ -117,6 +117,30 @@ module AMQPServer
       end
     end
 
+    private def delete_queue(frame)
+      puts @vhost.queues
+      if q = @vhost.queues.fetch(frame.queue_name, nil)
+        if frame.if_unused && !q.consumer_count.zero?
+          send AMQP::Channel::Close.new(frame.channel, 403_u16, "In use",
+                                        frame.class_id, frame.method_id)
+          return
+        end
+        if frame.if_empty && !q.message_count.zero?
+          send AMQP::Channel::Close.new(frame.channel, 403_u16, "Not empty",
+                                        frame.class_id, frame.method_id)
+          return
+        end
+        size = q.message_count
+        q.delete
+        if !frame.no_wait
+          send AMQP::Queue::DeleteOk.new(frame.channel, size)
+        end
+      else
+        send AMQP::Channel::Close.new(frame.channel, 404_u16, "Not found",
+                                      frame.class_id, frame.method_id)
+      end
+    end
+
     private def declare_queue(frame)
       if frame.queue_name.empty?
         frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
@@ -198,6 +222,8 @@ module AMQPServer
           bind_queue(frame)
         when AMQP::Queue::Unbind
           unbind_queue(frame)
+        when AMQP::Queue::Delete
+          delete_queue(frame)
         when AMQP::Basic::Publish
           @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
         when AMQP::HeaderFrame

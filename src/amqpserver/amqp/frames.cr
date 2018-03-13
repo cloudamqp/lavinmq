@@ -712,8 +712,8 @@ module AMQPServer
           bits = io.read_byte
           if_unused = bits.bit(0) == 1
           if_empty = bits.bit(1) == 1
-          nowait = io.read_bool
-          self.new channel, reserved1, name, if_unused, if_empty, nowait
+          no_wait = bits.bit(2) == 1
+          self.new channel, reserved1, name, if_unused, if_empty, no_wait
         end
       end
 

@@ -39,6 +39,10 @@ module AMQPServer
       @ready.size.to_u32
     end
 
+    def consumer_count : UInt32
+      @consumers.size.to_u32
+    end
+
     def report_referenced_segments(s)
       @ready.each { |sp| s << sp.segment }
       @unacked.each { |sp| s << sp.segment }
@@ -100,10 +104,6 @@ module AMQPServer
         ready: @ready.size,
         unacked: @unacked.size
       }.to_json(json)
-    end
-
-    def consumer_count
-      @consumers.size.to_u32
     end
 
     def publish(sp : SegmentPosition, flush = false)
