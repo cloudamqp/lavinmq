@@ -171,7 +171,7 @@ module AMQPServer
 
     private def gc_segments!
       @log.info "GC segments"
-      referenced_segments = Set(UInt32).new
+      referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
         q.report_referenced_segments(referenced_segments)
       end
