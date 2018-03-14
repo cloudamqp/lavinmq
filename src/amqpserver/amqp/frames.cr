@@ -12,10 +12,10 @@ module AMQPServer
       end
 
       def to_slice(body : Bytes)
-        io = MemoryIO.new(8 + body.size)
+        io = MemoryIO.new(8 + body.bytesize)
         io.write_byte @type.value
         io.write_int @channel
-        io.write_int body.size.to_u32
+        io.write_int body.bytesize.to_u32
         io.write body
         io.write_byte(206_u8)
         io.to_slice
@@ -83,7 +83,7 @@ module AMQPServer
       abstract def method_id : UInt16
 
       def to_slice(body : Bytes)
-        io = MemoryIO.new(4 + body.size)
+        io = MemoryIO.new(4 + body.bytesize)
         io.write_int class_id
         io.write_int method_id
         io.write body
@@ -137,7 +137,7 @@ module AMQPServer
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + 1 + 1 + @mechanisms.size + 1 + @locales.size)
+          body = AMQP::MemoryIO.new(1 + 1 + 1 + @mechanisms.bytesize + 1 + @locales.bytesize)
           body.write_byte(@version_major)
           body.write_byte(@version_minor)
           body.write_table(@server_props)
@@ -175,7 +175,7 @@ module AMQPServer
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + @mechanism.size + 4 + @response.size + 1 + @locale.size)
+          body = AMQP::MemoryIO.new(1 + @mechanism.bytesize + 4 + @response.bytesize + 1 + @locale.bytesize)
           body.write_table(@client_props)
           body.write_short_string(@mechanism)
           body.write_long_string(@response)
@@ -255,7 +255,7 @@ module AMQPServer
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + @vhost.size + 1 + @reserved1.size + 1)
+          body = AMQP::MemoryIO.new(1 + @vhost.bytesize + 1 + @reserved1.bytesize + 1)
           body.write_short_string(@vhost)
           body.write_short_string(@reserved1)
           body.write_bool(@reserved2)
@@ -282,7 +282,7 @@ module AMQPServer
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + @reserved1.size)
+          body = AMQP::MemoryIO.new(1 + @reserved1.bytesize)
           body.write_short_string(@reserved1)
           super(body.to_slice)
         end
@@ -303,7 +303,7 @@ module AMQPServer
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new(2 + 1 + @reply_text.size + 2 + 2)
+          io = AMQP::MemoryIO.new(2 + 1 + @reply_text.bytesize + 2 + 2)
           io.write_int(@reply_code)
           io.write_short_string(@reply_text)
           io.write_int(@failing_class_id)
@@ -365,7 +365,7 @@ module AMQPServer
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new(1 + @reserved1.size)
+          io = AMQP::MemoryIO.new(1 + @reserved1.bytesize)
           io.write_short_string @reserved1
           super(io.to_slice)
         end
@@ -388,7 +388,7 @@ module AMQPServer
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new(4 + @reserved1.size)
+          io = AMQP::MemoryIO.new(4 + @reserved1.bytesize)
           io.write_long_string @reserved1
           super(io.to_slice)
         end
@@ -411,7 +411,7 @@ module AMQPServer
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new(2 + 1 + @reply_text.size + 2 + 2)
+          io = AMQP::MemoryIO.new(2 + 1 + @reply_text.bytesize + 2 + 2)
           io.write_int(@reply_code)
           io.write_short_string(@reply_text)
           io.write_int(@classid)
@@ -522,7 +522,7 @@ module AMQPServer
         end
 
         getter reserved1, exchange_name, if_unused, no_wait
-        def initialize(channel : UInt16, @reserved1 : String, @exchange_name : String,
+        def initialize(channel : UInt16, @reserved1 : UInt16, @exchange_name : String,
                        @if_unused : Bool, @no_wait : Bool)
           super(channel)
         end
@@ -532,7 +532,7 @@ module AMQPServer
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_short_string
+          reserved1 = io.read_uint16
           name = io.read_short_string
           bits = io.read_byte
           if_unused = bits.bit(0) == 1
@@ -697,17 +697,25 @@ module AMQPServer
 
         getter reserved1, queue_name, if_unused, if_empty, no_wait
 
-        def initialize(channel : UInt16, @reserved1 : String, @queue_name : String,
+        def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
                        @if_unused : Bool, @if_empty : Bool, @no_wait : Bool)
           super(channel)
         end
 
         def to_slice
-          raise "Not implemented"
+          io = MemoryIO.new(2 + 1 + @queue_name.bytesize + 1)
+          io.write_int @reserved1
+          io.write_short_string @queue_name
+          bits = 0_u8
+          bits = bits | (1 << 0) if @if_unused
+          bits = bits | (1 << 1) if @if_empty
+          bits = bits | (1 << 2) if @no_wait
+          io.write_byte(bits)
+          super io.to_slice
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_short_string
+          reserved1 = io.read_uint16
           name = io.read_short_string
           bits = io.read_byte
           if_unused = bits.bit(0) == 1
@@ -989,7 +997,7 @@ module AMQPServer
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new(1 + @consumer_tag.size)
+          io = AMQP::MemoryIO.new(1 + @consumer_tag.bytesize)
           io.write_short_string @consumer_tag
           super(io.to_slice)
         end
