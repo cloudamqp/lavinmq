@@ -56,10 +56,6 @@ module AMQPServer
     def initialize(vhost)
       super(vhost, "", type: "direct", durable: true, auto_delete: false, internal: true, arguments: Hash(String, AMQP::Field).new)
     end
-
-    def queues_matching(routing_key)
-      @bindings[routing_key].concat([routing_key])
-    end
   end
 
   class FanoutExchange < Exchange
