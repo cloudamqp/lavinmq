@@ -32,6 +32,7 @@ module AMQPServer
       s.tcp_keepalive_idle = 60
       s.tcp_keepalive_count = 3
       s.tcp_keepalive_interval = 10
+      s.linger = 0
       @listeners << s
       @log.info "Server listening on #{s.local_address}"
       loop do
