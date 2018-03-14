@@ -66,13 +66,14 @@ module AMQPServer
       when AMQP::Queue::Declare
         @queues[f.queue_name] =
           Queue.new(self, f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
+        @exchanges[""].bind(f.queue_name, f.queue_name)
       when AMQP::Queue::Delete
-        @queues.delete f.queue_name
         @exchanges.each_value do |e|
           e.bindings.each_value do |queues|
             queues.delete f.queue_name
           end
         end
+        @queues.delete f.queue_name
       when AMQP::Queue::Bind
         @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
