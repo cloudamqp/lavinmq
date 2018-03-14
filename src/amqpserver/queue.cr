@@ -107,12 +107,12 @@ module AMQPServer
     end
 
     def publish(sp : SegmentPosition, flush = false)
-      @log.info "Publihsing message #{sp} in queue #{@name}"
+      @log.debug { "Publihsing message #{sp} in queue #{@name}" }
       @ready.push sp
       sp.encode @enq
       @enq.flush if flush
       @event_channel.send Event::MessagePublished
-      @log.info "Published message #{sp} in queue #{@name}"
+      @log.debug { "Published message #{sp} in queue #{@name}" }
     end
 
     def get(no_ack = true) : Tuple(Message, SegmentPosition) | Nil

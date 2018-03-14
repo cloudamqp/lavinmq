@@ -120,7 +120,6 @@ module AMQPServer
     end
 
     private def delete_queue(frame)
-      puts @vhost.queues
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if frame.if_unused && !q.consumer_count.zero?
           send AMQP::Channel::Close.new(frame.channel, 403_u16, "In use",
