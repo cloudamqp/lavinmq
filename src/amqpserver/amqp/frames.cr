@@ -404,9 +404,9 @@ module AMQPServer
           40_u16
         end
 
-        getter reply_code, reply_text, structid, methodid
+        getter reply_code, reply_text, classid, methodid
 
-        def initialize(channel : UInt16, @reply_code : UInt16, @reply_text : String, @structid : UInt16, @methodid : UInt16)
+        def initialize(channel : UInt16, @reply_code : UInt16, @reply_text : String, @classid : UInt16, @methodid : UInt16)
           super(channel)
         end
 
@@ -414,7 +414,7 @@ module AMQPServer
           io = AMQP::MemoryIO.new(2 + 1 + @reply_text.size + 2 + 2)
           io.write_int(@reply_code)
           io.write_short_string(@reply_text)
-          io.write_int(@structid)
+          io.write_int(@classid)
           io.write_int(@methodid)
           super(io.to_slice)
         end
@@ -422,9 +422,9 @@ module AMQPServer
         def self.decode(channel, io)
           reply_code = io.read_uint16
           reply_text = io.read_short_string
-          structid = io.read_uint16
+          classid = io.read_uint16
           methodid = io.read_uint16
-          Close.new channel, reply_code, reply_text, structid, methodid
+          Close.new channel, reply_code, reply_text, classid, methodid
         end
       end
 
