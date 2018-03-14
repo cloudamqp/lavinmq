@@ -14,16 +14,23 @@ module AMQPServer
         @next_publish_routing_key = routing_key
       end
 
-      def next_msg_headers(size, props)
-        @next_msg = Message.new(@next_publish_exchange_name.not_nil!,
-                                @next_publish_routing_key.not_nil!, size, props)
+      def next_msg_headers(size : UInt64, props : AMQP::Properties)
+        @next_msg_size = size
+        @next_msg_props = props
+        @next_msg_body = IO::Memory.new(size)
       end
 
       def add_content(bytes)
-        msg = @next_msg
-        raise "No msg to write to" if msg.nil?
-        msg << bytes
-        @client.vhost.publish(msg) if msg.full?
+        raise "No msg to write to" if @next_msg_body.nil?
+        @next_msg_body.not_nil!.write bytes
+        if @next_msg_body.not_nil!.pos == @next_msg_size.not_nil!
+          msg = Message.new(@next_publish_exchange_name.not_nil!,
+                            @next_publish_routing_key.not_nil!,
+                            @next_msg_size.not_nil!,
+                            @next_msg_props.not_nil!,
+                            @next_msg_body.not_nil!.to_slice)
+          @client.vhost.publish(msg)
+        end
       end
 
       def consume(frame)

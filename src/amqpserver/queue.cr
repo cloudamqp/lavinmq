@@ -134,8 +134,7 @@ module AMQPServer
       sz = seg.read_uint64
       bd = Bytes.new(sz)
       seg.read(bd)
-      msg = Message.new(ex, rk, sz, pr)
-      msg << bd
+      msg = Message.new(ex, rk, sz, pr, bd)
       { msg, sp }
     end
 
