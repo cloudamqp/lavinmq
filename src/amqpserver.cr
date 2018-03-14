@@ -5,8 +5,9 @@ require "option_parser"
 require "file"
 require "ini"
 
-debug = false
+log_level = Logger::ERROR
 port = 5672
+data_dir = "/tmp"
 config = ""
 
 OptionParser.parse! do |parser|
@@ -15,7 +16,8 @@ OptionParser.parse! do |parser|
     config = c
   end
   parser.on("-p PORT", "--port=PORT", "Port to listen on") { |p| port = p.to_i }
-  parser.on("-d", "--debug", "Verbose logging") { debug = true }
+  parser.on("-D DATA_DIR", "--data-dir=DATA_DIR", "Directory path to data") { |d| data_dir = d }
+  parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
@@ -26,7 +28,7 @@ unless config.empty?
   p ini
 end
 
-amqp_server = AMQPServer::Server.new("/tmp", debug ? Logger::DEBUG : Logger::ERROR)
+amqp_server = AMQPServer::Server.new(data_dir, log_level)
 spawn do
   amqp_server.listen(port)
 end
