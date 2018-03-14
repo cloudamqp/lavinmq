@@ -113,7 +113,9 @@ module AMQPServer
                                       frame.class_id, frame.method_id)
       else
         @vhost.apply(frame)
-        send AMQP::Exchange::DeclareOk.new(frame.channel)
+        unless frame.no_wait
+          send AMQP::Exchange::DeclareOk.new(frame.channel)
+        end
       end
     end
 
@@ -131,8 +133,8 @@ module AMQPServer
           return
         end
         size = q.message_count
-        q.delete
-        if !frame.no_wait
+        @vhost.apply(frame)
+        unless frame.no_wait
           send AMQP::Queue::DeleteOk.new(frame.channel, size)
         end
       else
@@ -150,8 +152,10 @@ module AMQPServer
             q.exclusive == frame.exclusive &&
             q.auto_delete == frame.auto_delete &&
             q.arguments == frame.arguments
-          send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
-                                          q.message_count, q.consumer_count)
+          unless frame.no_wait
+            send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
+                                            q.message_count, q.consumer_count)
+          end
         else
           send AMQP::Channel::Close.new(frame.channel, 401_u16,
                                         "Existing queue declared with other arguments",
@@ -162,7 +166,9 @@ module AMQPServer
                                       frame.class_id, frame.method_id)
       else
         @vhost.apply(frame)
-        send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+        unless frame.no_wait
+          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+        end
       end
     end
 
@@ -177,14 +183,18 @@ module AMQPServer
                                       frame.class_id, frame.method_id)
       else
         @vhost.apply(frame)
-        send AMQP::Queue::BindOk.new(frame.channel)
+        unless frame.no_wait
+          send AMQP::Queue::BindOk.new(frame.channel)
+        end
       end
     end
 
     private def unbind_queue(frame)
       if @vhost.queues.has_key? frame.queue_name && @vhost.exchanges.has_key? frame.exchange_name
         @vhost.apply(frame)
-        send AMQP::Queue::UnbindOk.new(frame.channel)
+        unless frame.no_wait
+          send AMQP::Queue::UnbindOk.new(frame.channel)
+        end
       else
         send AMQP::Channel::Close.new(frame.channel, 401_u16,
                                       "Queue or exchange does not exists",

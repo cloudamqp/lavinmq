@@ -30,7 +30,9 @@ module AMQPServer
         q = @client.vhost.queues[frame.queue]
         c = Consumer.new(self, frame.channel, frame.consumer_tag, q, frame.no_ack)
         @consumers.push(c)
-        @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+        unless frame.no_wait
+          @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+        end
       end
 
       def basic_get(frame)
