@@ -30,6 +30,8 @@ module AMQPServer
                             @next_msg_props.not_nil!,
                             @next_msg_body.not_nil!.to_slice)
           @client.vhost.publish(msg)
+          @next_msg_body.not_nil!.clear
+          @next_msg_body = @next_publish_exchange_name = @next_publish_routing_key = nil
         end
       end
 
