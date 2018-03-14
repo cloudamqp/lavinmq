@@ -11,7 +11,7 @@ module AMQPServer
     getter connections
     getter vhosts
 
-    def initialize(data_dir : String, log_level = Logger::WARN)
+    def initialize(data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
