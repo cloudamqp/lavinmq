@@ -90,7 +90,6 @@ module AMQPServer
     def delete
       @log.info "deleting queue #{@name}"
       close(deleting: true)
-      @vhost.queues.delete @name
       File.delete File.join(@vhost.data_dir, "#{@name}.enq")
       File.delete File.join(@vhost.data_dir, "#{@name}.ack")
     end

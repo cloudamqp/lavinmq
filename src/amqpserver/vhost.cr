@@ -73,7 +73,7 @@ module AMQPServer
             queues.delete f.queue_name
           end
         end
-        @queues.delete f.queue_name
+        @queues.delete(f.queue_name).try { |q| q.delete }
       when AMQP::Queue::Bind
         @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
