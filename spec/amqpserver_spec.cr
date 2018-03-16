@@ -21,15 +21,18 @@ describe AMQPServer::Server do
 
   it "can delete queue" do
     s = AMQPServer::Server.new("/tmp/spec2", Logger::ERROR)
-    spawn { s.listen(5675) }
+    spawn { s.listen(5672) }
     sleep 0.001
-    AMQP::Connection.start(AMQP::Config.new(port: 5675, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       q.delete
+      ch.close
+
+      ch = conn.channel
       pmsg = AMQP::Message.new("m2")
       q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
       x = ch.exchange("", "direct", passive: true)
