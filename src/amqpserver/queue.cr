@@ -125,6 +125,7 @@ module AMQPServer
         @unacked << sp
       end
 
+      # Concurrency?
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
       ex = seg.read_short_string
