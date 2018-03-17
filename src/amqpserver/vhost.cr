@@ -102,12 +102,12 @@ module AMQPServer
 
     private def load_default_definitions
       @log.info "Loading default definitions"
-      @exchanges[""] = DefaultExchange.new(self)
-      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", "direct",
+      @exchanges[""] = DirectExchange.new(self, "", true, false, true)
+      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct",
                                                     true, false, true)
-      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", "fanout",
+      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout",
                                                     true, false, true)
-      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", "topic",
+      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic",
                                                   true, false, true)
     end
 

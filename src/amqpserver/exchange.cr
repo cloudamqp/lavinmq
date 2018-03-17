@@ -1,8 +1,8 @@
 module AMQPServer
   abstract class Exchange
-    getter name, type, durable, auto_delete, internal, bindings, arguments
+    getter name, durable, auto_delete, internal, bindings, arguments
 
-    def initialize(@vhost : VHost, @name : String, @type : String, @durable : Bool,
+    def initialize(@vhost : VHost, @name : String, @durable : Bool,
                    @auto_delete : Bool, @internal : Bool,
                    @arguments = Hash(String, AMQP::Field).new)
       @bindings = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
@@ -10,7 +10,7 @@ module AMQPServer
 
     def to_json(builder : JSON::Builder)
       {
-        name: @name, type: @type, durable: @durable, auto_delete: @auto_delete,
+        name: @name, type: TYPE, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
         bindings: @bindings
       }.to_json(builder)
@@ -19,19 +19,16 @@ module AMQPServer
     def self.make(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"
-        if name.empty?
-          DefaultExchange.new vhost
-        else
-          DirectExchange.new(vhost, name, type, durable, auto_delete, internal, arguments)
-        end
+        DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "fanout"
-        FanoutExchange.new(vhost, name, type, durable, auto_delete, internal, arguments)
+        FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "topic"
-        TopicExchange.new(vhost, name, type, durable, auto_delete, internal, arguments)
+        TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise "Cannot make exchange type #{type}"
       end
     end
 
+    abstract def type : String
     abstract def queues_matching(routing_key : String) : Set(String)
     abstract def bind(queue : String, routing_key : String,
                       arguments : Hash(String, AMQP::Field))
@@ -39,6 +36,10 @@ module AMQPServer
   end
 
   class DirectExchange < Exchange
+    def type
+      "direct"
+    end
+
     def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[routing_key] << queue_name
     end
@@ -52,13 +53,11 @@ module AMQPServer
     end
   end
 
-  class DefaultExchange < DirectExchange
-    def initialize(vhost)
-      super(vhost, "", type: "direct", durable: true, auto_delete: false, internal: true, arguments: Hash(String, AMQP::Field).new)
-    end
-  end
-
   class FanoutExchange < Exchange
+    def type
+      "fanout"
+    end
+
     def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[""] << queue_name
     end
@@ -73,6 +72,10 @@ module AMQPServer
   end
 
   class TopicExchange < Exchange
+    def type
+      "topic"
+    end
+
     def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[routing_key] << queue_name
     end
