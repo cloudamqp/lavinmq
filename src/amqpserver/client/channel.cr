@@ -101,11 +101,11 @@ module AMQPServer
 
         def deliver(msg, sp, queue, redelivered = false)
           @channel.client.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                @channel.next_delivery_tag(sp, queue),
-                                                redelivered,
-                                                msg.exchange_name, msg.routing_key)
+                                                        @channel.next_delivery_tag(sp, queue),
+                                                        redelivered,
+                                                        msg.exchange_name, msg.routing_key)
           @channel.client.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
-                                             msg.properties)
+                                                     msg.properties)
           # TODO: split body in FRAME_MAX sizes
           @channel.client.send AMQP::BodyFrame.new(@channel_id, msg.body.to_slice)
         end

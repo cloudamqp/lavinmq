@@ -29,24 +29,38 @@ unless config.empty?
 end
 
 amqp_server = AMQPServer::Server.new(data_dir, log_level)
-spawn do
+spawn(name: "AMQPServer listening #{port}") do
   amqp_server.listen(port)
 end
 
 http_server = AMQPServer::HTTPServer.new(amqp_server, 8080)
-spawn do
+spawn(name: "HTTP Server listen 8080") do
   http_server.listen
 end
 
+class Fiber
+  def self.list
+    fiber = @@first_fiber
+    while fiber
+      yield(fiber)
+      fiber = fiber.next_fiber
+    end
+  end
+end
+
+
 Signal::HUP.trap do
   puts "Reloading"
+  Fiber.list {|f| pp f }
 end
 shutdown = -> (s : Signal) do
   print "Terminating..."
   http_server.close
   print "HTTP Done..."
+  print "Threads: "
   amqp_server.close
   print "AMQP Done!\n"
+  Fiber.list { |f| puts f.inspect }
   exit 0
 end
 Signal::INT.trap &shutdown

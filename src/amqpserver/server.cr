@@ -22,22 +22,16 @@ module AMQPServer
       @conn_opened = Channel(Client).new
       @conn_closed = Channel(Client).new
       @vhosts = { "default" => VHost.new("default", data_dir, @log) }
-      spawn handle_connection_events
+      spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
     def listen(port : Int)
       s = TCPServer.new("::", port)
-      s.keepalive = true
-      s.tcp_nodelay = true
-      s.tcp_keepalive_idle = 60
-      s.tcp_keepalive_count = 3
-      s.tcp_keepalive_interval = 10
-      s.linger = 0
       @listeners << s
       @log.info "Server listening on #{s.local_address}"
       loop do
         if socket = s.accept?
-          spawn handle_connection(socket)
+          handle_connection(socket)
         else
           break
         end
@@ -47,15 +41,29 @@ module AMQPServer
     end
 
     def close
+      print "Closing listeners..."
       @listeners.each { |l| l.close }
+      puts "OK"
+      print "Closing connections..."
       @connections.each { |c| c.close }
+      puts "OK"
+      print "Closing vhosts..."
       @vhosts.each_value { |v| v.close }
+      puts "OK"
     end
 
     private def handle_connection(socket)
+      socket.keepalive = true
+      socket.tcp_nodelay = true
+      socket.tcp_keepalive_idle = 60
+      socket.tcp_keepalive_count = 3
+      socket.tcp_keepalive_interval = 10
+      socket.linger = 0
       if client = Client.start(socket, @vhosts, @log)
         @conn_opened.send client
         client.on_close { |c| @conn_closed.send c }
+      else
+        socket.close
       end
     end
 

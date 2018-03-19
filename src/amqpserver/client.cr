@@ -12,8 +12,8 @@ module AMQPServer
       @remote_address = @socket.remote_address
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame | Nil).new(16)
-      spawn read_loop
-      spawn send_loop
+      spawn read_loop, name: "Client#read_loop #{@remote_address}"
+      spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
 
     def self.start(socket, vhosts, log)
@@ -52,13 +52,16 @@ module AMQPServer
       @channels.each_value do |ch|
         ch.close
       end
-      return if @socket.closed?
+      if cb = @on_close_callback
+        cb.call self
+      end
       if server_initiated
         send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
       else
         send AMQP::Connection::CloseOk.new
       end
       send nil
+      @outbox.close
     end
 
     def on_close(&blk : Client -> Nil)
@@ -79,15 +82,13 @@ module AMQPServer
         break if frame.nil?
         @socket.write frame.to_slice
       end
-      @log.info "closeing write"
+      @log.info "closeing write @ #{@remote_address}"
       @socket.close_write
+      @log.info "closed write @ #{@remote_address}"
     rescue ex : IO::Error | Errno
       @log.error "Client connection #{@remote_address} write closed: #{ex.inspect}"
-      @socket.close
     ensure
-      if cb = @on_close_callback
-        cb.call self
-      end
+      close
     end
 
     private def open_channel(frame)
@@ -250,16 +251,11 @@ module AMQPServer
         else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
         end
       end
-      @log.info "closeing read"
       @socket.close_read
     rescue ex : IO::Error | Errno
-      @log.error "Client connection #{@remote_address} read closed: #{ex.inspect}"
-      @socket.close
-      send nil
+      @log.error "Client connection #{@remote_address} read_loop closed: #{ex.inspect}"
     ensure
-      if cb = @on_close_callback
-        cb.call self
-      end
+      close
     end
 
     def send(frame : AMQP::Frame | Nil)

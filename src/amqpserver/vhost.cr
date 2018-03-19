@@ -22,8 +22,8 @@ module AMQPServer
       @wfile.seek(0, IO::Seek::End)
       load!
       compact!
-      spawn save!
-      spawn gc_loop
+      spawn save!, name: "VHost#save!"
+      spawn gc_loop, name: "VHost#gc_loop!"
     end
 
     def publish(msg : Message)
@@ -83,6 +83,7 @@ module AMQPServer
     end
 
     def close
+      @save.close
       @queues.each { |_, q| q.close }
     end
 
@@ -154,6 +155,8 @@ module AMQPServer
           f.flush
         end
       end
+    rescue Channel::ClosedError
+      @log.info "VHost@save channel closed"
     end
 
     private def last_segment : UInt32

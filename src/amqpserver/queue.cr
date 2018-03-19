@@ -9,9 +9,7 @@ module AMQPServer
     end
     enum Event
       ConsumerAdded
-      ConsumerRemoved
       MessagePublished
-      Close
     end
 
     @log : Logger
@@ -31,7 +29,7 @@ module AMQPServer
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
       end
-      spawn deliver_loop
+      spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       @log.info "Queue #{@name}: Has #{message_count} messages"
     end
 
@@ -50,7 +48,8 @@ module AMQPServer
 
     def deliver_loop
       loop do
-        if @consumers.size > 0
+        if @consumers.size != 0
+          @log.info { "Queue #{@name} got #{@consumers.size} consumers" }
           c = @consumers.sample
           if msg_sp = get(c.no_ack)
             msg, sp = msg_sp
@@ -58,10 +57,15 @@ module AMQPServer
             next
           end
         end
+        @log.info { "Queue event #{@name} waiting" }
         event = @event_channel.receive
         @log.info { "Queue event #{@name}: #{event}" }
-        break if event == Event::Close
+      rescue IndexError
+        @log.info "IndexError in consumer.sample"
+        next
       end
+    rescue Channel::ClosedError
+      @log.info "Queue@event_channel closed"
     end
 
     def restore_index
@@ -80,11 +84,11 @@ module AMQPServer
 
     def close(deleting = false)
       @consumers.each { |c| c.close }
-      @event_channel.send Event::Close
       @ack.close
       @enq.close
       @segments.each_value { |s| s.close }
       delete if !deleting && @auto_delete
+      @event_channel.close
     end
 
     def delete
@@ -106,7 +110,7 @@ module AMQPServer
     end
 
     def publish(sp : SegmentPosition, flush = false)
-      @log.debug { "Publihsing message #{sp} in queue #{@name}" }
+      @log.debug { "Publishing message #{sp} in queue #{@name}" }
       @ready.push sp
       sp.encode @enq
       @enq.flush if flush
@@ -150,13 +154,13 @@ module AMQPServer
 
     def add_consumer(consumer : Client::Channel::Consumer)
       @consumers.push consumer
+      @log.info { "Queue #{@name} got #{@consumers.size} consumers" }
       @event_channel.send Event::ConsumerAdded
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      @log.info "Removing consumer from queue #{@name}"
-      @event_channel.send Event::ConsumerRemoved
       @consumers.delete consumer
+      @log.info { "Queue #{@name} got #{@consumers.size} consumers" }
       if @auto_delete && @consumers.size == 0
         delete
       end
