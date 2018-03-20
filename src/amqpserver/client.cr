@@ -48,14 +48,12 @@ module AMQPServer
     end
 
     def close(server_initiated = true)
+      return if @outbox.closed?
       @log.info "Closing client #{@remote_address}"
-      @channels.each_value do |ch|
-        ch.close
-      end
+      @channels.each_value &.close
       if cb = @on_close_callback
         cb.call self
       end
-      return if @outbox.closed?
       if server_initiated
         send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
       else
@@ -86,7 +84,7 @@ module AMQPServer
       @socket.close_write
       @log.info "closed write @ #{@remote_address}"
     rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.error "Client connection #{@remote_address} write closed: #{ex.inspect}"
+      @log.info "Client connection #{@remote_address} write closed: #{ex.inspect}"
     ensure
       close
     end

@@ -90,8 +90,12 @@ module AMQPServer
       end
 
       def close
-        @consumers.each { |c| c.close }
+        @consumers.each &.close
         @consumers.clear
+        @map.each_value do |sp, queue|
+          queue.reject sp
+        end
+        @map.clear
       end
 
       def next_delivery_tag(sp, queue : Queue) : UInt64

@@ -72,6 +72,8 @@ module AMQPServer
         event = @event_channel.receive
         @log.info { "Queue event #{@name}: #{event}" }
       end
+    rescue Channel::ClosedError
+      @log.debug "Delivery loop channel closed for queue #{@name}"
     end
 
     def restore_index
