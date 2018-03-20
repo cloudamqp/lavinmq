@@ -55,12 +55,12 @@ module AMQPServer
       if cb = @on_close_callback
         cb.call self
       end
+      return if @outbox.closed?
       if server_initiated
         send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
       else
         send AMQP::Connection::CloseOk.new
       end
-      send nil
       @outbox.close
     end
 
@@ -85,7 +85,7 @@ module AMQPServer
       @log.info "closeing write @ #{@remote_address}"
       @socket.close_write
       @log.info "closed write @ #{@remote_address}"
-    rescue ex : IO::Error | Errno
+    rescue ex : IO::Error | Errno | ::Channel::ClosedError
       @log.error "Client connection #{@remote_address} write closed: #{ex.inspect}"
     ensure
       close
@@ -246,13 +246,15 @@ module AMQPServer
           @channels[frame.channel].basic_get(frame)
         when AMQP::Basic::Ack
           @channels[frame.channel].basic_ack(frame)
+        when AMQP::Basic::Reject
+          @channels[frame.channel].basic_reject(frame)
         when AMQPServer::AMQP::HeartbeatFrame
           send AMQPServer::AMQP::HeartbeatFrame.new
         else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
         end
       end
       @socket.close_read
-    rescue ex : IO::Error | Errno
+    rescue ex : IO::Error | Errno | ::Channel::ClosedError
       @log.error "Client connection #{@remote_address} read_loop closed: #{ex.inspect}"
     ensure
       close

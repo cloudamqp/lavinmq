@@ -77,6 +77,18 @@ module AMQPServer
         end
       end
 
+      def basic_reject(frame)
+        if spq = @map.delete(frame.delivery_tag)
+          sp, queue = spq
+          queue.reject(sp)
+        else
+          reply_code = "No matching delivery tag on this channel"
+          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
+                                                frame.class_id, frame.method_id)
+          close
+        end
+      end
+
       def close
         @consumers.each { |c| c.close }
         @consumers.clear

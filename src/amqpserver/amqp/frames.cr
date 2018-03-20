@@ -812,6 +812,7 @@ module AMQPServer
         when 71_u16 then GetOk.decode(channel, body)
         when 72_u16 then GetEmpty.decode(channel, body)
         when 80_u16 then Ack.decode(channel, body)
+        when 90_u16 then Reject.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
         end
       end
@@ -953,6 +954,27 @@ module AMQPServer
           delivery_tag = io.read_uint64
           multiple = io.read_bool
           self.new channel, delivery_tag, multiple
+        end
+      end
+
+      struct Reject < Basic
+        def method_id
+          90_u16
+        end
+
+        getter :delivery_tag, :requeue
+        def initialize(channel, @delivery_tag : UInt64, @requeue : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          delivery_tag = io.read_uint64
+          requeue = io.read_bool
+          self.new channel, delivery_tag, requeue
         end
       end
 

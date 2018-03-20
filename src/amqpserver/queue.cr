@@ -149,7 +149,7 @@ module AMQPServer
 
     def reject(sp : SegmentPosition)
       @unacked.delete sp 
-      @queue.unshift sp
+      @ready.unshift sp
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
