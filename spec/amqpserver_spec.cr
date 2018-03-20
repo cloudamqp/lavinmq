@@ -75,7 +75,6 @@ describe AMQPServer::Server do
     end
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
-      pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
       m1 = q.get(no_ack: true)

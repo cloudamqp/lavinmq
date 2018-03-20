@@ -62,8 +62,8 @@ module AMQPServer
                 @log.info "Consumer channel closed, rejecting msg"
                 reject sp
               end
+              next
             end
-            next
           rescue IndexError
             @log.info "IndexError in consumer.sample"
           end
@@ -101,9 +101,12 @@ module AMQPServer
 
     def delete
       @log.info "deleting queue #{@name}"
+      @vhost.queues.delete @name
       close(deleting: true)
       File.delete File.join(@vhost.data_dir, "#{@name}.enq")
       File.delete File.join(@vhost.data_dir, "#{@name}.ack")
+    rescue ex : Errno
+      @log.info "Deleting queue #{@name}, file not found"
     end
 
     def to_json(json : JSON::Builder)

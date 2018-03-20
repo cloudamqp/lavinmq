@@ -41,7 +41,7 @@ module AMQPServer
       @wfile.write msg.body.to_slice
       flush = true #msg.properties.delivery_mode.try { |v| v > 0 }
       @wfile.flush if flush
-      queues.each { |q| @queues[q].publish(sp, flush) }
+      queues.each { |q| @queues.fetch(q, nil).try &.publish(sp, flush) }
 
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
@@ -84,7 +84,7 @@ module AMQPServer
 
     def close
       @save.close
-      @queues.each { |_, q| q.close }
+      @queues.each_value &.close
     end
 
     private def load!
