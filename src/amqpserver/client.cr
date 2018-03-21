@@ -96,12 +96,15 @@ module AMQPServer
 
     private def declare_exchange(frame)
       if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
-        if e.type == frame.exchange_type &&
+        if frame.passive ||
+            e.type == frame.exchange_type &&
             e.durable == frame.durable &&
             e.auto_delete == frame.auto_delete &&
             e.internal == frame.internal &&
             e.arguments == frame.arguments
-          send AMQP::Exchange::DeclareOk.new(frame.channel)
+          unless frame.no_wait
+            send AMQP::Exchange::DeclareOk.new(frame.channel)
+          end
         else
           send AMQP::Channel::Close.new(frame.channel, 401_u16,
                                         "Existing exchange declared with other arguments",
@@ -146,7 +149,8 @@ module AMQPServer
         frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
       end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.durable == frame.durable &&
+        if frame.passive ||
+            q.durable == frame.durable &&
             q.exclusive == frame.exclusive &&
             q.auto_delete == frame.auto_delete &&
             q.arguments == frame.arguments
