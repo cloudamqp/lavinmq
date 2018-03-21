@@ -983,7 +983,7 @@ module AMQPServer
           20_u16
         end
 
-        getter queue, consumer_tag, no_local, no_ack, exclusive, no_wait, arguments
+        property queue, consumer_tag, no_local, no_ack, exclusive, no_wait, arguments
         def initialize(channel, @reserved1 : UInt16, @queue : String, @consumer_tag : String,
                        @no_local : Bool, @no_ack : Bool, @exclusive : Bool, @no_wait : Bool,
                        @arguments : Hash(String, Field))

@@ -37,6 +37,9 @@ module AMQPServer
 
       def consume(frame)
         q = @client.vhost.queues[frame.queue]
+        if frame.consumer_tag.empty?
+          frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
+        end
         c = Consumer.new(self, frame.channel, frame.consumer_tag, q, frame.no_ack)
         @consumers.push(c)
         unless frame.no_wait
