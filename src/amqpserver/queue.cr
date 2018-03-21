@@ -60,7 +60,7 @@ module AMQPServer
                 @log.info { "Queue #{@name} return after delivery to consumer" }
               rescue Channel::ClosedError
                 @log.info "Consumer channel closed, rejecting msg"
-                reject sp
+                reject sp, true
               end
               next
             end
@@ -160,9 +160,9 @@ module AMQPServer
       @unacked.delete sp
     end
 
-    def reject(sp : SegmentPosition)
+    def reject(sp : SegmentPosition, requeue : Bool)
       @unacked.delete sp 
-      @ready.unshift sp
+      @ready.unshift sp if requeue
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)

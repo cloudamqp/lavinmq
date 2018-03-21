@@ -250,6 +250,8 @@ module AMQPServer
           @channels[frame.channel].basic_ack(frame)
         when AMQP::Basic::Reject
           @channels[frame.channel].basic_reject(frame)
+        when AMQP::Basic::Nack
+          @channels[frame.channel].basic_nack(frame)
         when AMQPServer::AMQP::HeartbeatFrame
           send AMQPServer::AMQP::HeartbeatFrame.new
         else @log.error "[ERROR] Unhandled frame #{frame.inspect}"

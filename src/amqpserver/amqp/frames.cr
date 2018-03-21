@@ -978,6 +978,28 @@ module AMQPServer
         end
       end
 
+      struct Nack < Basic
+        def method_id
+          120_u16
+        end
+
+        getter :delivery_tag, :multiple, :requeue
+        def initialize(channel, @delivery_tag : UInt64, @multiple : Bool, @requeue : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          delivery_tag = io.read_uint64
+          multiple = io.read_bool
+          requeue = io.read_bool
+          self.new channel, delivery_tag, multiple, requeue
+        end
+      end
+
       struct Consume < Basic
         def method_id
           20_u16

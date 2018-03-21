@@ -56,6 +56,24 @@ describe AMQPServer::Server do
       m1 = q.get(no_ack: false)
       m1.try { |m| m.reject }
       m1 = q.get(no_ack: false)
+      m1.should eq(nil)
+    end
+    s.close
+  end
+
+  it "can reject and requeue message" do
+    s = AMQPServer::Server.new("/tmp/spec3", Logger::ERROR)
+    spawn { s.listen(5672) }
+    sleep 0.001
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      pmsg = AMQP::Message.new("m1")
+      q = ch.queue("q4", auto_delete: true, durable: false, exclusive: false)
+      x = ch.exchange("", "direct", passive: true)
+      x.publish pmsg, q.name
+      m1 = q.get(no_ack: false)
+      m1.try { |m| m.reject(requeue: true) }
+      m1 = q.get(no_ack: false)
       m1.to_s.should eq("m1")
     end
     s.close

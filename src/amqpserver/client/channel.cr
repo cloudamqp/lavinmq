@@ -70,7 +70,12 @@ module AMQPServer
       end
 
       def basic_ack(frame)
-        if spq = @map.delete(frame.delivery_tag)
+        if frame.multiple
+          @map.select { |k, _| k <= frame.delivery_tag }.each_value do |sp, queue|
+            queue.ack(sp)
+          end
+          @map.delete_if { |k, _| k <= frame.delivery_tag }
+        elsif spq = @map.delete(frame.delivery_tag)
           sp, queue = spq
           queue.ack(sp)
         else
@@ -84,7 +89,31 @@ module AMQPServer
       def basic_reject(frame)
         if spq = @map.delete(frame.delivery_tag)
           sp, queue = spq
-          queue.reject(sp)
+          queue.reject(sp, frame.requeue)
+        else
+          reply_code = "No matching delivery tag on this channel"
+          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
+                                                frame.class_id, frame.method_id)
+          close
+        end
+      end
+
+      def basic_nack(frame)
+        if frame.multiple
+          if frame.delivery_tag.zero?
+            @map.each_value do |sp, queue|
+              queue.reject(sp, frame.requeue)
+            end
+            @map.clear
+          else
+            @map.select { |k, _| k <= frame.delivery_tag }.each_value do |sp, queue|
+              queue.reject(sp, frame.requeue)
+            end
+            @map.delete_if { |k, _| k <= frame.delivery_tag }
+          end
+        elsif spq = @map.delete(frame.delivery_tag)
+          sp, queue = spq
+          queue.reject(sp, frame.requeue)
         else
           reply_code = "No matching delivery tag on this channel"
           @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
@@ -97,7 +126,7 @@ module AMQPServer
         @consumers.each { |c| c.queue.rm_consumer(c) }
         @consumers.clear
         @map.each_value do |sp, queue|
-          queue.reject sp
+          queue.reject sp, true
         end
         @map.clear
       end
