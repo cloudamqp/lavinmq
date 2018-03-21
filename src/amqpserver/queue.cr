@@ -91,7 +91,7 @@ module AMQPServer
     end
 
     def close(deleting = false)
-      @consumers.each { |c| c.close }
+      @consumers.clear
       @ack.close
       @enq.close
       @segments.each_value { |s| s.close }

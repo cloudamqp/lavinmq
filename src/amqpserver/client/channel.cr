@@ -41,10 +41,11 @@ module AMQPServer
           frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
         end
         c = Consumer.new(self, frame.channel, frame.consumer_tag, q, frame.no_ack)
-        @consumers.push(c)
         unless frame.no_wait
           @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
+        @consumers.push(c)
+        q.add_consumer(c)
       end
 
       def basic_get(frame)
@@ -93,7 +94,7 @@ module AMQPServer
       end
 
       def close
-        @consumers.each &.close
+        @consumers.each { |c| c.queue.rm_consumer(c) }
         @consumers.clear
         @map.each_value do |sp, queue|
           queue.reject sp
@@ -108,14 +109,9 @@ module AMQPServer
       end
 
       class Consumer
-        getter :no_ack
+        getter :no_ack, :queue
         def initialize(@channel : Client::Channel, @channel_id : UInt16,
                        @tag : String, @queue : AMQPServer::Queue, @no_ack : Bool)
-          @queue.add_consumer(self)
-        end
-
-        def close
-          @queue.rm_consumer(self)
         end
 
         def deliver(msg, sp, queue, redelivered = false)
