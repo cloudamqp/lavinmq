@@ -121,4 +121,26 @@ describe AMQPServer::Server do
     end
     s.close
   end
+
+  it "respects prefetch and acks" do
+    s = AMQPServer::Server.new("/tmp/spec4", Logger::DEBUG)
+    spawn { s.listen(5672) }
+    sleep 0.001
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.qos(0, 1, false)
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", passive: true)
+      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
+      4.times { x.publish pmsg, q.name }
+      c = 0
+      q.subscribe do |msg|
+        c += 1
+        msg.ack
+      end
+      sleep 0.01
+      c.should eq(4)
+    end
+    s.close
+  end
 end

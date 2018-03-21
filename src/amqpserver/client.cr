@@ -4,7 +4,7 @@ require "./client/*"
 
 module AMQPServer
   class Client
-    getter :socket, :vhost, :channels
+    getter :socket, :vhost, :channels, log
 
     @remote_address : Socket::IPAddress
 
