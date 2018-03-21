@@ -804,6 +804,8 @@ module AMQPServer
       def self.decode(channel, body)
         method_id = body.read_uint16
         case method_id
+        when 10_u16 then Qos.decode(channel, body)
+        when 11_u16 then QosOk.decode(channel, body)
         when 20_u16 then Consume.decode(channel, body)
         when 21_u16 then ConsumeOk.decode(channel, body)
         when 40_u16 then Publish.decode(channel, body)
@@ -997,6 +999,42 @@ module AMQPServer
           multiple = io.read_bool
           requeue = io.read_bool
           self.new channel, delivery_tag, multiple, requeue
+        end
+      end
+
+      struct Qos < Basic
+        def method_id
+          10_u16
+        end
+
+        getter prefetch_size, prefetch_count, global
+        def initialize(channel, @prefetch_size : UInt32, @prefetch_count : UInt16, @global : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+
+        def self.decode(channel, io)
+          prefetch_size = io.read_uint32
+          prefetch_count = io.read_uint16
+          global = io.read_bool
+          self.new channel, prefetch_size, prefetch_count, global
+        end
+      end
+
+      struct QosOk < Basic
+        def method_id
+          11_u16
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(io)
+          self.new
         end
       end
 

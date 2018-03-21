@@ -36,7 +36,7 @@ module AMQPServer
       sp = SegmentPosition.new(@segment, pos)
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
-      msg.properties.encode @wfile
+      @wfile.write_bytes msg.properties
       @wfile.write_int msg.size
       @wfile.write msg.body.to_slice
       flush = true #msg.properties.delivery_mode.try { |v| v > 0 }

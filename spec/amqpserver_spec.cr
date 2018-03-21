@@ -100,4 +100,25 @@ describe AMQPServer::Server do
     end
     s.close
   end
+
+  it "respects prefetch" do
+    s = AMQPServer::Server.new("/tmp/spec4", Logger::DEBUG)
+    spawn { s.listen(5672) }
+    sleep 0.001
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.qos(0, 2, false)
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", passive: true)
+      q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
+      x.publish pmsg, q.name
+      x.publish pmsg, q.name
+      x.publish pmsg, q.name
+      msgs = [] of AMQP::Message
+      q.subscribe { |msg| msgs << msg }
+      sleep 0.0001
+      msgs.size.should eq(2)
+    end
+    s.close
+  end
 end

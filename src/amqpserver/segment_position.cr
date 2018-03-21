@@ -4,7 +4,7 @@ module AMQPServer
     def initialize(@segment : UInt32, @position : UInt32)
     end
 
-    def encode(io : IO)
+    def to_io(io : IO, format)
       io.write_bytes @segment, IO::ByteFormat::BigEndian
       io.write_bytes @position, IO::ByteFormat::BigEndian
     end

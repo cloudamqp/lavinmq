@@ -10,6 +10,8 @@ module AMQPServer
     enum Event
       ConsumerAdded
       MessagePublished
+      MessageAcked
+      MessageRejected
     end
 
     @log : Logger
@@ -48,10 +50,11 @@ module AMQPServer
 
     def deliver_loop
       loop do
-        if @consumers.size != 0
+        consumers = @consumers.select { |c| c.accepts? }
+        if consumers.size != 0
           begin
             @log.info { "Queue #{@name} got #{@consumers.size} consumers, sampling now" }
-            c = @consumers.sample
+            c = consumers.sample
             if msg_sp = get(c.no_ack)
               msg, sp = msg_sp
               @log.info { "Queue #{@name} got #{sp} for delivery to consumer" }
@@ -123,7 +126,7 @@ module AMQPServer
     def publish(sp : SegmentPosition, flush = false)
       @log.debug { "Publishing message #{sp} in queue #{@name}" }
       @ready.push sp
-      sp.encode @enq
+      @enq.write_bytes sp
       @enq.flush if flush
 
       @log.debug { "Sending to MessagePublishing to @event_channel in queue #{@name}" }
@@ -131,14 +134,13 @@ module AMQPServer
       @log.debug { "Published message #{sp} in queue #{@name}" }
     end
 
-    def get(no_ack = true) : Tuple(Message, SegmentPosition) | Nil
+    def get(no_ack : Bool) : Tuple(Message, SegmentPosition) | Nil
       @log.info "Getting message from queue #{@name}"
       sp = @ready.shift? || return nil
       @log.info "Trying to read message #{sp} for queue #{@name}"
       if no_ack
-        sp.encode @ack
+        @ack.write_bytes sp
       else
-        # TODO: must couple with a consumer
         @unacked << sp
       end
 
@@ -156,23 +158,26 @@ module AMQPServer
     end
 
     def ack(sp : SegmentPosition)
-      sp.encode @ack
+      @ack.write_bytes sp
       @unacked.delete sp
+      @event_channel.send Event::MessageAcked unless @event_channel.full?
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
       @unacked.delete sp 
       @ready.unshift sp if requeue
+      @event_channel.send Event::MessageRejected unless @event_channel.full?
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
       @consumers.push consumer
       @log.info { "Adding consumer, Queue #{@name} got #{@consumers.size} consumers" }
-      @event_channel.send Event::ConsumerAdded
+      @event_channel.send Event::ConsumerAdded unless @event_channel.full?
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       @consumers.delete consumer
+      consumer.unacked.each { |sp| reject(sp, true) }
       @log.info { "Removing consumer, Queue #{@name} got #{@consumers.size} consumers" }
       if @auto_delete && @consumers.size == 0
         delete

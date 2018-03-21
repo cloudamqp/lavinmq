@@ -1,9 +1,16 @@
 module AMQPServer
   class Client
     class Channel
-      getter :client
+      getter prefetch_size, prefetch_count, global_prefetch
+
+      def send(frame)
+        @client.send frame
+      end
 
       def initialize(@client : Client)
+        @prefetch_size = 0_u32
+        @prefetch_count = 0_u16
+        @global_prefetch = false
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
         @map = {} of UInt64 => Tuple(SegmentPosition, Queue)
@@ -121,6 +128,13 @@ module AMQPServer
           close
         end
       end
+      
+      def basic_qos(frame)
+        @prefetch_size = frame.prefetch_size
+        @prefetch_count = frame.prefetch_count
+        @global_prefetch = frame.global
+        @client.send AMQP::Basic::QosOk.new(frame.channel)
+      end
 
       def close
         @consumers.each { |c| c.queue.rm_consumer(c) }
@@ -138,20 +152,38 @@ module AMQPServer
       end
 
       class Consumer
-        getter :no_ack, :queue
+        getter no_ack, queue, unacked
         def initialize(@channel : Client::Channel, @channel_id : UInt16,
                        @tag : String, @queue : AMQPServer::Queue, @no_ack : Bool)
+          @unacked = Set(SegmentPosition).new
+        end
+
+        def accepts?
+          @unacked.size < @channel.prefetch_count
         end
 
         def deliver(msg, sp, queue, redelivered = false)
-          @channel.client.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                        @channel.next_delivery_tag(sp, queue),
-                                                        redelivered,
-                                                        msg.exchange_name, msg.routing_key)
-          @channel.client.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
-                                                     msg.properties)
+          @unacked << sp
+          @channel.send AMQP::Basic::Deliver.new(@channel_id, @tag,
+                                                 @channel.next_delivery_tag(sp, queue),
+                                                 redelivered,
+                                                 msg.exchange_name, msg.routing_key)
+          @channel.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
+                                              msg.properties)
           # TODO: split body in FRAME_MAX sizes
-          @channel.client.send AMQP::BodyFrame.new(@channel_id, msg.body.to_slice)
+          @channel.send AMQP::BodyFrame.new(@channel_id, msg.body.to_slice)
+        end
+
+        def prefetch_size
+          @channel.prefetch_size
+        end
+
+        def prefetch_count
+          @channel.prefetch_count
+        end
+
+        def global_prefetch
+          @channel.global_prefetch
         end
       end
     end

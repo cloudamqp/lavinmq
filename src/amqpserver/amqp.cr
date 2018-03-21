@@ -116,6 +116,10 @@ module AMQPServer
                        message_id, timestamp, type, user_id, app_id, reserved1)
       end
 
+      def to_io(io, format)
+        encode(io)
+      end
+
       def encode(io)
         flags = 0_u16
         flags = flags | FLAG_CONTENT_TYPE     if @content_type
