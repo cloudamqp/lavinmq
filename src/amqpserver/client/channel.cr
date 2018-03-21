@@ -13,7 +13,7 @@ module AMQPServer
         @global_prefetch = false
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
-        @map = {} of UInt64 => Tuple(SegmentPosition, Queue)
+        @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
       end
 
       def start_publish(exchange_name : String, routing_key : String)
@@ -59,7 +59,7 @@ module AMQPServer
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if msg_sp = q.get(frame.no_ack)
             msg, sp = msg_sp
-            delivery_tag = next_delivery_tag(sp, q)
+            delivery_tag = next_delivery_tag(q, sp, nil)
             @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
                                                 false, msg.exchange_name,
                                                 msg.routing_key, q.message_count)
@@ -78,13 +78,15 @@ module AMQPServer
 
       def basic_ack(frame)
         if frame.multiple
-          @map.select { |k, _| k <= frame.delivery_tag }.each_value do |sp, queue|
+          @map.select { |k, _| k <= frame.delivery_tag }.each_value do |queue, sp, consumer|
             queue.ack(sp)
+            consumer.ack(sp) if consumer
           end
           @map.delete_if { |k, _| k <= frame.delivery_tag }
-        elsif spq = @map.delete(frame.delivery_tag)
-          sp, queue = spq
+        elsif qspc = @map.delete(frame.delivery_tag)
+          queue, sp, consumer = qspc
           queue.ack(sp)
+          consumer.ack(sp) if consumer
         else
           reply_code = "No matching delivery tag on this channel"
           @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
@@ -94,9 +96,10 @@ module AMQPServer
       end
 
       def basic_reject(frame)
-        if spq = @map.delete(frame.delivery_tag)
-          sp, queue = spq
+        if qspc = @map.delete(frame.delivery_tag)
+          queue, sp, consumer = qspc
           queue.reject(sp, frame.requeue)
+          consumer.reject(sp) if consumer
         else
           reply_code = "No matching delivery tag on this channel"
           @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
@@ -108,19 +111,22 @@ module AMQPServer
       def basic_nack(frame)
         if frame.multiple
           if frame.delivery_tag.zero?
-            @map.each_value do |sp, queue|
+            @map.each_value do |queue, sp, consumer|
               queue.reject(sp, frame.requeue)
+              consumer.reject(sp) if consumer
             end
             @map.clear
           else
-            @map.select { |k, _| k <= frame.delivery_tag }.each_value do |sp, queue|
+            @map.select { |k, _| k <= frame.delivery_tag }.each_value do |queue, sp, consumer|
               queue.reject(sp, frame.requeue)
+              consumer.reject(sp) if consumer
             end
             @map.delete_if { |k, _| k <= frame.delivery_tag }
           end
-        elsif spq = @map.delete(frame.delivery_tag)
-          sp, queue = spq
+        elsif qspc = @map.delete(frame.delivery_tag)
+          queue, sp, consumer = qspc
           queue.reject(sp, frame.requeue)
+          consumer.reject(sp) if consumer
         else
           reply_code = "No matching delivery tag on this channel"
           @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
@@ -139,15 +145,16 @@ module AMQPServer
       def close
         @consumers.each { |c| c.queue.rm_consumer(c) }
         @consumers.clear
-        @map.each_value do |sp, queue|
+        @map.each_value do |queue, sp, consumer|
           queue.reject sp, true
+          consumer.reject sp if consumer
         end
         @map.clear
       end
 
-      def next_delivery_tag(sp, queue : Queue) : UInt64
+      def next_delivery_tag(queue : Queue, sp, consumer) : UInt64
         @delivery_tag += 1
-        @map[@delivery_tag] = { sp, queue }
+        @map[@delivery_tag] = { queue, sp, consumer }
         @delivery_tag
       end
 
@@ -159,13 +166,13 @@ module AMQPServer
         end
 
         def accepts?
-          @unacked.size < @channel.prefetch_count
+          @channel.prefetch_count.zero? || @unacked.size < @channel.prefetch_count
         end
 
         def deliver(msg, sp, queue, redelivered = false)
           @unacked << sp
           @channel.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                 @channel.next_delivery_tag(sp, queue),
+                                                 @channel.next_delivery_tag(queue, sp, self),
                                                  redelivered,
                                                  msg.exchange_name, msg.routing_key)
           @channel.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
@@ -174,16 +181,12 @@ module AMQPServer
           @channel.send AMQP::BodyFrame.new(@channel_id, msg.body.to_slice)
         end
 
-        def prefetch_size
-          @channel.prefetch_size
+        def ack(sp)
+          @unacked.delete(sp)
         end
 
-        def prefetch_count
-          @channel.prefetch_count
-        end
-
-        def global_prefetch
-          @channel.global_prefetch
+        def reject(sp)
+          @unacked.delete(sp)
         end
       end
     end

@@ -102,7 +102,7 @@ describe AMQPServer::Server do
   end
 
   it "respects prefetch" do
-    s = AMQPServer::Server.new("/tmp/spec4", Logger::DEBUG)
+    s = AMQPServer::Server.new("/tmp/spec4", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -116,7 +116,7 @@ describe AMQPServer::Server do
       x.publish pmsg, q.name
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }
-      sleep 0.0001
+      sleep 0.01
       msgs.size.should eq(2)
     end
     s.close
