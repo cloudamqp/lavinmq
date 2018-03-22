@@ -174,10 +174,11 @@ module AvalancheMQ
     end
 
     private def gc_segments!
-      @log.info "GC segments"
+      @log.info "GC segments in vhost #{@name}"
       referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
-        q.report_referenced_segments(referenced_segments)
+        used = q.close_unused_segments_and_report_used
+        referenced_segments.concat used
       end
       @log.info "GC segments: #{referenced_segments.size} in use"
 
