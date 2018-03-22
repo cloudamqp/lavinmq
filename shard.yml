@@ -1,12 +1,12 @@
-name: amqpserver
+name: avalanchemq
 version: 0.1.0
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
 
 targets:
-  amqpserver:
-    main: src/amqpserver.cr
+  avalanchemq:
+    main: src/avalanchemq.cr
 
 development_dependencies:
   amqp:

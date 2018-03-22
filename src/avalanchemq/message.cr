@@ -1,4 +1,4 @@
-module AMQPServer
+module AvalancheMQ
   struct Message
     getter exchange_name, routing_key, size, body, properties
 

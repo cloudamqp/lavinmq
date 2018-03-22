@@ -1,3 +1,3 @@
-module AMQPServer
+module AvalancheMQ
   VERSION = "0.1.0"
 end

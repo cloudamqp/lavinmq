@@ -1,9 +1,9 @@
 require "http/server"
 require "json"
 
-module AMQPServer
+module AvalancheMQ
   class HTTPServer
-    def initialize(@amqp_server : AMQPServer::Server, port)
+    def initialize(@amqp_server : AvalancheMQ::Server, port)
       @http = HTTP::Server.new(port) do |context|
         if context.request.method != "GET"
           context.response.status_code = 404

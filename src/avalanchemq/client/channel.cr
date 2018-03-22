@@ -1,4 +1,4 @@
-module AMQPServer
+module AvalancheMQ
   class Client
     class Channel
       getter prefetch_size, prefetch_count, global_prefetch
@@ -165,7 +165,7 @@ module AMQPServer
       class Consumer
         getter no_ack, queue, unacked
         def initialize(@channel : Client::Channel, @channel_id : UInt16,
-                       @tag : String, @queue : AMQPServer::Queue, @no_ack : Bool)
+                       @tag : String, @queue : Queue, @no_ack : Bool)
           @unacked = Set(SegmentPosition).new
         end
 

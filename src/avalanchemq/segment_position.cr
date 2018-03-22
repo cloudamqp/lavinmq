@@ -1,4 +1,4 @@
-module AMQPServer
+module AvalancheMQ
   struct SegmentPosition
     getter segment, position
     def initialize(@segment : UInt32, @position : UInt32)

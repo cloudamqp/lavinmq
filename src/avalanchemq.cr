@@ -1,6 +1,6 @@
-require "./amqpserver/version"
-require "./amqpserver/server"
-require "./amqpserver/http_server"
+require "./avalanchemq/version"
+require "./avalanchemq/server"
+require "./avalanchemq/http_server"
 require "option_parser"
 require "file"
 require "ini"
@@ -28,12 +28,12 @@ unless config.empty?
   p ini
 end
 
-amqp_server = AMQPServer::Server.new(data_dir, log_level)
-spawn(name: "AMQPServer listening #{port}") do
+amqp_server = AvalancheMQ::Server.new(data_dir, log_level)
+spawn(name: "AvalancheMQ listening #{port}") do
   amqp_server.listen(port)
 end
 
-http_server = AMQPServer::HTTPServer.new(amqp_server, 8080)
+http_server = AvalancheMQ::HTTPServer.new(amqp_server, 8080)
 spawn(name: "HTTP Server listen 8080") do
   http_server.listen
 end

@@ -1,4 +1,4 @@
-module AMQPServer
+module AvalancheMQ
   module AMQP
     abstract struct Frame
       getter type, channel

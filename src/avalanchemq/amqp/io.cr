@@ -1,6 +1,6 @@
 require "io/memory"
 
-module AMQPServer
+module AvalancheMQ
   module AMQP
     module IO
       def write_short_string(str : String)

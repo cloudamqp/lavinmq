@@ -6,7 +6,7 @@ require "./vhost"
 require "./exchange"
 require "./queue"
 
-module AMQPServer
+module AvalancheMQ
   class Server
     getter connections
     getter vhosts

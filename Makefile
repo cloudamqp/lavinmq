@@ -1,5 +1,5 @@
 build:
-	crystal build --release -o bin/amqpserver src/amqpserver.cr
+	crystal build --release -o bin/avalanchemq src/avalanchemq.cr
 
 build-linux:
 	vagrant up && vagrant ssh -c "cd /vagrant && make build" && vagrant down

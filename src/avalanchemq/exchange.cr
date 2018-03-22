@@ -1,4 +1,4 @@
-module AMQPServer
+module AvalancheMQ
   abstract class Exchange
     getter name, durable, auto_delete, internal, bindings, arguments
 

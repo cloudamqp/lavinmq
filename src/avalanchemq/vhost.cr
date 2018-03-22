@@ -2,7 +2,7 @@ require "json"
 require "./amqp/io"
 require "./segment_position"
 
-module AMQPServer
+module AvalancheMQ
   class VHost
     class MessageFile < File
       include AMQP::IO

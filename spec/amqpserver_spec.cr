@@ -1,9 +1,9 @@
 require "./spec_helper"
 require "amqp"
 
-describe AMQPServer::Server do
+describe AvalancheMQ::Server do
   it "accepts connections" do
-    s = AMQPServer::Server.new("/tmp/spec", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.listen(5674) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
@@ -20,7 +20,7 @@ describe AMQPServer::Server do
   end
 
   it "can delete queue" do
-    s = AMQPServer::Server.new("/tmp/spec2", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec2", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -44,7 +44,7 @@ describe AMQPServer::Server do
   end
 
   it "can reject message" do
-    s = AMQPServer::Server.new("/tmp/spec3", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec3", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -62,7 +62,7 @@ describe AMQPServer::Server do
   end
 
   it "can reject and requeue message" do
-    s = AMQPServer::Server.new("/tmp/spec3", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec3", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -80,7 +80,7 @@ describe AMQPServer::Server do
   end
 
   it "rejects all unacked msgs when disconnecting" do
-    s = AMQPServer::Server.new("/tmp/spec4", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -102,7 +102,7 @@ describe AMQPServer::Server do
   end
 
   it "respects prefetch" do
-    s = AMQPServer::Server.new("/tmp/spec4", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -123,7 +123,7 @@ describe AMQPServer::Server do
   end
 
   it "respects prefetch and acks" do
-    s = AMQPServer::Server.new("/tmp/spec4", Logger::DEBUG)
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::DEBUG)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|

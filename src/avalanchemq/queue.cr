@@ -2,7 +2,7 @@ require "logger"
 require "./amqp/io"
 require "./segment_position"
 
-module AMQPServer
+module AvalancheMQ
   class Queue
     class QueueFile < File
       include AMQP::IO

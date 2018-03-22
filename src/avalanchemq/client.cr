@@ -2,7 +2,7 @@ require "socket"
 require "./message"
 require "./client/*"
 
-module AMQPServer
+module AvalancheMQ
   class Client
     getter :socket, :vhost, :channels, log
 
@@ -254,8 +254,8 @@ module AMQPServer
           @channels[frame.channel].basic_nack(frame)
         when AMQP::Basic::Qos
           @channels[frame.channel].basic_qos(frame)
-        when AMQPServer::AMQP::HeartbeatFrame
-          send AMQPServer::AMQP::HeartbeatFrame.new
+        when AMQP::HeartbeatFrame
+          send AMQP::HeartbeatFrame.new
         else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
         end
       end

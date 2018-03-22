@@ -1,19 +1,19 @@
 require "./spec_helper"
 
-describe AMQPServer::DirectExchange do
+describe AvalancheMQ::DirectExchange do
   it "matches exact rk" do
     log = Logger.new(File.open("/dev/null", "w"))
-    vhost = AMQPServer::VHost.new("x", "/tmp/spec", log)
-    x = AMQPServer::DirectExchange.new(vhost, "", true, false, true)
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+    x = AvalancheMQ::DirectExchange.new(vhost, "", true, false, true)
     x.bind("q1", "q1")
     x.queues_matching("q1").should eq(Set.new(["q1"]))
   end
 end
 
-describe AMQPServer::TopicExchange do
+describe AvalancheMQ::TopicExchange do
   log = Logger.new(File.open("/dev/null", "w"))
-  vhost = AMQPServer::VHost.new("x", "/tmp/spec", log)
-  x = AMQPServer::TopicExchange.new(vhost, "t", false, false, true)
+  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+  x = AvalancheMQ::TopicExchange.new(vhost, "t", false, false, true)
 
   it "matches exact rk" do
     x.bind("q1", "rk1")
