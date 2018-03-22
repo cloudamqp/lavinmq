@@ -1,5 +1,5 @@
 build:
-	crystal build --release -o bin/avalanchemq src/avalanchemq.cr
+	shards build --release
 
 build-linux:
 	vagrant up && vagrant ssh -c "cd /vagrant && make build" && vagrant down
