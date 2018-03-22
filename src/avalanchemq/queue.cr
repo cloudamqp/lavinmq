@@ -16,6 +16,8 @@ module AvalancheMQ
     end
 
     @log : Logger
+    @ack : QueueFile | Nil
+    @enq : QueueFile | Nil
     getter name, durable, exclusive, auto_delete, arguments
 
     def initialize(@vhost : VHost, @name : String, @durable : Bool,
@@ -26,9 +28,11 @@ module AvalancheMQ
       @event_channel = Channel(Event).new
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
-      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "a+")
-      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "a+")
-      restore_index
+      if @durable
+        restore_index
+        @enq = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "a")
+        @ack = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "a")
+      end
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
       end
@@ -81,23 +85,27 @@ module AvalancheMQ
     end
 
     def restore_index
-      @log.info "Queue #{@name}: Restoring index"
-      acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
-      loop do
-        break if @ack.pos == @ack.size
-        acked << SegmentPosition.decode @ack
-      end
-      loop do
-        break if @enq.pos == @enq.size
-        sp = SegmentPosition.decode @enq
-        @ready << sp unless acked.includes? sp
+      @log.info "Restoring index on #{@vhost.name}/#{@name}"
+      QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "w") do |acks|
+        QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "w") do |enqs|
+          acked = Set(SegmentPosition).new(acks.size / sizeof(SegmentPosition))
+          loop do
+            break if acks.pos == acks.size
+            acked << SegmentPosition.decode acks
+          end
+          loop do
+            break if enqs.pos == enqs.size
+            sp = SegmentPosition.decode enqs
+            @ready << sp unless acked.includes? sp
+          end
+        end
       end
     end
 
     def close(deleting = false)
       @consumers.clear
-      @ack.close
-      @enq.close
+      @ack.try &.close
+      @enq.try &.close
       @segments.each_value { |s| s.close }
       delete if !deleting && @auto_delete
       @event_channel.close
@@ -107,8 +115,10 @@ module AvalancheMQ
       @log.info "deleting queue #{@name}"
       @vhost.queues.delete @name
       close(deleting: true)
-      File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq")
-      File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack")
+      if @durable
+        File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq")
+        File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack")
+      end
     rescue ex : Errno
       @log.info "Deleting queue #{@name}, file not found"
     end
@@ -127,11 +137,13 @@ module AvalancheMQ
     def publish(sp : SegmentPosition, flush = false)
       @log.debug { "Publishing message #{sp} in queue #{@name}" }
       @ready.push sp
-      @enq.write_bytes sp
-      @enq.flush if flush
+      if @durable
+        @enq.try &.write_bytes sp
+        @enq.try &.flush if flush
+      end
 
       @log.debug { "Sending to MessagePublishing to @event_channel in queue #{@name}" }
-      @event_channel.send Event::MessagePublished
+      @event_channel.send Event::MessagePublished unless @event_channel.full?
       @log.debug { "Published message #{sp} in queue #{@name}" }
     end
 
@@ -139,8 +151,8 @@ module AvalancheMQ
       @log.info "Getting message from queue #{@name}"
       sp = @ready.shift? || return nil
       @log.info "Trying to read message #{sp} for queue #{@name}"
-      if no_ack
-        @ack.write_bytes sp
+      if no_ack && @durable
+        @ack.try &.write_bytes sp
       else
         @unacked << sp
       end
@@ -159,7 +171,9 @@ module AvalancheMQ
     end
 
     def ack(sp : SegmentPosition)
-      @ack.write_bytes sp
+      if @durable
+        @ack.try &.write_bytes sp
+      end
       @unacked.delete sp
       @event_channel.send Event::MessageAcked unless @event_channel.full?
     end

@@ -123,7 +123,7 @@ describe AvalancheMQ::Server do
   end
 
   it "respects prefetch and acks" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::DEBUG)
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -138,7 +138,9 @@ describe AvalancheMQ::Server do
         c += 1
         msg.ack
       end
-      sleep 0.01
+      until c == 4
+        sleep 0.0001
+      end
       c.should eq(4)
     end
     s.close
