@@ -1,4 +1,5 @@
 require "logger"
+require "digest/sha1"
 require "./amqp/io"
 require "./segment_position"
 
@@ -25,8 +26,8 @@ module AvalancheMQ
       @event_channel = Channel(Event).new
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
-      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.enq"), "a+")
-      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{@name}.ack"), "a+")
+      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "a+")
+      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "a+")
       restore_index
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
@@ -106,8 +107,8 @@ module AvalancheMQ
       @log.info "deleting queue #{@name}"
       @vhost.queues.delete @name
       close(deleting: true)
-      File.delete File.join(@vhost.data_dir, "#{@name}.enq")
-      File.delete File.join(@vhost.data_dir, "#{@name}.ack")
+      File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq")
+      File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack")
     rescue ex : Errno
       @log.info "Deleting queue #{@name}, file not found"
     end

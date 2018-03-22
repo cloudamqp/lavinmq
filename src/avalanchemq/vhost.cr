@@ -1,6 +1,7 @@
 require "json"
 require "./amqp/io"
 require "./segment_position"
+require "digest/sha1"
 
 module AvalancheMQ
   class VHost
@@ -52,7 +53,7 @@ module AvalancheMQ
     end
 
     def data_dir
-      File.join(@server_data_dir, @name)
+      File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
     end
 
     def apply(f, loading = false)
