@@ -528,7 +528,14 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @exchange_name
+          bits = 0_u8
+          bits = bits | (1 << 0) if @if_unused
+          bits = bits | (1 << 1) if @no_wait
+          io.write_byte(bits)
+          super io.to_slice
         end
 
         def self.decode(channel, io)

@@ -111,13 +111,23 @@ module AvalancheMQ
                                         frame.class_id, frame.method_id)
         end
       elsif frame.passive
-        send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
-                                      frame.class_id, frame.method_id)
+        send_not_found(frame)
       else
         @vhost.apply(frame)
         unless frame.no_wait
           send AMQP::Exchange::DeclareOk.new(frame.channel)
         end
+      end
+    end
+
+    private def delete_exchange(frame)
+      if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+        @vhost.apply(frame)
+        unless frame.no_wait
+          send AMQP::Exchange::DeleteOk.new(frame.channel)
+        end
+      else
+        send_not_found(frame)
       end
     end
 
@@ -139,8 +149,7 @@ module AvalancheMQ
           send AMQP::Queue::DeleteOk.new(frame.channel, size)
         end
       else
-        send AMQP::Channel::Close.new(frame.channel, 404_u16, "Not found",
-                                      frame.class_id, frame.method_id)
+        send_not_found(frame)
       end
     end
 
@@ -164,8 +173,7 @@ module AvalancheMQ
                                         frame.class_id, frame.method_id)
         end
       elsif frame.passive
-        send AMQP::Channel::Close.new(frame.channel, 404_u16, "NOT FOUND",
-                                      frame.class_id, frame.method_id)
+        send_not_found(frame)
       else
         @vhost.apply(frame)
         unless frame.no_wait
@@ -228,6 +236,8 @@ module AvalancheMQ
           end
         when AMQP::Exchange::Declare
           declare_exchange(frame)
+        when AMQP::Exchange::Delete
+          delete_exchange(frame)
         when AMQP::Queue::Declare
           declare_queue(frame)
         when AMQP::Queue::Bind
@@ -264,6 +274,11 @@ module AvalancheMQ
       @log.error "Client connection #{@remote_address} read_loop closed: #{ex.inspect}"
     ensure
       close
+    end
+
+    def send_not_found(frame)
+      send AMQP::Channel::Close.new(frame.channel, 404_u16, "Not found",
+                                    frame.class_id, frame.method_id)
     end
 
     def send(frame : AMQP::Frame | Nil)
