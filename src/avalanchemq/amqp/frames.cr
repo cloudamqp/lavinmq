@@ -528,7 +528,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = MemoryIO.new
+          io = MemoryIO.new(2 + 1 + @exchange_name.bytesize + 1)
           io.write_int @reserved1
           io.write_short_string @exchange_name
           bits = 0_u8
