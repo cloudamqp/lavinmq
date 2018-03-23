@@ -11,7 +11,9 @@ module AvalancheMQ
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
         @confirm_count = 0_u64
+        @confirm = false
         @global_prefetch = false
+        @next_publish_mandatory = false
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
@@ -28,9 +30,14 @@ module AvalancheMQ
         end
       end
 
-      def start_publish(exchange_name : String, routing_key : String)
-        @next_publish_exchange_name = exchange_name
-        @next_publish_routing_key = routing_key
+      @next_publish_exchange_name : String | Nil
+      @next_publish_routing_key : String | Nil
+      @next_msg_body : IO::Memory | Nil
+
+      def start_publish(frame)
+        @next_publish_exchange_name = frame.exchange
+        @next_publish_routing_key = frame.routing_key
+        @next_publish_mandatory = frame.mandatory
       end
 
       def next_msg_headers(size : UInt64, props : AMQP::Properties)
@@ -49,11 +56,19 @@ module AvalancheMQ
                             @next_msg_size.not_nil!,
                             @next_msg_props.not_nil!,
                             @next_msg_body.not_nil!.to_slice)
-          @client.vhost.publish(msg)
+          delivered = @client.vhost.publish(msg)
+          if !delivered && @next_publish_mandatory
+            @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
+                                                 msg.exchange_name, msg.routing_key)
+          end
+          if @confirm
+            @confirm_count += 1
+            @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
+          end
+
           @next_msg_body.not_nil!.clear
           @next_msg_body = @next_publish_exchange_name = @next_publish_routing_key = nil
-          @confirm_count += 1
-          @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false) if @confirm
+          @next_publish_mandatory = false
         end
       end
 

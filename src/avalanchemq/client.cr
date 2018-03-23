@@ -262,7 +262,7 @@ module AvalancheMQ
         when AMQP::Queue::Purge
           purge_queue(frame)
         when AMQP::Basic::Publish
-          @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
+          @channels[frame.channel].start_publish(frame)
         when AMQP::HeaderFrame
           @channels[frame.channel].next_msg_headers(frame.body_size, frame.properties)
         when AMQP::BodyFrame

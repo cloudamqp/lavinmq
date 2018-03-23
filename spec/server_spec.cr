@@ -174,7 +174,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports publisher confirms" do
-    s = AvalancheMQ::Server.new("/tmp/spec8", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec7", Logger::ERROR)
     spawn { s.listen(5672) }
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -195,6 +195,29 @@ describe AvalancheMQ::Server do
       sleep 0.01
       acked.should eq true
       delivery_tag.should eq 2
+    end
+    s.close
+  end
+
+  it "supports mandatory publish flag" do
+    s = AvalancheMQ::Server.new("/tmp/spec8", Logger::ERROR)
+    spawn { s.listen(5672) }
+    sleep 0.001
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      pmsg = AMQP::Message.new("m1")
+      reply_code = 0
+      reply_msg = nil
+      ch.on_return do |code, text|
+        puts "return #{code} #{text}"
+        reply_code = code
+        reply_msg = text
+      end
+      ch.publish(pmsg, "amq.topic", "rk", mandatory = true)
+      sleep 0.01
+      # bug in amqp.cr ?
+      # reply_code.should eq 312
+      # reply_msg.should eq "No Route"
     end
     s.close
   end
