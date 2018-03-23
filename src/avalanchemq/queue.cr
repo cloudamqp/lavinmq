@@ -85,6 +85,7 @@ module AvalancheMQ
             @log.info "IndexError in consumer.sample"
           end
         end
+        schedule_expiration_of_next_msg
         @log.info { "Queue event #{@name} waiting" }
         event = @event_channel.receive
         @log.info { "Queue event #{@name}: #{event}" }
@@ -156,39 +157,44 @@ module AvalancheMQ
       @log.debug { "Published message #{sp} in queue #{@name}" }
     end
 
-    def next_msg_properties
-      sp = @ready[0]? || return nil
+    def msg_properties(sp)
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
-      seg.seek(seg.read_uint8, IO::Seek::Current)
-      seg.seek(seg.read_uint8, IO::Seek::Current)
+      seg.seek(seg.read_byte.to_i, IO::Seek::Current)
+      seg.seek(seg.read_byte.to_i, IO::Seek::Current)
       AMQP::Properties.decode seg
     end
 
     def schedule_expiration_of_next_msg
-      if p = next_msg_properties
-        if exp = p.expiration.try &.to_i64?
-          spawn do
-            sleep exp
-            if env = get
-              expire_msg(env.message)
-              ack(env.segment_position)
-            end
-          end
+      @log.debug { "Scheduling expiration of next msg for queue #{@vhost.name}/#{@name}" }
+      sp = @ready[0]? || return nil
+      p = msg_properties(sp)
+      # TODO: save timestamp when message arrived, subtract expiration, sleep that time
+
+      if exp_ms = p.expiration.try &.to_i64?
+        expire_in = exp_ms + p.timestamp.not_nil!.epoch_ms - Time.now.epoch_ms
+        spawn do
+          sleep expire_in / 1_000
+          expire_msg(sp, :expired)
         end
       end
     end
 
-    def expire_msg(env : Envelope)
-      if dlx = env.message.properties.headers.delete("x-dead-letter-exchange")
-        env.message.exchange_name = dlx
-        if dlrk = env.message.properties.headers.delete("x-dead-letter-routing-key")
-          env.message.routing_key = dlrk
+    def expire_msg(sp : SegmentPosition, reason : Symbol)
+      props = msg_properties(sp)
+      if props.headers.try &.key? "x-dead-letter-exchange"
+        env = read(sp)
+        msg = env.message
+        if dlx = msg.properties.headers.try &.delete("x-dead-letter-exchange")
+          msg.exchange_name = dlx.to_s
+          if dlrk = msg.properties.headers.try &.delete("x-dead-letter-routing-key")
+            msg.routing_key = dlrk.to_s
+          end
+          # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
+          @vhost.publish msg
         end
-        @vhost.publish env.message
-
-        ack(env.segment_position)
       end
+      ack(sp)
     end
 
     def get(no_ack : Bool) : Envelope | Nil
@@ -229,7 +235,7 @@ module AvalancheMQ
       if requeue
         @ready.unshift sp
       else
-        #expire_msg(sp)
+        expire_msg(sp, :rejected)
       end
       @event_channel.send Event::MessageRejected unless @event_channel.full?
     end
