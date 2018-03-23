@@ -13,6 +13,7 @@ module AvalancheMQ
       MessagePublished
       MessageAcked
       MessageRejected
+      Purged
     end
 
     @log : Logger
@@ -188,7 +189,7 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      @unacked.delete sp 
+      @unacked.delete sp
       @ready.unshift sp if requeue
       @event_channel.send Event::MessageRejected unless @event_channel.full?
     end
@@ -206,6 +207,15 @@ module AvalancheMQ
       if @auto_delete && @consumers.size == 0
         delete
       end
+    end
+
+    def purge
+      purged_count = message_count
+      @ready.clear
+      @enq.try &.truncate
+      @log.info { "Purging #{purged_count} from #{@name}" }
+      @event_channel.send Event::Purged unless @event_channel.full?
+      purged_count
     end
   end
 end

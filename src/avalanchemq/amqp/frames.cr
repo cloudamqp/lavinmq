@@ -575,6 +575,8 @@ module AvalancheMQ
         when 11_u16 then DeclareOk.decode(channel, body)
         when 20_u16 then Bind.decode(channel, body)
         when 21_u16 then BindOk.decode(channel, body)
+        when 30_u16 then Purge.decode(channel, body)
+        when 31_u16 then PurgeOk.decode(channel, body)
         when 40_u16 then Delete.decode(channel, body)
         when 41_u16 then DeleteOk.decode(channel, body)
         when 50_u16 then Unbind.decode(channel, body)
@@ -799,6 +801,54 @@ module AvalancheMQ
 
         def self.decode(channel, io)
           self.new(channel)
+        end
+      end
+
+      struct Purge < Queue
+        def method_id
+          30_u16
+        end
+
+        getter reserved1, queue_name, no_wait
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String, @no_wait : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new(2 + 1 + @queue_name.bytesize + 1)
+          io.write_int @reserved1
+          io.write_short_string @queue_name
+          io.write_bool @no_wait
+          super io.to_slice
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          queue_name = io.read_short_string
+          bits = io.read_byte
+          no_wait = bits.bit(0) == 1
+          self.new channel, reserved1, queue_name, no_wait
+        end
+      end
+
+      struct PurgeOk < Queue
+        def method_id
+          31_u16
+        end
+
+        def initialize(channel : UInt16, @message_count : UInt32)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new(2)
+          io.write_int @message_count
+          super io.to_slice
+        end
+
+        def self.decode(io)
+          raise "Not implemented"
         end
       end
     end

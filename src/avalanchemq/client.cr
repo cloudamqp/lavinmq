@@ -212,6 +212,17 @@ module AvalancheMQ
       end
     end
 
+    private def purge_queue(frame)
+      if @vhost.queues.has_key? frame.queue_name
+        message_count = @vhost.queues[frame.queue_name].purge
+        unless frame.no_wait
+          send AMQP::Queue::PurgeOk.new(frame.channel, message_count)
+        end
+      else
+        send_not_found(frame)
+      end
+    end
+
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
@@ -246,6 +257,8 @@ module AvalancheMQ
           unbind_queue(frame)
         when AMQP::Queue::Delete
           delete_queue(frame)
+        when AMQP::Queue::Purge
+          purge_queue(frame)
         when AMQP::Basic::Publish
           @channels[frame.channel].start_publish(frame.exchange, frame.routing_key)
         when AMQP::HeaderFrame

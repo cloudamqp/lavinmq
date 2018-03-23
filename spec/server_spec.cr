@@ -157,4 +157,19 @@ describe AvalancheMQ::Server do
     end
     s.close
   end
+
+  it "can purge a queue" do
+    s = AvalancheMQ::Server.new("/tmp/spec6", Logger::ERROR)
+    spawn { s.listen(5672) }
+    sleep 0.001
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", durable: true)
+      q = ch.queue("test", auto_delete: false, durable: true, exclusive: false)
+      4.times { x.publish pmsg, q.name }
+      q.purge.should eq 4
+    end
+    s.close
+  end
 end
