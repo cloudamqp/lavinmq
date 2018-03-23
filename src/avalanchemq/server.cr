@@ -41,15 +41,13 @@ module AvalancheMQ
     end
 
     def close
-      print "Closing listeners..."
+      @log.info "Closing listeners..."
       @listeners.each { |l| l.close }
-      puts "OK"
-      print "Closing connections..."
+      @log.info "Closing connections..."
       @connections.each { |c| c.close }
-      puts "OK"
-      print "Closing vhosts..."
+      @log.info "Closing vhosts..."
       @vhosts.each_value { |v| v.close }
-      puts "OK"
+      @log.info "Server closed"
     end
 
     private def handle_connection(socket)
