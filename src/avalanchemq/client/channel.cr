@@ -1,7 +1,7 @@
 module AvalancheMQ
   class Client
     class Channel
-      getter prefetch_size, prefetch_count, global_prefetch
+      getter prefetch_size, prefetch_count, global_prefetch, confirm
 
       def send(frame)
         @client.send frame
@@ -10,6 +10,7 @@ module AvalancheMQ
       def initialize(@client : Client)
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
+        @confirm_count = 0_u64
         @global_prefetch = false
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
@@ -18,6 +19,14 @@ module AvalancheMQ
 
       def log
         @client.log
+      end
+
+      def confirm_select(frame)
+        @confirm = true
+        @confirm_count += 1
+        unless frame.no_wait
+          @client.send AMQP::Confirm::SelectOk.new(frame.channel)
+        end
       end
 
       def start_publish(exchange_name : String, routing_key : String)
@@ -31,7 +40,8 @@ module AvalancheMQ
         @next_msg_body = IO::Memory.new(size)
       end
 
-      def add_content(bytes)
+      def add_content(frame)
+        bytes = frame.body
         raise "No msg to write to" if @next_msg_body.nil?
         @next_msg_body.not_nil!.write bytes
         if @next_msg_body.not_nil!.pos == @next_msg_size.not_nil!
@@ -43,6 +53,7 @@ module AvalancheMQ
           @client.vhost.publish(msg)
           @next_msg_body.not_nil!.clear
           @next_msg_body = @next_publish_exchange_name = @next_publish_routing_key = nil
+          @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false) if @confirm
         end
       end
 
@@ -138,7 +149,7 @@ module AvalancheMQ
           close
         end
       end
-      
+
       def basic_qos(frame)
         @prefetch_size = frame.prefetch_size
         @prefetch_count = frame.prefetch_count

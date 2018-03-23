@@ -99,6 +99,7 @@ module AvalancheMQ
         when 40_u16 then Exchange.decode(channel, body)
         when 50_u16 then Queue.decode(channel, body)
         when 60_u16 then Basic.decode(channel, body)
+        when 85_u16 then Confirm.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
           puts "class-id #{class_id} not implemented yet"
@@ -1006,7 +1007,10 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          io = MemoryIO.new(9)
+          io.write_int(@delivery_tag)
+          io.write_bool(@multiple)
+          super(io.to_slice)
         end
 
         def self.decode(channel, io)
@@ -1182,6 +1186,55 @@ module AvalancheMQ
 
       def to_slice
         super(@body)
+      end
+    end
+
+    abstract struct Confirm < MethodFrame
+      def class_id
+        85_u16
+      end
+
+      def self.decode(channel, body)
+        method_id = body.read_uint16
+        case method_id
+        when 10_u16 then Select.decode(channel, body)
+        when 11_u16 then SelectOk.decode(channel, body)
+        else raise "Unknown method_id #{method_id}"
+        end
+      end
+
+      struct Select < Confirm
+        def method_id
+          10_u16
+        end
+
+        getter no_wait
+
+        def initialize(channel : UInt16, @no_wait : Bool)
+          super(channel)
+        end
+
+        def self.decode(channel, io)
+          self.new channel, io.read_bool
+        end
+
+        def to_slice
+          raise "Not implemented"
+        end
+      end
+
+      struct SelectOk < Confirm
+        def method_id
+          11_u16
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(io)
+          raise "Not implemented"
+        end
       end
     end
   end
