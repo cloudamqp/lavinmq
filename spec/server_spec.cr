@@ -172,4 +172,30 @@ describe AvalancheMQ::Server do
     end
     s.close
   end
+
+  it "supports publisher confirms" do
+    s = AvalancheMQ::Server.new("/tmp/spec8", Logger::ERROR)
+    spawn { s.listen(5672) }
+    sleep 0.001
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      acked = false
+      delivery_tag = 0
+      ch.on_confirm do |tag, ack|
+        delivery_tag = tag
+        acked = ack
+      end
+      ch.confirm
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", durable: true)
+      q = ch.queue("test", auto_delete: false, durable: true, exclusive: false)
+      x.publish pmsg, q.name
+      ch.confirm
+      x.publish pmsg, q.name
+      sleep 0.01
+      acked.should eq true
+      delivery_tag.should eq 2
+    end
+    s.close
+  end
 end

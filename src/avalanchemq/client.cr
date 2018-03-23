@@ -245,6 +245,8 @@ module AvalancheMQ
           if ch = @channels.delete(frame.channel)
             ch.close
           end
+        when AMQP::Confirm::Select
+          @channels[frame.channel].confirm_select(frame)
         when AMQP::Exchange::Declare
           declare_exchange(frame)
         when AMQP::Exchange::Delete
@@ -264,7 +266,7 @@ module AvalancheMQ
         when AMQP::HeaderFrame
           @channels[frame.channel].next_msg_headers(frame.body_size, frame.properties)
         when AMQP::BodyFrame
-          @channels[frame.channel].add_content(frame.body)
+          @channels[frame.channel].add_content(frame)
         when AMQP::Basic::Consume
           @channels[frame.channel].consume(frame)
         when AMQP::Basic::Get
