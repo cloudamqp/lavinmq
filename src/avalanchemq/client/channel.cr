@@ -23,7 +23,6 @@ module AvalancheMQ
 
       def confirm_select(frame)
         @confirm = true
-        @confirm_count += 1
         unless frame.no_wait
           @client.send AMQP::Confirm::SelectOk.new(frame.channel)
         end
@@ -53,6 +52,7 @@ module AvalancheMQ
           @client.vhost.publish(msg)
           @next_msg_body.not_nil!.clear
           @next_msg_body = @next_publish_exchange_name = @next_publish_routing_key = nil
+          @confirm_count += 1
           @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false) if @confirm
         end
       end

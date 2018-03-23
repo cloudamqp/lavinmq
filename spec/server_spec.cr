@@ -179,7 +179,17 @@ describe AvalancheMQ::Server do
     sleep 0.001
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
-      ch.confirm.should be ch
+      acked = false
+      ch.on_confirm do |tag, ack|
+        acked = ack
+      end
+      ch.confirm
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", durable: true)
+      q = ch.queue("test", auto_delete: false, durable: true, exclusive: false)
+      x.publish pmsg, q.name
+      sleep 0.01
+      acked.should eq true
     end
     s.close
   end
