@@ -72,15 +72,14 @@ module AvalancheMQ
 
       def basic_get(frame)
         if q = @client.vhost.queues.fetch(frame.queue, nil)
-          if msg_sp = q.get(frame.no_ack)
-            msg, sp = msg_sp
-            delivery_tag = next_delivery_tag(q, sp, nil)
+          if env = q.get(frame.no_ack)
+            delivery_tag = next_delivery_tag(q, env.segment_position, nil)
             @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
-                                                false, msg.exchange_name,
-                                                msg.routing_key, q.message_count)
+                                                false, env.message.exchange_name,
+                                                env.message.routing_key, q.message_count)
             @client.send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16,
-                                               msg.size, msg.properties)
-            @client.send AMQP::BodyFrame.new(frame.channel, msg.body.to_slice)
+                                               env.message.size, env.message.properties)
+            @client.send AMQP::BodyFrame.new(frame.channel, env.message.body.to_slice)
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
           end

@@ -70,15 +70,14 @@ module AvalancheMQ
           begin
             @log.info { "Queue #{@name} got #{@consumers.size} consumers, sampling now" }
             c = consumers.sample
-            if msg_sp = get(c.no_ack)
-              msg, sp = msg_sp
-              @log.info { "Queue #{@name} got #{sp} for delivery to consumer" }
+            if env = get(c.no_ack)
+              @log.info { "Queue #{@name} got #{env.segment_position} for delivery to consumer" }
               begin
-                c.deliver(msg, sp, self)
+                c.deliver(env.message, env.segment_position, self)
                 @log.info { "Queue #{@name} return after delivery to consumer" }
               rescue Channel::ClosedError
                 @log.info "Consumer channel closed, rejecting msg"
-                reject sp, true
+                reject env.segment_position, true
               end
               next
             end
@@ -157,7 +156,42 @@ module AvalancheMQ
       @log.debug { "Published message #{sp} in queue #{@name}" }
     end
 
-    def get(no_ack : Bool) : Tuple(Message, SegmentPosition) | Nil
+    def next_msg_properties
+      sp = @ready[0]? || return nil
+      seg = @segments[sp.segment]
+      seg.seek(sp.position, IO::Seek::Set)
+      seg.seek(seg.read_uint8, IO::Seek::Current)
+      seg.seek(seg.read_uint8, IO::Seek::Current)
+      AMQP::Properties.decode seg
+    end
+
+    def schedule_expiration_of_next_msg
+      if p = next_msg_properties
+        if exp = p.expiration.try &.to_i64?
+          spawn do
+            sleep exp
+            if env = get
+              expire_msg(env.message)
+              ack(env.segment_position)
+            end
+          end
+        end
+      end
+    end
+
+    def expire_msg(env : Envelope)
+      if dlx = env.message.properties.headers.delete("x-dead-letter-exchange")
+        env.message.exchange_name = dlx
+        if dlrk = env.message.properties.headers.delete("x-dead-letter-routing-key")
+          env.message.routing_key = dlrk
+        end
+        @vhost.publish env.message
+
+        ack(env.segment_position)
+      end
+    end
+
+    def get(no_ack : Bool) : Envelope | Nil
       @log.info "Getting message from queue #{@name}"
       sp = @ready.shift? || return nil
       @log.info "Trying to read message #{sp} for queue #{@name}"
@@ -166,7 +200,10 @@ module AvalancheMQ
       else
         @unacked << sp
       end
+      read(sp)
+    end
 
+    def read(sp : SegmentPosition) : Envelope
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
       ex = seg.read_short_string
@@ -176,7 +213,7 @@ module AvalancheMQ
       bd = Bytes.new(sz)
       seg.read(bd)
       msg = Message.new(ex, rk, sz, pr, bd)
-      { msg, sp }
+      Envelope.new(sp, msg)
     end
 
     def ack(sp : SegmentPosition)
@@ -189,7 +226,11 @@ module AvalancheMQ
 
     def reject(sp : SegmentPosition, requeue : Bool)
       @unacked.delete sp
-      @ready.unshift sp if requeue
+      if requeue
+        @ready.unshift sp
+      else
+        #expire_msg(sp)
+      end
       @event_channel.send Event::MessageRejected unless @event_channel.full?
     end
 
