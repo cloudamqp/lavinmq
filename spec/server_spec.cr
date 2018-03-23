@@ -180,7 +180,9 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       acked = false
+      delivery_tag = 0
       ch.on_confirm do |tag, ack|
+        delivery_tag = tag
         acked = ack
       end
       ch.confirm
@@ -188,8 +190,11 @@ describe AvalancheMQ::Server do
       x = ch.exchange("", "direct", durable: true)
       q = ch.queue("test", auto_delete: false, durable: true, exclusive: false)
       x.publish pmsg, q.name
+      ch.confirm
+      x.publish pmsg, q.name
       sleep 0.01
       acked.should eq true
+      delivery_tag.should eq 2
     end
     s.close
   end
