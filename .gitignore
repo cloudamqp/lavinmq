@@ -4,3 +4,4 @@
 /.shards/
 /.vagrant/
 *.log
+.icr_*
