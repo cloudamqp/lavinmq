@@ -45,8 +45,8 @@ module AvalancheMQ
         socket.close
         return nil
       end
-    rescue ex
-      log.error ex.inspect_with_backtrace
+    rescue ex : IO::EOFError
+      log.warn "#{ex.to_s} while establishing connection with #{socket.remote_address}"
       nil
     end
 
@@ -83,12 +83,12 @@ module AvalancheMQ
         break if frame.nil?
         @socket.write frame.to_slice
       end
-      @log.debug "Socket close write"
+      @log.debug "Closing write socket"
       @socket.close_write
     rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.debug "Write failure: #{ex}"
+      @log.debug "#{ex} when writing to socket"
     ensure
-      close
+      close(false)
     end
 
     private def open_channel(frame)
@@ -286,10 +286,10 @@ module AvalancheMQ
         else @log.error "Unhandled frame #{frame.inspect}"
         end
       end
-      @log.debug { "Socket close read" }
+      @log.debug { "Close read socket" }
       @socket.close_read
     rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.error "Read failure: #{ex}"
+      @log.error "#{ex} when reading from socket"
     ensure
       close
     end

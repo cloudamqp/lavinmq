@@ -173,12 +173,13 @@ module AvalancheMQ
     private def gc_loop
       loop do
         gc_segments!
+        # TODO: garbage collect when we've opened a new segment instead
         sleep 60
       end
     end
 
     private def gc_segments!
-      @log.debug "GC segments"
+      @log.debug "Garbage collecting segments"
       referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
         used = q.close_unused_segments_and_report_used
