@@ -168,15 +168,17 @@ module AvalancheMQ
       MessageMetadata.new(ts, ex, rk, pr)
     end
 
-    @next_msg_to_expire : Tuple(MessageMetadata, SegmentPosition, Int64) | Nil
+    @next_msg_to_expire = ::Channel(Tuple(MessageMetadata, SegmentPosition, Int64)).new(1)
 
     def expire_loop
       loop do
-        sleep 1
-        next if @next_msg_to_expire.nil?
-        meta, sp, expire_at = @next_msg_to_expire.not_nil!
-        next unless expire_at <= Time.now.epoch_ms
-        next unless sp == @ready[0]
+        meta, sp, expire_at = @next_msg_to_expire.receive
+        unless expire_at <= Time.now.epoch_ms
+          @next_msg_to_expire.send({ meta, sp, expire_at })
+          sleep 1
+        end
+        next unless sp == @ready[0]?
+        @ready.shift
         expire_msg(meta, sp, :expired)
       end
     end
@@ -184,11 +186,11 @@ module AvalancheMQ
     def schedule_expiration_of_next_msg
       @log.debug { "Scheduling expiration of next msg for queue #{@vhost.name}/#{@name}" }
       sp = @ready[0]? || return nil
-      @log.debug { "Expiring #{sp} in queue #{@vhost.name}/#{@name}" }
       meta = metadata(sp)
       if exp_ms = meta.properties.expiration.try &.to_i64?
         expire_at = meta.timestamp + exp_ms
-        @next_msg_to_expire = { meta, sp, expire_at }
+        @log.debug { "Expiring #{sp} in queue #{@vhost.name}/#{@name} at #{Time.epoch_ms expire_at}" }
+        @next_msg_to_expire.send({ meta, sp, expire_at })
       end
     end
 
@@ -197,7 +199,8 @@ module AvalancheMQ
     end
 
     def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
-      if meta.properties.headers.try &.key? "x-dead-letter-exchange"
+      @log.debug { "Expering #{sp} in queue #{@vhost.name}/#{@name} metadata: #{meta}" }
+      if meta.properties.headers.try &.has_key?("x-dead-letter-exchange")
         env = read(sp)
         msg = env.message
         if dlx = msg.properties.headers.try &.delete("x-dead-letter-exchange")
@@ -206,6 +209,7 @@ module AvalancheMQ
             msg.routing_key = dlrk.to_s
           end
           # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
+          @log.debug { "Dead-lettering #{sp} in queue #{@vhost.name}/#{@name} to #{msg.exchange_name}/#{msg.routing_key}" }
           @vhost.publish msg
         end
       end

@@ -198,4 +198,49 @@ describe AvalancheMQ::Server do
     end
     s.close
   end
+
+  it "expires messages" do
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
+    spawn { s.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      q = ch.queue("exp1")
+
+      x = ch.exchange("", "direct", passive: true)
+      msg = AMQP::Message.new("expired",
+                              AMQP::Protocol::Properties.new(expiration: "0"))
+      x.publish msg, q.name
+
+      sleep 0.01
+      msg = q.get(no_ack: true)
+      msg.to_s.should be ""
+    end
+    s.close
+  end
+
+  it "dead-letter expired messages" do
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
+    spawn { s.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      dlq = ch.queue("dlq")
+      expq = ch.queue("exp")
+
+      hdrs = AMQP::Protocol::Table.new
+      hdrs["x-dead-letter-exchange"] = ""
+      hdrs["x-dead-letter-routing-key"] = "dlq"
+      msg = AMQP::Message.new("dead letter", AMQP::Protocol::Properties.new(expiration: "0", headers: hdrs))
+      ch.exchange("", "direct", passive: true).publish msg, "exp"
+
+      msgs = [] of AMQP::Message
+      dlq.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      msgs.size.should eq 1
+      msgs.first.to_s.should eq("dead letter")
+    end
+    s.close
+  end
+
 end
