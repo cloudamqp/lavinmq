@@ -192,7 +192,7 @@ describe AvalancheMQ::Server do
       x.publish pmsg, q.name
       ch.confirm
       x.publish pmsg, q.name
-      sleep 0.01
+      q.get(no_ack: true)
       acked.should eq true
       delivery_tag.should eq 2
     end
