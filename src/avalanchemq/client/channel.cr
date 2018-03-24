@@ -33,10 +33,11 @@ module AvalancheMQ
         @next_publish_routing_key = routing_key
       end
 
+      @next_msg_body = IO::Memory.new(8192)
+
       def next_msg_headers(size : UInt64, props : AMQP::Properties)
         @next_msg_size = size
         @next_msg_props = props
-        @next_msg_body = IO::Memory.new(size)
       end
 
       def add_content(frame)
@@ -52,7 +53,7 @@ module AvalancheMQ
                             @next_msg_body.not_nil!.to_slice)
           @client.vhost.publish(msg)
           @next_msg_body.not_nil!.clear
-          @next_msg_body = @next_publish_exchange_name = @next_publish_routing_key = nil
+          @next_publish_exchange_name = @next_publish_routing_key = nil
           @confirm_count += 1
           @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false) if @confirm
         end
