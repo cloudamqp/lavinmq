@@ -168,7 +168,6 @@ module AvalancheMQ
     end
 
     def schedule_expiration_of_next_msg
-      @log.debug { "Scheduling expiration of next msg in #{@vhost.name}/#{@name}" }
       sp = @ready[0]? || return nil
       meta = metadata(sp)
       if exp_ms = meta.properties.expiration.try &.to_i64?
