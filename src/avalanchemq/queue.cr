@@ -27,7 +27,8 @@ module AvalancheMQ
     def initialize(@vhost : VHost, @name : String, @durable : Bool,
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
-      @log = @vhost.log
+      @log = @vhost.log.dup
+      @log.progname = "Queue #{@vhost.name}/#{@name}"
       message_ttl = @arguments.fetch("x-message-ttl", nil)
       @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
       @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
@@ -46,7 +47,6 @@ module AvalancheMQ
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
-      @log.info "Queue #{@name}: Has #{message_count} messages"
     end
 
     def message_count : UInt32
@@ -61,9 +61,9 @@ module AvalancheMQ
       s = Set(UInt32).new
       @ready.each { |sp| s << sp.segment }
       @unacked.each { |sp| s << sp.segment }
-      @segments.each do |sp, f|
-        unless s.includes? sp
-          @log.debug { "Closing non referenced segments #{sp} in #{@vhost.name}/#{@name}" }
+      @segments.each do |seg, f|
+        unless s.includes? seg
+          @log.debug { "Closing non referenced segment #{seg}" }
           f.close
         end
       end
@@ -76,34 +76,32 @@ module AvalancheMQ
         consumers = @consumers.select { |c| c.accepts? }
         if consumers.size != 0
           begin
-            @log.info { "Queue #{@name} got #{@consumers.size} consumers, sampling now" }
             c = consumers.sample
             if env = get(c.no_ack)
-              @log.info { "Queue #{@name} got #{env.segment_position} for delivery to consumer" }
+              @log.debug { "Delivering #{env.segment_position} to consumer" }
               begin
                 c.deliver(env.message, env.segment_position, self)
-                @log.info { "Queue #{@name} return after delivery to consumer" }
               rescue Channel::ClosedError
-                @log.info "Consumer channel closed, rejecting msg"
+                @log.debug "Consumer chosen for delivery has disconnected"
                 reject env.segment_position, true
               end
               next
             end
           rescue IndexError
-            @log.info "IndexError in consumer.sample"
+            @log.debug "Race-condition, no consumers available anymore"
           end
         end
         schedule_expiration_of_next_msg
-        @log.info { "Queue event #{@name} waiting" }
+        @log.debug { "Idling" }
         event = @event_channel.receive
-        @log.info { "Queue event #{@name}: #{event}" }
+        @log.debug { event.to_s }
       end
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed for queue #{@name}"
     end
 
     def restore_index
-      @log.info "Restoring index on #{@vhost.name}/#{@name}"
+      @log.info "Restoring index"
       QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "w") do |acks|
         QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "w") do |enqs|
           acked = Set(SegmentPosition).new(acks.size / sizeof(SegmentPosition))
@@ -118,6 +116,7 @@ module AvalancheMQ
           end
         end
       end
+      @log.info "#{message_count} messages"
     end
 
     def close(deleting = false)
@@ -130,7 +129,7 @@ module AvalancheMQ
     end
 
     def delete
-      @log.info "deleting queue #{@name}"
+      @log.info "Deleting"
       @vhost.queues.delete @name
       close(deleting: true)
       if @durable
@@ -138,7 +137,7 @@ module AvalancheMQ
         File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack")
       end
     rescue ex : Errno
-      @log.info "Deleting queue #{@name}, file not found"
+      @log.debug "File not found when deleting"
     end
 
     def to_json(json : JSON::Builder)
@@ -153,16 +152,15 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, flush = false)
-      @log.debug { "Publishing message #{sp} in queue #{@name}" }
+      @log.debug { "Enqueuing message #{sp}" }
       @ready.push sp
       if @durable
         @enq.try &.write_bytes sp
         @enq.try &.flush if flush
       end
 
-      @log.debug { "Sending to MessagePublishing to @event_channel in queue #{@name}" }
       @event_channel.send Event::MessagePublished unless @event_channel.full?
-      @log.debug { "Published message #{sp} in queue #{@name}" }
+      @log.debug { "Enqueued successfully #{sp}" }
     end
 
     def metadata(sp) : MessageMetadata
@@ -188,7 +186,7 @@ module AvalancheMQ
     end
 
     def expire_later(expire_in, meta, sp)
-      @log.debug { "Expiring #{sp} in queue #{@vhost.name}/#{@name} in #{expire_in}ms" }
+      @log.debug { "Expiring #{sp} in #{expire_in}ms" }
       sleep expire_in.milliseconds if expire_in > 0
       return unless sp == @ready[0]?
       @ready.shift
@@ -200,7 +198,7 @@ module AvalancheMQ
     end
 
     def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
-      @log.debug { "Expering #{sp} in queue #{@vhost.name}/#{@name} metadata: #{meta}" }
+      @log.debug { "Expiring #{sp} now due to #{reason}" }
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       if dlx
         env = read(sp)
@@ -213,16 +211,14 @@ module AvalancheMQ
         end
         msg.properties.expiration = nil
         # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
-        @log.debug { "Dead-lettering #{sp} in queue #{@vhost.name}/#{@name} to #{msg.exchange_name}/#{msg.routing_key}" }
+        @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
         @vhost.publish msg
       end
       ack(sp)
     end
 
     def get(no_ack : Bool) : Envelope | Nil
-      @log.info "Getting message from queue #{@name}"
       sp = @ready.shift? || return nil
-      @log.info "Trying to read message #{sp} for queue #{@name}"
       if no_ack && @durable
         @ack.try &.write_bytes sp
       else
@@ -265,14 +261,14 @@ module AvalancheMQ
 
     def add_consumer(consumer : Client::Channel::Consumer)
       @consumers.push consumer
-      @log.info { "Adding consumer, Queue #{@name} got #{@consumers.size} consumers" }
+      @log.debug { "Adding consumer (now #{@consumers.size})" }
       @event_channel.send Event::ConsumerAdded unless @event_channel.full?
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       @consumers.delete consumer
       consumer.unacked.each { |sp| reject(sp, true) }
-      @log.info { "Removing consumer, Queue #{@name} got #{@consumers.size} consumers" }
+      @log.debug { "Removing consumer (now #{@consumers.size})" }
       if @auto_delete && @consumers.size == 0
         delete
       end
@@ -282,7 +278,7 @@ module AvalancheMQ
       purged_count = message_count
       @ready.clear
       @enq.try &.truncate
-      @log.info { "Purging #{purged_count} from #{@name}" }
+      @log.debug { "Purged #{purged_count} messages" }
       @event_channel.send Event::Purged unless @event_channel.full?
       purged_count
     end

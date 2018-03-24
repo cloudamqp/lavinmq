@@ -12,8 +12,11 @@ module AvalancheMQ
 
     MAX_SEGMENT_SIZE = 16 * 1024**2
     @segment : UInt32
+    @log : Logger
 
-    def initialize(@name : String, @server_data_dir : String, @log : Logger)
+    def initialize(@name : String, @server_data_dir : String, server_log : Logger)
+      @log = server_log.dup
+      @log.progname = "Vhost #{@name}"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new
@@ -158,7 +161,7 @@ module AvalancheMQ
         end
       end
     rescue Channel::ClosedError
-      @log.info "VHost@save channel closed"
+      @log.debug "Save channel closed"
     end
 
     private def last_segment : UInt32
@@ -175,18 +178,18 @@ module AvalancheMQ
     end
 
     private def gc_segments!
-      @log.info "GC segments in vhost #{@name}"
+      @log.debug "GC segments"
       referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
         used = q.close_unused_segments_and_report_used
         referenced_segments.concat used
       end
-      @log.info "GC segments: #{referenced_segments.size} in use"
+      @log.debug "#{referenced_segments.size} segments in use"
 
       Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
         seg = f[/\d+$/].to_u32
         next if referenced_segments.includes? seg
-        @log.info "GC segments: Deleting segment #{f}"
+        @log.debug "Deleting segment #{seg}"
         File.delete f
       end
     end

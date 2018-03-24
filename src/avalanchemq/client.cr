@@ -7,9 +7,12 @@ module AvalancheMQ
     getter :socket, :vhost, :channels, log
 
     @remote_address : Socket::IPAddress
+    @log : Logger
 
-    def initialize(@socket : TCPSocket, @vhost : VHost, @log : Logger)
+    def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
       @remote_address = @socket.remote_address
+      @log = server_log.dup
+      @log.progname = "Client #{@socket.remote_address}"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame | Nil).new(16)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
@@ -49,7 +52,7 @@ module AvalancheMQ
 
     def close(server_initiated = true)
       return if @outbox.closed?
-      @log.info "Closing client #{@remote_address}"
+      @log.debug "Closing"
       @channels.each_value &.close
       if cb = @on_close_callback
         cb.call self
@@ -80,11 +83,10 @@ module AvalancheMQ
         break if frame.nil?
         @socket.write frame.to_slice
       end
-      @log.info "closeing write @ #{@remote_address}"
+      @log.debug "Socket close write"
       @socket.close_write
-      @log.info "closed write @ #{@remote_address}"
     rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.info "Client connection #{@remote_address} write closed: #{ex.inspect}"
+      @log.debug "Write failure: #{ex}"
     ensure
       close
     end
@@ -281,12 +283,13 @@ module AvalancheMQ
           @channels[frame.channel].basic_qos(frame)
         when AMQP::HeartbeatFrame
           send AMQP::HeartbeatFrame.new
-        else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
+        else @log.error "Unhandled frame #{frame.inspect}"
         end
       end
+      @log.debug { "Socket close read" }
       @socket.close_read
     rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.error "Client connection #{@remote_address} read_loop closed: #{ex.inspect}"
+      @log.error "Read failure: #{ex}"
     ensure
       close
     end

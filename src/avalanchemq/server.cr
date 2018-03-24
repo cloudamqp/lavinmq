@@ -14,8 +14,9 @@ module AvalancheMQ
     def initialize(data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
+      @log.progname = "AMQP Server"
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
-        io << message
+        io << progname << ": " << message
       end
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
@@ -28,7 +29,7 @@ module AvalancheMQ
     def listen(port : Int)
       s = TCPServer.new("::", port)
       @listeners << s
-      @log.info "Server listening on #{s.local_address}"
+      @log.info "Listening on #{s.local_address}"
       loop do
         if socket = s.accept?
           handle_connection(socket)
@@ -41,13 +42,12 @@ module AvalancheMQ
     end
 
     def close
-      @log.info "Closing listeners..."
+      @log.debug "Closing listeners"
       @listeners.each { |l| l.close }
-      @log.info "Closing connections..."
+      @log.debug "Closing connections"
       @connections.each { |c| c.close }
-      @log.info "Closing vhosts..."
+      @log.debug "Closing vhosts"
       @vhosts.each_value { |v| v.close }
-      @log.info "Server closed"
     end
 
     private def handle_connection(socket)
@@ -75,7 +75,7 @@ module AvalancheMQ
         when 1 # close
           @connections.delete conn if conn
         end
-        @log.info "connection#count=#{@connections.size}"
+        @log.debug "connection#count=#{@connections.size}"
       end
     end
   end
