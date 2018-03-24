@@ -5,7 +5,7 @@ require "option_parser"
 require "file"
 require "ini"
 
-log_level = Logger::ERROR
+log_level = Logger::INFO
 port = 5672
 data_dir = "/tmp"
 config = ""
