@@ -30,9 +30,21 @@ module AvalancheMQ
           when String
             tmp.write_byte 'S'.ord.to_u8
             tmp.write_long_string(value)
-          when Int
+          when UInt8
+            tmp.write_byte 'b'.ord.to_u8
+            tmp.write_byte(value)
+          when UInt16
+            tmp.write_byte 's'.ord.to_u8
+            tmp.write_int(value)
+          when Int32
             tmp.write_byte 'I'.ord.to_u8
             tmp.write_int(value)
+          when Int64
+            tmp.write_byte 'l'.ord.to_u8
+            tmp.write_int(value)
+          when Time
+            tmp.write_byte 'T'.ord.to_u8
+            tmp.write_timestamp(value)
           when Hash(String, Field)
             tmp.write_byte 'F'.ord.to_u8
             tmp.write_table(value)
@@ -64,11 +76,19 @@ module AvalancheMQ
           type = read_byte
           val = case type
                 when 'S' then read_long_string
-                when 'I' then read_uint32
-                when 'l' then read_uint64
+                when 's' then read_uint16
+                when 'I' then read_int32
+                when 'l' then read_int64
                 when 'F' then read_table
                 when 't' then read_bool
+                when 'T' then read_timestamp
                 when 'V' then nil
+                when 'b' then read_byte
+                when 'f' then raise "Cannot parse float32"
+                when 'd' then raise "Cannot parse float64"
+                when 'D' then raise "Cannot parse decimal"
+                when 'A' then raise "Cannot parse array"
+                when 'x' then raise "Cannot parse byte array"
                 else raise "Unknown type: #{type}"
                 end
           hash[key] = val

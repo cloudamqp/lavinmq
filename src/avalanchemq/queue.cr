@@ -19,12 +19,20 @@ module AvalancheMQ
     @log : Logger
     @ack : QueueFile | Nil
     @enq : QueueFile | Nil
+    @message_ttl : UInt16 | Int32 | Int64 | Nil
+    @dlx : String?
+    @dlrk : String?
     getter name, durable, exclusive, auto_delete, arguments
 
     def initialize(@vhost : VHost, @name : String, @durable : Bool,
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
       @log = @vhost.log
+      message_ttl = @arguments.fetch("x-message-ttl", nil)
+      @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
+      @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
+      @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
+
       @consumers = Array(Client::Channel::Consumer).new
       @event_channel = Channel(Event).new
       @unacked = Set(SegmentPosition).new
@@ -170,7 +178,8 @@ module AvalancheMQ
     def schedule_expiration_of_next_msg
       sp = @ready[0]? || return nil
       meta = metadata(sp)
-      if exp_ms = meta.properties.expiration.try &.to_i64?
+      exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
+      if exp_ms
         expire_at = meta.timestamp + exp_ms
         expire_in = expire_at - Time.now.epoch_ms
         spawn(expire_later(expire_in, meta, sp),
@@ -180,7 +189,7 @@ module AvalancheMQ
 
     def expire_later(expire_in, meta, sp)
       @log.debug { "Expiring #{sp} in queue #{@vhost.name}/#{@name} in #{expire_in}ms" }
-      sleep expire_in if expire_in > 0
+      sleep expire_in.milliseconds if expire_in > 0
       return unless sp == @ready[0]?
       @ready.shift
       expire_msg(meta, sp, :expired)
@@ -192,19 +201,20 @@ module AvalancheMQ
 
     def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expering #{sp} in queue #{@vhost.name}/#{@name} metadata: #{meta}" }
-      if meta.properties.headers.try &.has_key?("x-dead-letter-exchange")
+      dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
+      if dlx
         env = read(sp)
         msg = env.message
-        if dlx = msg.properties.headers.try &.delete("x-dead-letter-exchange")
-          msg.exchange_name = dlx.to_s
-          if dlrk = msg.properties.headers.try &.delete("x-dead-letter-routing-key")
-            msg.routing_key = dlrk.to_s
-          end
-          msg.properties.expiration = nil
-          # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
-          @log.debug { "Dead-lettering #{sp} in queue #{@vhost.name}/#{@name} to #{msg.exchange_name}/#{msg.routing_key}" }
-          @vhost.publish msg
+        msg.properties.headers.try &.delete("x-dead-letter-exchange")
+        msg.exchange_name = dlx.to_s
+        dlrk = msg.properties.headers.try(&.delete("x-dead-letter-routing-key")) || @dlrk
+        if dlrk
+          msg.routing_key = dlrk.to_s
         end
+        msg.properties.expiration = nil
+        # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
+        @log.debug { "Dead-lettering #{sp} in queue #{@vhost.name}/#{@name} to #{msg.exchange_name}/#{msg.routing_key}" }
+        @vhost.publish msg
       end
       ack(sp)
     end

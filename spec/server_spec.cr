@@ -3,7 +3,7 @@ require "amqp"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec1", Logger::ERROR)
     spawn { s.listen(5674) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
@@ -131,7 +131,7 @@ describe AvalancheMQ::Server do
       ch.qos(0, 1, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       4.times { x.publish pmsg, q.name }
       c = 0
       q.subscribe do |msg|
@@ -219,18 +219,40 @@ describe AvalancheMQ::Server do
     s.close
   end
 
+  it "expires messages with message TTL on queue declaration" do
+    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
+    spawn { s.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      x = ch.exchange("", "direct", passive: true)
+      args = AMQP::Protocol::Table.new
+      args["x-message-ttl"] = 1.to_u16
+      args["x-dead-letter-exchange"] = ""
+      args["x-dead-letter-routing-key"] = "dlq"
+      q = ch.queue("", args: args)
+      dlq = ch.queue("dlq")
+      msg = AMQP::Message.new("queue dlx")
+      x.publish msg, q.name
+      sleep 0.01
+      msg = dlq.get(no_ack: true)
+      msg.to_s.should eq("queue dlx")
+    end
+    s.close
+  end
+
   it "dead-letter expired messages" do
     s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
     spawn { s.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
-      dlq = ch.queue("dlq")
+      dlq = ch.queue("dlq2")
       expq = ch.queue("exp")
 
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-dead-letter-exchange"] = ""
-      hdrs["x-dead-letter-routing-key"] = "dlq"
+      hdrs["x-dead-letter-routing-key"] = dlq.name
       msg = AMQP::Message.new("dead letter", AMQP::Protocol::Properties.new(expiration: "0", headers: hdrs))
       ch.exchange("", "direct", passive: true).publish msg, "exp"
 
@@ -242,5 +264,4 @@ describe AvalancheMQ::Server do
     end
     s.close
   end
-
 end
