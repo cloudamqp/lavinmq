@@ -174,7 +174,7 @@ module AvalancheMQ
       loop do
         sleep 1
         next if @next_msg_to_expire.nil?
-        meta, sp, expire_at = @next_msg_to_expire
+        meta, sp, expire_at = @next_msg_to_expire.not_nil!
         next unless expire_at <= Time.now.epoch_ms
         next unless sp == @ready[0]
         expire_msg(meta, sp, :expired)
