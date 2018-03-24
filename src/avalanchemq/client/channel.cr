@@ -44,10 +44,11 @@ module AvalancheMQ
         raise "No msg to write to" if @next_msg_body.nil?
         @next_msg_body.not_nil!.write bytes
         if @next_msg_body.not_nil!.pos == @next_msg_size.not_nil!
-          msg = Message.new(@next_publish_exchange_name.not_nil!,
+          msg = Message.new(Time.now.epoch_ms,
+                            @next_publish_exchange_name.not_nil!,
                             @next_publish_routing_key.not_nil!,
-                            @next_msg_size.not_nil!,
                             @next_msg_props.not_nil!,
+                            @next_msg_size.not_nil!,
                             @next_msg_body.not_nil!.to_slice)
           @client.vhost.publish(msg)
           @next_msg_body.not_nil!.clear

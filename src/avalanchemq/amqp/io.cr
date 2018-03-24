@@ -120,6 +120,10 @@ module AvalancheMQ
       def read_int32
         read_bytes(Int32, ::IO::ByteFormat::BigEndian)
       end
+
+      def read_int64
+        read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+      end
     end
 
     class MemoryIO < ::IO::Memory

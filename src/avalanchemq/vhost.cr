@@ -35,6 +35,7 @@ module AvalancheMQ
 
       pos = @wfile.pos.to_u32
       sp = SegmentPosition.new(@segment, pos)
+      @wfile.write_int msg.timestamp
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       @wfile.write_bytes msg.properties

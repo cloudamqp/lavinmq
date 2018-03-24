@@ -157,32 +157,39 @@ module AvalancheMQ
       @log.debug { "Published message #{sp} in queue #{@name}" }
     end
 
-    def msg_properties(sp)
+    def metadata(sp) : MessageMetadata
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
-      seg.seek(seg.read_byte.to_i, IO::Seek::Current)
-      seg.seek(seg.read_byte.to_i, IO::Seek::Current)
-      AMQP::Properties.decode seg
+      ts = seg.read_int64
+      ex = seg.read_short_string
+      rk = seg.read_short_string
+      pr = AMQP::Properties.decode seg
+      MessageMetadata.new(ts, ex, rk, pr)
     end
 
     def schedule_expiration_of_next_msg
       @log.debug { "Scheduling expiration of next msg for queue #{@vhost.name}/#{@name}" }
       sp = @ready[0]? || return nil
-      p = msg_properties(sp)
-      # TODO: save timestamp when message arrived, subtract expiration, sleep that time
-
-      if exp_ms = p.expiration.try &.to_i64?
-        expire_in = exp_ms + p.timestamp.not_nil!.epoch_ms - Time.now.epoch_ms
-        spawn do
+      @log.debug { "Expiring #{sp} in queue #{@vhost.name}/#{@name}" }
+      meta = metadata(sp)
+      if exp_ms = meta.properties.expiration.try &.to_i64?
+        expire_at = meta.timestamp + exp_ms
+        expire_in = expire_at - Time.now.epoch_ms
+        spawn(name: "Expire #{sp} in #{@vhost.name}/#{@name} at #{Time.epoch_ms(expire_at)}") do
           sleep expire_in / 1_000
-          expire_msg(sp, :expired)
+          if sp == @ready[0]?
+            expire_msg(meta, sp, :expired)
+          end
         end
       end
     end
 
     def expire_msg(sp : SegmentPosition, reason : Symbol)
-      props = msg_properties(sp)
-      if props.headers.try &.key? "x-dead-letter-exchange"
+      expire_msg(metadata(sp), sp, reason)
+    end
+
+    def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
+      if meta.properties.headers.try &.key? "x-dead-letter-exchange"
         env = read(sp)
         msg = env.message
         if dlx = msg.properties.headers.try &.delete("x-dead-letter-exchange")
@@ -212,13 +219,14 @@ module AvalancheMQ
     def read(sp : SegmentPosition) : Envelope
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
+      ts = seg.read_int64
       ex = seg.read_short_string
       rk = seg.read_short_string
       pr = AMQP::Properties.decode seg
       sz = seg.read_uint64
       bd = Bytes.new(sz)
       seg.read(bd)
-      msg = Message.new(ex, rk, sz, pr, bd)
+      msg = Message.new(ts, ex, rk, pr, sz, bd)
       Envelope.new(sp, msg)
     end
 
