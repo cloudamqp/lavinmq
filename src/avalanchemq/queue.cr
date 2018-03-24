@@ -38,6 +38,7 @@ module AvalancheMQ
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+      spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
       @log.info "Queue #{@name}: Has #{message_count} messages"
     end
 
@@ -167,6 +168,19 @@ module AvalancheMQ
       MessageMetadata.new(ts, ex, rk, pr)
     end
 
+    @next_msg_to_expire : Tuple(MessageMetadata, SegmentPosition, Int64) | Nil
+
+    def expire_loop
+      loop do
+        sleep 1
+        next if @next_msg_to_expire.nil?
+        meta, sp, expire_at = @next_msg_to_expire
+        next unless expire_at <= Time.now.epoch_ms
+        next unless sp == @ready[0]
+        expire_msg(meta, sp, :expired)
+      end
+    end
+
     def schedule_expiration_of_next_msg
       @log.debug { "Scheduling expiration of next msg for queue #{@vhost.name}/#{@name}" }
       sp = @ready[0]? || return nil
@@ -174,13 +188,7 @@ module AvalancheMQ
       meta = metadata(sp)
       if exp_ms = meta.properties.expiration.try &.to_i64?
         expire_at = meta.timestamp + exp_ms
-        expire_in = expire_at - Time.now.epoch_ms
-        spawn(name: "Expire #{sp} in #{@vhost.name}/#{@name} at #{Time.epoch_ms(expire_at)}") do
-          sleep expire_in / 1_000
-          if sp == @ready[0]?
-            expire_msg(meta, sp, :expired)
-          end
-        end
+        @next_msg_to_expire = { meta, sp, expire_at }
       end
     end
 
