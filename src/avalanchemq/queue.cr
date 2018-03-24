@@ -17,8 +17,8 @@ module AvalancheMQ
     end
 
     @log : Logger
-    @ack : QueueFile | Nil
-    @enq : QueueFile | Nil
+    @ack : QueueFile?
+    @enq : QueueFile?
     @message_ttl : UInt16 | Int32 | Int64 | Nil
     @dlx : String?
     @dlrk : String?
