@@ -208,6 +208,7 @@ module AvalancheMQ
           if dlrk = msg.properties.headers.try &.delete("x-dead-letter-routing-key")
             msg.routing_key = dlrk.to_s
           end
+          msg.properties.expiration = nil
           # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
           @log.debug { "Dead-lettering #{sp} in queue #{@vhost.name}/#{@name} to #{msg.exchange_name}/#{msg.routing_key}" }
           @vhost.publish msg
