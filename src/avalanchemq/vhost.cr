@@ -27,7 +27,6 @@ module AvalancheMQ
       load!
       compact!
       spawn save!, name: "VHost#save!"
-      spawn gc_loop, name: "VHost#gc_loop!"
     end
 
     def publish(msg : Message)
@@ -53,6 +52,7 @@ module AvalancheMQ
         @wfile.close
         @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
         @wfile.seek(0, IO::Seek::End)
+        spawn gc_segments!
       end
     end
 
@@ -170,27 +170,19 @@ module AvalancheMQ
       last_segment[/\d+$/].to_u32
     end
 
-    private def gc_loop
-      loop do
-        gc_segments!
-        # TODO: garbage collect when we've opened a new segment instead
-        sleep 60
-      end
-    end
-
     private def gc_segments!
-      @log.debug "Garbage collecting segments"
+      @log.info "Garbage collecting segments"
       referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
         used = q.close_unused_segments_and_report_used
         referenced_segments.concat used
       end
-      @log.debug "#{referenced_segments.size} segments in use"
+      @log.info "#{referenced_segments.size} segments in use"
 
       Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
         seg = f[/\d+$/].to_u32
         next if referenced_segments.includes? seg
-        @log.debug "Deleting segment #{seg}"
+        @log.info "Deleting segment #{seg}"
         File.delete f
       end
     end
