@@ -38,6 +38,11 @@ if data_dir.empty?
   exit 2
 end
 
+fd_limit = `ulimit -n`.to_i
+print "Current file descriptor limit is #{fd_limit}"
+print ", consider raising it" if fd_limit < 1025
+print "\n"
+
 amqp_server = AvalancheMQ::Server.new(data_dir, log_level)
 spawn(name: "AvalancheMQ listening #{port}") do
   amqp_server.listen(port)
