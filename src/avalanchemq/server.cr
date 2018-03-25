@@ -20,8 +20,7 @@ module AvalancheMQ
       end
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
-      @conn_opened = Channel(Client).new
-      @conn_closed = Channel(Client).new
+      @connection_events = Channel(Tuple(Client, Symbol)).new(8)
       @vhosts = { "default" => VHost.new("default", data_dir, @log) }
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
@@ -48,6 +47,7 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.each_value &.close
+      @connection_events.close
     end
 
     private def handle_connection(socket)
@@ -58,8 +58,8 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.linger = 0
       if client = Client.start(socket, @vhosts, @log)
-        @conn_opened.send client
-        client.on_close { |c| @conn_closed.send c }
+        @connection_events.send({ client, :connected })
+        client.on_close { |c| @connection_events.send({ c, :disconnected }) }
       else
         socket.close
       end
@@ -67,13 +67,12 @@ module AvalancheMQ
 
     private def handle_connection_events
       loop do
-        idx, conn = Channel.select(@conn_opened.receive_select_action,
-                                   @conn_closed.receive_select_action)
-        case idx
-        when 0 # open
-          @connections.push conn if conn
-        when 1 # close
-          @connections.delete conn if conn
+        conn, event = @connection_events.receive
+        case event
+        when :connected
+          @connections.push conn
+        when :disconnected
+          @connections.delete conn
         end
         @log.debug "#{@connections.size} connected clients"
       end

@@ -46,8 +46,8 @@ module AvalancheMQ
         socket.close
         return nil
       end
-    rescue ex : IO::EOFError
-      log.warn "#{ex.to_s} while establishing connection with #{socket.remote_address}"
+    rescue ex : IO::EOFError | Errno
+      log.warn "#{ex.to_s} while establishing connection"
       nil
     end
 
@@ -84,18 +84,14 @@ module AvalancheMQ
         @socket.write frame.to_slice
         break if frame.is_a? AMQP::Connection::Close | AMQP::Connection::CloseOk
       end
+      @socket.close_write
     rescue ex : IO::Error | Errno | ::Channel::ClosedError
       @log.debug "#{ex} when writing to socket"
-      # FIXME: Do we need to notify read_loop somehow? @socket.close ?
     ensure
-      @log.debug { "Closing socket" }
-      @socket.close
-      if @outbox.closed?
-        @log.debug { "Outbox already closed" }
-      else
-        @log.debug { "Closing outbox" }
-        @outbox.close
-      end
+      @log.debug { @socket.closed? ? "Socket already closed" : "Closing socket" }
+      #@socket.close
+      @log.debug { @outbox.closed? ? "Outbox already closed" : "Closing outbox" }
+      @outbox.close
       cleanup
     end
 
@@ -293,6 +289,7 @@ module AvalancheMQ
       @socket.close_read
     rescue ex : IO::Error | Errno
       @log.error "#{ex} when reading from socket"
+      @log.debug { "Closing outbox" }
       @outbox.close # Notifies send_loop to close up shop
     end
 
