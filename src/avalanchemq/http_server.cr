@@ -22,7 +22,7 @@ module AvalancheMQ
           @amqp_server.vhosts.flat_map { |_, v| v.queues.values }.to_json(context.response)
         else
           context.response.content_type = "text/plain"
-          context.response.print "AMQP Server"
+          context.response.print "AvalancheMQ"
         end
       end
     end
