@@ -1,4 +1,5 @@
 require "json"
+require "logger"
 require "./amqp/io"
 require "./segment_position"
 require "digest/sha1"

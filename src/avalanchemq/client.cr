@@ -1,4 +1,5 @@
 require "socket"
+require "logger"
 require "./message"
 require "./client/*"
 
