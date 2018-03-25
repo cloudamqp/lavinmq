@@ -102,9 +102,9 @@ module AvalancheMQ
     end
 
     def restore_index
-      @log.info "Restoring index"
-      QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "w") do |acks|
-        QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "w") do |enqs|
+      QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "r") do |acks|
+        QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "r") do |enqs|
+          @log.info "Restoring index"
           acked = Set(SegmentPosition).new(acks.size / sizeof(SegmentPosition))
           loop do
             break if acks.pos == acks.size
@@ -118,6 +118,8 @@ module AvalancheMQ
         end
       end
       @log.info "#{message_count} messages"
+    rescue Errno
+      @log.debug "Index not found"
     end
 
     def close(deleting = false)
