@@ -98,6 +98,7 @@ module AvalancheMQ
       end
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed"
+      @event_channel.close
     end
 
     def restore_index
@@ -120,12 +121,14 @@ module AvalancheMQ
     end
 
     def close(deleting = false)
+      @log.info "Closing"
+      @event_channel.close
       @consumers.clear
       @ack.try &.close
       @enq.try &.close
-      @segments.each_value { |s| s.close }
+      @segments.each_value &.close
       delete if !deleting && @auto_delete
-      @event_channel.close
+      @log.info "Closed"
     end
 
     def delete

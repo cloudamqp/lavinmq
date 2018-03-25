@@ -290,7 +290,7 @@ module AvalancheMQ
       @log.debug { "Close read socket" }
       @socket.close_read
     rescue ex : IO::Error | Errno
-      @log.error "#{ex} when reading from socket"
+      @log.debug { "#{ex} when reading from socket" }
       @log.debug { "Closing outbox" }
       @outbox.close # Notifies send_loop to close up shop
     end
