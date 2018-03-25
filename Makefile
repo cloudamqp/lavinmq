@@ -1,5 +1,5 @@
 build:
-	shards build --production
+	shards build --production --release
 
 install: build
 	cp bin/avalanchemq /usr/sbin/
