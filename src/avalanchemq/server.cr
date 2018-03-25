@@ -74,8 +74,10 @@ module AvalancheMQ
         when :disconnected
           @connections.delete conn
         end
-        @log.debug "#{@connections.size} connected clients"
+        @log.debug { "#{@connections.size} connected clients" }
       end
+    rescue Channel::ClosedError
+      @log.debug { "Connection events channel closed" }
     end
   end
 end

@@ -13,7 +13,7 @@ module AvalancheMQ
     def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
       @remote_address = @socket.remote_address
       @log = server_log.dup
-      @log.progname = "Client #{@socket.remote_address}"
+      @log.progname = "Client #{@remote_address}"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame).new(16)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
@@ -84,13 +84,15 @@ module AvalancheMQ
         @socket.write frame.to_slice
         break if frame.is_a? AMQP::Connection::Close | AMQP::Connection::CloseOk
       end
+      @log.debug { "Closing write socket" }
       @socket.close_write
-    rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.debug "#{ex} when writing to socket"
+    rescue ex : ::Channel::ClosedError
+      @log.debug { "#{ex} when writing to socket" }
+      @log.debug { "Closing write socket" }
+      @socket.close_write
+    rescue ex : IO::Error | Errno
+      @log.debug { "#{ex} when writing to socket" }
     ensure
-      @log.debug { @socket.closed? ? "Socket already closed" : "Closing socket" }
-      #@socket.close
-      @log.debug { @outbox.closed? ? "Outbox already closed" : "Closing outbox" }
       @outbox.close
       cleanup
     end

@@ -68,7 +68,8 @@ shutdown = -> (s : Signal) do
   print "HTTP Done..."
   amqp_server.close
   print "AMQP Done!\n"
-  puts "Threads: "
+  sleep 1
+  puts "Fibers: "
   Fiber.list { |f| puts f.inspect }
   exit 0
 end
