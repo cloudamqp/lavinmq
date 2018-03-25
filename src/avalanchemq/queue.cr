@@ -87,9 +87,7 @@ module AvalancheMQ
                 reject env.segment_position, true
               end
             else
-              @log.debug "No message to deliver to waiting consumer"
-              schedule_expiration_of_next_msg
-              @log.debug "Waiting for message"
+              @log.debug "No message to deliver to waiting consumer, waiting"
               @message_available.receive
             end
           rescue IndexError
