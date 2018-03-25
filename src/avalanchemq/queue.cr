@@ -35,7 +35,8 @@ module AvalancheMQ
       @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
 
       @consumers = Array(Client::Channel::Consumer).new
-      @event_channel = Channel(Event).new
+      @message_available = Channel(Nil).new
+      @consumer_available = Channel(Nil).new
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       if @durable
@@ -85,20 +86,24 @@ module AvalancheMQ
                 @log.debug "Consumer chosen for delivery has disconnected"
                 reject env.segment_position, true
               end
-              next
+            else
+              @log.debug "No message to deliver to waiting consumer"
+              schedule_expiration_of_next_msg
+              @log.debug "Waiting for message"
+              @message_available.receive
             end
           rescue IndexError
             @log.debug "Race-condition, no consumers available anymore"
           end
+        else
+          @log.debug "No consumer available"
+          schedule_expiration_of_next_msg
+          @log.debug "Waiting for consumer"
+          @consumer_available.receive
         end
-        schedule_expiration_of_next_msg
-        @log.debug { "Idling" }
-        event = @event_channel.receive
-        @log.debug { event.to_s }
       end
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed"
-      @event_channel.close
     end
 
     def restore_index
@@ -124,7 +129,8 @@ module AvalancheMQ
 
     def close(deleting = false)
       @log.info "Closing"
-      @event_channel.close
+      @message_available.close
+      @consumer_available.close
       @consumers.clear
       @ack.try &.close
       @enq.try &.close
@@ -164,7 +170,7 @@ module AvalancheMQ
         @enq.try &.flush if flush
       end
 
-      @event_channel.send Event::MessagePublished unless @event_channel.full?
+      @message_available.send nil unless @message_available.full?
       @log.debug { "Enqueued successfully #{sp}" }
     end
 
@@ -252,7 +258,7 @@ module AvalancheMQ
         @ack.try &.write_bytes sp
       end
       @unacked.delete sp
-      @event_channel.send Event::MessageAcked unless @event_channel.full?
+      @consumer_available.send nil unless @consumer_available.full?
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
@@ -262,13 +268,13 @@ module AvalancheMQ
       else
         expire_msg(sp, :rejected)
       end
-      @event_channel.send Event::MessageRejected unless @event_channel.full?
+      @message_available.send nil unless @message_available.full?
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
       @consumers.push consumer
       @log.debug { "Adding consumer (now #{@consumers.size})" }
-      @event_channel.send Event::ConsumerAdded unless @event_channel.full?
+      @consumer_available.send nil unless @consumer_available.full?
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
@@ -285,7 +291,6 @@ module AvalancheMQ
       @ready.clear
       @enq.try &.truncate
       @log.debug { "Purged #{purged_count} messages" }
-      @event_channel.send Event::Purged unless @event_channel.full?
       purged_count
     end
   end
