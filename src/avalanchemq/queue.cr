@@ -175,6 +175,7 @@ module AvalancheMQ
 
     def schedule_expiration_of_next_msg
       sp = @ready[0]? || return nil
+      @log.debug { "Checking if next message has to be expired" }
       meta = metadata(sp)
       exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
       if exp_ms
