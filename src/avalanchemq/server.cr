@@ -43,11 +43,11 @@ module AvalancheMQ
 
     def close
       @log.debug "Closing listeners"
-      @listeners.each { |l| l.close }
+      @listeners.each &.close
       @log.debug "Closing connections"
-      @connections.each { |c| c.close }
+      @connections.each &.close
       @log.debug "Closing vhosts"
-      @vhosts.each_value { |v| v.close }
+      @vhosts.each_value &.close
     end
 
     private def handle_connection(socket)
@@ -75,7 +75,7 @@ module AvalancheMQ
         when 1 # close
           @connections.delete conn if conn
         end
-        @log.debug "connection#count=#{@connections.size}"
+        @log.debug "#{@connections.size} connected clients"
       end
     end
   end
