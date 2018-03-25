@@ -49,7 +49,6 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.each_value &.close
-      @connection_events.close
     end
 
     private def handle_connection(socket)
