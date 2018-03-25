@@ -87,9 +87,9 @@ module AvalancheMQ
       @log.debug { "Closing write socket" }
       @socket.close_write
     rescue ex : ::Channel::ClosedError
-      @log.debug { "#{ex} when writing to socket" }
-      @log.debug { "Closing write socket" }
-      @socket.close_write
+      @log.debug { "#{ex} when waiting for frames to send" }
+      @log.debug { "Closing socket" }
+      @socket.close
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when writing to socket" }
     ensure
