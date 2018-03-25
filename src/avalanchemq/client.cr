@@ -54,8 +54,6 @@ module AvalancheMQ
     def close
       @log.debug "Gracefully closing"
       send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
-    ensure
-      cleanup
     end
 
     def cleanup
@@ -82,19 +80,26 @@ module AvalancheMQ
         frame = @outbox.receive
         #@log.debug { "<= #{frame.inspect}" }
         @socket.write frame.to_slice
-        break if frame.is_a? AMQP::Connection::Close | AMQP::Connection::CloseOk
+        case frame
+        when AMQP::Connection::Close
+          @log.debug { "Closing write socket" }
+          @socket.close_write
+        when AMQP::Connection::CloseOk
+          @log.debug { "Closing socket" }
+          @socket.close
+          cleanup
+        end
       end
-      @log.debug { "Closing write socket" }
-      @socket.close_write
     rescue ex : ::Channel::ClosedError
       @log.debug { "#{ex} when waiting for frames to send" }
       @log.debug { "Closing socket" }
       @socket.close
+      cleanup
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when writing to socket" }
+      cleanup
     ensure
       @outbox.close
-      cleanup
     end
 
     private def open_channel(frame)
@@ -240,6 +245,7 @@ module AvalancheMQ
           send AMQP::Connection::CloseOk.new
           break
         when AMQP::Connection::CloseOk
+          cleanup
           break
         when AMQP::Channel::Open
           open_channel(frame)
