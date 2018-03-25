@@ -36,6 +36,8 @@ module AvalancheMQ
           break
         end
       end
+    rescue ex : Errno
+      abort "Unrecoverable error, #{ex.to_s}"
     ensure
       @listeners.delete(s)
     end
