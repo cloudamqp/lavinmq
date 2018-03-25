@@ -148,7 +148,8 @@ module AvalancheMQ
         end
 
         def initialize(@version_major = 0_u8, @version_minor = 9_u8,
-                       @server_props = { "Product" => "CloudAMQP" } of String => Field,
+                       @server_props = { "Product" => "AvalancheMQ",
+                                         "Version" => VERSION } of String => Field,
                        @mechanisms = "PLAIN", @locales = "en_US")
           super()
         end
