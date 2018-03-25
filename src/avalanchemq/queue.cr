@@ -90,8 +90,6 @@ module AvalancheMQ
               @log.debug "No message to deliver to waiting consumer, waiting"
               @message_available.receive
             end
-          rescue IndexError
-            @log.debug "Race-condition, no consumers available anymore"
           end
         else
           @log.debug "No consumer available"
