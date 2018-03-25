@@ -52,7 +52,6 @@ module AvalancheMQ
         @segment += 1
         @wfile.close
         @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
-        @wfile.seek(0, IO::Seek::End)
         spawn gc_segments!
       end
     end

@@ -35,7 +35,7 @@ module AvalancheMQ
       @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
 
       @consumers = Array(Client::Channel::Consumer).new
-      @event_channel = Channel(Event).new(16)
+      @event_channel = Channel(Event).new
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       if @durable
@@ -97,7 +97,7 @@ module AvalancheMQ
         @log.debug { event.to_s }
       end
     rescue Channel::ClosedError
-      @log.debug "Delivery loop channel closed for queue #{@name}"
+      @log.debug "Delivery loop channel closed"
     end
 
     def restore_index
