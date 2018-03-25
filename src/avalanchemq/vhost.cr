@@ -11,7 +11,7 @@ module AvalancheMQ
     end
     getter name, exchanges, queues, log
 
-    MAX_SEGMENT_SIZE = 16 * 1024**2
+    MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
     @log : Logger
 
