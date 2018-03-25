@@ -1,3 +1,5 @@
+require "../version"
+
 module AvalancheMQ
   module AMQP
     abstract struct Frame
