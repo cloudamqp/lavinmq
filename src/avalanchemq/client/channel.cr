@@ -75,7 +75,7 @@ module AvalancheMQ
       def basic_get(frame)
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if env = q.get(frame.no_ack)
-            delivery_tag = next_delivery_tag(q, env.segment_position, nil)
+            delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
             @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
                                                 false, env.message.exchange_name,
                                                 env.message.routing_key, q.message_count)
@@ -168,9 +168,9 @@ module AvalancheMQ
         @map.clear
       end
 
-      def next_delivery_tag(queue : Queue, sp, consumer) : UInt64
+      def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         @delivery_tag += 1
-        @map[@delivery_tag] = { queue, sp, consumer }
+        @map[@delivery_tag] = { queue, sp, consumer } unless no_ack
         @delivery_tag
       end
 
@@ -188,7 +188,7 @@ module AvalancheMQ
         def deliver(msg, sp, queue, redelivered = false)
           @unacked << sp unless @no_ack
           @channel.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                 @channel.next_delivery_tag(queue, sp, self),
+                                                 @channel.next_delivery_tag(queue, sp, @no_ack, self),
                                                  redelivered,
                                                  msg.exchange_name, msg.routing_key)
           @channel.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
@@ -198,13 +198,13 @@ module AvalancheMQ
         end
 
         def ack(sp)
-          @channel.log.debug { "Consumer #{@tag} acking #{sp}" }
           @unacked.delete(sp)
+          @channel.log.debug { "Consumer #{@tag} acking #{sp}. Unacked: #{@unacked.size}" }
         end
 
         def reject(sp)
-          @channel.log.debug { "Consumer #{@tag} rejecting #{sp}" }
           @unacked.delete(sp)
+          @channel.log.debug { "Consumer #{@tag} rejecting #{sp}. Unacked: #{@unacked.size}" }
         end
       end
     end
