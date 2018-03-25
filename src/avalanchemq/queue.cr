@@ -35,7 +35,7 @@ module AvalancheMQ
       @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
 
       @consumers = Array(Client::Channel::Consumer).new
-      @event_channel = Channel(Event).new
+      @event_channel = Channel(Event).new(16)
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       if @durable

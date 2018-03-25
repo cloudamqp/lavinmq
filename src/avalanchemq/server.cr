@@ -20,7 +20,7 @@ module AvalancheMQ
       end
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
-      @connection_events = Channel(Tuple(Client, Symbol)).new(8)
+      @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = { "default" => VHost.new("default", data_dir, @log) }
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end

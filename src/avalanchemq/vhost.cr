@@ -20,7 +20,7 @@ module AvalancheMQ
       @log.progname = "Vhost #{@name}"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
-      @save = Channel(AMQP::Frame).new
+      @save = Channel(AMQP::Frame).new(16)
       Dir.mkdir_p data_dir
       @segment = last_segment
       @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
