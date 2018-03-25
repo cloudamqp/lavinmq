@@ -80,7 +80,7 @@ module AvalancheMQ
     private def send_loop
       loop do
         frame = @outbox.receive
-        @log.debug { "<= #{frame.inspect}" }
+        #@log.debug { "<= #{frame.inspect}" }
         @socket.write frame.to_slice
         break if frame.is_a? AMQP::Connection::Close | AMQP::Connection::CloseOk
       end
@@ -234,7 +234,7 @@ module AvalancheMQ
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.debug { "=> #{frame.inspect}" }
+        #@log.debug { "=> #{frame.inspect}" }
         case frame
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
