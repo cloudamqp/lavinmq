@@ -89,7 +89,7 @@ module AvalancheMQ
               @log.debug "Consumer chosen for delivery has disconnected"
               reject env.segment_position, true
             end
-            @log.debug "Delivery done"
+            @log.debug { "Delivery done" }
           else
             @log.debug "No message to deliver to waiting consumer, waiting"
             @message_available.receive
