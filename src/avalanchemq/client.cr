@@ -76,7 +76,6 @@ module AvalancheMQ
     end
 
     private def send_loop
-      @socket.sync = false
       i = 0
       loop do
         frame = @outbox.receive
