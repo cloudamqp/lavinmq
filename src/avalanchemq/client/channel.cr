@@ -187,14 +187,21 @@ module AvalancheMQ
 
         def deliver(msg, sp, queue, redelivered = false)
           @unacked << sp unless @no_ack
+
+          @channel.log.debug { "Getting delivery tag" }
+          delivery_tag = @channel.next_delivery_tag(queue, sp, @no_ack, self)
+          @channel.log.debug { "Delivering to consumer #{@tag}" }
           @channel.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                 @channel.next_delivery_tag(queue, sp, @no_ack, self),
+                                                 delivery_tag,
                                                  redelivered,
                                                  msg.exchange_name, msg.routing_key)
+          @channel.log.debug { "HeaderFrame to consumer #{@tag}" }
           @channel.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
                                               msg.properties)
           # TODO: split body in FRAME_MAX sizes
-          @channel.send AMQP::BodyFrame.new(@channel_id, msg.body.to_slice)
+          @channel.log.debug { "BodyFrame to consumer #{@tag}" }
+          @channel.send AMQP::BodyFrame.new(@channel_id, msg.body)
+          @channel.log.debug { "Sent all frames" }
         end
 
         def ack(sp)

@@ -255,6 +255,7 @@ module AvalancheMQ
     end
 
     def ack(sp : SegmentPosition)
+      @log.debug { "Acking #{sp}" }
       if @durable
         @ack.try &.write_bytes sp
       end
