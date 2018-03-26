@@ -101,9 +101,6 @@ module AvalancheMQ
               reject env.segment_position, true
             end
             @log.debug { "Delivery done" }
-          else
-            @log.debug "No message to deliver to waiting consumer, waiting"
-            @message_available.receive
           end
         else
           @log.debug "No consumer available"
@@ -199,12 +196,15 @@ module AvalancheMQ
       sp = @ready[0]? || return nil
       @log.debug { "Checking if next message has to be expired" }
       meta = metadata(sp)
+      @log.debug { "Next message: #{meta}" }
       exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
       if exp_ms
         expire_at = meta.timestamp + exp_ms
         expire_in = expire_at - Time.now.epoch_ms
         spawn(expire_later(expire_in, meta, sp),
               name: "expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+      else
+        @log.debug { "No message to expire" }
       end
     end
 
