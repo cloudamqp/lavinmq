@@ -240,12 +240,10 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       q = ch.queue("exp1")
-
       x = ch.exchange("", "direct", passive: true)
       msg = AMQP::Message.new("expired",
                               AMQP::Protocol::Properties.new(expiration: "0"))
       x.publish msg, q.name
-
       sleep 0.01
       msg = q.get(no_ack: true)
       msg.to_s.should be ""
