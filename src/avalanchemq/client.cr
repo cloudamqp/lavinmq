@@ -84,10 +84,12 @@ module AvalancheMQ
         when AMQP::Connection::Close
           @log.debug { "Closing write socket" }
           @socket.close_write
+          break
         when AMQP::Connection::CloseOk
           @log.debug { "Closing socket" }
           @socket.close
           cleanup
+          break
         end
       end
     rescue ex : ::Channel::ClosedError
@@ -99,6 +101,7 @@ module AvalancheMQ
       @log.debug { "#{ex} when writing to socket" }
       cleanup
     ensure
+      @log.debug { "Closing outbox" }
       @outbox.close
     end
 
