@@ -33,9 +33,9 @@ module AvalancheMQ
 
     def publish(msg : Message)
       ex = @exchanges[msg.exchange_name]?
-      return if ex.nil?
+      return false if ex.nil?
       queues = ex.queues_matching(msg.routing_key)
-      return if queues.empty?
+      return false if queues.empty?
 
       pos = @wfile.pos.to_u32
       sp = SegmentPosition.new(@segment, pos)
@@ -57,6 +57,7 @@ module AvalancheMQ
         @wfile.seek(0, IO::Seek::End)
         spawn gc_segments!
       end
+      true
     end
 
     def data_dir

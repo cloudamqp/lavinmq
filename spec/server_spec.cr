@@ -3,8 +3,8 @@ require "amqp"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
-    s = AvalancheMQ::Server.new("/tmp/spec1", Logger::ERROR)
-    spawn { s.listen(5674) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5674) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
       ch = conn.channel
@@ -16,12 +16,13 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should eq("test message")
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "can delete queue" do
-    s = AvalancheMQ::Server.new("/tmp/spec2", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -40,12 +41,13 @@ describe AvalancheMQ::Server do
       msg = q.get
       msg.to_s.should eq("m2")
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "can reject message" do
-    s = AvalancheMQ::Server.new("/tmp/spec3", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -58,12 +60,13 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: false)
       m1.should eq(nil)
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "can reject and requeue message" do
-    s = AvalancheMQ::Server.new("/tmp/spec3", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -76,12 +79,13 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: false)
       m1.to_s.should eq("m1")
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "rejects all unacked msgs when disconnecting" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -98,12 +102,13 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: true)
       m1.to_s.should eq("m1")
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "respects prefetch" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -119,12 +124,13 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msgs.size.should eq(2)
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "respects prefetch and acks" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -143,39 +149,42 @@ describe AvalancheMQ::Server do
       end
       c.should eq(4)
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "can delete exchange" do
-    s = AvalancheMQ::Server.new("/tmp/spec5", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
-      x = ch.exchange("test", "topic", durable: true)
+      x = ch.exchange("test_delete_exchange", "topic", durable: true)
       x.delete.should be x
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "can purge a queue" do
-    s = AvalancheMQ::Server.new("/tmp/spec6", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
-      q = ch.queue("test", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("test_purge", auto_delete: false, durable: true, exclusive: false)
       4.times { x.publish pmsg, q.name }
       q.purge.should eq 4
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "supports publisher confirms" do
-    s = AvalancheMQ::Server.new("/tmp/spec8", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -188,7 +197,7 @@ describe AvalancheMQ::Server do
       ch.confirm
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
-      q = ch.queue("test", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("test_confirms", auto_delete: false, durable: true, exclusive: false)
       x.publish pmsg, q.name
       ch.confirm
       x.publish pmsg, q.name
@@ -196,12 +205,37 @@ describe AvalancheMQ::Server do
       acked.should eq true
       delivery_tag.should eq 2
     end
-    s.close
+  ensure
+    s.not_nil!.close
+  end
+
+  it "supports mandatory publish flag" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      pmsg = AMQP::Message.new("m1")
+      reply_code = 0
+      reply_msg = nil
+      ch.on_return do |code, text|
+        reply_code = code
+        reply_msg = text
+      end
+      ch.publish(pmsg, "amq.topic", "rk", mandatory = true)
+      until reply_code == 312
+        Fiber.yield
+      end
+      reply_code.should eq 312
+      reply_msg.should eq "No Route"
+    end
+  ensure
+    s.not_nil!.close
   end
 
   it "expires messages" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -216,12 +250,13 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should be ""
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "expires messages with message TTL on queue declaration" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec0", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -238,12 +273,13 @@ describe AvalancheMQ::Server do
       msg = dlq.get(no_ack: true)
       msg.to_s.should eq("queue dlx")
     end
-    s.close
+  ensure
+    s.not_nil!.close
   end
 
   it "dead-letter expired messages" do
-    s = AvalancheMQ::Server.new("/tmp/spec4", Logger::ERROR)
-    spawn { s.listen(5672) }
+    s = AvalancheMQ::Server.new("/tmp/spec1", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
@@ -262,6 +298,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
       msgs.first.to_s.should eq("dead letter")
     end
-    s.close
+  ensure
+     s.not_nil!.close
   end
 end

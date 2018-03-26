@@ -870,6 +870,7 @@ module AvalancheMQ
         when 20_u16 then Consume.decode(channel, body)
         when 21_u16 then ConsumeOk.decode(channel, body)
         when 40_u16 then Publish.decode(channel, body)
+        when 50_u16 then Return.decode(channel, body)
         when 60_u16 then Deliver.decode(channel, body)
         when 70_u16 then Get.decode(channel, body)
         when 71_u16 then GetOk.decode(channel, body)
@@ -1149,6 +1150,32 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
+          raise "Not implemented"
+        end
+      end
+
+      struct Return < Basic
+        def method_id
+          50_u16
+        end
+
+        getter reply_code, reply_text, exchange_name, routing_key
+
+        def initialize(channel, @reply_code : UInt16, @reply_text : String,
+                       @exchange_name : String, @routing_key : String)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new(2 + 3 + @reply_text.bytesize + @exchange_name.bytesize + @routing_key.bytesize)
+          io.write_int(@reply_code)
+          io.write_short_string(@reply_text)
+          io.write_short_string(@exchange_name)
+          io.write_short_string(@routing_key)
+          super(io.to_slice)
+        end
+
+        def decode
           raise "Not implemented"
         end
       end
