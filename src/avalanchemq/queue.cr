@@ -88,7 +88,6 @@ module AvalancheMQ
         end
         @log.debug { "Looking for available consumers" }
         consumers = @consumers.select { |c| c.accepts? }
-        consumed = false
         if consumers.size != 0
           @log.debug { "Picking a consumer" }
           c = consumers.sample
