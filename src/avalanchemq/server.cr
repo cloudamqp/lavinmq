@@ -52,6 +52,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket)
+      socket.sync = true
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
