@@ -94,7 +94,7 @@ module AvalancheMQ
           cleanup
           break
         end
-        if false && (i += 1) % 1000 == 0
+        if (i += 1) % 1000 == 0
           @log.debug "send_loop yielding"
           Fiber.yield
         end
@@ -303,7 +303,7 @@ module AvalancheMQ
           send AMQP::HeartbeatFrame.new
         else @log.error "Unhandled frame #{frame.inspect}"
         end
-        if false && (i += 1) % 1000 == 0
+        if (i += 1) % 1000 == 0
           @log.debug "read_loop yielding"
           Fiber.yield
         end
