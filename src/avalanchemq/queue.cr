@@ -87,31 +87,31 @@ module AvalancheMQ
           @message_available.receive
         end
         @log.debug { "Looking for available consumers" }
-      consumers = @consumers.select { |c| c.accepts? }
-      consumed = false
-      if consumers.size != 0
-        @log.debug { "Picking a consumer" }
-        c = consumers.sample
-        @log.debug { "Getting a new message" }
-        if env = get(c.no_ack)
-          @log.debug { "Delivering #{env.segment_position} to consumer" }
-          begin
-            c.deliver(env.message, env.segment_position, self)
-          rescue Channel::ClosedError
-            @log.debug "Consumer chosen for delivery has disconnected"
-            reject env.segment_position, true
+        consumers = @consumers.select { |c| c.accepts? }
+        consumed = false
+        if consumers.size != 0
+          @log.debug { "Picking a consumer" }
+          c = consumers.sample
+          @log.debug { "Getting a new message" }
+          if env = get(c.no_ack)
+            @log.debug { "Delivering #{env.segment_position} to consumer" }
+            begin
+              c.deliver(env.message, env.segment_position, self)
+            rescue Channel::ClosedError
+              @log.debug "Consumer chosen for delivery has disconnected"
+              reject env.segment_position, true
+            end
+            @log.debug { "Delivery done" }
+          else
+            @log.debug "No message to deliver to waiting consumer, waiting"
+            @message_available.receive
           end
-          @log.debug { "Delivery done" }
         else
-          @log.debug "No message to deliver to waiting consumer, waiting"
-          @message_available.receive
+          @log.debug "No consumer available"
+          schedule_expiration_of_next_msg
+          @log.debug "Waiting for consumer"
+          @consumer_available.receive
         end
-      else
-        @log.debug "No consumer available"
-        schedule_expiration_of_next_msg
-        @log.debug "Waiting for consumer"
-        @consumer_available.receive
-      end
       end
       @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
