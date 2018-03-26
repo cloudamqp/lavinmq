@@ -1,4 +1,5 @@
 require "json"
+require "logger"
 require "./amqp/io"
 require "./segment_position"
 require "digest/sha1"
@@ -10,13 +11,16 @@ module AvalancheMQ
     end
     getter name, exchanges, queues, log
 
-    MAX_SEGMENT_SIZE = 16 * 1024**2
+    MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
+    @log : Logger
 
-    def initialize(@name : String, @server_data_dir : String, @log : Logger)
+    def initialize(@name : String, @server_data_dir : String, server_log : Logger)
+      @log = server_log.dup
+      @log.progname = "Vhost #{@name}"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
-      @save = Channel(AMQP::Frame).new
+      @save = Channel(AMQP::Frame).new(16)
       Dir.mkdir_p data_dir
       @segment = last_segment
       @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
@@ -24,7 +28,6 @@ module AvalancheMQ
       load!
       compact!
       spawn save!, name: "VHost#save!"
-      spawn gc_loop, name: "VHost#gc_loop!"
     end
 
     def publish(msg : Message)
@@ -35,6 +38,7 @@ module AvalancheMQ
 
       pos = @wfile.pos.to_u32
       sp = SegmentPosition.new(@segment, pos)
+      @wfile.write_int msg.timestamp
       @wfile.write_short_string msg.exchange_name
       @wfile.write_short_string msg.routing_key
       @wfile.write_bytes msg.properties
@@ -49,6 +53,7 @@ module AvalancheMQ
         @wfile.close
         @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
         @wfile.seek(0, IO::Seek::End)
+        spawn gc_segments!
       end
       true
     end
@@ -158,7 +163,7 @@ module AvalancheMQ
         end
       end
     rescue Channel::ClosedError
-      @log.info "VHost@save channel closed"
+      @log.debug "Save channel closed"
     end
 
     private def last_segment : UInt32
@@ -167,26 +172,19 @@ module AvalancheMQ
       last_segment[/\d+$/].to_u32
     end
 
-    private def gc_loop
-      loop do
-        gc_segments!
-        sleep 60
-      end
-    end
-
     private def gc_segments!
-      @log.info "GC segments in vhost #{@name}"
+      @log.info "Garbage collecting segments"
       referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
         used = q.close_unused_segments_and_report_used
         referenced_segments.concat used
       end
-      @log.info "GC segments: #{referenced_segments.size} in use"
+      @log.info "#{referenced_segments.size} segments in use"
 
       Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
         seg = f[/\d+$/].to_u32
         next if referenced_segments.includes? seg
-        @log.info "GC segments: Deleting segment #{f}"
+        @log.info "Deleting segment #{seg}"
         File.delete f
       end
     end

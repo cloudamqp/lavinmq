@@ -1,4 +1,5 @@
 require "socket"
+require "logger"
 require "./message"
 require "./client/*"
 
@@ -7,11 +8,14 @@ module AvalancheMQ
     getter :socket, :vhost, :channels, log
 
     @remote_address : Socket::IPAddress
+    @log : Logger
 
-    def initialize(@socket : TCPSocket, @vhost : VHost, @log : Logger)
+    def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
       @remote_address = @socket.remote_address
+      @log = server_log.dup
+      @log.progname = "Client #{@remote_address}"
       @channels = Hash(UInt16, Client::Channel).new
-      @outbox = ::Channel(AMQP::Frame | Nil).new(16)
+      @outbox = ::Channel(AMQP::Frame).new(16)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
       spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
@@ -28,7 +32,7 @@ module AvalancheMQ
 
       socket.write AMQP::Connection::Start.new.to_slice
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
-      socket.write AMQP::Connection::Tune.new(heartbeat: 60_u16).to_slice
+      socket.write AMQP::Connection::Tune.new(heartbeat: 0_u16).to_slice
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
@@ -42,24 +46,22 @@ module AvalancheMQ
         socket.close
         return nil
       end
-    rescue ex
-      log.error ex.inspect_with_backtrace
+    rescue ex : IO::EOFError | Errno
+      log.warn "#{ex.to_s} while establishing connection"
       nil
     end
 
-    def close(server_initiated = true)
-      return if @outbox.closed?
-      @log.info "Closing client #{@remote_address}"
+    def close
+      @log.debug "Gracefully closing"
+      send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
+    end
+
+    def cleanup
+      @log.debug "Cleaning up"
       @channels.each_value &.close
-      if cb = @on_close_callback
-        cb.call self
-      end
-      if server_initiated
-        send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
-      else
-        send AMQP::Connection::CloseOk.new
-      end
-      @outbox.close
+      @channels.clear
+      @on_close_callback.try &.call(self)
+      @on_close_callback = nil
     end
 
     def on_close(&blk : Client -> Nil)
@@ -76,17 +78,28 @@ module AvalancheMQ
     private def send_loop
       loop do
         frame = @outbox.receive
-        @log.debug { "<= #{frame.inspect}" }
-        break if frame.nil?
+        #@log.debug { "<= #{frame.inspect}" }
         @socket.write frame.to_slice
+        case frame
+        when AMQP::Connection::Close
+          @log.debug { "Closing write socket" }
+          @socket.close_write
+        when AMQP::Connection::CloseOk
+          @log.debug { "Closing socket" }
+          @socket.close
+          cleanup
+        end
       end
-      @log.info "closeing write @ #{@remote_address}"
-      @socket.close_write
-      @log.info "closed write @ #{@remote_address}"
-    rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.info "Client connection #{@remote_address} write closed: #{ex.inspect}"
+    rescue ex : ::Channel::ClosedError
+      @log.debug { "#{ex} when waiting for frames to send" }
+      @log.debug { "Closing socket" }
+      @socket.close
+      cleanup
+    rescue ex : IO::Error | Errno
+      @log.debug { "#{ex} when writing to socket" }
+      cleanup
     ensure
-      close
+      @outbox.close
     end
 
     private def open_channel(frame)
@@ -226,25 +239,21 @@ module AvalancheMQ
     private def read_loop
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.debug { "=> #{frame.inspect}" }
+        #@log.debug { "=> #{frame.inspect}" }
         case frame
         when AMQP::Connection::Close
-          close(false)
+          send AMQP::Connection::CloseOk.new
           break
-        when AMQP::Connection::CloseOk.new
-          close(true)
+        when AMQP::Connection::CloseOk
+          cleanup
           break
         when AMQP::Channel::Open
           open_channel(frame)
         when AMQP::Channel::Close
-          if ch = @channels.delete(frame.channel)
-            ch.close
-          end
+          @channels.delete(frame.channel).try &.close
           send AMQP::Channel::CloseOk.new(frame.channel)
         when AMQP::Channel::CloseOk
-          if ch = @channels.delete(frame.channel)
-            ch.close
-          end
+          @channels.delete(frame.channel).try &.close
         when AMQP::Confirm::Select
           @channels[frame.channel].confirm_select(frame)
         when AMQP::Exchange::Declare
@@ -281,22 +290,23 @@ module AvalancheMQ
           @channels[frame.channel].basic_qos(frame)
         when AMQP::HeartbeatFrame
           send AMQP::HeartbeatFrame.new
-        else @log.error "[ERROR] Unhandled frame #{frame.inspect}"
+        else @log.error "Unhandled frame #{frame.inspect}"
         end
       end
+      @log.debug { "Close read socket" }
       @socket.close_read
-    rescue ex : IO::Error | Errno | ::Channel::ClosedError
-      @log.error "Client connection #{@remote_address} read_loop closed: #{ex.inspect}"
-    ensure
-      close
+    rescue ex : IO::Error | Errno
+      @log.debug { "#{ex} when reading from socket" }
+      @log.debug { "Closing outbox" }
+      @outbox.close # Notifies send_loop to close up shop
     end
 
-    def send_not_found(frame)
+    private def send_not_found(frame)
       send AMQP::Channel::Close.new(frame.channel, 404_u16, "Not found",
                                     frame.class_id, frame.method_id)
     end
 
-    def send(frame : AMQP::Frame | Nil)
+    def send(frame : AMQP::Frame)
       @outbox.send frame
     end
   end

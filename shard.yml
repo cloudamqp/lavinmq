@@ -7,6 +7,8 @@ authors:
 targets:
   avalanchemq:
     main: src/avalanchemq.cr
+  avalanchemqctl:
+    main: src/avalanchemqctl.cr
 
 development_dependencies:
   amqp:

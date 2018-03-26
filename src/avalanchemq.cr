@@ -5,28 +5,43 @@ require "option_parser"
 require "file"
 require "ini"
 
-log_level = Logger::ERROR
+log_level = Logger::INFO
 port = 5672
-data_dir = "/tmp"
+data_dir = ""
 config = ""
 
-OptionParser.parse! do |parser|
+p = OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-  parser.on("-c CONFIG_FILE", "--config=CONFIG_FILE", "Config file to read") do |c|
+  parser.on("-c CONF", "--config=CONF", "Path to config file") do |c|
     config = c
   end
   parser.on("-p PORT", "--port=PORT", "Port to listen on") { |p| port = p.to_i }
-  parser.on("-D DATA_DIR", "--data-dir=DATA_DIR", "Directory path to data") { |d| data_dir = d }
+  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |d| data_dir = d }
   parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
+
 unless config.empty?
-  puts "Trying to read config #{config}"
-  #abort "Config could not be found" unless File.file?(config)
-  ini = INI.parse(File.read(config))
-  p ini
+  if File.file?(config)
+    ini = INI.parse(File.read(config))
+    port = ini["amqp"]["port"].to_i32
+    data_dir = ini["amqp"]["data_dir"]
+    log_level = Logger::DEBUG if ini["amqp"]["debug"]
+  else
+    abort "Config could not be found"
+  end
 end
+if data_dir.empty?
+  STDERR.puts "Path to data directory is required"
+  STDERR.puts p
+  exit 2
+end
+
+fd_limit = `ulimit -n`.to_i
+print "Current file descriptor limit is #{fd_limit}"
+print ", consider raising it" if fd_limit < 1025
+print "\n"
 
 amqp_server = AvalancheMQ::Server.new(data_dir, log_level)
 spawn(name: "AvalancheMQ listening #{port}") do
@@ -48,7 +63,6 @@ class Fiber
   end
 end
 
-
 Signal::HUP.trap do
   puts "Reloading"
   Fiber.list { |f| puts f.inspect }
@@ -57,12 +71,14 @@ shutdown = -> (s : Signal) do
   print "Terminating..."
   http_server.close
   print "HTTP Done..."
-  print "Threads: "
   amqp_server.close
   print "AMQP Done!\n"
+  sleep 1
+  puts "Fibers: "
   Fiber.list { |f| puts f.inspect }
   exit 0
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
+puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 sleep

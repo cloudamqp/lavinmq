@@ -16,13 +16,13 @@ module AvalancheMQ
           @amqp_server.connections.to_json(context.response)
         when "/api/exchanges"
           context.response.content_type = "application/json"
-          @amqp_server.vhosts.map { |_, v| v.exchanges }.to_json(context.response)
+          @amqp_server.vhosts.flat_map { |_, v| v.exchanges.values }.to_json(context.response)
         when "/api/queues"
           context.response.content_type = "application/json"
-          @amqp_server.vhosts.map { |_, v| v.queues }.to_json(context.response)
+          @amqp_server.vhosts.flat_map { |_, v| v.queues.values }.to_json(context.response)
         else
           context.response.content_type = "text/plain"
-          context.response.print "AMQP Server"
+          context.response.print "AvalancheMQ"
         end
       end
     end
