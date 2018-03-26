@@ -216,8 +216,11 @@ describe AvalancheMQ::Server do
       ch.publish(pmsg, "amq.topic", "rk", mandatory = true)
       sleep 0.01
       # bug in amqp.cr ?
-      # reply_code.should eq 312
-      # reply_msg.should eq "No Route"
+      until reply_code == 312
+        sleep 0.0001
+      end
+      reply_code.should eq 312
+      reply_msg.should eq "No Route"
     end
     s.close
   end
