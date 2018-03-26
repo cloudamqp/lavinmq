@@ -264,13 +264,14 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
+      @log.debug { "Rejecting #{sp}" }
       @unacked.delete sp
       if requeue
         @ready.unshift sp
+        @message_available.send nil unless @message_available.full?
       else
         expire_msg(sp, :rejected)
       end
-      @message_available.send nil unless @message_available.full?
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
