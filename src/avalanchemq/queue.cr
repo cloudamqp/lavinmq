@@ -74,6 +74,10 @@ module AvalancheMQ
 
     def deliver_loop
       loop do
+        unless @ready[0]?
+          @log.debug { "Waiting for msgs" }
+          @message_available.receive
+        end
         @log.debug { "Looking for available consumers" }
         consumers = @consumers.select { |c| c.accepts? }
         if consumers.size != 0
@@ -90,9 +94,6 @@ module AvalancheMQ
               reject env.segment_position, true
             end
             @log.debug { "Delivery done" }
-          else
-            @log.debug "No message to deliver to waiting consumer, waiting"
-            @message_available.receive
           end
         else
           @log.debug "No consumer available"
