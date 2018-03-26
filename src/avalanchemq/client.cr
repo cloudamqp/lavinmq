@@ -295,9 +295,12 @@ module AvalancheMQ
           send AMQP::HeartbeatFrame.new
         else @log.error "Unhandled frame #{frame.inspect}"
         end
+        Fiber.yield
       end
       @log.debug { "Close read socket" }
       @socket.close_read
+    rescue ex : KeyError
+      @log.debug { "Channel already closed" }
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when reading from socket" }
       @log.debug { "Closing outbox" }
