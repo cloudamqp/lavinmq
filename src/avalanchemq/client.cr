@@ -76,11 +76,13 @@ module AvalancheMQ
     end
 
     private def send_loop
+      @socket.sync = false
       i = 0
       loop do
         frame = @outbox.receive
         #@log.debug { "<= #{frame.inspect}" }
         @socket.write frame.to_slice
+        @socket.flush unless frame.is_a? AMQP::Basic::Deliver | AMQP::HeaderFrame
         case frame
         when AMQP::Connection::Close
           @log.debug { "Closing write socket" }

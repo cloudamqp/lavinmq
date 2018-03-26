@@ -73,7 +73,6 @@ module AvalancheMQ
     end
 
     def deliver_loop
-      i = 0
       loop do
         @log.debug { "Looking for available consumers" }
         consumers = @consumers.select { |c| c.accepts? }
