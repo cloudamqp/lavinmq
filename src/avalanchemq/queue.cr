@@ -91,10 +91,6 @@ module AvalancheMQ
               reject env.segment_position, true
             end
             @log.debug "Delivery done"
-            if (i += 1) % 10000 == 0
-              @log.debug "Delivery loop yielding"
-              Fiber.yield
-            end
           else
             @log.debug "No message to deliver to waiting consumer, waiting"
             @message_available.receive

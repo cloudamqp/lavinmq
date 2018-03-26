@@ -76,6 +76,7 @@ module AvalancheMQ
     end
 
     private def send_loop
+      i = 0
       loop do
         frame = @outbox.receive
         #@log.debug { "<= #{frame.inspect}" }
@@ -90,6 +91,10 @@ module AvalancheMQ
           @socket.close
           cleanup
           break
+        end
+        if (i += 1) % 1000 == 0
+          @log.debug "send_loop yielding"
+          Fiber.yield
         end
       end
     rescue ex : ::Channel::ClosedError
@@ -296,7 +301,7 @@ module AvalancheMQ
           send AMQP::HeartbeatFrame.new
         else @log.error "Unhandled frame #{frame.inspect}"
         end
-        if (i += 1) % 10000 == 0
+        if (i += 1) % 1000 == 0
           @log.debug "read_loop yielding"
           Fiber.yield
         end
