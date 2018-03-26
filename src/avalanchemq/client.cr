@@ -15,7 +15,7 @@ module AvalancheMQ
       @log = server_log.dup
       @log.progname = "Client #{@remote_address}"
       @channels = Hash(UInt16, Client::Channel).new
-      @outbox = ::Channel(AMQP::Frame).new(16)
+      @outbox = ::Channel(AMQP::Frame).new(3)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
       spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
