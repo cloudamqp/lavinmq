@@ -23,6 +23,7 @@ module AvalancheMQ
       @save = Channel(AMQP::Frame).new(16)
       Dir.mkdir_p data_dir
       @segment = last_segment
+      @log.debug { "Last segment is #{@segment}" }
       @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
       @wfile.seek(0, IO::Seek::End)
       load!
@@ -51,6 +52,7 @@ module AvalancheMQ
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
+        @log.debug { "Rolling over to segment #{@segment}" }
         @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
         @wfile.seek(0, IO::Seek::End)
         spawn gc_segments!
@@ -167,9 +169,9 @@ module AvalancheMQ
     end
 
     private def last_segment : UInt32
-      last_segment = Dir.glob(File.join(data_dir, "msgs.*")).last { nil }
-      return 0_u32 if last_segment.nil?
-      last_segment[/\d+$/].to_u32
+      segments = Dir.glob(File.join(data_dir, "msgs.*")).sort
+      last_file = segments.last? || return 0_u32
+      last_file[/\d+$/].to_u32
     end
 
     private def gc_segments!

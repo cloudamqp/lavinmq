@@ -74,22 +74,25 @@ module AvalancheMQ
 
     def deliver_loop
       loop do
+        @log.debug { "Looking for available consumers" }
         consumers = @consumers.select { |c| c.accepts? }
         if consumers.size != 0
-          begin
-            c = consumers.sample
-            if env = get(c.no_ack)
-              @log.debug { "Delivering #{env.segment_position} to consumer" }
-              begin
-                c.deliver(env.message, env.segment_position, self)
-              rescue Channel::ClosedError
-                @log.debug "Consumer chosen for delivery has disconnected"
-                reject env.segment_position, true
-              end
-            else
-              @log.debug "No message to deliver to waiting consumer, waiting"
-              @message_available.receive
+          @log.debug { "Picking a consumer" }
+          c = consumers.sample
+          @log.debug { "Getting a new message" }
+          if env = get(c.no_ack)
+            @log.debug { "Delivering #{env.segment_position} to consumer" }
+            begin
+              c.deliver(env.message, env.segment_position, self)
+
+            rescue Channel::ClosedError
+              @log.debug "Consumer chosen for delivery has disconnected"
+              reject env.segment_position, true
             end
+            @log.debug { "Delivery done" }
+          else
+            @log.debug "No message to deliver to waiting consumer, waiting"
+            @message_available.receive
           end
         else
           @log.debug "No consumer available"
@@ -98,6 +101,7 @@ module AvalancheMQ
           @consumer_available.receive
         end
       end
+      @log.debug "Exiting deliveyr loop"
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed"
     end
@@ -250,6 +254,7 @@ module AvalancheMQ
     end
 
     def ack(sp : SegmentPosition)
+      @log.debug { "Acking #{sp}" }
       if @durable
         @ack.try &.write_bytes sp
       end
@@ -258,13 +263,14 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
+      @log.debug { "Rejecting #{sp}" }
       @unacked.delete sp
       if requeue
         @ready.unshift sp
+        @message_available.send nil unless @message_available.full?
       else
         expire_msg(sp, :rejected)
       end
-      @message_available.send nil unless @message_available.full?
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)

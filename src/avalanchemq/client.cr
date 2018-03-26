@@ -15,7 +15,7 @@ module AvalancheMQ
       @log = server_log.dup
       @log.progname = "Client #{@remote_address}"
       @channels = Hash(UInt16, Client::Channel).new
-      @outbox = ::Channel(AMQP::Frame).new(16)
+      @outbox = ::Channel(AMQP::Frame).new(1024)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
       spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
@@ -76,18 +76,29 @@ module AvalancheMQ
     end
 
     private def send_loop
+      {% if flag? :release %}
+        socket.sync = false
+      {% end %}
+      i = 0
       loop do
         frame = @outbox.receive
         #@log.debug { "<= #{frame.inspect}" }
         @socket.write frame.to_slice
+        @socket.flush unless frame.is_a? AMQP::Basic::Deliver | AMQP::HeaderFrame
         case frame
         when AMQP::Connection::Close
           @log.debug { "Closing write socket" }
           @socket.close_write
+          break
         when AMQP::Connection::CloseOk
           @log.debug { "Closing socket" }
           @socket.close
           cleanup
+          break
+        end
+        if (i += 1) % 1000 == 0
+          @log.debug "send_loop yielding"
+          Fiber.yield
         end
       end
     rescue ex : ::Channel::ClosedError
@@ -99,6 +110,7 @@ module AvalancheMQ
       @log.debug { "#{ex} when writing to socket" }
       cleanup
     ensure
+      @log.debug { "Closing outbox" }
       @outbox.close
     end
 
@@ -237,6 +249,7 @@ module AvalancheMQ
     end
 
     private def read_loop
+      i = 0
       loop do
         frame = AMQP::Frame.decode @socket
         #@log.debug { "=> #{frame.inspect}" }
@@ -292,9 +305,15 @@ module AvalancheMQ
           send AMQP::HeartbeatFrame.new
         else @log.error "Unhandled frame #{frame.inspect}"
         end
+        if (i += 1) % 1000 == 0
+          @log.debug "read_loop yielding"
+          Fiber.yield
+        end
       end
       @log.debug { "Close read socket" }
       @socket.close_read
+    rescue ex : KeyError
+      @log.debug { "Channel already closed" }
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when reading from socket" }
       @log.debug { "Closing outbox" }
