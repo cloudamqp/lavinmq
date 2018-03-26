@@ -73,6 +73,7 @@ module AvalancheMQ
     end
 
     def deliver_loop
+      i = 0
       loop do
         @log.debug { "Looking for available consumers" }
         consumers = @consumers.select { |c| c.accepts? }
@@ -90,7 +91,10 @@ module AvalancheMQ
               reject env.segment_position, true
             end
             @log.debug "Delivery done"
-            Fiber.yield
+            if (i += 1) % 10000 == 0
+              @log.debug "Delivery loop yielding"
+              Fiber.yield
+            end
           else
             @log.debug "No message to deliver to waiting consumer, waiting"
             @message_available.receive

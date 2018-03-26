@@ -240,6 +240,7 @@ module AvalancheMQ
     end
 
     private def read_loop
+      i = 0
       loop do
         frame = AMQP::Frame.decode @socket
         #@log.debug { "=> #{frame.inspect}" }
@@ -295,7 +296,10 @@ module AvalancheMQ
           send AMQP::HeartbeatFrame.new
         else @log.error "Unhandled frame #{frame.inspect}"
         end
-        Fiber.yield
+        if (i += 1) % 10000 == 0
+          @log.debug "read_loop yielding"
+          Fiber.yield
+        end
       end
       @log.debug { "Close read socket" }
       @socket.close_read
