@@ -50,8 +50,16 @@ module AvalancheMQ
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
 
+    def immediate_delivery?
+      consumer_count > 0 && @consumers.any? { |c| c.accepts? }
+    end
+
     def message_count : UInt32
       @ready.size.to_u32
+    end
+
+    def empty? : Bool
+      @ready.size.zero?
     end
 
     def consumer_count : UInt32
@@ -74,34 +82,38 @@ module AvalancheMQ
 
     def deliver_loop
       loop do
-        @log.debug { "Looking for available consumers" }
-        consumers = @consumers.select { |c| c.accepts? }
-        if consumers.size != 0
-          @log.debug { "Picking a consumer" }
-          c = consumers.sample
-          @log.debug { "Getting a new message" }
-          if env = get(c.no_ack)
-            @log.debug { "Delivering #{env.segment_position} to consumer" }
-            begin
-              c.deliver(env.message, env.segment_position, self)
-
-            rescue Channel::ClosedError
-              @log.debug "Consumer chosen for delivery has disconnected"
-              reject env.segment_position, true
-            end
-            @log.debug { "Delivery done" }
-          else
-            @log.debug "No message to deliver to waiting consumer, waiting"
-            @message_available.receive
-          end
-        else
-          @log.debug "No consumer available"
-          schedule_expiration_of_next_msg
-          @log.debug "Waiting for consumer"
-          @consumer_available.receive
+        unless @ready[0]?
+          @log.debug { "Waiting for msgs" }
+          @message_available.receive
         end
+        @log.debug { "Looking for available consumers" }
+      consumers = @consumers.select { |c| c.accepts? }
+      consumed = false
+      if consumers.size != 0
+        @log.debug { "Picking a consumer" }
+        c = consumers.sample
+        @log.debug { "Getting a new message" }
+        if env = get(c.no_ack)
+          @log.debug { "Delivering #{env.segment_position} to consumer" }
+          begin
+            c.deliver(env.message, env.segment_position, self)
+          rescue Channel::ClosedError
+            @log.debug "Consumer chosen for delivery has disconnected"
+            reject env.segment_position, true
+          end
+          @log.debug { "Delivery done" }
+        else
+          @log.debug "No message to deliver to waiting consumer, waiting"
+          @message_available.receive
+        end
+      else
+        @log.debug "No consumer available"
+        schedule_expiration_of_next_msg
+        @log.debug "Waiting for consumer"
+        @consumer_available.receive
       end
-      @log.debug "Exiting deliveyr loop"
+      end
+      @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed"
     end
