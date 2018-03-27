@@ -50,8 +50,16 @@ module AvalancheMQ
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
 
+    def immediate_delivery?
+      @consumers.any? { |c| c.accepts? }
+    end
+
     def message_count : UInt32
       @ready.size.to_u32
+    end
+
+    def empty? : Bool
+      @ready.size.zero?
     end
 
     def consumer_count : UInt32
@@ -88,7 +96,6 @@ module AvalancheMQ
             @log.debug { "Delivering #{env.segment_position} to consumer" }
             begin
               c.deliver(env.message, env.segment_position, self)
-
             rescue Channel::ClosedError
               @log.debug "Consumer chosen for delivery has disconnected"
               reject env.segment_position, true
@@ -102,7 +109,7 @@ module AvalancheMQ
           @consumer_available.receive
         end
       end
-      @log.debug "Exiting deliveyr loop"
+      @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed"
     end

@@ -31,10 +31,10 @@ module AvalancheMQ
       spawn save!, name: "VHost#save!"
     end
 
-    def publish(msg : Message)
+    def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
-      queues = ex.queues_matching(msg.routing_key)
+      queues = ex.queues_matching(msg.routing_key).map { |q| @queues.fetch(q, nil) }
       return false if queues.empty?
 
       pos = @wfile.pos.to_u32
@@ -47,7 +47,9 @@ module AvalancheMQ
       @wfile.write msg.body.to_slice
       flush = true #msg.properties.delivery_mode.try { |v| v > 0 }
       @wfile.flush if flush
-      queues.each { |q| @queues.fetch(q, nil).try &.publish(sp, flush) }
+      ok = true
+      ok = queues.all? { |q| q.try &.immediate_delivery? } if immediate
+      queues.each { |q| q.try &.publish(sp, flush) }
 
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
@@ -57,7 +59,7 @@ module AvalancheMQ
         @wfile.seek(0, IO::Seek::End)
         spawn gc_segments!
       end
-      true
+      ok
     end
 
     def data_dir
