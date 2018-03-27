@@ -51,7 +51,7 @@ module AvalancheMQ
     end
 
     def immediate_delivery?
-      consumer_count > 0 && @consumers.any? { |c| c.accepts? }
+      @consumers.any? { |c| c.accepts? }
     end
 
     def message_count : UInt32

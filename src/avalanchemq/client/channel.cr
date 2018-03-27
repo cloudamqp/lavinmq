@@ -60,7 +60,7 @@ module AvalancheMQ
                             @next_msg_body.not_nil!.to_slice)
           routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
           if !routed && @next_publish_immediate
-            @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No cunsumers",
+            @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
                                                msg.exchange_name, msg.routing_key)
           elsif !routed && @next_publish_mandatory
             @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
