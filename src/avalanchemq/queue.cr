@@ -40,9 +40,9 @@ module AvalancheMQ
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       if @durable
-        restore_index
         @enq = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "a")
         @ack = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "a")
+        restore_index(@enq.not_nil!, @ack.not_nil!)
       end
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
@@ -114,21 +114,19 @@ module AvalancheMQ
       @log.debug "Delivery loop channel closed"
     end
 
-    def restore_index
-      QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "r") do |acks|
-        QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "r") do |enqs|
-          @log.info "Restoring index"
-          acked = Set(SegmentPosition).new(acks.size / sizeof(SegmentPosition))
-          loop do
-            break if acks.pos == acks.size
-            acked << SegmentPosition.decode acks
-          end
-          loop do
-            break if enqs.pos == enqs.size
-            sp = SegmentPosition.decode enqs
-            @ready << sp unless acked.includes? sp
-          end
-        end
+    def restore_index(enqs : QueueFile, acks : QueueFile) : Nil
+      @log.info "Restoring index"
+      acks.seek(0, IO::Seek::Set)
+      acked = Set(SegmentPosition).new(acks.size / sizeof(SegmentPosition))
+      loop do
+        break if acks.pos == acks.size
+        acked << SegmentPosition.decode acks
+      end
+      enqs.seek(0, IO::Seek::Set)
+      loop do
+        break if enqs.pos == enqs.size
+        sp = SegmentPosition.decode enqs
+        @ready << sp unless acked.includes? sp
       end
       @log.info "#{message_count} messages"
     rescue Errno
@@ -211,7 +209,7 @@ module AvalancheMQ
     def expire_later(expire_in, meta, sp)
       @log.debug { "Expiring #{sp} in #{expire_in}ms" }
       sleep expire_in.milliseconds if expire_in > 0
-      return unless sp == @ready[0]?
+      return unless @ready[0]? == sp
       @ready.shift
       expire_msg(meta, sp, :expired)
     end
