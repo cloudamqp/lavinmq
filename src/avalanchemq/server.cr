@@ -53,14 +53,14 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket)
-      socket.sync = true
+      socket.sync = false
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
       socket.tcp_keepalive_count = 3
       socket.tcp_keepalive_interval = 10
       socket.linger = 0
-      socket.write_timeout = 5
+      # socket.write_timeout = 5
       if client = Client.start(socket, @vhosts, @log)
         @connection_events.send({ client, :connected })
         client.on_close do |c|
