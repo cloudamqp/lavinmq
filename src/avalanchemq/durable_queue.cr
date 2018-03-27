@@ -9,8 +9,12 @@ module AvalancheMQ
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
       super
-      @enq = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "a+")
-      @ack = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "a+")
+      @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      Dir.mkdir_p @index_dir
+      @enq_seg = 0_u32
+      @ack_seg = 0_u32
+      @enq = QueueFile.open(File.join(@index_dir, "#{@enq_seg}.enq"), "a+")
+      @ack = QueueFile.open(File.join(@index_dir, "#{@ack_seg}.ack"), "a+")
       restore_index
     end
 
@@ -22,10 +26,8 @@ module AvalancheMQ
 
     def delete
       super
-      File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq")
-      File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack")
-    rescue ex : Errno
-      @log.debug "File not found when deleting"
+      Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
+      Dir.rmdir @index_dir
     end
 
     def publish(sp : SegmentPosition, flush = false)
@@ -35,13 +37,11 @@ module AvalancheMQ
     end
 
     def get(no_ack : Bool) : Envelope | Nil
-      sp = @ready.shift? || return nil
-      if no_ack
-        @ack.write_bytes sp
-      else
-        @unacked << sp
+      super.tap do |env|
+        if no_ack && env
+          @ack.write_bytes env.segment_position
+        end
       end
-      read(sp)
     end
 
     def ack(sp : SegmentPosition)
