@@ -14,6 +14,7 @@ module AvalancheMQ
     @message_ttl : UInt16 | Int32 | Int64 | Nil
     @dlx : String?
     @dlrk : String?
+    @closed = false
     getter name, durable, exclusive, auto_delete, arguments
 
     def initialize(@vhost : VHost, @name : String,
@@ -73,6 +74,7 @@ module AvalancheMQ
           @log.debug { "Waiting for msgs" }
           @message_available.receive
         end
+        break if @closed
         @log.debug { "Looking for available consumers" }
         consumers = @consumers.select { |c| c.accepts? }
         if consumers.size != 0
@@ -103,6 +105,7 @@ module AvalancheMQ
 
     def close(deleting = false)
       @log.info "Closing"
+      @closed = true
       @message_available.close
       @consumer_available.close
       @consumers.clear
