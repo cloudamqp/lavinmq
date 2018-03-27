@@ -31,12 +31,15 @@ module AvalancheMQ
       end
 
       socket.write AMQP::Connection::Start.new.to_slice
+      socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
       socket.write AMQP::Connection::Tune.new(heartbeat: 0_u16).to_slice
+      socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
         socket.write AMQP::Connection::OpenOk.new.to_slice
+        socket.flush
         log.info "Accepting connection from #{socket.remote_address} to vhost #{open.vhost}"
         return self.new(socket, vhost, log)
       else
@@ -81,6 +84,9 @@ module AvalancheMQ
         frame = @outbox.receive
         #@log.debug { "<= #{frame.inspect}" }
         @socket.write frame.to_slice
+        unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
+          @socket.flush
+        end
         case frame
         when AMQP::Connection::Close
           @log.debug { "Closing write socket" }
