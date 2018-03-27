@@ -368,7 +368,6 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   ensure
-    FileUtils.rm_rf "/tmp/spec_qhe"
     s.try &.close
   end
 
@@ -396,7 +395,6 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 2
     end
   ensure
-    FileUtils.rm_rf "/tmp/spec_qhe2"
     s.try &.close
   end
 end
