@@ -194,12 +194,8 @@ module AvalancheMQ
 
       def cancel_consumer(frame)
         @client.log.debug { "Canceling consumer " + frame.consumer_tag }
-        c = @consumers.find { |c| c.tag == frame.consumer_tag }.not_nil!
-        c.queue.rm_consumer(c)
-        @map.each_value do |queue, sp, consumer|
-          next if consumer.nil? || consumer.tag != frame.consumer_tag
-          consumer.reject sp
-        end
+        c = @consumers.find { |c| c.tag == frame.consumer_tag }
+        c.try { |c| c.queue.rm_consumer(c) }
         unless frame.no_wait
           @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
         end
