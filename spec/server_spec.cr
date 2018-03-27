@@ -322,4 +322,25 @@ describe AvalancheMQ::Server do
   ensure
      s.not_nil!.close
   end
+
+  it "can cancel consumers" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.qos(0, 2, false)
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", passive: true)
+      q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
+      x.publish pmsg, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      q.unsubscribe(tag)
+      Fiber.yield
+      ch.has_subscriber?(tag).should eq false
+    end
+  ensure
+     s.not_nil!.close
+  end
 end

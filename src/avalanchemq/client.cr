@@ -299,6 +299,8 @@ module AvalancheMQ
           @channels[frame.channel].basic_reject(frame)
         when AMQP::Basic::Nack
           @channels[frame.channel].basic_nack(frame)
+        when AMQP::Basic::Cancel
+          @channels[frame.channel].cancel_consumer(frame)
         when AMQP::Basic::Qos
           @channels[frame.channel].basic_qos(frame)
         when AMQP::HeartbeatFrame

@@ -192,8 +192,17 @@ module AvalancheMQ
         @delivery_tag
       end
 
+      def cancel_consumer(frame)
+        @client.log.debug { "Canceling consumer " + frame.consumer_tag }
+        c = @consumers.find { |c| c.tag == frame.consumer_tag }
+        c.try { |c| c.queue.rm_consumer(c) }
+        unless frame.no_wait
+          @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+        end
+      end
+
       class Consumer
-        getter no_ack, queue, unacked
+        getter no_ack, queue, unacked, tag
         def initialize(@channel : Client::Channel, @channel_id : UInt16,
                        @tag : String, @queue : Queue, @no_ack : Bool)
           @unacked = Set(SegmentPosition).new
