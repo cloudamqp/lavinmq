@@ -14,7 +14,7 @@ module AvalancheMQ
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
-      @log.progname = "AMQP Server"
+      @log.progname = "AMQPServer"
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         io << progname << ": " << message
       end

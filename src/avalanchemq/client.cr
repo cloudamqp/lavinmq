@@ -13,7 +13,7 @@ module AvalancheMQ
     def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
       @remote_address = @socket.remote_address
       @log = server_log.dup
-      @log.progname = "Client #{@remote_address}"
+      @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame).new(1000)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
@@ -115,7 +115,7 @@ module AvalancheMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self)
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
       send AMQP::Channel::OpenOk.new(frame.channel)
     end
 
@@ -318,8 +318,8 @@ module AvalancheMQ
       @log.debug { "Channel already closed" }
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when reading from socket" }
-      @log.debug { "Closing outbox" }
-      @outbox.close # Notifies send_loop to close up shop
+      #@log.debug { "Closing outbox" }
+      #@outbox.close # Notifies send_loop to close up shop
     end
 
     private def send_not_found(frame)
