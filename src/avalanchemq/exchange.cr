@@ -120,8 +120,15 @@ module AvalancheMQ
       "headers"
     end
 
+    def initialize(@vhost : VHost, @name : String, @durable : Bool,
+                   @auto_delete : Bool, @internal : Bool,
+                   @arguments = Hash(String, AMQP::Field).new)
+      @headers = @arguments
+      super
+    end
+
     def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
-      @arguments.merge!(arguments)
+      @headers = @arguments.merge(arguments)
       @vhost.log.debug("Binding #{queue_name} with #{@arguments}")
       @bindings[""] << queue_name
     end
@@ -133,11 +140,11 @@ module AvalancheMQ
     def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new) : Set(String)
       matches = Set(String).new
       if msg_headers = arguments.headers
-        @vhost.log.debug("match #{@arguments} to #{msg_headers}")
-        if @arguments["x-match"] == "all" && msg_headers.all? { |k, v| @arguments[k] == v }
+        @vhost.log.debug("match #{@headers} to #{msg_headers}")
+        if @headers["x-match"] == "all" && msg_headers.all? { |k, v| @headers[k] == v }
           matches = @bindings[""]
-        elsif @arguments["x-match"] == "any"
-          if msg_headers.any? { |k, v| k != "x-match" && @arguments[k] == v }
+        elsif @headers["x-match"] == "any"
+          if msg_headers.any? { |k, v| k != "x-match" && @headers[k] == v }
             matches = @bindings[""]
           end
         end
