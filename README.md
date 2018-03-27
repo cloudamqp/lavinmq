@@ -1,3 +1,5 @@
+<img src="avalanche.png" align="right" />
+
 # AvalancheMQ
 
 A message queue server that implements the AMQP 0-9-1 protocol. Written in [Crystal](https://crystal-lang.org/).
@@ -23,4 +25,4 @@ Fork, create feature branch, submit pull request
 
 ## Contributors
 
-- [carlhoerberg](https://github.com/carlhoerberg) Carl Hörberg - creator, maintainer
+- [84codes](https://www.84codes.com)
