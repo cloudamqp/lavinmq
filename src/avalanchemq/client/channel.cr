@@ -18,6 +18,7 @@ module AvalancheMQ
         @confirm = false
         @global_prefetch = false
         @next_publish_mandatory = false
+        @next_publish_immediate = false
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
@@ -38,6 +39,7 @@ module AvalancheMQ
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
+        @next_publish_immediate = frame.immediate
       end
 
       def next_msg_headers(size : UInt64, props : AMQP::Properties)
@@ -56,8 +58,11 @@ module AvalancheMQ
                             @next_msg_props.not_nil!,
                             @next_msg_size.not_nil!,
                             @next_msg_body.not_nil!.to_slice)
-          delivered = @client.vhost.publish(msg)
-          if !delivered && @next_publish_mandatory
+          routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
+          if !routed && @next_publish_immediate
+            @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
+                                               msg.exchange_name, msg.routing_key)
+          elsif !routed && @next_publish_mandatory
             @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
                                                  msg.exchange_name, msg.routing_key)
           end
@@ -68,7 +73,7 @@ module AvalancheMQ
 
           @next_msg_body.not_nil!.clear
           @next_publish_exchange_name = @next_publish_routing_key = nil
-          @next_publish_mandatory = false
+          @next_publish_mandatory = @next_publish_immediate = false
         end
       end
 

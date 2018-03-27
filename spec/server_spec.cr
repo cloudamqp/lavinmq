@@ -240,12 +240,10 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       q = ch.queue("exp1")
-
       x = ch.exchange("", "direct", passive: true)
       msg = AMQP::Message.new("expired",
                               AMQP::Protocol::Properties.new(expiration: "0"))
       x.publish msg, q.name
-
       sleep 0.01
       msg = q.get(no_ack: true)
       msg.to_s.should be ""
@@ -297,6 +295,29 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msgs.size.should eq 1
       msgs.first.to_s.should eq("dead letter")
+    end
+  ensure
+     s.not_nil!.close
+  end
+
+  it "handle immediate flag" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      pmsg = AMQP::Message.new("m1")
+      reply_code = 0
+      reply_msg = nil
+      ch.on_return do |code, text|
+        reply_code = code
+        reply_msg = text
+      end
+      ch.publish(pmsg, "amq.topic", "rk", mandatory = false, immediate = true)
+      until reply_code == 313
+        Fiber.yield
+      end
+      reply_code.should eq 313
     end
   ensure
      s.not_nil!.close
