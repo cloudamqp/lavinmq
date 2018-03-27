@@ -238,10 +238,10 @@ module AvalancheMQ
     end
 
     private def purge_queue(frame)
-      if @vhost.queues.has_key? frame.queue_name
-        message_count = @vhost.queues[frame.queue_name].purge
+      if q = @vhost.queues.fetch(frame.queue_name, nil)
+        messages_purged = q.purge
         unless frame.no_wait
-          send AMQP::Queue::PurgeOk.new(frame.channel, message_count)
+          send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged)
         end
       else
         send_not_found(frame)
