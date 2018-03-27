@@ -9,7 +9,7 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
-    getter name, exchanges, queues, log
+    getter name, exchanges, queues, log, data_dir
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
@@ -21,10 +21,11 @@ module AvalancheMQ
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new(16)
-      Dir.mkdir_p data_dir
+      @data_dir = File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
+      Dir.mkdir_p @data_dir
       @segment = last_segment
       @log.debug { "Last segment is #{@segment}" }
-      @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
+      @wfile = MessageFile.open(File.join(@data_dir, "msgs.#{@segment}"), "a")
       @wfile.seek(0, IO::Seek::End)
       load!
       compact!
@@ -55,15 +56,11 @@ module AvalancheMQ
         @segment += 1
         @wfile.close
         @log.debug { "Rolling over to segment #{@segment}" }
-        @wfile = MessageFile.open(File.join(data_dir, "msgs.#{@segment}"), "a")
+        @wfile = MessageFile.open(File.join(@data_dir, "msgs.#{@segment}"), "a")
         @wfile.seek(0, IO::Seek::End)
         spawn gc_segments!
       end
       ok
-    end
-
-    def data_dir
-      File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
     end
 
     def apply(f, loading = false)
@@ -103,7 +100,7 @@ module AvalancheMQ
     end
 
     private def load!
-      File.open(File.join(data_dir, "definitions.amqp"), "r") do |io|
+      File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         loop do
           begin
             apply AMQP::Frame.decode(io), loading: true
@@ -128,7 +125,7 @@ module AvalancheMQ
     end
 
     private def compact!
-      File.open(File.join(data_dir, "definitions.amqp"), "w") do |io|
+      File.open(File.join(@data_dir, "definitions.amqp"), "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable
           next if e.auto_delete
@@ -154,7 +151,7 @@ module AvalancheMQ
     end
 
     private def save!
-      File.open(File.join(data_dir, "definitions.amqp"), "a") do |f|
+      File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         loop do
           frame = @save.receive
           case frame
@@ -175,7 +172,7 @@ module AvalancheMQ
     end
 
     private def last_segment : UInt32
-      segments = Dir.glob(File.join(data_dir, "msgs.*")).sort
+      segments = Dir.glob(File.join(@data_dir, "msgs.*")).sort
       last_file = segments.last? || return 0_u32
       last_file[/\d+$/].to_u32
     end
@@ -189,7 +186,7 @@ module AvalancheMQ
       end
       @log.info "#{referenced_segments.size} segments in use"
 
-      Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
+      Dir.glob(File.join(@data_dir, "msgs.*")).each do |f|
         seg = f[/\d+$/].to_u32
         next if referenced_segments.includes? seg
         @log.info "Deleting segment #{seg}"
