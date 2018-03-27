@@ -130,7 +130,7 @@ module AvalancheMQ
         when 41_u16 then OpenOk.decode(body)
         when 50_u16 then Close.decode(body)
         when 51_u16 then CloseOk.decode(body)
-        else raise "Unknown method_id #{method_id}"
+        else raise "Unknown method_id=#{method_id}"
         end
       end
 
@@ -353,7 +353,7 @@ module AvalancheMQ
           #when 21_u16 then FlowOk.decode(channel, body)
         when 40_u16 then Close.decode(channel, body)
         when 41_u16 then CloseOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise "Unknown method_id=#{method_id}"
         end
       end
 
@@ -459,7 +459,7 @@ module AvalancheMQ
         when 11_u16 then DeclareOk.decode(channel, body)
         when 20_u16 then Delete.decode(channel, body)
         when 21_u16 then DeleteOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise "Unknown method_id=#{method_id}"
         end
       end
 
@@ -585,7 +585,7 @@ module AvalancheMQ
         when 41_u16 then DeleteOk.decode(channel, body)
         when 50_u16 then Unbind.decode(channel, body)
         when 51_u16 then UnbindOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise "Unknown method_id=#{method_id}"
         end
       end
 
@@ -869,6 +869,8 @@ module AvalancheMQ
         when 11_u16 then QosOk.decode(channel, body)
         when 20_u16 then Consume.decode(channel, body)
         when 21_u16 then ConsumeOk.decode(channel, body)
+        when 30_u16 then Cancel.decode(channel, body)
+        when 31_u16 then CancelOk.decode(channel, body)
         when 40_u16 then Publish.decode(channel, body)
         when 50_u16 then Return.decode(channel, body)
         when 60_u16 then Deliver.decode(channel, body)
@@ -877,7 +879,7 @@ module AvalancheMQ
         when 72_u16 then GetEmpty.decode(channel, body)
         when 80_u16 then Ack.decode(channel, body)
         when 90_u16 then Reject.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise "Unknown method_id=#{method_id}"
         end
       end
 
@@ -1175,8 +1177,56 @@ module AvalancheMQ
           super(io.to_slice)
         end
 
-        def decode
+        def self.decode
           raise "Not implemented"
+        end
+      end
+
+      struct Cancel < Basic
+        def method_id
+          30_u16
+        end
+
+        getter consumer_tag, no_wait
+
+        def initialize(channel : UInt16, @consumer_tag : String, @no_wait : Bool)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new(1 + @consumer_tag.bytesize + 1)
+          io.write_short_string(@consumer_tag)
+          io.write_bool(@no_wait)
+          super(io.to_slice)
+        end
+
+        def self.decode(channel, io)
+          consumer_tag = io.read_short_string
+          no_wait = io.read_bool
+          self.new(channel, consumer_tag, no_wait)
+        end
+      end
+
+      struct CancelOk < Basic
+        def method_id
+          31_u16
+        end
+
+        getter consumer_tag
+
+        def initialize(channel : UInt16, @consumer_tag : String)
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new(1 + @consumer_tag.bytesize)
+          io.write_short_string(@consumer_tag)
+          super(io.to_slice)
+        end
+
+        def self.decode(channel, io)
+          consumer_tag = io.read_short_string
+          self.new(channel, consumer_tag)
         end
       end
     end
@@ -1229,7 +1279,7 @@ module AvalancheMQ
         case method_id
         when 10_u16 then Select.decode(channel, body)
         when 11_u16 then SelectOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise "Unknown method_id=#{method_id}"
         end
       end
 

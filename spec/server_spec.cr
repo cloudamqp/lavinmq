@@ -240,12 +240,10 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       q = ch.queue("exp1")
-
       x = ch.exchange("", "direct", passive: true)
       msg = AMQP::Message.new("expired",
                               AMQP::Protocol::Properties.new(expiration: "0"))
       x.publish msg, q.name
-
       sleep 0.01
       msg = q.get(no_ack: true)
       msg.to_s.should be ""
@@ -297,6 +295,27 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msgs.size.should eq 1
       msgs.first.to_s.should eq("dead letter")
+    end
+  ensure
+     s.not_nil!.close
+  end
+
+  it "can cancel consumers" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.qos(0, 2, false)
+      pmsg = AMQP::Message.new("m1")
+      x = ch.exchange("", "direct", passive: true)
+      q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
+      x.publish pmsg, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      q.unsubscribe(tag)
+      Fiber.yield
+      ch.has_subscriber?(tag).should eq false
     end
   ensure
      s.not_nil!.close
