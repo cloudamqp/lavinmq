@@ -102,12 +102,14 @@ module AvalancheMQ
         end
       end
     rescue ex : ::Channel::ClosedError
-      @log.debug { "#{ex} when waiting for frames to send" }
+      @log.debug { "#{ex}, when waiting for frames to send" }
       @log.debug { "Closing socket" }
       @socket.close
       cleanup
-    rescue ex : IO::Error | Errno
+    rescue ex : IO::Error | Errno | IO::Timeout
       @log.debug { "#{ex} when writing to socket" }
+      @log.debug { "Closing socket" }
+      @socket.close
       cleanup
     ensure
       @log.debug { "Closing outbox" }

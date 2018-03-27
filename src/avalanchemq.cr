@@ -1,9 +1,12 @@
 require "./avalanchemq/version"
 require "./avalanchemq/server"
 require "./avalanchemq/http_server"
+require "./avalanchemq/stdlib_fixes"
 require "option_parser"
 require "file"
 require "ini"
+
+puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 
 log_level = Logger::INFO
 port = 5672
@@ -39,9 +42,8 @@ if data_dir.empty?
 end
 
 fd_limit = `ulimit -n`.to_i
-print "Current file descriptor limit is #{fd_limit}"
-print ", consider raising it" if fd_limit < 1025
-print "\n"
+puts "FD limit: #{fd_limit}"
+puts "The file descriptor limit is very low, consider raising it. You need one for each connection and two for each queue." if fd_limit < 1025
 
 amqp_server = AvalancheMQ::Server.new(data_dir, log_level)
 spawn(name: "AvalancheMQ listening #{port}") do
@@ -53,32 +55,19 @@ spawn(name: "HTTP Server listen 8080") do
   http_server.listen
 end
 
-class Fiber
-  def self.list
-    fiber = @@first_fiber
-    while fiber
-      yield(fiber)
-      fiber = fiber.next_fiber
-    end
-  end
-end
-
 Signal::HUP.trap do
   puts "Reloading"
   Fiber.list { |f| puts f.inspect }
 end
 shutdown = -> (s : Signal) do
-  print "Terminating..."
+  puts "Shutting down gracefully..."
   http_server.close
-  print "HTTP Done..."
   amqp_server.close
-  print "AMQP Done!\n"
-  sleep 1
+  Fiber.yield
   puts "Fibers: "
   Fiber.list { |f| puts f.inspect }
   exit 0
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
-puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 sleep
