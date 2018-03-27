@@ -5,13 +5,13 @@ require "./client"
 require "./vhost"
 require "./exchange"
 require "./queue"
+require "./durable_queue"
 
 module AvalancheMQ
   class Server
-    getter connections
-    getter vhosts
+    getter connections, vhosts, data_dir
 
-    def initialize(data_dir : String, log_level)
+    def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
       @log.progname = "AMQP Server"
@@ -21,7 +21,8 @@ module AvalancheMQ
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
-      @vhosts = { "default" => VHost.new("default", data_dir, @log) }
+      Dir.mkdir_p @data_dir
+      @vhosts = { "default" => VHost.new("default", @data_dir, @log) }
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
