@@ -76,7 +76,11 @@ module AvalancheMQ
         @exchanges.delete f.exchange_name
       when AMQP::Queue::Declare
         @queues[f.queue_name] =
-          Queue.new(self, f.queue_name, f.durable, f.exclusive, f.auto_delete, f.arguments)
+          if f.durable
+            DurableQueue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
+          else
+            Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
+          end
         @exchanges[""].bind(f.queue_name, f.queue_name)
       when AMQP::Queue::Delete
         @exchanges.each_value do |e|

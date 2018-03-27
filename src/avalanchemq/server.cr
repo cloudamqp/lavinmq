@@ -5,6 +5,7 @@ require "./client"
 require "./vhost"
 require "./exchange"
 require "./queue"
+require "./durable_queue"
 
 module AvalancheMQ
   class Server

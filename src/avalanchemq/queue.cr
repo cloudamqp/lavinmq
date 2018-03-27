@@ -8,23 +8,15 @@ module AvalancheMQ
     class QueueFile < File
       include AMQP::IO
     end
-    enum Event
-      ConsumerAdded
-      MessagePublished
-      MessageAcked
-      MessageRejected
-      Purged
-    end
 
+    @durable = false
     @log : Logger
-    @ack : QueueFile?
-    @enq : QueueFile?
     @message_ttl : UInt16 | Int32 | Int64 | Nil
     @dlx : String?
     @dlrk : String?
     getter name, durable, exclusive, auto_delete, arguments
 
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
+    def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
       @log = @vhost.log.dup
@@ -39,11 +31,6 @@ module AvalancheMQ
       @consumer_available = Channel(Nil).new(1)
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
-      if @durable
-        @enq = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq"), "a")
-        @ack = QueueFile.open(File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack"), "a")
-        restore_index(@enq.not_nil!, @ack.not_nil!)
-      end
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
       end
@@ -114,32 +101,11 @@ module AvalancheMQ
       @log.debug "Delivery loop channel closed"
     end
 
-    def restore_index(enqs : QueueFile, acks : QueueFile) : Nil
-      @log.info "Restoring index"
-      acks.seek(0, IO::Seek::Set)
-      acked = Set(SegmentPosition).new(acks.size / sizeof(SegmentPosition))
-      loop do
-        break if acks.pos == acks.size
-        acked << SegmentPosition.decode acks
-      end
-      enqs.seek(0, IO::Seek::Set)
-      loop do
-        break if enqs.pos == enqs.size
-        sp = SegmentPosition.decode enqs
-        @ready << sp unless acked.includes? sp
-      end
-      @log.info "#{message_count} messages"
-    rescue Errno
-      @log.debug "Index not found"
-    end
-
     def close(deleting = false)
       @log.info "Closing"
       @message_available.close
       @consumer_available.close
       @consumers.clear
-      @ack.try &.close
-      @enq.try &.close
       @segments.each_value &.close
       delete if !deleting && @auto_delete
       @log.info "Closed"
@@ -149,12 +115,6 @@ module AvalancheMQ
       @log.info "Deleting"
       @vhost.queues.delete @name
       close(deleting: true)
-      if @durable
-        File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.enq")
-        File.delete File.join(@vhost.data_dir, "#{Digest::SHA1.hexdigest @name}.ack")
-      end
-    rescue ex : Errno
-      @log.debug "File not found when deleting"
     end
 
     def to_json(json : JSON::Builder)
@@ -171,11 +131,6 @@ module AvalancheMQ
     def publish(sp : SegmentPosition, flush = false)
       @log.debug { "Enqueuing message #{sp}" }
       @ready.push sp
-      if @durable
-        @enq.try &.write_bytes sp
-        @enq.try &.flush if flush
-      end
-
       @message_available.send nil unless @message_available.full?
       @log.debug { "Enqueued successfully #{sp}" }
     end
@@ -240,11 +195,7 @@ module AvalancheMQ
 
     def get(no_ack : Bool) : Envelope | Nil
       sp = @ready.shift? || return nil
-      if no_ack && @durable
-        @ack.try &.write_bytes sp
-      else
-        @unacked << sp
-      end
+      @unacked << sp unless no_ack
       read(sp)
     end
 
@@ -264,9 +215,6 @@ module AvalancheMQ
 
     def ack(sp : SegmentPosition)
       @log.debug { "Acking #{sp}" }
-      if @durable
-        @ack.try &.write_bytes sp
-      end
       @unacked.delete sp
       @consumer_available.send nil unless @consumer_available.full?
     end
@@ -300,7 +248,6 @@ module AvalancheMQ
     def purge
       purged_count = message_count
       @ready.clear
-      @enq.try &.truncate
       @log.debug { "Purged #{purged_count} messages" }
       purged_count
     end
