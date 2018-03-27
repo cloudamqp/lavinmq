@@ -24,12 +24,14 @@ module AvalancheMQ
         FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "topic"
         TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "headers"
+        HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise "Cannot make exchange type #{type}"
       end
     end
 
     abstract def type : String
-    abstract def queues_matching(routing_key : String) : Set(String)
+    abstract def queues_matching(routing_key : String, arguments = Hash(String, AMQP::Field).new) : Set(String)
     abstract def bind(queue : String, routing_key : String,
                       arguments : Hash(String, AMQP::Field))
     abstract def unbind(queue : String, routing_key : String)
@@ -48,7 +50,7 @@ module AvalancheMQ
       @bindings[routing_key].delete queue_name
     end
 
-    def queues_matching(routing_key)
+    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[routing_key]
     end
   end
@@ -66,7 +68,7 @@ module AvalancheMQ
       @bindings[""].delete queue_name
     end
 
-    def queues_matching(routing_key)
+    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new)
       @bindings[""]
     end
   end
@@ -84,7 +86,7 @@ module AvalancheMQ
       @bindings[routing_key].delete queue_name
     end
 
-    def queues_matching(routing_key) : Set(String)
+    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new) : Set(String)
       rk_parts = routing_key.split(".")
       s = Set(String).new
       @bindings.each do |bk, q|
@@ -92,7 +94,7 @@ module AvalancheMQ
         bk_parts = bk.split(".")
         bk_parts.each_with_index do |part, i|
           if part == "#"
-            ok = true 
+            ok = true
             break
           end
           if part == "*" || part == rk_parts[i]
@@ -110,6 +112,37 @@ module AvalancheMQ
         s.concat(q) if ok
       end
       s
+    end
+  end
+
+  class HeadersExchange < Exchange
+    def type
+      "headers"
+    end
+
+    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
+      @arguments.merge!(arguments)
+      @vhost.log.debug("Binding #{queue_name} with #{@arguments}")
+      @bindings[""] << queue_name
+    end
+
+    def unbind(queue_name, routing_key)
+      @bindings[""].delete queue_name
+    end
+
+    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new) : Set(String)
+      matches = Set(String).new
+      if msg_headers = arguments.headers
+        @vhost.log.debug("match #{@arguments} to #{msg_headers}")
+        if @arguments["x-match"] == "all" && msg_headers.all? { |k, v| @arguments[k] == v }
+          matches = @bindings[""]
+        elsif @arguments["x-match"] == "any"
+          if msg_headers.any? { |k, v| k != "x-match" && @arguments[k] == v }
+            matches = @bindings[""]
+          end
+        end
+      end
+      matches
     end
   end
 end

@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "amqp"
+require "file_utils"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
@@ -17,7 +18,7 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("test message")
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "can delete queue" do
@@ -42,7 +43,7 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("m2")
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "can reject message" do
@@ -61,7 +62,7 @@ describe AvalancheMQ::Server do
       m1.should eq(nil)
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "can reject and requeue message" do
@@ -80,7 +81,7 @@ describe AvalancheMQ::Server do
       m1.to_s.should eq("m1")
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "rejects all unacked msgs when disconnecting" do
@@ -103,7 +104,7 @@ describe AvalancheMQ::Server do
       m1.to_s.should eq("m1")
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "respects prefetch" do
@@ -125,7 +126,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq(2)
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "respects prefetch and acks" do
@@ -150,7 +151,7 @@ describe AvalancheMQ::Server do
       c.should eq(4)
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "can delete exchange" do
@@ -163,7 +164,7 @@ describe AvalancheMQ::Server do
       x.delete.should be x
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "can purge a queue" do
@@ -179,7 +180,7 @@ describe AvalancheMQ::Server do
       q.purge.should eq 4
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "supports publisher confirms" do
@@ -206,7 +207,7 @@ describe AvalancheMQ::Server do
       delivery_tag.should eq 2
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "supports mandatory publish flag" do
@@ -230,7 +231,7 @@ describe AvalancheMQ::Server do
       reply_msg.should eq "No Route"
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "expires messages" do
@@ -249,7 +250,7 @@ describe AvalancheMQ::Server do
       msg.to_s.should be ""
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "expires messages with message TTL on queue declaration" do
@@ -272,7 +273,7 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("queue dlx")
     end
   ensure
-    s.not_nil!.close
+    s.try &.close
   end
 
   it "dead-letter expired messages" do
@@ -297,7 +298,7 @@ describe AvalancheMQ::Server do
       msgs.first.to_s.should eq("dead letter")
     end
   ensure
-     s.not_nil!.close
+     s.try &.close
   end
 
   it "handle immediate flag" do
@@ -320,7 +321,7 @@ describe AvalancheMQ::Server do
       reply_code.should eq 313
     end
   ensure
-     s.not_nil!.close
+     s.try &.close
   end
 
   it "can cancel consumers" do
@@ -329,7 +330,6 @@ describe AvalancheMQ::Server do
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
-      ch.qos(0, 2, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
@@ -341,6 +341,62 @@ describe AvalancheMQ::Server do
       ch.has_subscriber?(tag).should eq false
     end
   ensure
-     s.not_nil!.close
+     s.try &.close
+  end
+
+  it "supports header exchange all" do
+    s = AvalancheMQ::Server.new("/tmp/spec_qhe", Logger::DEBUG)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      q = ch.queue("q-header-ex", auto_delete: true, durable: false, exclusive: false)
+      hdrs = AMQP::Protocol::Table.new
+      hdrs["x-match"] = "all"
+      hdrs["org"] = "84codes"
+      hdrs["user"] = "test"
+      x = ch.exchange("asdasdasd", "headers", passive: false, args: hdrs)
+      q.bind(x)
+      pmsg1 = AMQP::Message.new("m1", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg1, q.name
+      hdrs["user"] = "hest"
+      pmsg2 = AMQP::Message.new("m2", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      msgs.size.should eq 1
+    end
+  ensure
+    FileUtils.rm_rf "/tmp/spec_qhe"
+    s.try &.close
+  end
+
+   it "supports header exchange any" do
+    s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::DEBUG)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      q = ch.queue("q-header-ex2", auto_delete: true, durable: false, exclusive: false)
+      hdrs = AMQP::Protocol::Table.new
+      hdrs["x-match"] = "any"
+      hdrs["org"] = "84codes"
+      hdrs["user"] = "test"
+      x = ch.exchange("", "headers", passive: false, args: hdrs)
+      q.bind(x)
+      pmsg1 = AMQP::Message.new("m1", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg1, q.name
+      hdrs["user"] = "hest"
+      pmsg2 = AMQP::Message.new("m2", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      msgs.size.should eq 2
+    end
+  ensure
+    FileUtils.rm_rf "/tmp/spec_qhe2"
+    s.try &.close
   end
 end
