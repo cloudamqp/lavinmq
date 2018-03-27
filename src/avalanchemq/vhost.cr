@@ -35,7 +35,7 @@ module AvalancheMQ
     def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
-      queues = ex.queues_matching(msg.routing_key, arguments = msg.properties)
+      queues = ex.queues_matching(msg.routing_key, headers: msg.properties.headers)
         .map { |q| @queues.fetch(q, nil) }
       return false if queues.empty?
 

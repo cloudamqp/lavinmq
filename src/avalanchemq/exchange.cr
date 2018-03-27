@@ -31,7 +31,7 @@ module AvalancheMQ
     end
 
     abstract def type : String
-    abstract def queues_matching(routing_key : String, arguments = Hash(String, AMQP::Field).new) : Set(String)
+    abstract def queues_matching(routing_key : String, headers : AMQP::Field) : Set(String)
     abstract def bind(queue : String, routing_key : String,
                       arguments : Hash(String, AMQP::Field))
     abstract def unbind(queue : String, routing_key : String)
@@ -42,7 +42,7 @@ module AvalancheMQ
       "direct"
     end
 
-    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
+    def bind(queue_name, routing_key, headers = nil)
       @bindings[routing_key] << queue_name
     end
 
@@ -50,7 +50,7 @@ module AvalancheMQ
       @bindings[routing_key].delete queue_name
     end
 
-    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new)
+    def queues_matching(routing_key, headers = nil)
       @bindings[routing_key]
     end
   end
@@ -60,7 +60,7 @@ module AvalancheMQ
       "fanout"
     end
 
-    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
+    def bind(queue_name, routing_key, headers = nil)
       @bindings[""] << queue_name
     end
 
@@ -68,7 +68,7 @@ module AvalancheMQ
       @bindings[""].delete queue_name
     end
 
-    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new)
+    def queues_matching(routing_key, headers = nil)
       @bindings[""]
     end
   end
@@ -78,7 +78,7 @@ module AvalancheMQ
       "topic"
     end
 
-    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
+    def bind(queue_name, routing_key, headers = nil)
       @bindings[routing_key] << queue_name
     end
 
@@ -86,7 +86,7 @@ module AvalancheMQ
       @bindings[routing_key].delete queue_name
     end
 
-    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new) : Set(String)
+    def queues_matching(routing_key, headers = nil) : Set(String)
       rk_parts = routing_key.split(".")
       s = Set(String).new
       @bindings.each do |bk, q|
@@ -127,9 +127,9 @@ module AvalancheMQ
       super
     end
 
-    def bind(queue_name, routing_key, arguments = Hash(String, AMQP::Field).new)
-      @headers = @arguments.merge(arguments)
-      @vhost.log.debug("Binding #{queue_name} with #{@arguments}")
+    def bind(queue_name, routing_key, headers = nil)
+      @headers = @arguments.merge(headers) if headers
+      @vhost.log.debug("Binding #{queue_name} with #{@headers}")
       @bindings[""] << queue_name
     end
 
@@ -137,14 +137,17 @@ module AvalancheMQ
       @bindings[""].delete queue_name
     end
 
-    def queues_matching(routing_key, arguments = Hash(String, AMQP::Field).new) : Set(String)
+    def queues_matching(routing_key, headers = nil) : Set(String)
       matches = Set(String).new
-      if msg_headers = arguments.headers
-        @vhost.log.debug("match #{@headers} to #{msg_headers}")
-        if @headers["x-match"] == "all" && msg_headers.all? { |k, v| @headers[k] == v }
-          matches = @bindings[""]
-        elsif @headers["x-match"] == "any"
-          if msg_headers.any? { |k, v| k != "x-match" && @headers[k] == v }
+      if headers
+        @vhost.log.debug("match #{@headers} to #{headers}")
+        case @headers["x-match"]
+        when "all"
+          if headers.all? { |k, v| @headers[k] == v }
+            matches = @bindings[""]
+          end
+        when "any"
+          if headers.any? { |k, v| k != "x-match" && @headers[k] == v }
             matches = @bindings[""]
           end
         end
