@@ -35,7 +35,8 @@ module AvalancheMQ
     def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
-      queues = ex.queues_matching(msg.routing_key).map { |q| @queues.fetch(q, nil) }
+      queues = ex.queues_matching(msg.routing_key, headers: msg.properties.headers)
+        .map { |q| @queues.fetch(q, nil) }
       return false if queues.empty?
 
       pos = @wfile.pos.to_u32
@@ -116,12 +117,10 @@ module AvalancheMQ
     private def load_default_definitions
       @log.info "Loading default definitions"
       @exchanges[""] = DirectExchange.new(self, "", true, false, true)
-      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct",
-                                                    true, false, true)
-      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout",
-                                                    true, false, true)
-      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic",
-                                                  true, false, true)
+      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, true)
+      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, true)
+      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, true)
+      @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, true)
     end
 
     private def compact!

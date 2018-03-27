@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "amqp"
+require "file_utils"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
@@ -329,7 +330,6 @@ describe AvalancheMQ::Server do
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
-      ch.qos(0, 2, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
@@ -342,5 +342,59 @@ describe AvalancheMQ::Server do
     end
   ensure
      s.try &.close
+  end
+
+  it "supports header exchange all" do
+    s = AvalancheMQ::Server.new("/tmp/spec_qhe", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      q = ch.queue("q-header-ex", auto_delete: true, durable: false, exclusive: false)
+      hdrs = AMQP::Protocol::Table.new
+      hdrs["x-match"] = "all"
+      hdrs["org"] = "84codes"
+      hdrs["user"] = "test"
+      x = ch.exchange("asdasdasd", "headers", passive: false, args: hdrs)
+      q.bind(x)
+      pmsg1 = AMQP::Message.new("m1", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg1, q.name
+      hdrs["user"] = "hest"
+      pmsg2 = AMQP::Message.new("m2", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      msgs.size.should eq 1
+    end
+  ensure
+    s.try &.close
+  end
+
+   it "supports header exchange any" do
+    s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      q = ch.queue("q-header-ex2", auto_delete: true, durable: false, exclusive: false)
+      hdrs = AMQP::Protocol::Table.new
+      hdrs["x-match"] = "any"
+      hdrs["org"] = "84codes"
+      hdrs["user"] = "test"
+      x = ch.exchange("", "headers", passive: false, args: hdrs)
+      q.bind(x)
+      pmsg1 = AMQP::Message.new("m1", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg1, q.name
+      hdrs["user"] = "hest"
+      pmsg2 = AMQP::Message.new("m2", AMQP::Protocol::Properties.new(headers: hdrs))
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      msgs.size.should eq 2
+    end
+  ensure
+    s.try &.close
   end
 end
