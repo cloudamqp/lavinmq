@@ -345,7 +345,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange all" do
-    s = AvalancheMQ::Server.new("/tmp/spec_qhe", Logger::DEBUG)
+    s = AvalancheMQ::Server.new("/tmp/spec_qhe", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -373,7 +373,7 @@ describe AvalancheMQ::Server do
   end
 
    it "supports header exchange any" do
-    s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::DEBUG)
+    s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
