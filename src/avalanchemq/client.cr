@@ -318,8 +318,10 @@ module AvalancheMQ
       @log.debug { "Channel already closed" }
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when reading from socket" }
-      #@log.debug { "Closing outbox" }
-      #@outbox.close # Notifies send_loop to close up shop
+      unless @outbox.closed?
+        @log.debug { "Closing outbox" }
+        @outbox.close # Notifies send_loop to close up shop
+      end
     end
 
     private def send_not_found(frame)
