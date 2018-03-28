@@ -67,8 +67,12 @@ module AvalancheMQ
                                                  msg.exchange_name, msg.routing_key)
           end
           if @confirm
-            @confirm_count += 1
-            @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
+            if routed
+              @confirm_count += 1
+              @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
+            else
+              # @client.send AMQP::Basic::Nack.new(frame.channel)
+            end
           end
 
           @next_msg_body.not_nil!.clear
