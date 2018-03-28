@@ -21,12 +21,10 @@ end
 
 class Channel::Unbuffered(T) < Channel(T)
   def close
-    @closed = true
+    super
     if sender = @sender
       Scheduler.enqueue sender
+      @sender = nil
     end
-    Scheduler.enqueue @receivers
-    @receivers.clear
-    nil
   end
 end
