@@ -88,6 +88,7 @@ module AvalancheMQ
             rescue Channel::ClosedError
               @log.debug "Consumer chosen for delivery has disconnected"
               reject env.segment_position, true
+              Fiber.yield
             end
             @log.debug { "Delivery done" }
           end
