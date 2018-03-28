@@ -50,8 +50,11 @@ module AvalancheMQ
       flush = true # msg.properties.delivery_mode == 2_u8
       @wfile.flush if flush
       ok = true
+      accepted = false
       ok = queues.all? { |q| q.try &.immediate_delivery? } if immediate
-      queues.each { |q| q.try &.publish(sp, flush) }
+      queues.each do |q|
+        accepted = q.try { |q| q.publish(sp, flush) } || accepted
+      end
 
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
@@ -61,7 +64,7 @@ module AvalancheMQ
         @wfile.seek(0, IO::Seek::End)
         spawn gc_segments!
       end
-      ok
+      ok && accepted
     end
 
     def apply(f, loading = false)

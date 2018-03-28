@@ -12,8 +12,10 @@ module AvalancheMQ
     @durable = false
     @log : Logger
     @message_ttl : UInt16 | Int32 | Int64 | Nil
+    @max_length : UInt16 | Int32 | Int64 | Nil
     @dlx : String?
     @dlrk : String?
+    @overflow : String?
     @closed = false
     getter name, durable, exclusive, auto_delete, arguments
 
@@ -26,7 +28,9 @@ module AvalancheMQ
       @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
       @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
       @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
-
+      max_length = @arguments.fetch("x-max-length", nil)
+      @max_length = max_length if max_length.is_a? UInt16 | Int32 | Int64
+      @overflow = @arguments.fetch("x-overflow", "drop-head").try &.to_s
       @consumers = Array(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
@@ -132,10 +136,21 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, flush = false)
+      if @max_length.try { |ml| @ready.size >= ml }
+      @log.debug { "Overflow #{@max_length} #{@overflow}" }
+        case @overflow
+        when "reject-publish"
+          reject(sp, false)
+          return false
+        when "drop-head"
+          reject(@ready[0], false)
+        end
+      end
       @log.debug { "Enqueuing message #{sp}" }
       @ready.push sp
       @message_available.send nil unless @message_available.full?
       @log.debug { "Enqueued successfully #{sp}" }
+      true
     end
 
     def metadata(sp) : MessageMetadata

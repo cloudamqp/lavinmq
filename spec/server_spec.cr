@@ -371,7 +371,7 @@ describe AvalancheMQ::Server do
     s.try &.close
   end
 
-   it "supports header exchange any" do
+  it "supports header exchange any" do
     s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
@@ -393,6 +393,35 @@ describe AvalancheMQ::Server do
       tag = q.subscribe { |msg| msgs << msg }
       Fiber.yield
       msgs.size.should eq 2
+    end
+  ensure
+    s.try &.close
+  end
+
+  it "supports x-max-length" do
+    s = AvalancheMQ::Server.new("/tmp/spec-ml", Logger::DEBUG)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.confirm
+      acks = 0
+      ch.on_confirm do |tag, acked|
+        acks += 1 if acked
+      end
+      args = AMQP::Protocol::Table.new
+      args["x-max-length"] = 1.to_u16
+      q = ch.queue("", args: args)
+      x = ch.exchange("", "direct")
+      pmsg1 = AMQP::Message.new("m1")
+      x.publish pmsg1, q.name
+      pmsg2 = AMQP::Message.new("m2")
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      acks.should eq 1
+      msgs.size.should eq 1
     end
   ensure
     s.try &.close
