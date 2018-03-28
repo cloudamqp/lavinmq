@@ -123,35 +123,43 @@ module AvalancheMQ
     def initialize(@vhost : VHost, @name : String, @durable : Bool,
                    @auto_delete : Bool, @internal : Bool,
                    @arguments = Hash(String, AMQP::Field).new)
-      @headers = @arguments
+      @argument_bindings = Hash(String, Set(Hash(String, AMQP::Field))).new
       super
     end
 
-    def bind(queue_name, routing_key, headers = nil)
-      @headers = @arguments.merge(headers) if headers
-      @vhost.log.debug("Binding #{queue_name} with #{@headers}")
-      @bindings[""] << queue_name
+    def bind(queue_name, routing_key, headers = Hash(String, AMQP::Field).new)
+      puts "bind #{headers}"
+      arguments = @arguments.merge(headers)
+      unless arguments["x-match"] && arguments.size >= 2
+        raise ArgumentError.new("Arguments required")
+      end
+      @argument_bindings[queue_name] << arguments
+      @vhost.log.debug("Binding #{queue_name} with #{arguments}")
     end
 
     def unbind(queue_name, routing_key)
-      @bindings[""].delete queue_name
+      @argument_bindings.delete queue_name
     end
 
     def queues_matching(routing_key, headers = nil) : Set(String)
+      puts "queue_matching"
       matches = Set(String).new
-      if headers
-        @vhost.log.debug("match #{@headers} to #{headers}")
-        case @headers["x-match"]
-        when "all"
-          if headers.all? { |k, v| @headers[k] == v }
-            matches = @bindings[""]
-          end
-        when "any"
-          if headers.any? { |k, v| k != "x-match" && @headers[k] == v }
-            matches = @bindings[""]
+      return matches unless headers
+      @argument_bindings.each do |queue_name, arguments_set|
+        arguments_set.each do |arguments|
+          case arguments["x-match"]
+          when "all"
+            if headers.all? { |k, v| arguments[k] == v }
+              matches << queue_name
+            end
+          when "any"
+            if headers.any? { |k, v| k != "x-match" && arguments[k] == v }
+              matches << queue_name
+            end
           end
         end
       end
+      puts "queues matching #{matches}"
       matches
     end
   end
