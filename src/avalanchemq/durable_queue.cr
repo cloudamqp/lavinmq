@@ -70,7 +70,7 @@ module AvalancheMQ
     def purge
       @enq.close
       @ack.close
-      Dir.children(@index_dir).each { |f| File.delete f }
+      Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
       @enq_seg = 0_u32
       @ack_seg = 0_u32
       @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
