@@ -21,7 +21,44 @@ module AvalancheMQ
       @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
     end
 
-    def close(deleting = false)
+    def gc_segments! : Nil
+      # FIXME: @unacked.to_a.min could be slow on large sets
+      earliest_sp = @unacked.to_a.min? || @ready[0]? || return
+      min_sp_in_kept_segments = SegmentPosition.new(0_u32, 0_32)
+      delete_rest = false
+      Dir.glob(File.join(@index_dir, "enq.*")).sort.reverse.each do |name|
+        unless delete_rest
+          # FIXME: reverse this, so that max SP is in name,
+          # so that we have to read less
+          max_sp_in_segment = read_last_segment_position(name)
+          if max_sp_in_segment < earliest_sp
+            delete_rest = true
+            min_sp_in_kept_segments = SegmentPosition.parse(name[4, 20])
+          end
+        end
+        File.delete File.join(@index_dir, name) if delete_rest
+      end
+
+      delete_rest = false
+      Dir.glob(File.join(@index_dir, "ack.*")).sort.reverse.each do |name|
+        unless delete_rest
+          min_sp_in_segment = SegmentPosition.parse(name[4, 20])
+          if min_sp_in_segment < min_sp_in_kept_segments
+            delete_rest = true
+          end
+        end
+        File.delete File.join(@index_dir, name) if delete_rest
+      end
+    end
+
+    private def read_last_segment_position(name)
+      File.open(File.join(@index_dir, name)) do |f|
+        f.seek(-sizeof(SegmentPosition), IO::Seek::End)
+        return SegmentPosition.decode f
+      end
+    end
+
+    def close(deleting = false) : Nil
       @ack.close
       @enq.close
       super

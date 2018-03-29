@@ -54,7 +54,7 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def close_unused_segments_and_report_used
+    def close_unused_segments_and_report_used : Set(UInt32)
       s = Set(UInt32).new
       @ready.each { |sp| s << sp.segment }
       @unacked.each { |sp| s << sp.segment }
@@ -104,7 +104,7 @@ module AvalancheMQ
       @log.debug "Delivery loop channel closed"
     end
 
-    def close(deleting = false)
+    def close(deleting = false) : Nil
       @log.info "Closing"
       @closed = true
       @message_available.close

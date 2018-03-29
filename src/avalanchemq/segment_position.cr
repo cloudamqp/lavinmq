@@ -3,6 +3,7 @@ module AvalancheMQ
     include Comparable(self)
 
     getter segment, position
+    def_equals_and_hash @segment, @position
 
     def initialize(@segment : UInt32, @position : UInt32)
     end
