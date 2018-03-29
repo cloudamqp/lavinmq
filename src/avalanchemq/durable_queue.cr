@@ -2,6 +2,8 @@ require "./queue"
 module AvalancheMQ
   class DurableQueue < Queue
     MAX_SEGMENT_SIZE = 16 * 1024**2
+    @ack_seg : String
+    @enq_seg : String
     @ack : QueueFile
     @enq : QueueFile
     @durable = true
@@ -32,38 +34,38 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, flush = false)
-      @enq.write_bytes sp
-      @enq.flush if flush
       if @enq.pos >= MAX_SEGMENT_SIZE
         @enq.close
-        @enq_seg += 1
+        @enq_seg = sp.to_s
         @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
       end
+      @enq.write_bytes sp
+      @enq.flush if flush
       super
     end
 
     def get(no_ack : Bool) : Envelope | Nil
       super.tap do |env|
         if no_ack && env
-          @ack.write_bytes env.segment_position
-          @ack.flush
           if @ack.pos >= MAX_SEGMENT_SIZE
             @ack.close
-            @ack_seg += 1
+            @ack_seg = env.segment_position.to_s
             @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
           end
+          @ack.write_bytes env.segment_position
+          @ack.flush
         end
       end
     end
 
     def ack(sp : SegmentPosition)
-      @ack.write_bytes sp
-      @ack.flush
       if @ack.pos >= MAX_SEGMENT_SIZE
         @ack.close
-        @ack_seg += 1
+        @ack_seg = sp.to_s
         @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
       end
+      @ack.write_bytes sp
+      @ack.flush
       super
     end
 
@@ -71,17 +73,17 @@ module AvalancheMQ
       @enq.close
       @ack.close
       Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
-      @enq_seg = 0_u32
-      @ack_seg = 0_u32
+      @enq_seg = "0" * 20
+      @ack_seg = "0" * 20
       @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
       @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
       super
     end
 
-    private def last_segment(prefix) : UInt32
+    private def last_segment(prefix) : String
       segments = Dir.glob(File.join(@index_dir, "#{prefix}.*")).sort
-      last_file = segments.last? || return 0_u32
-      last_file[/\d+$/].to_u32
+      last_file = segments.last? || return "0" * 20
+      last_file[4, 20]
     end
 
     private def restore_index
