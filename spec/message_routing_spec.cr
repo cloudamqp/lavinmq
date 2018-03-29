@@ -45,3 +45,50 @@ describe AvalancheMQ::TopicExchange do
     x.queues_matching("d.a.d").should eq(Set.new(["q5"]))
   end
 end
+
+describe AvalancheMQ::HeadersExchange do
+  it "can match all headers" do
+    log = Logger.new(File.open("/dev/null", "w"))
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+    x = AvalancheMQ::HeadersExchange.new(vhost, "headers", true, false, true)
+    args = Hash(String, AvalancheMQ::AMQP::Field).new
+    args["x-match"] = "all"
+    args["h1"] = "a"
+    args["h2"] = 2
+    x.bind("q1", { "x-match" => "all", "h1" => "a", "h2" => 2 })
+    hdrs = Hash(String, AvalancheMQ::AMQP::Field).new
+    hdrs["h1"] = "a"
+    hdrs["h2"] = 2
+    x.queues_matching("", hdrs).should eq(Set.new(["q1"]))
+  end
+
+  it "can match on any header" do
+    log = Logger.new(File.open("/dev/null", "w"))
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+    x = AvalancheMQ::HeadersExchange.new(vhost, "headers", true, false, true)
+    args = Hash(String, AvalancheMQ::AMQP::Field).new
+    args["x-match"] = "any"
+    args["h1"] = "a"
+    args["h2"] = 3
+    x.bind("q1", args)
+    hdrs = Hash(String, AvalancheMQ::AMQP::Field).new
+    hdrs["h1"] = "a"
+    hdrs["h2"] = 2
+    x.queues_matching("", hdrs).should eq(Set.new(["q1"]))
+  end
+
+  it "doens't return all" do
+    log = Logger.new(File.open("/dev/null", "w"))
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+    x = AvalancheMQ::HeadersExchange.new(vhost, "headers", true, false, true)
+    args = Hash(String, AvalancheMQ::AMQP::Field).new
+    args["x-match"] = "any"
+    args["h1"] = "a"
+    args["h2"] = 3
+    x.bind("q1", args)
+    hdrs = Hash(String, AvalancheMQ::AMQP::Field).new
+    hdrs["h1"] = "b"
+    hdrs["h2"] = 2
+    x.queues_matching("", hdrs).size.should eq 0
+  end
+end
