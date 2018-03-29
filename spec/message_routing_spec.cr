@@ -131,7 +131,7 @@ describe AvalancheMQ::HeadersExchange do
     hdrs1 = { "x-match" => "any", "org" => "84codes",
               "user" => "test"} of String => AvalancheMQ::AMQP::Field
     hx.bind("q12", nil, hdrs1)
-    hx.unbind("q12", nil)
+    hx.unbind("q12", nil, hdrs1)
     hx.queues_matching(nil, hdrs1).size.should eq 0
   end
 end

@@ -1,17 +1,19 @@
 module AvalancheMQ
   abstract class Exchange
-    getter name, durable, auto_delete, internal, arguments
+    getter name, durable, auto_delete, internal, arguments, bindings
 
     def initialize(@vhost : VHost, @name : String, @durable : Bool,
                    @auto_delete : Bool, @internal : Bool,
                    @arguments = Hash(String, AMQP::Field).new)
+      @bindings = Hash(Tuple(String, Hash(String, AMQP::Field)), Set(String))
+        .new { |h, k| h[k] = Set(String).new }
     end
 
     def to_json(builder : JSON::Builder)
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        bindings: bindings
+        bindings: @bindings
       }.to_json(builder)
     end
 
@@ -31,92 +33,65 @@ module AvalancheMQ
 
     abstract def type : String
     abstract def queues_matching(routing_key : String, headers : Hash(String, AMQP::Field)) : Set(String)
-    abstract def bind(queue : String, routing_key : String, arguments : Hash(String, AMQP::Field))
-    abstract def unbind(queue : String, routing_key : String)
+    abstract def bind(queue : String, routing_key : String, headers : Hash(String, AMQP::Field))
+    abstract def unbind(queue : String, routing_key : String, headers : Hash(String, AMQP::Field))
   end
 
   class DirectExchange < Exchange
-    getter bindings
-
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
-                   @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
-      super
-    end
-
     def type
       "direct"
     end
 
     def bind(queue_name, routing_key, headers = nil)
-      @bindings[routing_key] << queue_name
+      @bindings[{routing_key, Hash(String, AMQP::Field).new}] << queue_name
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[routing_key].delete queue_name
+    def unbind(queue_name, routing_key, headers = nil)
+      @bindings[{routing_key, Hash(String, AMQP::Field).new}].delete queue_name
     end
 
     def queues_matching(routing_key, headers = nil)
-      @bindings[routing_key]
+      @bindings[{routing_key, Hash(String, AMQP::Field).new}]
     end
   end
 
   class FanoutExchange < Exchange
-    getter bindings
-
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
-                   @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
-      super
-    end
-
     def type
       "fanout"
     end
 
     def bind(queue_name, routing_key, headers = nil)
-      @bindings[""] << queue_name
+      @bindings[{"", Hash(String, AMQP::Field).new}] << queue_name
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[""].delete queue_name
+    def unbind(queue_name, routing_key, headers = nil)
+      @bindings[{"", Hash(String, AMQP::Field).new}].delete queue_name
     end
 
     def queues_matching(routing_key, headers = nil)
-      @bindings[""]
+      @bindings[{"", Hash(String, AMQP::Field).new}]
     end
   end
 
   class TopicExchange < Exchange
-    getter bindings
-
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
-                   @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
-      super
-    end
-
     def type
       "topic"
     end
 
     def bind(queue_name, routing_key, headers = nil)
-      @bindings[routing_key] << queue_name
+      @bindings[{routing_key, Hash(String, AMQP::Field).new}] << queue_name
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[routing_key].delete queue_name
+    def unbind(queue_name, routing_key, headers = nil)
+      @bindings[{routing_key, Hash(String, AMQP::Field).new}].delete queue_name
     end
 
     def queues_matching(routing_key, headers = nil) : Set(String)
       rk_parts = routing_key.split(".")
       s = Set(String).new
-      @bindings.each do |bk, q|
+      @bindings.each do |bt, q|
         ok = false
-        bk_parts = bk.split(".")
+        bk_parts = bt[0].split(".")
         bk_parts.each_with_index do |part, i|
           if part == "#"
             ok = true
@@ -141,47 +116,36 @@ module AvalancheMQ
   end
 
   class HeadersExchange < Exchange
-    getter bindings
-
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
-                   @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Set(Hash(String, AMQP::Field)))
-        .new { |h, k| h[k] = Set(Hash(String, AMQP::Field)).new }
-      super
-    end
-
     def type
       "headers"
     end
 
-    def bind(queue_name, routing_key, headers = Hash(String, AMQP::Field).new)
+    def bind(queue_name, routing_key, headers)
       args = @arguments.merge(headers)
       unless (args.has_key?("x-match") && args.size >= 2) || args.size == 1
         raise ArgumentError.new("Arguments required")
       end
-      @bindings[queue_name] << args
+      @bindings[{"", args}] << queue_name
       @vhost.log.debug("Binding #{queue_name} with #{args}")
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings.delete queue_name
+    def unbind(queue_name, routing_key, headers)
+      @bindings.delete({"", headers})
     end
 
-    def queues_matching(routing_key, headers = nil) : Set(String)
+    def queues_matching(routing_key, headers) : Set(String)
       matches = Set(String).new
       return matches unless headers
-      @bindings.each do |queue_name, arguments_set|
-        arguments_set.each do |args|
-          case args["x-match"]
-          when "any"
-            if headers.any? { |k, v| k != "x-match" && args.has_key?(k) && args[k] == v }
-              matches << queue_name
-            end
-          else
-            if headers.all? { |k, v| args.has_key?(k) && args[k] == v }
-              matches << queue_name
-            end
+      @bindings.each do |bt, queues|
+        args = bt[1]
+        case args["x-match"]
+        when "any"
+          if headers.any? { |k, v| k != "x-match" && args.has_key?(k) && args[k] == v }
+            matches.concat(queues)
+          end
+        else
+          if headers.all? { |k, v| args.has_key?(k) && args[k] == v }
+            matches.concat(queues)
           end
         end
       end

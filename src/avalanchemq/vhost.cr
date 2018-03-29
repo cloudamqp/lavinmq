@@ -79,7 +79,7 @@ module AvalancheMQ
           else
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
           end
-        @exchanges[""].bind(f.queue_name, f.queue_name)
+        @exchanges[""].bind(f.queue_name, f.queue_name, f.arguments)
       when AMQP::Queue::Delete
         @exchanges.each_value do |e|
           e.bindings.each_value do |queues|
@@ -90,7 +90,7 @@ module AvalancheMQ
       when AMQP::Queue::Bind
         @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
-        @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key)
+        @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key, f.arguments)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
     end
@@ -133,18 +133,10 @@ module AvalancheMQ
                                           false, e.durable, e.auto_delete, e.internal,
                                           false, e.arguments)
           f.encode(io)
-          e.bindings.each do |k, v|
-            if v.is_a?(Set(String))
-              v.each do |queue|
-                f = AMQP::Queue::Bind.new(0_u16, 0_u16, queue, e.name, k,
-                                          false, Hash(String, AMQP::Field).new)
-                f.encode(io)
-              end
-            elsif v.is_a?(Set(Hash(String, AMQP::Field)))
-              v.each do |args|
-                f = AMQP::Queue::Bind.new(0_u16, 0_u16, k, e.name, "", false, args)
-                f.encode(io)
-              end
+          e.bindings.each do |bt, queues|
+            queues.each do |queue|
+              f = AMQP::Queue::Bind.new(0_u16, 0_u16, queue, e.name, bt[0], false, bt[1])
+              f.encode(io)
             end
           end
         end
