@@ -82,7 +82,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = @outbox.receive
-        #@log.debug { "<= #{frame.inspect}" }
+        @log.debug { "Send frame #{frame.class}"}
         @socket.write frame.to_slice
         @socket.flush unless frame.is_a? AMQP::Basic::Deliver | AMQP::HeaderFrame
         case frame
@@ -252,7 +252,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
-        #@log.debug { "=> #{frame.inspect}" }
+        @log.debug { "Read frame #{frame.class}" }
         case frame
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
@@ -316,6 +316,7 @@ module AvalancheMQ
       @socket.close_read
     rescue ex : KeyError
       @log.debug { "Channel already closed" }
+      @log.debug { ex.inspect_with_backtrace }
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when reading from socket" }
       @log.debug { "Closing outbox" }

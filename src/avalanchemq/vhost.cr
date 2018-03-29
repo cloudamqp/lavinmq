@@ -121,6 +121,7 @@ module AvalancheMQ
       @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, true)
       @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, true)
       @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, true)
+      @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, true)
     end
 
     private def compact!
@@ -132,10 +133,18 @@ module AvalancheMQ
                                           false, e.durable, e.auto_delete, e.internal,
                                           false, e.arguments)
           f.encode(io)
-          e.bindings.each do |rk, queues|
-            queues.each do |q|
-              f = AMQP::Queue::Bind.new(0_u16, 0_u16, q, e.name, rk, false, Hash(String, AMQP::Field).new)
-              f.encode(io)
+          e.bindings.each do |k, v|
+            if v.is_a?(Set(String))
+              v.each do |queue|
+                f = AMQP::Queue::Bind.new(0_u16, 0_u16, queue, e.name, k,
+                                          false, Hash(String, AMQP::Field).new)
+                f.encode(io)
+              end
+            elsif v.is_a?(Set(Hash(String, AMQP::Field)))
+              v.each do |args|
+                f = AMQP::Queue::Bind.new(0_u16, 0_u16, k, e.name, "", false, args)
+                f.encode(io)
+              end
             end
           end
         end
