@@ -13,7 +13,7 @@ module AvalancheMQ
     def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
       @remote_address = @socket.remote_address
       @log = server_log.dup
-      @log.progname = "Client #{@remote_address}"
+      @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame).new(1000)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
@@ -31,12 +31,15 @@ module AvalancheMQ
       end
 
       socket.write AMQP::Connection::Start.new.to_slice
+      socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
       socket.write AMQP::Connection::Tune.new(heartbeat: 0_u16).to_slice
+      socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
         socket.write AMQP::Connection::OpenOk.new.to_slice
+        socket.flush
         log.info "Accepting connection from #{socket.remote_address} to vhost #{open.vhost}"
         return self.new(socket, vhost, log)
       else
@@ -76,15 +79,14 @@ module AvalancheMQ
     end
 
     private def send_loop
-      {% if flag?(:release) && flag?(:linux) %}
-        socket.sync = false
-      {% end %}
       i = 0
       loop do
         frame = @outbox.receive
         @log.debug { "Send frame #{frame.class}"}
         @socket.write frame.to_slice
-        @socket.flush unless frame.is_a? AMQP::Basic::Deliver | AMQP::HeaderFrame
+        unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
+          @socket.flush
+        end
         case frame
         when AMQP::Connection::Close
           @log.debug { "Closing write socket" }
@@ -102,7 +104,7 @@ module AvalancheMQ
         end
       end
     rescue ex : ::Channel::ClosedError
-      @log.debug { "#{ex} when waiting for frames to send" }
+      @log.debug { "#{ex}, when waiting for frames to send" }
       @log.debug { "Closing socket" }
       @socket.close
       cleanup
@@ -115,7 +117,7 @@ module AvalancheMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self)
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
       send AMQP::Channel::OpenOk.new(frame.channel)
     end
 
@@ -238,10 +240,10 @@ module AvalancheMQ
     end
 
     private def purge_queue(frame)
-      if @vhost.queues.has_key? frame.queue_name
-        message_count = @vhost.queues[frame.queue_name].purge
+      if q = @vhost.queues.fetch(frame.queue_name, nil)
+        messages_purged = q.purge
         unless frame.no_wait
-          send AMQP::Queue::PurgeOk.new(frame.channel, message_count)
+          send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged)
         end
       else
         send_not_found(frame)
@@ -319,8 +321,10 @@ module AvalancheMQ
       @log.debug { ex.inspect_with_backtrace }
     rescue ex : IO::Error | Errno
       @log.debug { "#{ex} when reading from socket" }
-      @log.debug { "Closing outbox" }
-      @outbox.close # Notifies send_loop to close up shop
+      unless @outbox.closed?
+        @log.debug { "Closing outbox" }
+        @outbox.close # Notifies send_loop to close up shop
+      end
     end
 
     private def send_not_found(frame)

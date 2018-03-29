@@ -21,7 +21,7 @@ module AvalancheMQ
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
       @log = @vhost.log.dup
-      @log.progname = "Queue #{@vhost.name}/#{@name}"
+      @log.progname += "/Queue[#{@name}]"
       message_ttl = @arguments.fetch("x-message-ttl", nil)
       @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
       @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
@@ -88,6 +88,7 @@ module AvalancheMQ
             rescue Channel::ClosedError
               @log.debug "Consumer chosen for delivery has disconnected"
               reject env.segment_position, true
+              Fiber.yield
             end
             @log.debug { "Delivery done" }
           end
