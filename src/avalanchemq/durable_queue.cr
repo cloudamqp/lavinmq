@@ -6,29 +6,25 @@ module AvalancheMQ
     @enq : QueueFile
     @durable = true
 
-    class QueueFile < File
-      include AMQP::IO
-    end
-
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       Dir.mkdir_p @index_dir
-      restore_index
       @enq = QueueFile.open(File.join(@index_dir, "enq"), "a")
       @ack = QueueFile.open(File.join(@index_dir, "ack"), "a")
+      restore_index
     end
 
     private def compact_index! : Nil
       @enq.close
       QueueFile.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-        unacked = @unacked.sort.each
+        unacked = @unacked.to_a.sort.each
         next_unacked = unacked.next
         @ready.each do |sp|
-          while !next_unacked.nil? && next_unacked < sp
-            f.write_bytes next_unacked
+          while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
+            f.write_bytes next_unacked.as(SegmentPosition)
             next_unacked = unacked.next
           end
           f.write_bytes sp

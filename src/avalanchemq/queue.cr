@@ -5,6 +5,10 @@ require "./segment_position"
 
 module AvalancheMQ
   class Queue
+    class QueueFile < File
+      include AMQP::IO
+    end
+
     @durable = false
     @log : Logger
     @message_ttl : UInt16 | Int32 | Int64 | Nil
@@ -29,7 +33,8 @@ module AvalancheMQ
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
-        h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
+        path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+        h[seg] = QueueFile.open(path, "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end

@@ -13,6 +13,7 @@ module AvalancheMQ
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
+    @wfile : MessageFile
     @log : Logger
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger)
@@ -60,7 +61,7 @@ module AvalancheMQ
       ok
     end
 
-    private def open_wfile
+    private def open_wfile : MessageFile
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
       wfile = MessageFile.open(File.join(@data_dir, filename), "a")
