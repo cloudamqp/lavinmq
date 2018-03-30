@@ -21,6 +21,7 @@ module AvalancheMQ
       restore_index
       @enq_seg = last_segment "enq"
       @ack_seg = last_segment "ack"
+      @min_sp_in_ack = SegmentPosition::MIN
       @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
       @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
     end
@@ -30,7 +31,8 @@ module AvalancheMQ
       earliest_sp = @unacked.to_a.min? || @ready[0]? || return
       min_sp_in_kept_segments = SegmentPosition.new(0_u32, 0_32)
       delete_rest = false
-      Dir.glob(File.join(@index_dir, "enq.*")).sort.reverse.each do |name|
+      Dir.glob(File.join(@index_dir, "enq.*")).sort.reverse.each do |path|
+        name = File.basename path
         unless delete_rest
           # FIXME: reverse this, so that max SP is in name,
           # so that we have to read less
@@ -40,18 +42,21 @@ module AvalancheMQ
             min_sp_in_kept_segments = SegmentPosition.parse(name[4, 20])
           end
         end
-        File.delete File.join(@index_dir, name) if delete_rest
+        File.delete path if delete_rest
       end
 
-      delete_rest = false
-      Dir.glob(File.join(@index_dir, "ack.*")).sort.reverse.each do |name|
-        unless delete_rest
-          min_sp_in_segment = SegmentPosition.parse(name[4, 20])
-          if min_sp_in_segment < min_sp_in_kept_segments
-            delete_rest = true
-          end
+      # ack file includes all messages that are acked
+      # an ack file can be deleted when non of the SPs in it
+      # is in an enq file. 
+      # Because on start we read all acks files and add to an array
+      # then read all enq files and add to the ready queue, except the
+      # ones that were in the ack file 
+      Dir.glob(File.join(@index_dir, "ack.*")).sort.reverse.each do |path|
+        name = File.basename path
+        min_sp_in_segment = SegmentPosition.parse(name[4, 20])
+        if min_sp_in_segment < min_sp_in_kept_segments
+          File.delete path
         end
-        File.delete File.join(@index_dir, name) if delete_rest
       end
     end
 
