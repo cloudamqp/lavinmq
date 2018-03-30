@@ -24,9 +24,7 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
       Dir.mkdir_p @data_dir
       @segment = last_segment
-      @log.debug { "Last segment is #{@segment}" }
-      @wfile = MessageFile.open(File.join(@data_dir, "msgs.#{@segment}"), "a")
-      @wfile.seek(0, IO::Seek::End)
+      @wfile = open_wfile
       load!
       compact!
       spawn save!, name: "VHost#save!"
@@ -56,12 +54,18 @@ module AvalancheMQ
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
-        @log.debug { "Rolling over to segment #{@segment}" }
-        @wfile = MessageFile.open(File.join(@data_dir, "msgs.#{@segment}"), "a")
-        @wfile.seek(0, IO::Seek::End)
+        @wfile = open_wfile
         spawn gc_segments!
       end
       ok
+    end
+
+    private def open_wfile
+      @log.debug { "Opening message store segment #{@segment}" }
+      filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
+      wfile = MessageFile.open(File.join(@data_dir, filename), "a")
+      wfile.seek(0, IO::Seek::End)
+      wfile
     end
 
     def apply(f, loading = false)
@@ -175,7 +179,9 @@ module AvalancheMQ
     private def last_segment : UInt32
       segments = Dir.glob(File.join(@data_dir, "msgs.*")).sort
       last_file = segments.last? || return 0_u32
-      last_file[/\d+$/].to_u32
+      segment = File.basename(last_file)[5, 10].to_u32
+      @log.debug { "Last segment is #{segment}" }
+      segment
     end
 
     private def gc_segments!
@@ -188,7 +194,7 @@ module AvalancheMQ
       @log.info "#{referenced_segments.size} segments in use"
 
       Dir.glob(File.join(@data_dir, "msgs.*")).each do |f|
-        seg = f[/\d+$/].to_u32
+        seg = File.basename(f)[5, 10].to_u32
         next if referenced_segments.includes? seg
         @log.info "Deleting segment #{seg}"
         File.delete f
