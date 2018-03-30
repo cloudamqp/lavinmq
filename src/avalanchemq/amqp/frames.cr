@@ -49,8 +49,11 @@ module AvalancheMQ
         when Type::Heartbeat then HeartbeatFrame.decode
         else GenericFrame.new(type, channel, body)
         end
+      rescue ex : ::IO::Error | Errno
+        raise FrameDecodeError.new(ex.message, ex)
       end
     end
+    class FrameDecodeError < Exception; end
 
     struct GenericFrame < Frame
       def initialize(@type : Type, @channel : UInt16,  @body : Bytes)

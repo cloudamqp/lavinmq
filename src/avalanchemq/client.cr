@@ -318,9 +318,8 @@ module AvalancheMQ
       @socket.close_read
     rescue ex : KeyError
       @log.debug { "Channel already closed" }
-      @log.debug { ex.inspect_with_backtrace }
-    rescue ex : IO::Error | Errno
-      @log.debug { "#{ex} when reading from socket" }
+    rescue ex : AMQP::FrameDecodeError
+      @log.debug { "#{ex.cause} when reading from socket" }
       unless @outbox.closed?
         @log.debug { "Closing outbox" }
         @outbox.close # Notifies send_loop to close up shop

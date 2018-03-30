@@ -105,8 +105,9 @@ module AvalancheMQ
         loop do
           begin
             apply AMQP::Frame.decode(io), loading: true
-          rescue ex : IO::EOFError
-            break
+          rescue ex : AMQP::FrameDecodeError
+            break if ex.cause.is_a? IO::EOFError
+            raise ex
           end
         end
       end
