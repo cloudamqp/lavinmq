@@ -1,9 +1,7 @@
 require "./queue"
 module AvalancheMQ
   class DurableQueue < Queue
-    MAX_SEGMENT_SIZE = 16 * 1024**2
-    @ack_seg : String
-    @enq_seg : String
+    MAX_ACK_FILE_SIZE = 16 * 1024**2
     @ack : QueueFile
     @enq : QueueFile
     @durable = true
@@ -19,52 +17,26 @@ module AvalancheMQ
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       Dir.mkdir_p @index_dir
       restore_index
-      @enq_seg = last_segment "enq"
-      @ack_seg = last_segment "ack"
-      @min_sp_in_ack = SegmentPosition::MIN
-      @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
-      @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
+      @enq = QueueFile.open(File.join(@index_dir, "enq"), "a")
+      @ack = QueueFile.open(File.join(@index_dir, "ack"), "a")
     end
 
-    def gc_segments! : Nil
-      # FIXME: @unacked.to_a.min could be slow on large sets
-      earliest_sp = @unacked.to_a.min? || @ready[0]? || return
-      min_sp_in_kept_segments = SegmentPosition.new(0_u32, 0_32)
-      delete_rest = false
-      Dir.glob(File.join(@index_dir, "enq.*")).sort.reverse.each do |path|
-        name = File.basename path
-        unless delete_rest
-          # FIXME: reverse this, so that max SP is in name,
-          # so that we have to read less
-          max_sp_in_segment = read_last_segment_position(name)
-          if max_sp_in_segment < earliest_sp
-            delete_rest = true
-            min_sp_in_kept_segments = SegmentPosition.parse(name[4, 20])
+    private def compact_index! : Nil
+      @enq.close
+      QueueFile.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+        unacked = @unacked.sort.each
+        next_unacked = unacked.next
+        @ready.each do |sp|
+          while !next_unacked.nil? && next_unacked < sp
+            f.write_bytes next_unacked
+            next_unacked = unacked.next
           end
-        end
-        File.delete path if delete_rest
-      end
-
-      # ack file includes all messages that are acked
-      # an ack file can be deleted when non of the SPs in it
-      # is in an enq file. 
-      # Because on start we read all acks files and add to an array
-      # then read all enq files and add to the ready queue, except the
-      # ones that were in the ack file 
-      Dir.glob(File.join(@index_dir, "ack.*")).sort.reverse.each do |path|
-        name = File.basename path
-        min_sp_in_segment = SegmentPosition.parse(name[4, 20])
-        if min_sp_in_segment < min_sp_in_kept_segments
-          File.delete path
+          f.write_bytes sp
         end
       end
-    end
-
-    private def read_last_segment_position(name)
-      File.open(File.join(@index_dir, name)) do |f|
-        f.seek(-sizeof(SegmentPosition), IO::Seek::End)
-        return SegmentPosition.decode f
-      end
+      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+      @enq = QueueFile.open(File.join(@index_dir, "enq"))
+      @ack.truncate
     end
 
     def close(deleting = false) : Nil
@@ -80,11 +52,6 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, flush = false)
-      if @enq.pos >= MAX_SEGMENT_SIZE
-        @enq.close
-        @enq_seg = sp.to_s
-        @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
-      end
       @enq.write_bytes sp
       @enq.flush if flush
       super
@@ -93,68 +60,39 @@ module AvalancheMQ
     def get(no_ack : Bool) : Envelope | Nil
       super.tap do |env|
         if no_ack && env
-          if @ack.pos >= MAX_SEGMENT_SIZE
-            @ack.close
-            @ack_seg = env.segment_position.to_s
-            @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
-          end
           @ack.write_bytes env.segment_position
           @ack.flush
+          compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
         end
       end
     end
 
     def ack(sp : SegmentPosition)
-      if @ack.pos >= MAX_SEGMENT_SIZE
-        @ack.close
-        @ack_seg = sp.to_s
-        @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
-      end
       @ack.write_bytes sp
       @ack.flush
+      compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
       super
     end
 
     def purge
-      @enq.close
-      @ack.close
-      Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
-      @enq_seg = "0" * 20
-      @ack_seg = "0" * 20
-      @enq = QueueFile.open(File.join(@index_dir, "enq.#{@enq_seg}"), "a")
-      @ack = QueueFile.open(File.join(@index_dir, "ack.#{@ack_seg}"), "a")
+      @enq.truncate
+      @ack.truncate
       super
-    end
-
-    private def last_segment(prefix) : String
-      segments = Dir.glob(File.join(@index_dir, "#{prefix}.*")).sort
-      last_file = segments.last? || return "0" * 20
-      File.basename(last_file)[4, 20]
     end
 
     private def restore_index
       @log.info "Restoring index"
-      acks = Dir.glob(File.join(@index_dir, "ack.*")).sort
-      ack_sizes = acks.map { |f| File.size f }.sum
-      acked = Set(SegmentPosition).new(ack_sizes / sizeof(SegmentPosition))
-      acks.each do |path|
-        File.open(path) do |ack|
-          loop do
-            break if ack.pos == ack.size
-            acked << SegmentPosition.decode ack
-          end
-        end
+      @ack.seek(0, IO::Seek::Set)
+      acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
+      loop do
+        break if @ack.pos == @ack.size
+        acked << SegmentPosition.decode @ack
       end
-
-      enqs = Dir.glob(File.join(@index_dir, "enq.*")).sort
-      enqs.each do |path|
-        File.open(path) do |enq|
-          loop do
-            break if enq.pos == enq.size
-            sp = SegmentPosition.decode enq
-            @ready << sp unless acked.includes? sp
-          end
-        end
+      @enq.seek(0, IO::Seek::Set)
+      loop do
+        break if @enq.pos == @enq.size
+        sp = SegmentPosition.decode @enq
+        @ready << sp unless acked.includes? sp
       end
       @log.info "#{message_count} messages"
     rescue Errno
