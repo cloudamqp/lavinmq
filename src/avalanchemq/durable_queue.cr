@@ -120,7 +120,7 @@ module AvalancheMQ
     private def last_segment(prefix) : String
       segments = Dir.glob(File.join(@index_dir, "#{prefix}.*")).sort
       last_file = segments.last? || return "0" * 20
-      last_file[4, 20]
+      File.basename(last_file)[4, 20]
     end
 
     private def restore_index
