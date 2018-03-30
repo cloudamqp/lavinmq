@@ -227,7 +227,8 @@ module AvalancheMQ
       @log.debug { "Rejecting #{sp}" }
       @unacked.delete sp
       if requeue
-        @ready.unshift sp
+        i = @ready.index { |rsp| rsp > sp } || 0
+        @ready.insert(i, sp)
         @message_available.send nil unless @message_available.full?
       else
         expire_msg(sp, :rejected)
