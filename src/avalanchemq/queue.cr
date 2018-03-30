@@ -5,10 +5,6 @@ require "./segment_position"
 
 module AvalancheMQ
   class Queue
-    class QueueFile < File
-      include AMQP::IO
-    end
-
     @durable = false
     @log : Logger
     @message_ttl : UInt16 | Int32 | Int64 | Nil

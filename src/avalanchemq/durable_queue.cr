@@ -8,6 +8,10 @@ module AvalancheMQ
     @enq : QueueFile
     @durable = true
 
+    class QueueFile < File
+      include AMQP::IO
+    end
+
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
                    @arguments : Hash(String, AMQP::Field))
