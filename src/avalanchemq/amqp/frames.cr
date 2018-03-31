@@ -53,7 +53,16 @@ module AvalancheMQ
         raise FrameDecodeError.new(ex.message, ex)
       end
     end
+
     class FrameDecodeError < Exception; end
+
+    class NotImplemented < Exception
+      getter class_id, method_id
+
+      def initialize(@class_id : UInt16, @method_id : UInt16)
+        super("Method id #{@method_id} not implemented in class #{@class_id}")
+      end
+    end
 
     struct GenericFrame < Frame
       def initialize(@type : Type, @channel : UInt16,  @body : Bytes)
@@ -114,8 +123,9 @@ module AvalancheMQ
     end
 
     abstract struct Connection < MethodFrame
+      CLASS_ID = 10_u16
       def class_id
-        10_u16
+        CLASS_ID
       end
 
       def initialize
@@ -133,13 +143,14 @@ module AvalancheMQ
         when 41_u16 then OpenOk.decode(body)
         when 50_u16 then Close.decode(body)
         when 51_u16 then CloseOk.decode(body)
-        else raise "Unknown method_id #{method_id}"
+        else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
 
       struct Start < Connection
+        METHOD_ID = 10_u16
         def method_id
-          10_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -174,8 +185,9 @@ module AvalancheMQ
       struct StartOk < Connection
         getter client_props, mechanism, response, locale
 
+        METHOD_ID = 11_u16
         def method_id
-          11_u16
+          METHOD_ID
         end
 
         def initialize(@client_props = {} of String => Field, @mechanism = "PLAIN",
@@ -205,8 +217,9 @@ module AvalancheMQ
 
       struct Tune < Connection
         getter channel_max, frame_max, heartbeat
+        METHOD_ID = 30_u16
         def method_id
-          30_u16
+          METHOD_ID
         end
 
         def initialize(@channel_max = 0_u16, @frame_max = 131072_u32, @heartbeat = 0_u16)
@@ -231,8 +244,9 @@ module AvalancheMQ
 
       struct TuneOk < Connection
         getter channel_max, frame_max, heartbeat
+        METHOD_ID = 31_u16
         def method_id
-          31_u16
+          METHOD_ID
         end
 
         def initialize(@channel_max = 0_u16, @frame_max = 131072_u32, @heartbeat = 60_u16)
@@ -257,8 +271,9 @@ module AvalancheMQ
 
       struct Open < Connection
         getter vhost, reserved1, reserved2
+        METHOD_ID = 40_u16
         def method_id
-          40_u16
+          METHOD_ID
         end
 
         def initialize(@vhost = "/", @reserved1 = "", @reserved2 = false)
@@ -285,8 +300,9 @@ module AvalancheMQ
       struct OpenOk < Connection
         getter reserved1
 
+        METHOD_ID = 41_u16
         def method_id
-          41_u16
+          METHOD_ID
         end
 
         def initialize(@reserved1 = "")
@@ -306,8 +322,9 @@ module AvalancheMQ
       end
 
       struct Close < Connection
+        METHOD_ID = 50_u16
         def method_id
-          50_u16
+          METHOD_ID
         end
 
         def initialize(@reply_code : UInt16, @reply_text : String, @failing_class_id : UInt16, @failing_method_id : UInt16)
@@ -333,8 +350,9 @@ module AvalancheMQ
       end
 
       struct CloseOk < Connection
+        METHOD_ID = 51_u16
         def method_id
-          51_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -348,8 +366,9 @@ module AvalancheMQ
     end
 
     abstract struct Channel < MethodFrame
+      CLASS_ID = 20_u16
       def class_id
-        20_u16
+        CLASS_ID
       end
 
       def self.decode(channel, body)
@@ -361,13 +380,14 @@ module AvalancheMQ
           #when 21_u16 then FlowOk.decode(channel, body)
         when 40_u16 then Close.decode(channel, body)
         when 41_u16 then CloseOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
 
       struct Open < Channel
+        METHOD_ID = 10_u16
         def method_id
-          10_u16
+          METHOD_ID
         end
 
         getter reserved1
@@ -389,8 +409,9 @@ module AvalancheMQ
       end
 
       struct OpenOk < Channel
+        METHOD_ID = 11_u16
         def method_id
-          11_u16
+          METHOD_ID
         end
 
         getter reserved1
@@ -412,8 +433,9 @@ module AvalancheMQ
       end
 
       struct Close < Channel
+        METHOD_ID = 40_u16
         def method_id
-          40_u16
+          METHOD_ID
         end
 
         getter reply_code, reply_text, classid, methodid
@@ -441,8 +463,9 @@ module AvalancheMQ
       end
 
       struct CloseOk < Channel
+        METHOD_ID = 41_u16
         def method_id
-          41_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -456,8 +479,9 @@ module AvalancheMQ
     end
 
     abstract struct Exchange < MethodFrame
+      CLASS_ID = 40_u16
       def class_id
-        40_u16
+        CLASS_ID
       end
 
       def self.decode(channel, body)
@@ -467,13 +491,14 @@ module AvalancheMQ
         when 11_u16 then DeclareOk.decode(channel, body)
         when 20_u16 then Delete.decode(channel, body)
         when 21_u16 then DeleteOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
 
       struct Declare < Exchange
+        METHOD_ID = 10_u16
         def method_id
-          10_u16
+          METHOD_ID
         end
 
         getter reserved1, exchange_name, exchange_type, passive, durable, auto_delete, internal, no_wait, arguments
@@ -515,8 +540,9 @@ module AvalancheMQ
       end
 
       struct DeclareOk < Exchange
+        METHOD_ID = 11_u16
         def method_id
-          11_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -529,8 +555,9 @@ module AvalancheMQ
       end
 
       struct Delete < Exchange
+        METHOD_ID = 20_u16
         def method_id
-          20_u16
+          METHOD_ID
         end
 
         getter reserved1, exchange_name, if_unused, no_wait
@@ -561,8 +588,9 @@ module AvalancheMQ
       end
 
       struct DeleteOk < Exchange
+        METHOD_ID = 21_u16
         def method_id
-          21_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -576,8 +604,9 @@ module AvalancheMQ
     end
 
     abstract struct Queue < MethodFrame
+      CLASS_ID = 50_u16
       def class_id
-        50_u16
+        CLASS_ID
       end
 
       def self.decode(channel, body)
@@ -593,13 +622,14 @@ module AvalancheMQ
         when 41_u16 then DeleteOk.decode(channel, body)
         when 50_u16 then Unbind.decode(channel, body)
         when 51_u16 then UnbindOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
 
       struct Declare < Queue
+        METHOD_ID = 10_u16
         def method_id
-          10_u16
+          METHOD_ID
         end
 
         property reserved1, queue_name, passive, durable, exclusive, auto_delete, no_wait, arguments
@@ -640,8 +670,9 @@ module AvalancheMQ
       end
 
       struct DeclareOk < Queue
+        METHOD_ID = 11_u16
         def method_id
-          11_u16
+          METHOD_ID
         end
 
         def initialize(channel : UInt16, @queue_name : String, @message_count : UInt32, @consumer_count : UInt32)
@@ -657,13 +688,14 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
 
       struct Bind < Queue
+        METHOD_ID = 20_u16
         def method_id
-          20_u16
+          METHOD_ID
         end
 
         getter reserved1, queue_name, exchange_name, routing_key, no_wait, arguments
@@ -698,8 +730,9 @@ module AvalancheMQ
       end
 
       struct BindOk < Queue
+        METHOD_ID = 21_u16
         def method_id
-          21_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -712,8 +745,9 @@ module AvalancheMQ
       end
 
       struct Delete < Queue
+        METHOD_ID = 40_u16
         def method_id
-          40_u16
+          METHOD_ID
         end
 
         getter reserved1, queue_name, if_unused, if_empty, no_wait
@@ -747,8 +781,9 @@ module AvalancheMQ
       end
 
       struct DeleteOk < Queue
+        METHOD_ID = 41_u16
         def method_id
-          41_u16
+          METHOD_ID
         end
 
         def initialize(channel : UInt16, @message_count : UInt32)
@@ -762,13 +797,14 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
 
       struct Unbind < Queue
+        METHOD_ID = 50_u16
         def method_id
-          50_u16
+          METHOD_ID
         end
 
         getter reserved1, queue_name, exchange_name, routing_key, no_wait, arguments
@@ -803,8 +839,9 @@ module AvalancheMQ
       end
 
       struct UnbindOk < Queue
+        METHOD_ID = 51_u16
         def method_id
-          51_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -817,8 +854,9 @@ module AvalancheMQ
       end
 
       struct Purge < Queue
+        METHOD_ID = 30_u16
         def method_id
-          30_u16
+          METHOD_ID
         end
 
         getter reserved1, queue_name, no_wait
@@ -845,8 +883,9 @@ module AvalancheMQ
       end
 
       struct PurgeOk < Queue
+        METHOD_ID = 31_u16
         def method_id
-          31_u16
+          METHOD_ID
         end
 
         def initialize(channel : UInt16, @message_count : UInt32)
@@ -860,14 +899,15 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
     end
 
     abstract struct Basic < MethodFrame
+      CLASS_ID = 60_u16
       def class_id
-        60_u16
+        CLASS_ID
       end
 
       def self.decode(channel, body)
@@ -888,13 +928,14 @@ module AvalancheMQ
         when 80_u16 then Ack.decode(channel, body)
         when 90_u16 then Reject.decode(channel, body)
         when 120_u16 then Nack.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
 
       struct Publish < Basic
+        METHOD_ID = 40_u16
         def method_id
-          40_u16
+          METHOD_ID
         end
 
         getter exchange, routing_key, mandatory, immediate
@@ -904,7 +945,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -919,8 +960,9 @@ module AvalancheMQ
       end
 
       struct Deliver < Basic
+        METHOD_ID = 60_u16
         def method_id
-          60_u16
+          METHOD_ID
         end
 
         def initialize(channel, @consumer_tag : String, @delivery_tag : UInt64,
@@ -941,13 +983,14 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
 
       struct Get < Basic
+        METHOD_ID = 70_u16
         def method_id
-          70_u16
+          METHOD_ID
         end
 
         getter queue, no_ack
@@ -956,7 +999,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -968,8 +1011,9 @@ module AvalancheMQ
       end
 
       struct GetOk < Basic
+        METHOD_ID = 71_u16
         def method_id
-          71_u16
+          METHOD_ID
         end
 
         def initialize(channel, @delivery_tag : UInt64, @redelivered : Bool,
@@ -989,13 +1033,14 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
 
       struct GetEmpty < Basic
+        METHOD_ID = 72_u16
         def method_id
-          72_u16
+          METHOD_ID
         end
 
         def initialize(channel, @reserved1 = 0_u16)
@@ -1015,8 +1060,9 @@ module AvalancheMQ
       end
 
       struct Ack < Basic
+        METHOD_ID = 80_u16
         def method_id
-          80_u16
+          METHOD_ID
         end
 
         getter :delivery_tag, :multiple
@@ -1039,8 +1085,9 @@ module AvalancheMQ
       end
 
       struct Reject < Basic
+        METHOD_ID = 90_u16
         def method_id
-          90_u16
+          METHOD_ID
         end
 
         getter :delivery_tag, :requeue
@@ -1049,7 +1096,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1060,8 +1107,9 @@ module AvalancheMQ
       end
 
       struct Nack < Basic
+        METHOD_ID = 120_u16
         def method_id
-          120_u16
+          METHOD_ID
         end
 
         getter :delivery_tag, :multiple, :requeue
@@ -1070,7 +1118,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1083,8 +1131,9 @@ module AvalancheMQ
       end
 
       struct Qos < Basic
+        METHOD_ID = 10_u16
         def method_id
-          10_u16
+          METHOD_ID
         end
 
         getter prefetch_size, prefetch_count, global
@@ -1093,7 +1142,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1105,8 +1154,9 @@ module AvalancheMQ
       end
 
       struct QosOk < Basic
+        METHOD_ID = 11_u16
         def method_id
-          11_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -1119,8 +1169,9 @@ module AvalancheMQ
       end
 
       struct Consume < Basic
+        METHOD_ID = 20_u16
         def method_id
-          20_u16
+          METHOD_ID
         end
 
         property queue, consumer_tag, no_local, no_ack, exclusive, no_wait, arguments
@@ -1131,7 +1182,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1149,8 +1200,9 @@ module AvalancheMQ
       end
 
       struct ConsumeOk < Basic
+        METHOD_ID = 21_u16
         def method_id
-          21_u16
+          METHOD_ID
         end
 
         getter consumer_tag
@@ -1165,13 +1217,14 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
 
       struct Return < Basic
+        METHOD_ID = 50_u16
         def method_id
-          50_u16
+          METHOD_ID
         end
 
         getter reply_code, reply_text, exchange_name, routing_key
@@ -1193,13 +1246,14 @@ module AvalancheMQ
         end
 
         def self.decode
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
 
       struct Cancel < Basic
+        METHOD_ID = 30_u16
         def method_id
-          30_u16
+          METHOD_ID
         end
 
         getter consumer_tag, no_wait
@@ -1223,8 +1277,9 @@ module AvalancheMQ
       end
 
       struct CancelOk < Basic
+        METHOD_ID = 31_u16
         def method_id
-          31_u16
+          METHOD_ID
         end
 
         getter consumer_tag
@@ -1285,8 +1340,9 @@ module AvalancheMQ
     end
 
     abstract struct Confirm < MethodFrame
+      CLASS_ID = 85_u16
       def class_id
-        85_u16
+        CLASS_ID
       end
 
       def self.decode(channel, body)
@@ -1294,13 +1350,14 @@ module AvalancheMQ
         case method_id
         when 10_u16 then Select.decode(channel, body)
         when 11_u16 then SelectOk.decode(channel, body)
-        else raise "Unknown method_id #{method_id}"
+        else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
 
       struct Select < Confirm
+        METHOD_ID = 10_u16
         def method_id
-          10_u16
+          METHOD_ID
         end
 
         getter no_wait
@@ -1314,13 +1371,14 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise "Not implemented"
+          raise NotImplemented.new(class_id, method_id)
         end
       end
 
       struct SelectOk < Confirm
+        METHOD_ID = 11_u16
         def method_id
-          11_u16
+          METHOD_ID
         end
 
         def to_slice
@@ -1328,7 +1386,7 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          raise "Not implemented"
+          raise NotImplemented.new(CLASS_ID, METHOD_ID)
         end
       end
     end
