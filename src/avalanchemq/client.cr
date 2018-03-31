@@ -5,14 +5,14 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter :socket, :vhost, :channels, log
+    getter socket, vhost, channels, log, max_frame_size
 
     @remote_address : Socket::IPAddress
     @log : Logger
 
-    def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
+    def initialize(@socket : TCPSocket, @vhost : VHost, @max_frame_size : UInt32)
       @remote_address = @socket.remote_address
-      @log = server_log.dup
+      @log = @vhost.log.dup
       @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame).new(1000)
@@ -41,7 +41,7 @@ module AvalancheMQ
         socket.write AMQP::Connection::OpenOk.new.to_slice
         socket.flush
         log.info "Accepting connection from #{socket.remote_address} to vhost #{open.vhost}"
-        return self.new(socket, vhost, log)
+        return self.new(socket, vhost, tune_ok.frame_max)
       else
         log.warn "Access denied for #{socket.remote_address} to vhost #{open.vhost}"
         socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",

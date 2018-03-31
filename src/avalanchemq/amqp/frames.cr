@@ -205,7 +205,7 @@ module AvalancheMQ
           30_u16
         end
 
-        def initialize(@channel_max = 0_u16, @frame_max = 131072_u32, @heartbeat = 60_u16)
+        def initialize(@channel_max = 0_u16, @frame_max = 131072_u32, @heartbeat = 0_u16)
           super()
         end
 

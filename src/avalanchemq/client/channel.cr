@@ -4,16 +4,13 @@ require "./channel/consumer"
 module AvalancheMQ
   class Client
     class Channel
-      getter id, prefetch_size, prefetch_count, global_prefetch, confirm, log
+      getter id, client, prefetch_size, prefetch_count, global_prefetch,
+        confirm, log
 
       @next_publish_exchange_name : String | Nil
       @next_publish_routing_key : String | Nil
       @next_msg_body : IO::Memory = IO::Memory.new
       @log : Logger
-
-      def send(frame)
-        @client.send frame
-      end
 
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
@@ -28,6 +25,10 @@ module AvalancheMQ
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
+      end
+
+      def send(frame)
+        @client.send frame
       end
 
       def confirm_select(frame)

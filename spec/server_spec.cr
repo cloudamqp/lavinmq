@@ -397,4 +397,23 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "splits frames into max frame sizes" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default", frame_max: 4096_u32)) do |conn|
+      ch = conn.channel
+      pmsg1 = AMQP::Message.new("m" * 5000)
+      x = ch.exchange("", "direct", passive: true)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      x.publish pmsg1, q.name
+      msgs = [] of AMQP::Message
+      tag = q.subscribe { |msg| msgs << msg }
+      Fiber.yield
+      msgs.size.should eq 1
+    end
+  ensure
+    s.try &.close
+  end
 end

@@ -31,9 +31,14 @@ module AvalancheMQ
           @log.debug { "Sending HeaderFrame" }
           @channel.send AMQP::HeaderFrame.new(@channel.id, 60_u16, 0_u16, msg.size,
                                               msg.properties)
-          # TODO: split body in FRAME_MAX sizes
-          @log.debug { "Sending BodyFrame" }
-          @channel.send AMQP::BodyFrame.new(@channel.id, msg.body)
+          @log.debug { "Sending BodyFrame(s)" }
+          pos = 0
+          while pos < msg.body.size
+            length = [msg.body.size - pos, @channel.client.max_frame_size - 8].min
+            body_part = msg.body[pos, length]
+            @channel.send AMQP::BodyFrame.new(@channel.id, body_part)
+            pos += @channel.client.max_frame_size - 8
+          end
           @log.debug { "Sent all frames" }
         end
 
