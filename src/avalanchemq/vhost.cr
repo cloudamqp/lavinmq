@@ -64,7 +64,7 @@ module AvalancheMQ
     private def open_wfile : MessageFile
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      wfile = MessageFile.open(File.join(@data_dir, filename), "a")
+      wfile = MessageFile.open(File.join(@data_dir, filename), "w")
       wfile.seek(0, IO::Seek::End)
       wfile
     end
@@ -157,7 +157,7 @@ module AvalancheMQ
     end
 
     private def save!
-      File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
+      File.open(File.join(@data_dir, "definitions.amqp"), "w") do |f|
         loop do
           frame = @save.receive
           case frame

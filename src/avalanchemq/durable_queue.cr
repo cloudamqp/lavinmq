@@ -12,8 +12,8 @@ module AvalancheMQ
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       Dir.mkdir_p @index_dir
-      @enq = QueueFile.open(File.join(@index_dir, "enq"), "a")
-      @ack = QueueFile.open(File.join(@index_dir, "ack"), "a")
+      @enq = QueueFile.open(File.join(@index_dir, "enq"), "w")
+      @ack = QueueFile.open(File.join(@index_dir, "ack"), "w")
       restore_index
     end
 
