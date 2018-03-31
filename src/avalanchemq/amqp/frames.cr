@@ -26,7 +26,7 @@ module AvalancheMQ
       def self.decode(io)
         buf = uninitialized UInt8[7]
         io.read_fully(buf.to_slice)
-        mem = MemoryIO.new(buf.to_slice)
+        mem = MemoryIO.new(buf.to_slice, false)
 
         t = mem.read_byte
         raise ::IO::EOFError.new if t.nil?
@@ -143,7 +143,9 @@ module AvalancheMQ
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + 1 + 1 + @mechanisms.bytesize + 1 + @locales.bytesize)
+          body = AMQP::MemoryIO.new(1 + 1 +
+                                    4 + @mechanisms.bytesize +
+                                    4 + @locales.bytesize)
           body.write_byte(@version_major)
           body.write_byte(@version_minor)
           body.write_table(@server_props)
@@ -182,7 +184,9 @@ module AvalancheMQ
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + @mechanism.bytesize + 4 + @response.bytesize + 1 + @locale.bytesize)
+          body = AMQP::MemoryIO.new(1 + @mechanism.bytesize +
+                                    4 + @response.bytesize +
+                                    1 + @locale.bytesize)
           body.write_table(@client_props)
           body.write_short_string(@mechanism)
           body.write_long_string(@response)
@@ -262,7 +266,8 @@ module AvalancheMQ
         end
 
         def to_slice
-          body = AMQP::MemoryIO.new(1 + @vhost.bytesize + 1 + @reserved1.bytesize + 1)
+          body = AMQP::MemoryIO.new(1 + @vhost.bytesize +
+                                    1 + @reserved1.bytesize + 1)
           body.write_short_string(@vhost)
           body.write_short_string(@reserved1)
           body.write_bool(@reserved2)
@@ -624,7 +629,7 @@ module AvalancheMQ
           reserved1 = io.read_uint16
           name = io.read_short_string
           bits = io.read_byte
-          passive = bits.bit(0)  == 1
+          passive = bits.bit(0) == 1
           durable = bits.bit(1) == 1
           exclusive = bits.bit(2) == 1
           auto_delete = bits.bit(3) == 1
@@ -644,7 +649,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = MemoryIO.new
+          io = MemoryIO.new(1 + @queue_name.bytesize + 4 + 4)
           io.write_short_string @queue_name
           io.write_int @message_count
           io.write_int @consumer_count
@@ -751,7 +756,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = MemoryIO.new
+          io = MemoryIO.new(4)
           io.write_int @message_count
           super io.to_slice
         end
@@ -849,7 +854,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = MemoryIO.new(2)
+          io = MemoryIO.new(4)
           io.write_int @message_count
           super io.to_slice
         end
@@ -923,7 +928,9 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new
+          io = AMQP::MemoryIO.new(1 + @consumer_tag.bytesize + 8 + 1 +
+                                  1 + @exchange.bytesize +
+                                  1 + @routing_key.bytesize)
           io.write_short_string @consumer_tag
           io.write_int @delivery_tag
           io.write_bool @redelivered
@@ -970,7 +977,8 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new
+          io = AMQP::MemoryIO.new(8 + 1 + 1 + @exchange.bytesize +
+                                  1 + @routing_key.bytesize + 4)
           io.write_int @delivery_tag
           io.write_bool @redelivered
           io.write_short_string @exchange
@@ -1016,7 +1024,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = MemoryIO.new(9)
+          io = MemoryIO.new(8 + 1)
           io.write_int(@delivery_tag)
           io.write_bool(@multiple)
           super(io.to_slice)
@@ -1172,7 +1180,9 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = MemoryIO.new(2 + 3 + @reply_text.bytesize + @exchange_name.bytesize + @routing_key.bytesize)
+          io = MemoryIO.new(2 + 1 + @reply_text.bytesize +
+                            1 + @exchange_name.bytesize +
+                            1 + @routing_key.bytesize)
           io.write_int(@reply_code)
           io.write_short_string(@reply_text)
           io.write_short_string(@exchange_name)
