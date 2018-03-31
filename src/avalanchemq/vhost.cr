@@ -101,8 +101,8 @@ module AvalancheMQ
     end
 
     def close
-      @save.close
       @queues.each_value &.close
+      @save.close
     end
 
     private def load!
