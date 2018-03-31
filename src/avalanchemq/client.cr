@@ -93,8 +93,8 @@ module AvalancheMQ
           @socket.close_write
           break
         when AMQP::Connection::CloseOk
-          @log.debug { "Closing socket" }
-          @socket.close
+          @log.debug { "Closing write socket" }
+          @socket.close_write
           cleanup
           break
         end
