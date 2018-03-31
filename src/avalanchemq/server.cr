@@ -22,7 +22,10 @@ module AvalancheMQ
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       Dir.mkdir_p @data_dir
-      @vhosts = { "default" => VHost.new("default", @data_dir, @log) }
+      @vhosts = {
+        "default" => VHost.new("default", @data_dir, @log),
+        "bunny_testbed" => VHost.new("bunny_testbed", @data_dir, @log)
+      }
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
