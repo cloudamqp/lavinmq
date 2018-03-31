@@ -131,7 +131,9 @@ module AvalancheMQ
     end
 
     private def compact!
-      File.open(File.join(@data_dir, "definitions.amqp"), "w") do |io|
+      tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
+      File.delete tmp_path if File.exists? tmp_path
+      File.open(tmp_path, "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable
           next if e.auto_delete
@@ -154,6 +156,7 @@ module AvalancheMQ
           f.encode(io)
         end
       end
+      File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
     end
 
     private def save!
