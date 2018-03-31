@@ -116,10 +116,9 @@ module AvalancheMQ
       @log.info "Closed"
     end
 
-    def delete
+    protected def delete
       @log.info "Deleting"
-      @vhost.queues.delete @name
-      close(deleting: true)
+      @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
     end
 
     def to_json(json : JSON::Builder)
