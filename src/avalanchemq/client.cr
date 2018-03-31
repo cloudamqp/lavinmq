@@ -49,8 +49,8 @@ module AvalancheMQ
         socket.close
         return nil
       end
-    rescue ex : IO::EOFError | Errno
-      log.warn "#{ex.to_s} while establishing connection"
+    rescue ex : AMQP::FrameDecodeError
+      log.warn "#{ex.cause.inspect} while establishing connection"
       nil
     end
 
