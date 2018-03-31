@@ -404,7 +404,7 @@ describe AvalancheMQ::Server do
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default", frame_max: 4096_u32)) do |conn|
       ch = conn.channel
-      pmsg1 = AMQP::Message.new("m" * 5000)
+      pmsg1 = AMQP::Message.new("m" * (2**17 + 1))
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       x.publish pmsg1, q.name
