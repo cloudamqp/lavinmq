@@ -21,7 +21,7 @@ module AvalancheMQ
       @log.progname = "VHost[#{@name}]"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
-      @save = Channel(AMQP::Frame).new(16)
+      @save = Channel(AMQP::Frame).new(32)
       @data_dir = File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
       Dir.mkdir_p @data_dir
       @segment = last_segment
@@ -131,6 +131,7 @@ module AvalancheMQ
     end
 
     private def compact!
+      @log.debug "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.delete tmp_path if File.exists? tmp_path
       File.open(tmp_path, "w") do |io|
