@@ -68,32 +68,46 @@ module AvalancheMQ
       end
 
       def read_table
-        sz = read_uint32
-        start_pos = pos
+        size = read_uint32
+        end_pos = pos + size
         hash = Hash(String, Field).new
-        while pos < start_pos + sz
+        while pos < end_pos
           key = read_short_string
-          type = read_byte
-          val = case type
-                when 'S' then read_long_string
-                when 's' then read_uint16
-                when 'I' then read_int32
-                when 'l' then read_int64
-                when 'F' then read_table
-                when 't' then read_bool
-                when 'T' then read_timestamp
-                when 'V' then nil
-                when 'b' then read_byte
-                when 'f' then raise "Cannot parse float32"
-                when 'd' then raise "Cannot parse float64"
-                when 'D' then raise "Cannot parse decimal"
-                when 'A' then raise "Cannot parse array"
-                when 'x' then raise "Cannot parse byte array"
-                else raise "Unknown type: #{type}"
-                end
+          val = read_field
           hash[key] = val
         end
         hash
+      end
+
+      def read_field : Field
+        type = read_byte
+        case type
+        when 'S' then read_long_string
+        when 's' then read_uint16
+        when 'I' then read_int32
+        when 'l' then read_int64
+        when 'F' then read_table
+        when 't' then read_bool
+        when 'T' then read_timestamp
+        when 'V' then nil
+        when 'b' then read_byte
+        when 'A' then read_array
+        when 'f' then raise "Cannot parse float32"
+        when 'd' then raise "Cannot parse float64"
+        when 'D' then raise "Cannot parse decimal"
+        when 'x' then raise "Cannot parse byte array"
+        else raise "Unknown type: #{type}"
+        end
+      end
+
+      def read_array
+        size = read_uint32
+        end_pos = pos + size
+        a = Array(Field).new
+        while pos < end_pos
+          a << read_field
+        end
+        a
       end
 
       def read_short_string
