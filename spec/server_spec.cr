@@ -25,7 +25,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
@@ -50,7 +50,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       q = ch.queue("q4", auto_delete: true, durable: false, exclusive: false)
@@ -69,7 +69,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       q = ch.queue("q4", auto_delete: true, durable: false, exclusive: false)
@@ -88,7 +88,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
@@ -96,7 +96,7 @@ describe AvalancheMQ::Server do
       x.publish pmsg, q.name
       m1 = q.get(no_ack: false)
     end
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
@@ -111,7 +111,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       ch.qos(0, 2, false)
       pmsg = AMQP::Message.new("m1")
@@ -133,7 +133,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       ch.qos(0, 1, false)
       pmsg = AMQP::Message.new("m1")
@@ -158,7 +158,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       x = ch.exchange("test_delete_exchange", "topic", durable: true)
       x.delete.should be x
@@ -171,7 +171,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
@@ -187,7 +187,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       acked = false
       delivery_tag = 0
@@ -214,7 +214,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       reply_code = 0
@@ -238,7 +238,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       q = ch.queue("exp1")
       x = ch.exchange("", "direct", passive: true)
@@ -257,7 +257,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec0", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
       args = AMQP::Protocol::Table.new
@@ -280,7 +280,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec1", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       dlq = ch.queue("dlq2")
       expq = ch.queue("exp")
@@ -305,7 +305,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       reply_code = 0
@@ -328,7 +328,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
@@ -348,7 +348,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec_qhe", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       q = ch.queue("q-header-ex", auto_delete: true, durable: false, exclusive: false)
       hdrs = AMQP::Protocol::Table.new
@@ -375,7 +375,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       q = ch.queue("q-header-ex2", auto_delete: true, durable: false, exclusive: false)
       hdrs = AMQP::Protocol::Table.new
