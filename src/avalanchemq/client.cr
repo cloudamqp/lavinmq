@@ -329,8 +329,13 @@ module AvalancheMQ
       end
     end
 
-    private def send_not_found(frame)
-      send AMQP::Channel::Close.new(frame.channel, 404_u16, "Not found",
+    def send_not_found(frame, reply_text = "Not found")
+      send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_text,
+                                    frame.class_id, frame.method_id)
+    end
+
+    def send_precondition_failed(frame, reply_text = "Precondition failed")
+      send AMQP::Channel::Close.new(frame.channel, 406_u16, reply_text,
                                     frame.class_id, frame.method_id)
     end
 

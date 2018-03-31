@@ -125,10 +125,8 @@ module AvalancheMQ
           consumer.ack(sp) if consumer
           queue.ack(sp)
         else
-          reply_code = "No matching delivery tag on this channel"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
-                                                frame.class_id, frame.method_id)
-          close
+          reply_text = "No matching delivery tag on this channel"
+          @client.send_precondition_failed(frame, reply_text)
         end
       end
 
@@ -138,10 +136,8 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_code = "No matching delivery tag on this channel"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
-                                                frame.class_id, frame.method_id)
-          close
+          reply_text = "No matching delivery tag on this channel"
+          @client.send_precondition_failed(frame, reply_text)
         end
       end
 
@@ -165,10 +161,8 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_code = "No matching delivery tag on this channel"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
-                                                frame.class_id, frame.method_id)
-          close
+          reply_text = "No matching delivery tag on this channel"
+          @client.send_precondition_failed(frame, reply_text)
         end
       end
 
