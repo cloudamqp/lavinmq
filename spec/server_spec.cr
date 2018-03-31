@@ -217,18 +217,14 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      reply_code = 0
-      reply_msg = nil
+      ch1 = Channel(Tuple(UInt16, String)).new
       ch.on_return do |code, text|
-        reply_code = code
-        reply_msg = text
+        ch1.send({ code, text })
       end
-      ch.publish(pmsg, "amq.topic", "rk", mandatory = true)
-      until reply_code == 312
-        Fiber.yield
-      end
+      ch.publish(pmsg, "amq.direct", "none", mandatory: true)
+      reply_code, reply_text = ch1.receive
       reply_code.should eq 312
-      reply_msg.should eq "No Route"
+      reply_text.should eq "No Route"
     end
   ensure
     s.try &.close
