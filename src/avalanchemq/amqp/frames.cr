@@ -887,6 +887,7 @@ module AvalancheMQ
         when 72_u16 then GetEmpty.decode(channel, body)
         when 80_u16 then Ack.decode(channel, body)
         when 90_u16 then Reject.decode(channel, body)
+        when 120_u16 then Nack.decode(channel, body)
         else raise "Unknown method_id #{method_id}"
         end
       end
@@ -1074,8 +1075,9 @@ module AvalancheMQ
 
         def self.decode(channel, io)
           delivery_tag = io.read_uint64
-          multiple = io.read_bool
-          requeue = io.read_bool
+          bits = io.read_byte
+          multiple = bits.bit(0) == 1
+          requeue = bits.bit(1) == 1
           self.new channel, delivery_tag, multiple, requeue
         end
       end
