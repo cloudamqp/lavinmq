@@ -161,19 +161,24 @@ module AvalancheMQ
     end
 
     private def save!
-      File.open(File.join(@data_dir, "definitions.amqp"), "w") do |f|
+      File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         loop do
           frame = @save.receive
           case frame
           when AMQP::Exchange::Declare, AMQP::Queue::Declare
-            next if !frame.durable || frame.auto_delete
+            next unless frame.durable
+          when AMQP::Exchange::Delete
+            next unless @exchanges[frame.exchange_name]?.try(&.durable)
+          when AMQP::Queue::Delete
+            next unless @queues[frame.queue_name]?.try(&.durable)
           when AMQP::Queue::Bind, AMQP::Queue::Unbind
             e = @exchanges[frame.exchange_name]
-            next if !e.durable || e.auto_delete
+            next unless e.durable
             q = @queues[frame.queue_name]
-            next if !q.durable || q.auto_delete
+            next unless q.durable
+          else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
-          f.seek(0, IO::Seek::End)
+          @log.debug { "Storing #{f.inspect} to definitions" }
           frame.encode(f)
           f.flush
         end
