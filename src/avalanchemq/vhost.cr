@@ -172,6 +172,7 @@ module AvalancheMQ
             q = @queues[frame.queue_name]
             next if !q.durable || q.auto_delete
           end
+          f.seek(0, IO::Seek::End)
           frame.encode(f)
           f.flush
         end
