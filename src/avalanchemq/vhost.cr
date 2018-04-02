@@ -36,7 +36,7 @@ module AvalancheMQ
       return false if ex.nil?
 
       ok = false
-      matches = ex.matches(msg.routing_key, headers: msg.properties.headers)
+      matches = ex.matches(msg.routing_key, msg.properties.headers)
       exchanges = matches.compact_map { |m| m.as? Exchange }
       queues = matches.compact_map { |m| m.as? Queue }
       ok = exchanges.map do |e|
