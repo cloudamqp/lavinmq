@@ -206,6 +206,11 @@ module AvalancheMQ
             next unless e.durable
             q = @queues[frame.queue_name]
             next unless q.durable
+          when AMQP::Exchange::Bind, AMQP::Exchange::Unbind
+            s = @exchanges[frame.source]
+            next unless s.durable
+            d = @exchanges[frame.destination]
+            next unless d.durable
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing #{f.inspect} to definitions" }
