@@ -123,14 +123,16 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers)
-      unless (headers.has_key?("x-match") && headers.size >= 2) || headers.size == 1
+      args = @arguments.merge(headers)
+      unless (args.has_key?("x-match") && args.size >= 2) || args.size == 1
         raise ArgumentError.new("Arguments required")
       end
-      @bindings[{"", headers}] << destination
+      @bindings[{"", args}] << destination
     end
 
     def unbind(destination, routing_key, headers)
-      @bindings[{"", headers}].delete destination
+      args = @arguments.merge(headers)
+      @bindings[{"", args}].delete destination
     end
 
     def matches(routing_key, headers)
