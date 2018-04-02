@@ -430,4 +430,25 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "can bind exchanges to exchanges" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      x1 = ch.exchange("x1", "direct")
+      x2 = ch.exchange("x2", "direct")
+      x1.bind(x2, "e2e")
+      q = ch.queue("e2e", auto_delete: true, durable: false, exclusive: false)
+      q.bind(x2, "e2e")
+      pmsg = AMQP::Message.new("test message")
+      x1.publish pmsg, "e2e"
+      Fiber.yield
+      msg = q.get(no_ack: true)
+      msg.to_s.should eq("test message")
+    end
+  ensure
+    s.try &.close
+  end
 end
