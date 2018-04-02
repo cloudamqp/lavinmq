@@ -10,7 +10,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
       ch = conn.channel
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
-      q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       q.bind(x, "#")
       pmsg = AMQP::Message.new("test message")
       x.publish pmsg, q.name
@@ -53,7 +53,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("q4", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       m1 = q.get(no_ack: false)
@@ -116,7 +116,7 @@ describe AvalancheMQ::Server do
       ch.qos(0, 2, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       x.publish pmsg, q.name
       x.publish pmsg, q.name
       x.publish pmsg, q.name
@@ -273,7 +273,7 @@ describe AvalancheMQ::Server do
   end
 
   it "dead-letter expired messages" do
-    s = AvalancheMQ::Server.new("/tmp/spec1", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
