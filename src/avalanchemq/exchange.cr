@@ -3,8 +3,8 @@ module AvalancheMQ
     getter name, durable, auto_delete, internal, arguments, bindings
     def_equals_and_hash @vhost.name, @name
 
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
+    def initialize(@vhost : VHost, @name : String, @durable = false,
+                   @auto_delete = false, @internal = false,
                    @arguments = AMQP::Table.new)
       @bindings = Hash(Tuple(String, AMQP::Table), Set(Queue | Exchange)).new do |h, k|
         h[k] = Set(Queue | Exchange).new

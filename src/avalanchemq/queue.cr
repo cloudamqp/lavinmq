@@ -19,8 +19,8 @@ module AvalancheMQ
     def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
-                   @exclusive : Bool, @auto_delete : Bool,
-                   @arguments : Hash(String, AMQP::Field))
+                   @exclusive = false, @auto_delete = false,
+                   @arguments = AMQP::Table.new)
       @log = @vhost.log.dup
       @log.progname += "/Queue[#{@name}]"
       message_ttl = @arguments.fetch("x-message-ttl", nil)
