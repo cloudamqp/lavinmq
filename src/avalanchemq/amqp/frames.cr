@@ -47,7 +47,7 @@ module AvalancheMQ
         when Type::Header then HeaderFrame.decode(channel, body)
         when Type::Body then BodyFrame.new(channel, body)
         when Type::Heartbeat then HeartbeatFrame.decode
-        else GenericFrame.new(type, channel, body)
+        else raise NotImplemented.new 0_u16, 0_u16
         end
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
@@ -62,14 +62,17 @@ module AvalancheMQ
       def initialize(@class_id : UInt16, @method_id : UInt16)
         super("Method id #{@method_id} not implemented in class #{@class_id}")
       end
-    end
 
-    struct GenericFrame < Frame
-      def initialize(@type : Type, @channel : UInt16,  @body : Bytes)
+      def initialize(frame : MethodFrame)
+        @class_id = frame.class_id
+        @method_id = frame.method_id
+        super("Method id #{@method_id} not implemented in class #{@class_id}")
       end
 
-      def to_slice
-        super(@body)
+      def initialize(frame : Frame)
+        @class_id = 0_u16
+        @method_id = 0_u16
+        super("Frame type #{frame.type} not implemented")
       end
     end
 
@@ -116,8 +119,7 @@ module AvalancheMQ
         when 85_u16 then Confirm.decode(channel, body)
           #when 90_u16 then Tx.decode(channel, body)
         else
-          puts "class-id #{class_id} not implemented yet"
-          GenericFrame.new(Type::Method, channel, payload)
+          raise NotImplemented.new(class_id, 0_u16)
         end
       end
     end

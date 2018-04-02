@@ -21,7 +21,7 @@ module AvalancheMQ
       Array(Field) |
       Array(UInt8) |
       Time |
-      Table
+      Hash(String, Field)
     alias Table = Hash(String, Field)
 
     enum Type : UInt8
