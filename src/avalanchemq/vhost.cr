@@ -37,8 +37,8 @@ module AvalancheMQ
 
       ok = false
       matches = ex.matches(msg.routing_key, headers: msg.properties.headers)
-      exchanges = matches.select { |m| m.is_a? Exchange }.as(Array(Exchange))
-      queues = matches.select { |m| m.is_a? Queue }.as(Array(Queue))
+      exchanges = matches.compact_map { |m| m.as? Exchange }
+      queues = matches.compact_map { |m| m.as? Queue }
       ok = exchanges.map do |e|
         emsg = msg.dup
         emsg.exchange_name = e.name
