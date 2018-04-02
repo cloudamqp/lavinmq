@@ -210,42 +210,56 @@ module AvalancheMQ
 
     private def bind_queue(frame)
       if !@vhost.queues.has_key? frame.queue_name
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Queue doesn't exists",
-                                      frame.class_id, frame.method_id)
+        send_not_found frame, "Queue #{frame.queue_name} not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Exchange doesn't exists",
-                                      frame.class_id, frame.method_id)
+        send_not_found frame, "Exchange #{frame.exchange_name} not found"
       else
         @vhost.apply(frame)
-        unless frame.no_wait
-          send AMQP::Queue::BindOk.new(frame.channel)
-        end
+        send AMQP::Queue::BindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
     private def unbind_queue(frame)
-      if @vhost.queues.has_key? frame.queue_name && @vhost.exchanges.has_key? frame.exchange_name
+      if !@vhost.queues.has_key? frame.queue_name
+        send_not_found frame, "Queue #{frame.queue_name} not found",
+      elsif !@vhost.exchanges.has_key? frame.exchange_name
+        send_not_found frame, "Exchange #{frame.exchange_name} not found",
+      else
+        @vhost.apply(frame)
+        send AMQP::Queue::UnbindOk.new(frame.channel) unless frame.no_wait
+      end
+    end
+
+    private def bind_exchange(frame)
+      if !@vhost.exchanges.has_key? frame.destination
+        send_not_found frame, "Exchange #{frame.destination} doesn't exists",
+      elsif !@vhost.exchanges.has_key? frame.source
+        send_not_found frame, "Exchange #{frame.source} doesn't exists",
+      else
         @vhost.apply(frame)
         unless frame.no_wait
-          send AMQP::Queue::UnbindOk.new(frame.channel)
+          send AMQP::Exchange::BindOk.new(frame.channel)
         end
+      end
+    end
+
+    private def unbind_exchange(frame)
+      if !@vhost.exchanges.has_key? frame.destination
+        send_not_found frame, "Exchange #{frame.destination} doesn't exists",
+      elsif !@vhost.exchanges.has_key? frame.source
+        send_not_found frame, "Exchange #{frame.source} doesn't exists",
       else
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Queue or exchange does not exists",
-                                      frame.class_id, frame.method_id)
+        @vhost.apply(frame)
+        send AMQP::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
     private def purge_queue(frame)
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         messages_purged = q.purge
-        unless frame.no_wait
-          send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged)
-        end
+        send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
       else
-        send_not_found(frame)
+        send_not_found(frame, "Queue #{frame.queue_name} not found")
       end
     end
 
@@ -276,6 +290,10 @@ module AvalancheMQ
           declare_exchange(frame)
         when AMQP::Exchange::Delete
           delete_exchange(frame)
+        when AMQP::Exchange::Bind
+          bind_exchange(frame)
+        when AMQP::Exchange::Unbind
+          unbind_exchange(frame)
         when AMQP::Queue::Declare
           declare_queue(frame)
         when AMQP::Queue::Bind

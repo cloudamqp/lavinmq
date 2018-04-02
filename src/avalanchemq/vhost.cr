@@ -77,6 +77,10 @@ module AvalancheMQ
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
       when AMQP::Exchange::Delete
         @exchanges.delete f.exchange_name
+      when AMQP::Exchange::Bind
+        @exchanges[f.source].bind_exchange(f.destination, f.routing_key, f.arguments)
+      when AMQP::Exchange::Unbind
+        @exchanges[f.source].unbind_exchange(f.destination, f.routing_key, f.arguments)
       when AMQP::Queue::Declare
         @queues[f.queue_name] =
           if f.durable

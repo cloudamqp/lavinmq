@@ -491,6 +491,10 @@ module AvalancheMQ
         when 11_u16 then DeclareOk.decode(channel, body)
         when 20_u16 then Delete.decode(channel, body)
         when 21_u16 then DeleteOk.decode(channel, body)
+        when 30_u16 then Bind.decode(channel, body)
+        when 31_u16 then BindOk.decode(channel, body)
+        when 40_u16 then Unbind.decode(channel, body)
+        when 41_u16 then UnbindOk.decode(channel, body)
         else raise NotImplemented.new(CLASS_ID, method_id)
         end
       end
@@ -599,6 +603,110 @@ module AvalancheMQ
 
         def self.decode(io)
           self.new
+        end
+      end
+
+      struct Bind < Exchange
+        METHOD_ID = 30_u16
+        def method_id
+          METHOD_ID
+        end
+
+        getter reserved1, destination, source, routing_key, no_wait, arguments
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @destination : String,
+                       @source : String, @routing_key : String, @no_wait : Bool,
+                       @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @destination
+          io.write_short_string @source
+          io.write_short_string @routing_key
+          io.write_bool @no_wait
+          io.write_table @arguments
+          super io.to_slice
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          destination = io.read_short_string
+          source = io.read_short_string
+          routing_key = io.read_short_string
+          bits = io.read_byte
+          no_wait = bits.bit(0) == 1
+          args = io.read_table
+          self.new channel, reserved1, destination, source, routing_key, no_wait, args
+        end
+      end
+
+      struct BindOk < Exchange
+        METHOD_ID = 31_u16
+        def method_id
+          METHOD_ID
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(channel, io)
+          self.new(channel)
+        end
+      end
+
+      struct Unbind < Exchange
+        METHOD_ID = 40_u16
+        def method_id
+          METHOD_ID
+        end
+
+        getter reserved1, destination, source, routing_key, no_wait, arguments
+
+        def initialize(channel : UInt16, @reserved1 : UInt16, @destination : String,
+                       @source : String, @routing_key : String, @no_wait : Bool,
+                       @arguments : Hash(String, Field))
+          super(channel)
+        end
+
+        def to_slice
+          io = MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @destination
+          io.write_short_string @source
+          io.write_short_string @routing_key
+          io.write_bool @no_wait
+          io.write_table @arguments
+          super io.to_slice
+        end
+
+        def self.decode(channel, io)
+          reserved1 = io.read_uint16
+          destination = io.read_short_string
+          source = io.read_short_string
+          routing_key = io.read_short_string
+          bits = io.read_byte
+          no_wait = bits.bit(0) == 1
+          args = io.read_table
+          self.new channel, reserved1, destination, source, routing_key, no_wait, args
+        end
+      end
+
+      struct UnbindOk < Exchange
+        METHOD_ID = 41_u16
+        def method_id
+          METHOD_ID
+        end
+
+        def to_slice
+          super Bytes.new(0)
+        end
+
+        def self.decode(channel, io)
+          self.new(channel)
         end
       end
     end
