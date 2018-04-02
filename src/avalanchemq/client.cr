@@ -102,6 +102,8 @@ module AvalancheMQ
           Fiber.yield
         end
       end
+      @socket.close_write
+      cleanup
     rescue ex : ::Channel::ClosedError
       @log.debug { "#{ex}, when waiting for frames to send" }
       @log.debug { "Closing socket" }
@@ -328,7 +330,6 @@ module AvalancheMQ
         when AMQP::HeartbeatFrame
           send AMQP::HeartbeatFrame.new
         else
-          @log.error { "#{frame.inspect}, not implemented" }
           raise AMQP::NotImplemented.new(frame)
         end
         if (i += 1) % 1000 == 0
@@ -336,7 +337,8 @@ module AvalancheMQ
           Fiber.yield
         end
       rescue ex : AMQP::NotImplemented
-        @log.error { "#{ex} when reading from socket" }
+        raise ex unless frame.is_a? AMQP::Frame
+        @log.error { "#{frame.inspect}, not implemented" }
         send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
       rescue ex : KeyError
         raise ex unless frame.is_a? AMQP::MethodFrame
@@ -346,8 +348,8 @@ module AvalancheMQ
       rescue ex : Exception
         raise ex unless frame.is_a? AMQP::MethodFrame
         @log.error { "#{ex}, when processing frame" }
-        send AMQP::Connection::Close.new(541_u16, "Internal error",
-                                         frame.class_id, frame.method_id)
+        send AMQP::Channel::Close.new(frame.channel, 541_u16, "Internal error",
+                                      frame.class_id, frame.method_id)
       end
     rescue ex : KeyError
       @log.error { "Channel already closed" }
@@ -355,11 +357,12 @@ module AvalancheMQ
       @log.error { "#{ex} when reading from socket" }
       send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
     rescue ex : AMQP::FrameDecodeError
-      @log.debug { "#{ex.cause} when reading from socket" }
-      unless @outbox.closed?
-        @log.debug { "Closing outbox" }
-        @outbox.close # Notifies send_loop to close up shop
-      end
+      @log.error { "#{ex.cause} when reading from socket" }
+      @log.debug { "Closing outbox" }
+      @outbox.close # Notifies send_loop to close up shop
+    rescue ex : Exception
+      @log.error { "#{ex}, in read loop" }
+      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
     def send_not_found(frame, reply_text = "Not found")
