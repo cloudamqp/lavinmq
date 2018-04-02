@@ -92,10 +92,10 @@ module AvalancheMQ
         end
         @exchanges.delete f.exchange_name
       when AMQP::Exchange::Bind
-        x = @exchanges[f.destination]
+        x = @exchanges[f.destination]? || return
         @exchanges[f.source].bind(x, f.routing_key, f.arguments)
       when AMQP::Exchange::Unbind
-        x = @exchanges[f.destination]
+        x = @exchanges[f.destination]? || return
         @exchanges[f.source].unbind(x, f.routing_key, f.arguments)
       when AMQP::Queue::Declare
         q = @queues[f.queue_name] =
@@ -114,10 +114,10 @@ module AvalancheMQ
         end
         q.try &.close
       when AMQP::Queue::Bind
-        q = @queues[f.queue_name]
+        q = @queues[f.queue_name]? || return
         @exchanges[f.exchange_name].bind(q, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
-        q = @queues[f.queue_name]
+        q = @queues[f.queue_name]? || return
         @exchanges[f.exchange_name].unbind(q, f.routing_key, f.arguments)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
