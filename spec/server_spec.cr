@@ -439,7 +439,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       x1 = ch.exchange("x1", "direct")
       x2 = ch.exchange("x2", "direct")
-      x1.bind(x2, "e2e")
+      x2.bind(x1, "e2e")
       q = ch.queue("e2e", auto_delete: true, durable: false, exclusive: false)
       q.bind(x2, "e2e")
       pmsg = AMQP::Message.new("test message")
