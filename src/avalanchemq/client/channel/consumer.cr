@@ -43,13 +43,13 @@ module AvalancheMQ
         end
 
         def ack(sp)
+          @log.debug { "Ackin #{sp}. Unacked: #{@unacked.size}" }
           @unacked.delete(sp)
-          @log.debug { "Consumer #{@tag} acking #{sp}. Unacked: #{@unacked.size}" }
         end
 
         def reject(sp)
+          @log.debug { "Rejecting #{sp}. Unacked: #{@unacked.size}" }
           @unacked.delete(sp)
-          @log.debug { "Consumer #{@tag} rejecting #{sp}. Unacked: #{@unacked.size}" }
         end
       end
     end
