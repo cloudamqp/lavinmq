@@ -82,7 +82,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = @outbox.receive
-        @log.debug { "Send frame #{frame.class}"}
+        @log.debug { "Send #{frame.inspect}"}
         @socket.write frame.to_slice
         unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
           @socket.flush
@@ -254,7 +254,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.debug { "Read frame #{frame.class}" }
+        @log.debug { "Read #{frame.inspect}" }
         case frame
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
