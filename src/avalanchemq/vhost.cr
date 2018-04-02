@@ -34,9 +34,19 @@ module AvalancheMQ
     def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
-      queues = ex.queues_matching(msg.routing_key, headers: msg.properties.headers)
-        .map { |q| @queues.fetch(q, nil) }
-      return false if queues.empty?
+
+      ok = false
+      enames = ex.exchanges_matching(msg.routing_key, headers: msg.properties.headers)
+      ok = enames.map do |e|
+        emsg = msg.dup
+        emsg.exchange_name = e
+        publish(emsg, immediate)
+      end.all?
+      ok = false if exchanges.empty?
+
+      qnames = ex.queues_matching(msg.routing_key, headers: msg.properties.headers)
+      queues = qnames.map { |q| @queues.fetch(q, nil) }.compact
+      return ok if queues.empty?
 
       pos = @wfile.pos.to_u32
       sp = SegmentPosition.new(@segment, pos)
@@ -49,8 +59,8 @@ module AvalancheMQ
       flush = true # msg.properties.delivery_mode == 2_u8
       @wfile.flush if flush
       ok = true
-      ok = queues.all? { |q| q.try &.immediate_delivery? } if immediate
-      queues.each { |q| q.try &.publish(sp, flush) }
+      ok = queues.all? { |q| q.immediate_delivery? } if immediate
+      queues.each { |q| q.publish(sp, flush) }
 
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
@@ -76,6 +86,11 @@ module AvalancheMQ
         @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
       when AMQP::Exchange::Delete
+        @exchanges.each_value do |e|
+          e.exchange_bindings.each_value do |exchanges|
+            exchanges.delete f.exchange_name
+          end
+        end
         @exchanges.delete f.exchange_name
       when AMQP::Exchange::Bind
         @exchanges[f.source].bind_exchange(f.destination, f.routing_key, f.arguments)
@@ -88,18 +103,18 @@ module AvalancheMQ
           else
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
           end
-        @exchanges[""].bind(f.queue_name, f.queue_name, f.arguments)
+        @exchanges[""].bind_queue(f.queue_name, f.queue_name, f.arguments)
       when AMQP::Queue::Delete
         @exchanges.each_value do |e|
-          e.bindings.each_value do |queues|
+          e.queue_bindings.each_value do |queues|
             queues.delete f.queue_name
           end
         end
         @queues.delete(f.queue_name).try &.close
       when AMQP::Queue::Bind
-        @exchanges[f.exchange_name].bind(f.queue_name, f.routing_key, f.arguments)
+        @exchanges[f.exchange_name].bind_queue(f.queue_name, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
-        @exchanges[f.exchange_name].unbind(f.queue_name, f.routing_key, f.arguments)
+        @exchanges[f.exchange_name].unbind_queue(f.queue_name, f.routing_key, f.arguments)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
     end
@@ -146,16 +161,22 @@ module AvalancheMQ
                                           false, e.durable, e.auto_delete, e.internal,
                                           false, e.arguments)
           f.encode(io)
-          e.bindings.each do |bt, queues|
+          e.queue_bindings.each do |bt, queues|
             queues.each do |queue|
               f = AMQP::Queue::Bind.new(0_u16, 0_u16, queue, e.name, bt[0], false, bt[1])
+              f.encode(io)
+            end
+          end
+          e.exchange_bindings.each do |bt, exchanges|
+            exchanges.each do |exchange|
+              f = AMQP::Exchange::Bind.new(0_u16, 0_u16, e.name, exchange, bt[0], false, bt[1])
               f.encode(io)
             end
           end
         end
         @queues.each do |name, q|
           next unless q.durable
-          next if q.auto_delete
+          next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
           f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
                                        q.auto_delete, false, q.arguments)
           f.encode(io)

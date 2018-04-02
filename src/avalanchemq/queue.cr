@@ -16,6 +16,7 @@ module AvalancheMQ
     @dlrk : String?
     @closed = false
     getter name, durable, exclusive, auto_delete, arguments
+    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,

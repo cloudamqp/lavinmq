@@ -5,7 +5,7 @@ describe AvalancheMQ::DirectExchange do
     log = Logger.new(File.open("/dev/null", "w"))
     vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
     x = AvalancheMQ::DirectExchange.new(vhost, "", true, false, true)
-    x.bind("q1", "q1")
+    x.bind_queue("q1", "q1")
     x.queues_matching("q1").should eq(Set{"q1"})
   end
 end
@@ -16,32 +16,32 @@ describe AvalancheMQ::TopicExchange do
   x = AvalancheMQ::TopicExchange.new(vhost, "t", false, false, true)
 
   it "matches exact rk" do
-    x.bind("q1", "rk1")
+    x.bind_queue("q1", "rk1")
     x.queues_matching("rk1").should eq(Set{"q1"})
   end
 
   it "matches star-wildcards" do
-    x.bind("q2", "*")
+    x.bind_queue("q2", "*")
     x.queues_matching("rk2").should eq(Set{"q2"})
   end
 
   it "matches star-wildcards but not too much" do
-    x.bind("q2", "*")
+    x.bind_queue("q2", "*")
     x.queues_matching("rk2.a").should eq(Set(String).new())
   end
 
   it "should not match with too many star-wildcards" do
-    x.bind("q3", "a.*")
+    x.bind_queue("q3", "a.*")
     x.queues_matching("b.c").should eq(Set(String).new)
   end
 
   it "should match star-wildcards in the middle" do
-    x.bind("q4", "c.*.d")
+    x.bind_queue("q4", "c.*.d")
     x.queues_matching("c.a.d").should eq(Set{"q4"})
   end
 
   it "should match catch-all" do
-    x.bind("q5", "d.#")
+    x.bind_queue("q5", "d.#")
     x.queues_matching("d.a.d").should eq(Set{"q5"})
   end
 end
@@ -65,35 +65,35 @@ describe AvalancheMQ::HeadersExchange do
 
   describe "match all" do
     it "should match if same args" do
-      x.bind("q6", nil, hdrs_all)
-      x.queues_matching(nil, hdrs_all).should eq(Set{"q6"})
+      x.bind_queue("q6", "", hdrs_all)
+      x.queues_matching("", hdrs_all).should eq(Set{"q6"})
     end
 
     it "should not match if not all args are the same" do
-      x.bind("q7", nil, hdrs_all)
+      x.bind_queue("q7", "", hdrs_all)
       msg_hdrs = hdrs_all.dup
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
-      x.queues_matching(nil, msg_hdrs).size.should eq 0
+      x.queues_matching("", msg_hdrs).size.should eq 0
     end
   end
 
   describe "match any" do
     it "should match if any args are the same" do
-      x.bind("q8", nil, hdrs_any)
+      x.bind_queue("q8", "", hdrs_any)
       msg_hdrs = hdrs_any.dup
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
-      x.queues_matching(nil, msg_hdrs).should eq(Set{"q8"})
+      x.queues_matching("", msg_hdrs).should eq(Set{"q8"})
     end
 
     it "should not match if no args are the same" do
-      x.bind("q9", nil, hdrs_any)
+      x.bind_queue("q9", "", hdrs_any)
       msg_hdrs = hdrs_any.dup
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
       msg_hdrs["user"] = "hest"
-      x.queues_matching(nil, msg_hdrs).size.should eq 0
+      x.queues_matching("", msg_hdrs).size.should eq 0
     end
   end
 
@@ -104,12 +104,12 @@ describe AvalancheMQ::HeadersExchange do
     hdrs2 = { "x-match" => "all", "org" => "google",
               "user" => "test"} of String => AvalancheMQ::AMQP::Field
 
-    hx.bind("q10", nil, hdrs1)
-    hx.bind("q10", nil, hdrs2)
+    hx.bind_queue("q10", "", hdrs1)
+    hx.bind_queue("q10", "", hdrs2)
     hdrs1.delete "x-match"
     hdrs2.delete "x-match"
-    hx.queues_matching(nil, hdrs1).should eq Set{"q10"}
-    hx.queues_matching(nil, hdrs2).should eq Set{"q10"}
+    hx.queues_matching("", hdrs1).should eq Set{"q10"}
+    hx.queues_matching("", hdrs2).should eq Set{"q10"}
   end
 
   it "should handle all Field types" do
@@ -122,16 +122,16 @@ describe AvalancheMQ::HeadersExchange do
              "Array(UInt8)" => arru, "Time" => Time.now, "Hash(String, Field)" => hsh,
              "x-match" => "all"
            } of String => AvalancheMQ::AMQP::Field
-    x.bind("q11", nil, hdrs)
-    x.queues_matching(nil, hdrs).should eq Set{"q11"}
+    x.bind_queue("q11", "", hdrs)
+    x.queues_matching("", hdrs).should eq Set{"q11"}
   end
 
   it "should handle unbind" do
     hx = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
     hdrs1 = { "x-match" => "any", "org" => "84codes",
               "user" => "test"} of String => AvalancheMQ::AMQP::Field
-    hx.bind("q12", nil, hdrs1)
-    hx.unbind("q12", nil, hdrs1)
-    hx.queues_matching(nil, hdrs1).size.should eq 0
+    hx.bind_queue("q12", "", hdrs1)
+    hx.unbind_queue("q12", "", hdrs1)
+    hx.queues_matching("", hdrs1).size.should eq 0
   end
 end
