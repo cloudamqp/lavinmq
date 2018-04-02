@@ -412,4 +412,22 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "acking an invalid delivery tag should close the channel" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      cch = Channel(Tuple(UInt16, String)).new
+      ch.on_close do |code, text|
+        cch.send({ code, text })
+      end
+      ch.ack(999_u64)
+      code, text = cch.receive
+      code.should eq 406
+    end
+  ensure
+    s.try &.close
+  end
 end

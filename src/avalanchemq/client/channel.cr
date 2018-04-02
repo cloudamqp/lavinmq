@@ -125,7 +125,7 @@ module AvalancheMQ
           consumer.ack(sp) if consumer
           queue.ack(sp)
         else
-          reply_text = "No matching delivery tag on this channel"
+          reply_text = "No matching delivery tag #{frame.delivery_tag} on this channel"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
