@@ -264,6 +264,7 @@ module AvalancheMQ
     end
 
     private def read_loop
+      frame : AMQP::Frame?
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
@@ -326,12 +327,27 @@ module AvalancheMQ
           @channels[frame.channel].basic_qos(frame)
         when AMQP::HeartbeatFrame
           send AMQP::HeartbeatFrame.new
-        else @log.error "Unhandled frame #{frame.inspect}"
+        else
+          @log.error { "#{frame.inspect}, not implemented" }
+          raise AMQP::NotImplemented.new(frame)
         end
         if (i += 1) % 1000 == 0
           @log.debug "read_loop yielding"
           Fiber.yield
         end
+      rescue ex : AMQP::NotImplemented
+        @log.error { "#{ex} when reading from socket" }
+        send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
+      rescue ex : KeyError
+        raise ex unless frame.is_a? AMQP::MethodFrame
+        @log.error { "Channel #{frame.channel} not open" }
+        send AMQP::Connection::Close.new(504_u16, "Channel #{frame.channel} not open",
+                                         frame.class_id, frame.method_id)
+      rescue ex : Exception
+        raise ex unless frame.is_a? AMQP::MethodFrame
+        @log.error { "#{ex}, when processing frame" }
+        send AMQP::Connection::Close.new(541_u16, "Internal error",
+                                         frame.class_id, frame.method_id)
       end
     rescue ex : KeyError
       @log.error { "Channel already closed" }
