@@ -319,7 +319,7 @@ module AvalancheMQ
     rescue ex : KeyError
       @log.error { "Channel already closed" }
     rescue ex : AMQP::NotImplemented
-      @log.debug { "#{ex} when reading from socket" }
+      @log.error { "#{ex} when reading from socket" }
       send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
     rescue ex : AMQP::FrameDecodeError
       @log.debug { "#{ex.cause} when reading from socket" }
