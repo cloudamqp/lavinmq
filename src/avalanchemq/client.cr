@@ -385,6 +385,9 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       @outbox.send frame
+      if frame.is_a? AMQP::Channel::Close || frame.is_a? AMQP::Connection::Close
+        Fiber.yield
+      end
     end
   end
 end
