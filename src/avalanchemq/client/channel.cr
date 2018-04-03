@@ -1,5 +1,6 @@
 require "logger"
 require "./channel/consumer"
+require "../amqp"
 
 module AvalancheMQ
   class Client
@@ -7,9 +8,11 @@ module AvalancheMQ
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log
 
-      @next_publish_exchange_name : String | Nil
-      @next_publish_routing_key : String | Nil
-      @next_msg_body : IO::Memory = IO::Memory.new
+      @next_publish_exchange_name : String?
+      @next_publish_routing_key : String?
+      @next_msg_size = 0_u64
+      @next_msg_props : AMQP::Properties?
+      @next_msg_body = IO::Memory.new
       @log : Logger
 
       def initialize(@client : Client, @id : UInt16)
@@ -45,9 +48,10 @@ module AvalancheMQ
         @next_publish_immediate = frame.immediate
       end
 
-      def next_msg_headers(size : UInt64, props : AMQP::Properties)
-        @next_msg_size = size
-        @next_msg_props = props
+      def next_msg_headers(frame)
+        @next_msg_size = frame.body_size
+        @next_msg_props = frame.properties
+        finish_publish(frame) if frame.body_size.zero?
       end
 
       def add_content(frame)
@@ -55,29 +59,33 @@ module AvalancheMQ
         raise "No msg to write to" if @next_msg_body.nil?
         @next_msg_body.not_nil!.write bytes
         if @next_msg_body.not_nil!.pos == @next_msg_size.not_nil!
-          msg = Message.new(Time.now.epoch_ms,
-                            @next_publish_exchange_name.not_nil!,
-                            @next_publish_routing_key.not_nil!,
-                            @next_msg_props.not_nil!,
-                            @next_msg_size.not_nil!,
-                            @next_msg_body.not_nil!.to_slice)
-          routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
-          if !routed && @next_publish_immediate
-            @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
-                                               msg.exchange_name, msg.routing_key)
-          elsif !routed && @next_publish_mandatory
-            @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
-                                                 msg.exchange_name, msg.routing_key)
-          end
-          if @confirm
-            @confirm_count += 1
-            @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
-          end
-
-          @next_msg_body.not_nil!.clear
-          @next_publish_exchange_name = @next_publish_routing_key = nil
-          @next_publish_mandatory = @next_publish_immediate = false
+          finish_publish(frame)
         end
+      end
+
+      private def finish_publish(frame)
+        msg = Message.new(Time.now.epoch_ms,
+                          @next_publish_exchange_name.not_nil!,
+                          @next_publish_routing_key.not_nil!,
+                          @next_msg_props.not_nil!,
+                          @next_msg_size.not_nil!,
+                          @next_msg_body.not_nil!.to_slice)
+        routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
+        if !routed && @next_publish_immediate
+          @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
+                                               msg.exchange_name, msg.routing_key)
+        elsif !routed && @next_publish_mandatory
+          @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
+                                               msg.exchange_name, msg.routing_key)
+        end
+        if @confirm
+          @confirm_count += 1
+          @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
+        end
+
+        @next_msg_body.not_nil!.clear
+        @next_publish_exchange_name = @next_publish_routing_key = nil
+        @next_publish_mandatory = @next_publish_immediate = false
       end
 
       def consume(frame)
@@ -125,7 +133,7 @@ module AvalancheMQ
           consumer.ack(sp) if consumer
           queue.ack(sp)
         else
-          reply_text = "No matching delivery tag #{frame.delivery_tag} on this channel"
+          reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -136,7 +144,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "No matching delivery tag on this channel"
+          reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -161,7 +169,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "No matching delivery tag on this channel"
+          reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end

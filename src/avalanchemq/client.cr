@@ -331,7 +331,7 @@ module AvalancheMQ
       when AMQP::Basic::Publish
         @channels[frame.channel].start_publish(frame)
       when AMQP::HeaderFrame
-        @channels[frame.channel].next_msg_headers(frame.body_size, frame.properties)
+        @channels[frame.channel].next_msg_headers(frame)
       when AMQP::BodyFrame
         @channels[frame.channel].add_content(frame)
       when AMQP::Basic::Consume
