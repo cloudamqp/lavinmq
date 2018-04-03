@@ -28,18 +28,7 @@ module AvalancheMQ
                                                  delivery_tag,
                                                  redelivered,
                                                  msg.exchange_name, msg.routing_key)
-          @log.debug { "Sending HeaderFrame" }
-          @channel.send AMQP::HeaderFrame.new(@channel.id, 60_u16, 0_u16, msg.size,
-                                              msg.properties)
-          @log.debug { "Sending BodyFrame(s)" }
-          pos = 0
-          while pos < msg.body.size
-            length = [msg.body.size - pos, @channel.client.max_frame_size - 8].min
-            body_part = msg.body[pos, length]
-            @channel.send AMQP::BodyFrame.new(@channel.id, body_part)
-            pos += @channel.client.max_frame_size - 8
-          end
-          @log.debug { "Sent all frames" }
+          @channel.deliver(msg)
         end
 
         def ack(sp)
