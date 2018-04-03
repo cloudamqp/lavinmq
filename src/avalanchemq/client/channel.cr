@@ -203,13 +203,16 @@ module AvalancheMQ
       end
 
       def close
+        @log.debug { "Closing" }
         @consumers.each { |c| c.queue.rm_consumer(c) }
         @consumers.clear
         @map.each_value do |queue, sp, consumer|
-          consumer.reject sp if consumer
-          queue.reject sp, true
+          if consumer.nil?
+            queue.reject sp, true
+          end
         end
         @map.clear
+        @log.debug { "Closed" }
       end
 
       def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64

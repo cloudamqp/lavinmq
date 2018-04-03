@@ -247,13 +247,14 @@ module AvalancheMQ
 
     def reject(sp : SegmentPosition, requeue : Bool)
       @log.debug { "Rejecting #{sp}" }
-      @unacked.delete sp
-      if requeue
-        i = @ready.index { |rsp| rsp > sp } || 0
-        @ready.insert(i, sp)
-        @message_available.send nil unless @message_available.full?
-      else
-        expire_msg(sp, :rejected)
+      if @unacked.delete sp
+        if requeue
+          i = @ready.index { |rsp| rsp > sp } || 0
+          @ready.insert(i, sp)
+          @message_available.send nil unless @message_available.full?
+        else
+          expire_msg(sp, :rejected)
+        end
       end
     end
 
