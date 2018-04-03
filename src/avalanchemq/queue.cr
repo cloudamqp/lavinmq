@@ -111,13 +111,17 @@ module AvalancheMQ
     end
 
     def close(deleting = false) : Nil
+      if @closed
+        @log.debug "Already closed"
+        return
+      end
       @log.info "Closing"
       @closed = true
       @message_available.close
       @consumer_available.close
       @consumers.clear
       @segments.each_value &.close
-      delete if !deleting && @auto_delete
+      delete if !deleting && (@auto_delete || @exclusive)
       @log.info "Closed"
     end
 
