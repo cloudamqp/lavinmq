@@ -7,11 +7,12 @@ module AvalancheMQ
   class Client
     getter socket, vhost, channels, log, max_frame_size
 
-    @remote_address : Socket::IPAddress
     @log : Logger
 
-    def initialize(@socket : TCPSocket, @vhost : VHost, @max_frame_size : UInt32)
-      @remote_address = @socket.remote_address
+    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket,
+                   @remote_address : Socket::IPAddress,
+                   @vhost : VHost,
+                   @max_frame_size : UInt32)
       @log = @vhost.log.dup
       @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
@@ -20,7 +21,7 @@ module AvalancheMQ
       spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
 
-    def self.start(socket, vhosts, log)
+    def self.start(socket, remote_address, vhosts, log)
       start = Bytes.new(8)
       bytes = socket.read_fully(start)
 
@@ -40,10 +41,10 @@ module AvalancheMQ
       if vhost = vhosts[open.vhost]?
         socket.write AMQP::Connection::OpenOk.new.to_slice
         socket.flush
-        log.info "Accepting connection from #{socket.remote_address} to vhost #{open.vhost}"
-        return self.new(socket, vhost, tune_ok.frame_max)
+        log.info "Accepting connection from #{remote_address} to vhost #{open.vhost}"
+        return self.new(socket, remote_address, vhost, tune_ok.frame_max)
       else
-        log.warn "Access denied for #{socket.remote_address} to vhost #{open.vhost}"
+        log.warn "Access denied for #{remote_address} to vhost #{open.vhost}"
         socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
                                                  open.class_id, open.method_id).to_slice
         socket.close
@@ -89,12 +90,10 @@ module AvalancheMQ
         end
         case frame
         when AMQP::Connection::Close
-          @log.debug { "Closing write socket" }
-          @socket.close_write
           break
         when AMQP::Connection::CloseOk
-          @log.debug { "Closing write socket" }
-          @socket.close_write
+          @log.debug { "Closing socket" }
+          @socket.close
           cleanup
           break
         end
@@ -260,6 +259,10 @@ module AvalancheMQ
           send AMQP::Connection::CloseOk.new
           break
         when AMQP::Connection::CloseOk
+          @log.debug { "Closing socket" }
+          @socket.close
+          @log.debug { "Closing outbox" }
+          @outbox.close # Notifies send_loop to close up shop
           cleanup
           break
         when AMQP::Channel::Open
@@ -314,8 +317,8 @@ module AvalancheMQ
           Fiber.yield
         end
       end
-      @log.debug { "Close read socket" }
-      @socket.close_read
+      #@log.debug { "Close read socket" }
+      #@socket.close_read
     rescue ex : KeyError
       @log.error { "Channel already closed" }
     rescue ex : AMQP::NotImplemented

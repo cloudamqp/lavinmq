@@ -10,16 +10,30 @@ puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 
 log_level = Logger::INFO
 port = 5672
+tls_port = 5671
 data_dir = ""
 config = ""
+cert_path = ""
+key_path = ""
 
 p = OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
+  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |d| data_dir = d }
   parser.on("-c CONF", "--config=CONF", "Path to config file") do |c|
     config = c
   end
-  parser.on("-p PORT", "--port=PORT", "Port to listen on") { |p| port = p.to_i }
-  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |d| data_dir = d }
+  parser.on("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)") do |p|
+    port = p.to_i
+  end
+  parser.on("--tls-port=PORT", "AMQPS port to listen on (default: 5671)") do |p|
+    tls_port = p.to_i
+  end
+  parser.on("--cert FILE", "TLS certificate (including chain)") do |f|
+    cert_path = f
+  end
+  parser.on("--key FILE", "Private key for the TLS certificate") do |f|
+    key_path = f
+  end
   parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
@@ -46,12 +60,18 @@ puts "FD limit: #{fd_limit}"
 puts "The file descriptor limit is very low, consider raising it. You need one for each connection and two for each queue." if fd_limit < 1025
 
 amqp_server = AvalancheMQ::Server.new(data_dir, log_level)
-spawn(name: "AvalancheMQ listening #{port}") do
+spawn(name: "AMQP listening on #{port}") do
   amqp_server.listen(port)
 end
 
+if !cert_path.empty? && !key_path.empty?
+  spawn(name: "AMQPS listening on #{port}") do
+    amqp_server.listen_tls(tls_port, cert_path, key_path)
+  end
+end
+
 http_server = AvalancheMQ::HTTPServer.new(amqp_server, 8080)
-spawn(name: "HTTP Server listen 8080") do
+spawn(name: "HTTP listening on 8080") do
   http_server.listen
 end
 

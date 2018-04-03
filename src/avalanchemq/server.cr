@@ -1,5 +1,6 @@
 require "socket"
 require "logger"
+require "openssl"
 require "./amqp"
 require "./client"
 require "./vhost"
@@ -41,9 +42,36 @@ module AvalancheMQ
         end
       end
     rescue ex : Errno
-      abort "Unrecoverable error, #{ex.to_s}"
+      abort "Unrecoverable error in listener: #{ex.to_s}"
     ensure
       @listeners.delete(s)
+    end
+
+    def listen_tls(port, cert_path : String, key_path : String)
+      socket = TCPServer.new("::", port)
+      @listeners << socket
+      context = OpenSSL::SSL::Context::Server.new
+      context.certificate_chain = cert_path
+      context.private_key = key_path
+      @log.info "Listening on #{socket.local_address} (TLS)"
+      loop do
+        if client = socket.accept?
+          begin
+            ssl_client = OpenSSL::SSL::Socket::Server.new(client, context)
+            ssl_client.sync_close = true
+            ssl_client.sync = false
+            handle_connection(client, ssl_client)
+          rescue e : OpenSSL::SSL::Error
+            @log.error "Error accepting OpenSSL connection from #{client.remote_address}: #{e.inspect}"
+          end
+        else
+          break
+        end
+      end
+    rescue ex : Errno | OpenSSL::Error
+      abort "Unrecoverable error in TLS listener: #{ex.to_s}"
+    ensure
+      @listeners.delete(socket)
     end
 
     def close
@@ -55,21 +83,28 @@ module AvalancheMQ
       @vhosts.each_value &.close
     end
 
-    private def handle_connection(socket)
+    private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
       socket.sync = false
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
       socket.tcp_keepalive_count = 3
       socket.tcp_keepalive_interval = 10
-      socket.linger = 0
+      socket.linger = nil
       # socket.write_timeout = 5
-      if client = Client.start(socket, @vhosts, @log)
+      client =
+        if ssl_client
+          Client.start(ssl_client, socket.remote_address, @vhosts, @log)
+        else
+          Client.start(socket, socket.remote_address, @vhosts, @log)
+        end
+      if client
         @connection_events.send({ client, :connected })
         client.on_close do |c|
           @connection_events.send({ c, :disconnected })
         end
       else
+        ssl_client.close if ssl_client
         socket.close
       end
     end
