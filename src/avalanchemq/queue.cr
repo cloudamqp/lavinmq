@@ -138,7 +138,6 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, flush = false)
-      @log.debug { "ML #{@max_length} ready #{@ready.size}"}
       if @max_length.try { |ml| @ready.size >= ml }
         @log.debug { "Overflow #{@max_length} #{@overflow}" }
         case @overflow
@@ -146,7 +145,7 @@ module AvalancheMQ
           reject(sp, false)
           return false
         when "drop-head"
-          reject(@ready.delete_at(0), false)
+          reject(@ready.shift?, false)
         end
       end
       @log.debug { "Enqueuing message #{sp}" }

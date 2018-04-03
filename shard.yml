@@ -13,8 +13,8 @@ targets:
 development_dependencies:
   amqp:
     github: cloudamqp/amqp.cr
-    branch: basic.return
-    #path: ../amqp.cr
+    branch: master
+    # path: ../amqp.cr
 
 crystal: 0.24.1
 

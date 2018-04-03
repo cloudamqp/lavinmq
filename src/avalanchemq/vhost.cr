@@ -58,9 +58,8 @@ module AvalancheMQ
       flush = true # msg.properties.delivery_mode == 2_u8
       @wfile.flush if flush
       ok = true
-      accepted = false
       ok = queues.all? { |q| q.immediate_delivery? } if immediate
-      queues.each { |q| accepted = q.publish(sp, flush) || accepted }
+      accepted = queues.all? { |q| q.publish(sp, flush) }
 
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1

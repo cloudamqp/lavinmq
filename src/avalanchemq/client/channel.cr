@@ -74,7 +74,7 @@ module AvalancheMQ
               @confirm_count += 1
               @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
             else
-              # @client.send AMQP::Basic::Nack.new(frame.channel)
+              @client.send AMQP::Basic::Nack.new(frame.channel, @delivery_tag, false, false)
             end
           end
 

@@ -484,15 +484,22 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length reject-publish" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::DEBUG)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
       ch = conn.channel
       ch.confirm
       acks = 0
+      nacks = 0
       ch.on_confirm do |tag, acked|
-        acks += 1 if acked
+        if acked
+          puts "ACK"
+          acks += 1
+        else
+          puts "NACK"
+          nacks += 1
+        end
       end
       args = AMQP::Protocol::Table.new
       args["x-max-length"] = 1.to_u16
@@ -509,6 +516,7 @@ describe AvalancheMQ::Server do
         Fiber.yield
       end
       acks.should eq 1
+      nacks.should eq 1
       msgs.size.should eq 1
     end
   ensure
