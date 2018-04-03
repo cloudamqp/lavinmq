@@ -1230,7 +1230,11 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(@channel, class_id, method_id)
+          io = MemoryIO.new(10)
+          io.write_int(@delivery_tag)
+          io.write_bool(@multiple)
+          io.write_bool(@requeue)
+          super(io.to_slice)
         end
 
         def self.decode(channel, io)

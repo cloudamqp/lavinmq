@@ -311,9 +311,7 @@ describe AvalancheMQ::Server do
         reply_msg = text
       end
       ch.publish(pmsg, "amq.topic", "rk", mandatory = false, immediate = true)
-      until reply_code == 313
-        Fiber.yield
-      end
+      wait_for { reply_code == 313 }
       reply_code.should eq 313
     end
   ensure
@@ -360,7 +358,9 @@ describe AvalancheMQ::Server do
       x.publish pmsg2, q.name
       msgs = [] of AMQP::Message
       tag = q.subscribe { |msg| msgs << msg }
-      Fiber.yield
+      until msgs.size == 1
+        Fiber.yield
+      end
       msgs.size.should eq 1
     end
   ensure
@@ -447,6 +447,75 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msg = q.get(no_ack: true)
       msg.to_s.should eq("test message")
+    end
+  ensure
+    s.try &.close
+  end
+
+  it "supports x-max-length drop-head" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.confirm
+      acks = 0
+      ch.on_confirm do |tag, acked|
+        acks += 1 if acked
+      end
+      args = AMQP::Protocol::Table.new
+      args["x-max-length"] = 1.to_u16
+      q = ch.queue("", args: args)
+      x = ch.exchange("", "direct")
+      pmsg1 = AMQP::Message.new("m1")
+      x.publish pmsg1, q.name
+      pmsg2 = AMQP::Message.new("m2")
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      q.subscribe { |msg| msgs << msg }
+      until msgs.size == 1
+        Fiber.yield
+      end
+      acks.should eq 2
+      msgs.size.should eq 1
+    end
+  ensure
+    s.try &.close
+  end
+
+  it "supports x-max-length reject-publish" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.confirm
+      acks = 0
+      nacks = 0
+      ch.on_confirm do |tag, acked|
+        if acked
+          acks += 1
+        else
+          nacks += 1
+        end
+      end
+      args = AMQP::Protocol::Table.new
+      args["x-max-length"] = 1.to_u16
+      args["x-overflow"] = "reject-publish"
+      q = ch.queue("", args: args)
+      x = ch.exchange("", "direct")
+      pmsg1 = AMQP::Message.new("m1")
+      x.publish pmsg1, q.name
+      pmsg2 = AMQP::Message.new("m2")
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      q.subscribe { |msg| msgs << msg }
+      until msgs.size == 1
+        Fiber.yield
+      end
+      acks.should eq 1
+      nacks.should eq 1
+      msgs.size.should eq 1
     end
   ensure
     s.try &.close
