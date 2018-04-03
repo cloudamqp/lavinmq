@@ -264,96 +264,24 @@ module AvalancheMQ
     end
 
     private def read_loop
-      frame : AMQP::Frame?
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
         @log.debug { "Read #{frame.inspect}" }
-        case frame
-        when AMQP::Connection::Close
-          send AMQP::Connection::CloseOk.new
-          break
-        when AMQP::Connection::CloseOk
-          @log.debug { "Closing socket" }
-          @socket.close
-          cleanup
-          break
-        when AMQP::Channel::Open
-          open_channel(frame)
-        when AMQP::Channel::Close
-          @channels.delete(frame.channel).try &.close
-          send AMQP::Channel::CloseOk.new(frame.channel)
-        when AMQP::Channel::CloseOk
-          @channels.delete(frame.channel).try &.close
-        when AMQP::Confirm::Select
-          @channels[frame.channel].confirm_select(frame)
-        when AMQP::Exchange::Declare
-          declare_exchange(frame)
-        when AMQP::Exchange::Delete
-          delete_exchange(frame)
-        when AMQP::Exchange::Bind
-          bind_exchange(frame)
-        when AMQP::Exchange::Unbind
-          unbind_exchange(frame)
-        when AMQP::Queue::Declare
-          declare_queue(frame)
-        when AMQP::Queue::Bind
-          bind_queue(frame)
-        when AMQP::Queue::Unbind
-          unbind_queue(frame)
-        when AMQP::Queue::Delete
-          delete_queue(frame)
-        when AMQP::Queue::Purge
-          purge_queue(frame)
-        when AMQP::Basic::Publish
-          @channels[frame.channel].start_publish(frame)
-        when AMQP::HeaderFrame
-          @channels[frame.channel].next_msg_headers(frame.body_size, frame.properties)
-        when AMQP::BodyFrame
-          @channels[frame.channel].add_content(frame)
-        when AMQP::Basic::Consume
-          @channels[frame.channel].consume(frame)
-        when AMQP::Basic::Get
-          @channels[frame.channel].basic_get(frame)
-        when AMQP::Basic::Ack
-          @channels[frame.channel].basic_ack(frame)
-        when AMQP::Basic::Reject
-          @channels[frame.channel].basic_reject(frame)
-        when AMQP::Basic::Nack
-          @channels[frame.channel].basic_nack(frame)
-        when AMQP::Basic::Cancel
-          @channels[frame.channel].cancel_consumer(frame)
-        when AMQP::Basic::Qos
-          @channels[frame.channel].basic_qos(frame)
-        when AMQP::HeartbeatFrame
-          send AMQP::HeartbeatFrame.new
-        else
-          raise AMQP::NotImplemented.new(frame)
-        end
+        ok = process_frame(frame)
+        break unless ok
         if (i += 1) % 1000 == 0
           @log.debug "read_loop yielding"
           Fiber.yield
         end
-      rescue ex : AMQP::NotImplemented
-        raise ex unless frame.is_a? AMQP::Frame
-        @log.error { "#{frame.inspect}, not implemented" }
-        send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
-      rescue ex : KeyError
-        raise ex unless frame.is_a? AMQP::MethodFrame
-        @log.error { "Channel #{frame.channel} not open" }
-        send AMQP::Connection::Close.new(504_u16, "Channel #{frame.channel} not open",
-                                         frame.class_id, frame.method_id)
-      rescue ex : Exception
-        raise ex unless frame.is_a? AMQP::MethodFrame
-        @log.error { "#{ex}, when processing frame" }
-        send AMQP::Channel::Close.new(frame.channel, 541_u16, "Internal error",
-                                      frame.class_id, frame.method_id)
       end
-    rescue ex : KeyError
-      @log.error { "Channel already closed" }
     rescue ex : AMQP::NotImplemented
       @log.error { "#{ex} when reading from socket" }
-      send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
+      if ex.channel > 0
+        send AMQP::Channel::Close.new(ex.channel, 540_u16, "Not implemented", ex.class_id, ex.method_id)
+      else
+        send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
+      end
     rescue ex : AMQP::FrameDecodeError
       @log.error { "#{ex.cause} when reading from socket" }
       @log.debug { "Closing outbox" }
@@ -361,6 +289,88 @@ module AvalancheMQ
     rescue ex : Exception
       @log.error { "#{ex}, in read loop" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+    end
+
+    private def process_frame(frame)
+      case frame
+      when AMQP::Connection::Close
+        send AMQP::Connection::CloseOk.new
+        return false
+      when AMQP::Connection::CloseOk
+        @log.debug { "Closing socket" }
+        @socket.close
+        cleanup
+        return false
+      when AMQP::Channel::Open
+        open_channel(frame)
+      when AMQP::Channel::Close
+        @channels.delete(frame.channel).try &.close
+        send AMQP::Channel::CloseOk.new(frame.channel)
+      when AMQP::Channel::CloseOk
+        @channels.delete(frame.channel).try &.close
+      when AMQP::Confirm::Select
+        @channels[frame.channel].confirm_select(frame)
+      when AMQP::Exchange::Declare
+        declare_exchange(frame)
+      when AMQP::Exchange::Delete
+        delete_exchange(frame)
+      when AMQP::Exchange::Bind
+        bind_exchange(frame)
+      when AMQP::Exchange::Unbind
+        unbind_exchange(frame)
+      when AMQP::Queue::Declare
+        declare_queue(frame)
+      when AMQP::Queue::Bind
+        bind_queue(frame)
+      when AMQP::Queue::Unbind
+        unbind_queue(frame)
+      when AMQP::Queue::Delete
+        delete_queue(frame)
+      when AMQP::Queue::Purge
+        purge_queue(frame)
+      when AMQP::Basic::Publish
+        @channels[frame.channel].start_publish(frame)
+      when AMQP::HeaderFrame
+        @channels[frame.channel].next_msg_headers(frame.body_size, frame.properties)
+      when AMQP::BodyFrame
+        @channels[frame.channel].add_content(frame)
+      when AMQP::Basic::Consume
+        @channels[frame.channel].consume(frame)
+      when AMQP::Basic::Get
+        @channels[frame.channel].basic_get(frame)
+      when AMQP::Basic::Ack
+        @channels[frame.channel].basic_ack(frame)
+      when AMQP::Basic::Reject
+        @channels[frame.channel].basic_reject(frame)
+      when AMQP::Basic::Nack
+        @channels[frame.channel].basic_nack(frame)
+      when AMQP::Basic::Cancel
+        @channels[frame.channel].cancel_consumer(frame)
+      when AMQP::Basic::Qos
+        @channels[frame.channel].basic_qos(frame)
+      when AMQP::HeartbeatFrame
+        send AMQP::HeartbeatFrame.new
+      else
+        raise AMQP::NotImplemented.new(frame)
+      end
+      true
+    rescue ex : AMQP::NotImplemented
+      @log.error { "#{frame.inspect}, not implemented" }
+      raise ex if ex.channel == 0
+      send AMQP::Channel::Close.new(ex.channel, 540_u16, "Not implemented", ex.class_id, ex.method_id)
+      true
+    rescue ex : KeyError
+      raise ex unless frame.is_a? AMQP::MethodFrame
+      @log.error { "Channel #{frame.channel} not open" }
+      send AMQP::Connection::Close.new(504_u16, "Channel #{frame.channel} not open",
+                                       frame.class_id, frame.method_id)
+      true
+    rescue ex : Exception
+      raise ex unless frame.is_a? AMQP::MethodFrame
+      @log.error { "#{ex}, when processing frame" }
+      send AMQP::Channel::Close.new(frame.channel, 541_u16, "Internal error",
+                                    frame.class_id, frame.method_id)
+      true
     end
 
     def send_not_found(frame, reply_text = "Not found")
