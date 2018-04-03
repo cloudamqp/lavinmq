@@ -48,14 +48,14 @@ module AvalancheMQ
     end
 
     def listen_tls(port, cert_path : String, key_path : String)
-      socket = TCPServer.new("::", port)
-      @listeners << socket
+      s = TCPServer.new("::", port)
+      @listeners << s
       context = OpenSSL::SSL::Context::Server.new
       context.certificate_chain = cert_path
       context.private_key = key_path
-      @log.info "Listening on #{socket.local_address} (TLS)"
+      @log.info "Listening on #{s.local_address} (TLS)"
       loop do
-        if client = socket.accept?
+        if client = s.accept?
           begin
             ssl_client = OpenSSL::SSL::Socket::Server.new(client, context)
             ssl_client.sync_close = true
@@ -71,7 +71,7 @@ module AvalancheMQ
     rescue ex : Errno | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.to_s}"
     ensure
-      @listeners.delete(socket)
+      @listeners.delete(s)
     end
 
     def close
