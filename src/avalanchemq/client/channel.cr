@@ -77,9 +77,11 @@ module AvalancheMQ
           if @next_publish_immediate
             @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
                                                  msg.exchange_name, msg.routing_key)
+            deliver(msg)
           elsif @next_publish_mandatory
             @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
                                                  msg.exchange_name, msg.routing_key)
+            deliver(msg)
           end
         end
         if @confirm
