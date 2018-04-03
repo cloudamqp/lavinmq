@@ -129,16 +129,17 @@ module AvalancheMQ
       end
 
       def basic_ack(frame)
-        if frame.multiple
-          @map.select { |k, _| k <= frame.delivery_tag }.each_value do |queue, sp, consumer|
-            consumer.ack(sp) if consumer
-            queue.ack(sp)
-          end
-          @map.delete_if { |k, _| k <= frame.delivery_tag }
-        elsif qspc = @map.delete(frame.delivery_tag)
+        if qspc = @map.delete(frame.delivery_tag)
           queue, sp, consumer = qspc
           consumer.ack(sp) if consumer
           queue.ack(sp)
+          if frame.multiple
+            @map.select { |k, _| k < frame.delivery_tag }.each_value do |queue, sp, consumer|
+              consumer.ack(sp) if consumer
+              queue.ack(sp)
+            end
+            @map.delete_if { |k, _| k < frame.delivery_tag }
+          end
         else
           reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
@@ -157,24 +158,23 @@ module AvalancheMQ
       end
 
       def basic_nack(frame)
-        if frame.multiple
-          if frame.delivery_tag.zero?
-            @map.each_value do |queue, sp, consumer|
-              consumer.reject(sp) if consumer
-              queue.reject(sp, frame.requeue)
-            end
-            @map.clear
-          else
-            @map.select { |k, _| k <= frame.delivery_tag }.each_value do |queue, sp, consumer|
-              consumer.reject(sp) if consumer
-              queue.reject(sp, frame.requeue)
-            end
-            @map.delete_if { |k, _| k <= frame.delivery_tag }
+        if frame.multiple && frame.delivery_tag.zero?
+          @map.each_value do |queue, sp, consumer|
+            consumer.reject(sp) if consumer
+            queue.reject(sp, frame.requeue)
           end
+          @map.clear
         elsif qspc = @map.delete(frame.delivery_tag)
           queue, sp, consumer = qspc
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
+          if frame.multiple
+            @map.select { |k, _| k < frame.delivery_tag }.each_value do |queue, sp, consumer|
+              consumer.reject(sp) if consumer
+              queue.reject(sp, frame.requeue)
+            end
+            @map.delete_if { |k, _| k < frame.delivery_tag }
+          end
         else
           reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
