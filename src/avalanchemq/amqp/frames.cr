@@ -47,7 +47,7 @@ module AvalancheMQ
         when Type::Header then HeaderFrame.decode(channel, body)
         when Type::Body then BodyFrame.new(channel, body)
         when Type::Heartbeat then HeartbeatFrame.decode
-        else raise NotImplemented.new 0_u16, 0_u16
+        else raise NotImplemented.new 0_u16, 0_u16, 0_u16
         end
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
@@ -57,19 +57,21 @@ module AvalancheMQ
     class FrameDecodeError < Exception; end
 
     class NotImplemented < Exception
-      getter class_id, method_id
+      getter channel, class_id, method_id
 
-      def initialize(@class_id : UInt16, @method_id : UInt16)
-        super("Method id #{@method_id} not implemented in class #{@class_id}")
+      def initialize(@channel : UInt16, @class_id : UInt16, @method_id : UInt16)
+        super("Method id #{@method_id} not implemented in class #{@class_id} (Channel #{@channel})")
       end
 
       def initialize(frame : MethodFrame)
+        @channel = frame.channel
         @class_id = frame.class_id
         @method_id = frame.method_id
         super("Method id #{@method_id} not implemented in class #{@class_id}")
       end
 
       def initialize(frame : Frame)
+        @channel = 0_u16
         @class_id = 0_u16
         @method_id = 0_u16
         super("Frame type #{frame.type} not implemented")
@@ -117,9 +119,9 @@ module AvalancheMQ
         when 50_u16 then Queue.decode(channel, body)
         when 60_u16 then Basic.decode(channel, body)
         when 85_u16 then Confirm.decode(channel, body)
-          #when 90_u16 then Tx.decode(channel, body)
+        when 90_u16 then Tx.decode(channel, body)
         else
-          raise NotImplemented.new(class_id, 0_u16)
+          raise NotImplemented.new(channel, class_id, 0_u16)
         end
       end
     end
@@ -145,7 +147,7 @@ module AvalancheMQ
         when 41_u16 then OpenOk.decode(body)
         when 50_u16 then Close.decode(body)
         when 51_u16 then CloseOk.decode(body)
-        else raise NotImplemented.new(CLASS_ID, method_id)
+        else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
@@ -382,7 +384,7 @@ module AvalancheMQ
           #when 21_u16 then FlowOk.decode(channel, body)
         when 40_u16 then Close.decode(channel, body)
         when 41_u16 then CloseOk.decode(channel, body)
-        else raise NotImplemented.new(CLASS_ID, method_id)
+        else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
@@ -497,7 +499,7 @@ module AvalancheMQ
         when 31_u16 then BindOk.decode(channel, body)
         when 40_u16 then Unbind.decode(channel, body)
         when 41_u16 then UnbindOk.decode(channel, body)
-        else raise NotImplemented.new(CLASS_ID, method_id)
+        else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
@@ -732,7 +734,7 @@ module AvalancheMQ
         when 41_u16 then DeleteOk.decode(channel, body)
         when 50_u16 then Unbind.decode(channel, body)
         when 51_u16 then UnbindOk.decode(channel, body)
-        else raise NotImplemented.new(CLASS_ID, method_id)
+        else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
@@ -797,8 +799,8 @@ module AvalancheMQ
           super io.to_slice
         end
 
-        def self.decode(io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+        def self.decode(channel, io)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
 
@@ -906,8 +908,8 @@ module AvalancheMQ
           super io.to_slice
         end
 
-        def self.decode(io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+        def self.decode(channel, io)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
 
@@ -1008,8 +1010,8 @@ module AvalancheMQ
           super io.to_slice
         end
 
-        def self.decode(io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+        def self.decode(channel, io)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
     end
@@ -1038,7 +1040,7 @@ module AvalancheMQ
         when 80_u16 then Ack.decode(channel, body)
         when 90_u16 then Reject.decode(channel, body)
         when 120_u16 then Nack.decode(channel, body)
-        else raise NotImplemented.new(CLASS_ID, method_id)
+        else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
@@ -1055,7 +1057,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(class_id, method_id)
+          raise NotImplemented.new(@channel, class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1093,7 +1095,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
 
@@ -1109,7 +1111,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(class_id, method_id)
+          raise NotImplemented.new(@channel, class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1143,7 +1145,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
 
@@ -1206,7 +1208,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(class_id, method_id)
+          raise NotImplemented.new(@channel, class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1256,7 +1258,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(class_id, method_id)
+          raise NotImplemented.new(@channel, class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1296,7 +1298,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(class_id, method_id)
+          raise NotImplemented.new(@channel, class_id, method_id)
         end
 
         def self.decode(channel, io)
@@ -1331,7 +1333,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
 
@@ -1359,8 +1361,8 @@ module AvalancheMQ
           super(io.to_slice)
         end
 
-        def self.decode
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+        def self.decode(channel, io)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
       end
 
@@ -1464,7 +1466,7 @@ module AvalancheMQ
         case method_id
         when 10_u16 then Select.decode(channel, body)
         when 11_u16 then SelectOk.decode(channel, body)
-        else raise NotImplemented.new(CLASS_ID, method_id)
+        else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
@@ -1485,7 +1487,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(class_id, method_id)
+          raise NotImplemented.new(@channel, class_id, method_id)
         end
       end
 
@@ -1499,9 +1501,21 @@ module AvalancheMQ
           super Bytes.new(0)
         end
 
-        def self.decode(io)
-          raise NotImplemented.new(CLASS_ID, METHOD_ID)
+        def self.decode(channel, io)
+          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
         end
+      end
+    end
+
+    abstract struct Tx < MethodFrame
+      CLASS_ID = 90_u16
+      def class_id
+        CLASS_ID
+      end
+
+      def self.decode(channel, body)
+        method_id = body.read_uint16
+        raise NotImplemented.new(channel, CLASS_ID, method_id)
       end
     end
   end
