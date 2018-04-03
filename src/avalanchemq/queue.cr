@@ -266,8 +266,9 @@ module AvalancheMQ
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       @consumers.delete consumer
-      consumer.unacked.each { |sp| reject(sp, true) }
-      @log.debug { "Removing consumer (now #{@consumers.size})" }
+      consumer.unacked.reverse_each { |sp| reject(sp, true) }
+      consumer.unacked.clear
+      @log.debug { "Removing consumer (#{@consumers.size} left)" }
       if @auto_delete && @consumers.size == 0
         delete
       end
