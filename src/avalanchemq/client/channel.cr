@@ -110,7 +110,14 @@ module AvalancheMQ
                                                 env.message.routing_key, q.message_count)
             @client.send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16,
                                                env.message.size, env.message.properties)
-            @client.send AMQP::BodyFrame.new(frame.channel, env.message.body.to_slice)
+            body = env.message.body
+            pos = 0
+            while pos < body.size
+              length = [body.size - pos, @client.max_frame_size - 8].min
+              body_part = body[pos, length]
+              @client.send AMQP::BodyFrame.new(frame.channel, body_part)
+              pos += @client.max_frame_size - 8
+            end
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
           end
