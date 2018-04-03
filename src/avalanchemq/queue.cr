@@ -18,12 +18,13 @@ module AvalancheMQ
     @overflow : String?
     @closed = false
     getter name, durable, exclusive, auto_delete, arguments
+    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
-                   @exclusive : Bool, @auto_delete : Bool,
-                   @arguments : Hash(String, AMQP::Field))
+                   @exclusive = false, @auto_delete = false,
+                   @arguments = AMQP::Table.new)
       @log = @vhost.log.dup
-      @log.progname = "Queue #{@vhost.name}/#{@name}"
+      @log.progname += "/Queue[#{@name}]"
       message_ttl = @arguments.fetch("x-message-ttl", nil)
       @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
       @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
@@ -37,7 +38,8 @@ module AvalancheMQ
       @unacked = Set(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
-        h[seg] = QueueFile.open(File.join(@vhost.data_dir, "msgs.#{seg}"), "r")
+        path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+        h[seg] = QueueFile.open(path, "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
@@ -58,7 +60,7 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def close_unused_segments_and_report_used
+    def close_unused_segments_and_report_used : Set(UInt32)
       s = Set(UInt32).new
       @ready.each { |sp| s << sp.segment }
       @unacked.each { |sp| s << sp.segment }
@@ -92,6 +94,7 @@ module AvalancheMQ
             rescue Channel::ClosedError
               @log.debug "Consumer chosen for delivery has disconnected"
               reject env.segment_position, true
+              Fiber.yield
             end
             @log.debug { "Delivery done" }
           end
@@ -107,7 +110,7 @@ module AvalancheMQ
       @log.debug "Delivery loop channel closed"
     end
 
-    def close(deleting = false)
+    def close(deleting = false) : Nil
       @log.info "Closing"
       @closed = true
       @message_available.close
@@ -118,10 +121,9 @@ module AvalancheMQ
       @log.info "Closed"
     end
 
-    def delete
+    protected def delete
       @log.info "Deleting"
-      @vhost.queues.delete @name
-      close(deleting: true)
+      @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
     end
 
     def to_json(json : JSON::Builder)
@@ -241,7 +243,8 @@ module AvalancheMQ
       @log.debug { "Rejecting #{sp}" }
       @unacked.delete sp
       if requeue
-        @ready.unshift sp
+        i = @ready.index { |rsp| rsp > sp } || 0
+        @ready.insert(i, sp)
         @message_available.send nil unless @message_available.full?
       else
         expire_msg(sp, :rejected)

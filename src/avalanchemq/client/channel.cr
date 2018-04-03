@@ -1,17 +1,20 @@
+require "logger"
+require "./channel/consumer"
+
 module AvalancheMQ
   class Client
     class Channel
-      getter prefetch_size, prefetch_count, global_prefetch, confirm
+      getter id, client, prefetch_size, prefetch_count, global_prefetch,
+        confirm, log
 
       @next_publish_exchange_name : String | Nil
       @next_publish_routing_key : String | Nil
       @next_msg_body : IO::Memory = IO::Memory.new
+      @log : Logger
 
-      def send(frame)
-        @client.send frame
-      end
-
-      def initialize(@client : Client)
+      def initialize(@client : Client, @id : UInt16)
+        @log = @client.log.dup
+        @log.progname += "/Channel[#{@id}]"
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
         @confirm_count = 0_u64
@@ -24,8 +27,8 @@ module AvalancheMQ
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
       end
 
-      def log
-        @client.log
+      def send(frame)
+        @client.send frame
       end
 
       def confirm_select(frame)
@@ -86,7 +89,7 @@ module AvalancheMQ
         if frame.consumer_tag.empty?
           frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
         end
-        c = Consumer.new(self, frame.channel, frame.consumer_tag, q, frame.no_ack)
+        c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack)
         unless frame.no_wait
           @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
@@ -126,10 +129,8 @@ module AvalancheMQ
           consumer.ack(sp) if consumer
           queue.ack(sp)
         else
-          reply_code = "No matching delivery tag on this channel"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
-                                                frame.class_id, frame.method_id)
-          close
+          reply_text = "No matching delivery tag #{frame.delivery_tag} on this channel"
+          @client.send_precondition_failed(frame, reply_text)
         end
       end
 
@@ -139,10 +140,8 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_code = "No matching delivery tag on this channel"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
-                                                frame.class_id, frame.method_id)
-          close
+          reply_text = "No matching delivery tag on this channel"
+          @client.send_precondition_failed(frame, reply_text)
         end
       end
 
@@ -166,10 +165,8 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_code = "No matching delivery tag on this channel"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code,
-                                                frame.class_id, frame.method_id)
-          close
+          reply_text = "No matching delivery tag on this channel"
+          @client.send_precondition_failed(frame, reply_text)
         end
       end
 
@@ -202,47 +199,6 @@ module AvalancheMQ
         c.try { |c| c.queue.rm_consumer(c) }
         unless frame.no_wait
           @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
-        end
-      end
-
-      class Consumer
-        getter no_ack, queue, unacked, tag
-        def initialize(@channel : Client::Channel, @channel_id : UInt16,
-                       @tag : String, @queue : Queue, @no_ack : Bool)
-          @unacked = Set(SegmentPosition).new
-        end
-
-        def accepts?
-          @channel.prefetch_count.zero? || @unacked.size < @channel.prefetch_count
-        end
-
-        def deliver(msg, sp, queue, redelivered = false)
-          @unacked << sp unless @no_ack
-
-          @channel.log.debug { "Getting delivery tag" }
-          delivery_tag = @channel.next_delivery_tag(queue, sp, @no_ack, self)
-          @channel.log.debug { "Delivering to consumer #{@tag}" }
-          @channel.send AMQP::Basic::Deliver.new(@channel_id, @tag,
-                                                 delivery_tag,
-                                                 redelivered,
-                                                 msg.exchange_name, msg.routing_key)
-          @channel.log.debug { "HeaderFrame to consumer #{@tag}" }
-          @channel.send AMQP::HeaderFrame.new(@channel_id, 60_u16, 0_u16, msg.size,
-                                              msg.properties)
-          # TODO: split body in FRAME_MAX sizes
-          @channel.log.debug { "BodyFrame to consumer #{@tag}" }
-          @channel.send AMQP::BodyFrame.new(@channel_id, msg.body)
-          @channel.log.debug { "Sent all frames" }
-        end
-
-        def ack(sp)
-          @unacked.delete(sp)
-          @channel.log.debug { "Consumer #{@tag} acking #{sp}. Unacked: #{@unacked.size}" }
-        end
-
-        def reject(sp)
-          @unacked.delete(sp)
-          @channel.log.debug { "Consumer #{@tag} rejecting #{sp}. Unacked: #{@unacked.size}" }
         end
       end
     end

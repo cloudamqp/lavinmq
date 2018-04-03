@@ -1,11 +1,14 @@
 module AvalancheMQ
   abstract class Exchange
-    getter name, durable, auto_delete, internal, bindings, arguments
+    getter name, durable, auto_delete, internal, arguments, bindings
+    def_equals_and_hash @vhost.name, @name
 
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
-                   @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
+    def initialize(@vhost : VHost, @name : String, @durable = false,
+                   @auto_delete = false, @internal = false,
+                   @arguments = AMQP::Table.new)
+      @bindings = Hash(Tuple(String, AMQP::Table), Set(Queue | Exchange)).new do |h, k|
+        h[k] = Set(Queue | Exchange).new
+      end
     end
 
     def to_json(builder : JSON::Builder)
@@ -31,10 +34,11 @@ module AvalancheMQ
     end
 
     abstract def type : String
-    abstract def queues_matching(routing_key : String, headers : AMQP::Field) : Set(String)
-    abstract def bind(queue : String, routing_key : String,
-                      arguments : Hash(String, AMQP::Field))
-    abstract def unbind(queue : String, routing_key : String)
+    abstract def bind(destination : Queue | Exchange, routing_key : String,
+                      headers : AMQP::Table?) : Nil
+    abstract def unbind(destination : Queue | Exchange, routing_key : String,
+                        headers : AMQP::Table?) : Nil
+    abstract def matches(routing_key : String, headers : AMQP::Table?) : Set(Queue | Exchange)
   end
 
   class DirectExchange < Exchange
@@ -42,16 +46,16 @@ module AvalancheMQ
       "direct"
     end
 
-    def bind(queue_name, routing_key, headers = nil)
-      @bindings[routing_key] << queue_name
+    def bind(destination, routing_key, headers = nil)
+      @bindings[{routing_key, AMQP::Table.new}] << destination
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[routing_key].delete queue_name
+    def unbind(destination, routing_key, headers = nil)
+      @bindings[{routing_key, AMQP::Table.new}].delete destination
     end
 
-    def queues_matching(routing_key, headers = nil)
-      @bindings[routing_key]
+    def matches(routing_key, headers = nil)
+      @bindings[{routing_key, AMQP::Table.new}]
     end
   end
 
@@ -60,16 +64,16 @@ module AvalancheMQ
       "fanout"
     end
 
-    def bind(queue_name, routing_key, headers = nil)
-      @bindings[""] << queue_name
+    def bind(destination, routing_key, headers = nil)
+      @bindings[{"", AMQP::Table.new}] << destination
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[""].delete queue_name
+    def unbind(destination, routing_key, headers = nil)
+      @bindings[{"", AMQP::Table.new}].delete destination
     end
 
-    def queues_matching(routing_key, headers = nil)
-      @bindings[""]
+    def matches(routing_key, headers = nil)
+      @bindings[{"", AMQP::Table.new}]
     end
   end
 
@@ -78,20 +82,20 @@ module AvalancheMQ
       "topic"
     end
 
-    def bind(queue_name, routing_key, headers = nil)
-      @bindings[routing_key] << queue_name
+    def bind(destination, routing_key, headers = nil)
+      @bindings[{routing_key, AMQP::Table.new}] << destination
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[routing_key].delete queue_name
+    def unbind(destination, routing_key, headers = nil)
+      @bindings[{routing_key, AMQP::Table.new}].delete destination
     end
 
-    def queues_matching(routing_key, headers = nil) : Set(String)
+    def matches(routing_key, headers = nil)
       rk_parts = routing_key.split(".")
-      s = Set(String).new
-      @bindings.each do |bk, q|
+      s = Set(Queue | Exchange).new
+      @bindings.each do |bt, q|
         ok = false
-        bk_parts = bk.split(".")
+        bk_parts = bt[0].split(".")
         bk_parts.each_with_index do |part, i|
           if part == "#"
             ok = true
@@ -120,35 +124,32 @@ module AvalancheMQ
       "headers"
     end
 
-    def initialize(@vhost : VHost, @name : String, @durable : Bool,
-                   @auto_delete : Bool, @internal : Bool,
-                   @arguments = Hash(String, AMQP::Field).new)
-      @headers = @arguments
-      super
+    def bind(destination, routing_key, headers)
+      args = @arguments.merge(headers)
+      unless (args.has_key?("x-match") && args.size >= 2) || args.size == 1
+        raise ArgumentError.new("Arguments required")
+      end
+      @bindings[{"", args}] << destination
     end
 
-    def bind(queue_name, routing_key, headers = nil)
-      @headers = @arguments.merge(headers) if headers
-      @vhost.log.debug("Binding #{queue_name} with #{@headers}")
-      @bindings[""] << queue_name
+    def unbind(destination, routing_key, headers)
+      args = @arguments.merge(headers)
+      @bindings[{"", args}].delete destination
     end
 
-    def unbind(queue_name, routing_key)
-      @bindings[""].delete queue_name
-    end
-
-    def queues_matching(routing_key, headers = nil) : Set(String)
-      matches = Set(String).new
-      if headers
-        @vhost.log.debug("match #{@headers} to #{headers}")
-        case @headers["x-match"]
-        when "all"
-          if headers.all? { |k, v| @headers[k] == v }
-            matches = @bindings[""]
-          end
+    def matches(routing_key, headers)
+      matches = Set(Queue | Exchange).new
+      return matches unless headers
+      @bindings.each do |bt, queues|
+        args = bt[1]
+        case args["x-match"]
         when "any"
-          if headers.any? { |k, v| k != "x-match" && @headers[k] == v }
-            matches = @bindings[""]
+          if headers.any? { |k, v| k != "x-match" && args.has_key?(k) && args[k] == v }
+            matches.concat(queues)
+          end
+        else
+          if headers.all? { |k, v| args.has_key?(k) && args[k] == v }
+            matches.concat(queues)
           end
         end
       end

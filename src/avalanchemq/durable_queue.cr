@@ -1,6 +1,7 @@
 require "./queue"
 module AvalancheMQ
   class DurableQueue < Queue
+    MAX_ACK_FILE_SIZE = 16 * 1024**2
     @ack : QueueFile
     @enq : QueueFile
     @durable = true
@@ -11,14 +12,30 @@ module AvalancheMQ
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       Dir.mkdir_p @index_dir
-      @enq_seg = 0_u32
-      @ack_seg = 0_u32
-      @enq = QueueFile.open(File.join(@index_dir, "#{@enq_seg}.enq"), "a+")
-      @ack = QueueFile.open(File.join(@index_dir, "#{@ack_seg}.ack"), "a+")
+      @enq = QueueFile.open(File.join(@index_dir, "enq"), "w")
+      @ack = QueueFile.open(File.join(@index_dir, "ack"), "w")
       restore_index
     end
 
-    def close(deleting = false)
+    private def compact_index! : Nil
+      @enq.close
+      QueueFile.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+        unacked = @unacked.to_a.sort.each
+        next_unacked = unacked.next
+        @ready.each do |sp|
+          while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
+            f.write_bytes next_unacked.as(SegmentPosition)
+            next_unacked = unacked.next
+          end
+          f.write_bytes sp
+        end
+      end
+      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+      @enq = QueueFile.open(File.join(@index_dir, "enq"))
+      @ack.truncate
+    end
+
+    def close(deleting = false) : Nil
       @ack.close
       @enq.close
       super
@@ -40,6 +57,8 @@ module AvalancheMQ
       super.tap do |env|
         if no_ack && env
           @ack.write_bytes env.segment_position
+          @ack.flush
+          compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
         end
       end
     end
@@ -47,6 +66,7 @@ module AvalancheMQ
     def ack(sp : SegmentPosition)
       @ack.write_bytes sp
       @ack.flush
+      compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
       super
     end
 

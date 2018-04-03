@@ -1,6 +1,9 @@
 require 'bunny'
 
-i =  0
+scheme = "amqp"
+scheme = "amqps" if ARGV.shift == "--tls"
+
+i = 0
 Thread.new do
   loop do
     i = 0
@@ -10,7 +13,7 @@ Thread.new do
 end
 
 loop do
-  b = Bunny.new("amqp://guest:guest@localhost/default").start
+  b = Bunny.new("#{scheme}://guest:guest@localhost/default", verify_peer: false).start
   b.close
   i += 1
 end

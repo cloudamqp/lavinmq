@@ -22,6 +22,7 @@ module AvalancheMQ
       Array(UInt8) |
       Time |
       Hash(String, Field)
+    alias Table = Hash(String, Field)
 
     enum Type : UInt8
       Method = 1
@@ -63,7 +64,7 @@ module AvalancheMQ
 
       def initialize(@content_type : String?,
                      @content_encoding : String?,
-                     @headers : Hash(String, Field)?,
+                     @headers : Table?,
                      @delivery_mode : UInt8?,
                      @priority : UInt8?,
                      @correlation_id : String?,

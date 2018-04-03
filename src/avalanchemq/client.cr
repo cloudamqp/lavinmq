@@ -5,22 +5,23 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter :socket, :vhost, :channels, log
+    getter socket, vhost, channels, log, max_frame_size
 
-    @remote_address : Socket::IPAddress
     @log : Logger
 
-    def initialize(@socket : TCPSocket, @vhost : VHost, server_log : Logger)
-      @remote_address = @socket.remote_address
-      @log = server_log.dup
-      @log.progname = "Client #{@remote_address}"
+    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket,
+                   @remote_address : Socket::IPAddress,
+                   @vhost : VHost,
+                   @max_frame_size : UInt32)
+      @log = @vhost.log.dup
+      @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame).new(1000)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
       spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
 
-    def self.start(socket, vhosts, log)
+    def self.start(socket, remote_address, vhosts, log)
       start = Bytes.new(8)
       bytes = socket.read_fully(start)
 
@@ -31,23 +32,26 @@ module AvalancheMQ
       end
 
       socket.write AMQP::Connection::Start.new.to_slice
+      socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
       socket.write AMQP::Connection::Tune.new(heartbeat: 0_u16).to_slice
+      socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
         socket.write AMQP::Connection::OpenOk.new.to_slice
-        log.info "Accepting connection from #{socket.remote_address} to vhost #{open.vhost}"
-        return self.new(socket, vhost, log)
+        socket.flush
+        log.info "Accepting connection from #{remote_address} to vhost #{open.vhost}"
+        return self.new(socket, remote_address, vhost, tune_ok.frame_max)
       else
-        log.warn "Access denied for #{socket.remote_address} to vhost #{open.vhost}"
+        log.warn "Access denied for #{remote_address} to vhost #{open.vhost}"
         socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
                                                  open.class_id, open.method_id).to_slice
         socket.close
         return nil
       end
-    rescue ex : IO::EOFError | Errno
-      log.warn "#{ex.to_s} while establishing connection"
+    rescue ex : AMQP::FrameDecodeError
+      log.warn "#{ex.cause.inspect} while establishing connection"
       nil
     end
 
@@ -76,19 +80,16 @@ module AvalancheMQ
     end
 
     private def send_loop
-      {% if flag?(:release) && flag?(:linux) %}
-        socket.sync = false
-      {% end %}
       i = 0
       loop do
         frame = @outbox.receive
-        #@log.debug { "<= #{frame.inspect}" }
+        @log.debug { "Send #{frame.inspect}"}
         @socket.write frame.to_slice
-        @socket.flush unless frame.is_a? AMQP::Basic::Deliver | AMQP::HeaderFrame
+        unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
+          @socket.flush
+        end
         case frame
         when AMQP::Connection::Close
-          @log.debug { "Closing write socket" }
-          @socket.close_write
           break
         when AMQP::Connection::CloseOk
           @log.debug { "Closing socket" }
@@ -102,7 +103,7 @@ module AvalancheMQ
         end
       end
     rescue ex : ::Channel::ClosedError
-      @log.debug { "#{ex} when waiting for frames to send" }
+      @log.debug { "#{ex}, when waiting for frames to send" }
       @log.debug { "Closing socket" }
       @socket.close
       cleanup
@@ -115,7 +116,7 @@ module AvalancheMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self)
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
       send AMQP::Channel::OpenOk.new(frame.channel)
     end
 
@@ -209,55 +210,72 @@ module AvalancheMQ
 
     private def bind_queue(frame)
       if !@vhost.queues.has_key? frame.queue_name
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Queue doesn't exists",
-                                      frame.class_id, frame.method_id)
+        send_not_found frame, "Queue #{frame.queue_name} not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Exchange doesn't exists",
-                                      frame.class_id, frame.method_id)
+        send_not_found frame, "Exchange #{frame.exchange_name} not found"
       else
         @vhost.apply(frame)
-        unless frame.no_wait
-          send AMQP::Queue::BindOk.new(frame.channel)
-        end
+        send AMQP::Queue::BindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
     private def unbind_queue(frame)
-      if @vhost.queues.has_key? frame.queue_name && @vhost.exchanges.has_key? frame.exchange_name
+      if !@vhost.queues.has_key? frame.queue_name
+        send_not_found frame, "Queue #{frame.queue_name} not found"
+      elsif !@vhost.exchanges.has_key? frame.exchange_name
+        send_not_found frame, "Exchange #{frame.exchange_name} not found"
+      else
+        @vhost.apply(frame)
+        send AMQP::Queue::UnbindOk.new(frame.channel) unless frame.no_wait
+      end
+    end
+
+    private def bind_exchange(frame)
+      if !@vhost.exchanges.has_key? frame.destination
+        send_not_found frame, "Exchange #{frame.destination} doesn't exists"
+      elsif !@vhost.exchanges.has_key? frame.source
+        send_not_found frame, "Exchange #{frame.source} doesn't exists"
+      else
         @vhost.apply(frame)
         unless frame.no_wait
-          send AMQP::Queue::UnbindOk.new(frame.channel)
+          send AMQP::Exchange::BindOk.new(frame.channel)
         end
+      end
+    end
+
+    private def unbind_exchange(frame)
+      if !@vhost.exchanges.has_key? frame.destination
+        send_not_found frame, "Exchange #{frame.destination} doesn't exists"
+      elsif !@vhost.exchanges.has_key? frame.source
+        send_not_found frame, "Exchange #{frame.source} doesn't exists"
       else
-        send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                      "Queue or exchange does not exists",
-                                      frame.class_id, frame.method_id)
+        @vhost.apply(frame)
+        send AMQP::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
     private def purge_queue(frame)
-      if @vhost.queues.has_key? frame.queue_name
-        message_count = @vhost.queues[frame.queue_name].purge
-        unless frame.no_wait
-          send AMQP::Queue::PurgeOk.new(frame.channel, message_count)
-        end
+      if q = @vhost.queues.fetch(frame.queue_name, nil)
+        messages_purged = q.purge
+        send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
       else
-        send_not_found(frame)
+        send_not_found(frame, "Queue #{frame.queue_name} not found")
       end
     end
 
     private def read_loop
+      frame : AMQP::Frame?
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
-        #@log.debug { "=> #{frame.inspect}" }
+        @log.debug { "Read #{frame.inspect}" }
         case frame
         when AMQP::Connection::Close
           send AMQP::Connection::CloseOk.new
           break
         when AMQP::Connection::CloseOk
+          @log.debug { "Closing socket" }
+          @socket.close
           cleanup
           break
         when AMQP::Channel::Open
@@ -273,6 +291,10 @@ module AvalancheMQ
           declare_exchange(frame)
         when AMQP::Exchange::Delete
           delete_exchange(frame)
+        when AMQP::Exchange::Bind
+          bind_exchange(frame)
+        when AMQP::Exchange::Unbind
+          unbind_exchange(frame)
         when AMQP::Queue::Declare
           declare_queue(frame)
         when AMQP::Queue::Bind
@@ -305,25 +327,49 @@ module AvalancheMQ
           @channels[frame.channel].basic_qos(frame)
         when AMQP::HeartbeatFrame
           send AMQP::HeartbeatFrame.new
-        else @log.error "Unhandled frame #{frame.inspect}"
+        else
+          raise AMQP::NotImplemented.new(frame)
         end
         if (i += 1) % 1000 == 0
           @log.debug "read_loop yielding"
           Fiber.yield
         end
+      rescue ex : AMQP::NotImplemented
+        raise ex unless frame.is_a? AMQP::Frame
+        @log.error { "#{frame.inspect}, not implemented" }
+        send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
+      rescue ex : KeyError
+        raise ex unless frame.is_a? AMQP::MethodFrame
+        @log.error { "Channel #{frame.channel} not open" }
+        send AMQP::Connection::Close.new(504_u16, "Channel #{frame.channel} not open",
+                                         frame.class_id, frame.method_id)
+      rescue ex : Exception
+        raise ex unless frame.is_a? AMQP::MethodFrame
+        @log.error { "#{ex}, when processing frame" }
+        send AMQP::Channel::Close.new(frame.channel, 541_u16, "Internal error",
+                                      frame.class_id, frame.method_id)
       end
-      @log.debug { "Close read socket" }
-      @socket.close_read
     rescue ex : KeyError
-      @log.debug { "Channel already closed" }
-    rescue ex : IO::Error | Errno
-      @log.debug { "#{ex} when reading from socket" }
+      @log.error { "Channel already closed" }
+    rescue ex : AMQP::NotImplemented
+      @log.error { "#{ex} when reading from socket" }
+      send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
+    rescue ex : AMQP::FrameDecodeError
+      @log.error { "#{ex.cause} when reading from socket" }
       @log.debug { "Closing outbox" }
       @outbox.close # Notifies send_loop to close up shop
+    rescue ex : Exception
+      @log.error { "#{ex}, in read loop" }
+      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
-    private def send_not_found(frame)
-      send AMQP::Channel::Close.new(frame.channel, 404_u16, "Not found",
+    def send_not_found(frame, reply_text = "Not found")
+      send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_text,
+                                    frame.class_id, frame.method_id)
+    end
+
+    def send_precondition_failed(frame, reply_text = "Precondition failed")
+      send AMQP::Channel::Close.new(frame.channel, 406_u16, reply_text,
                                     frame.class_id, frame.method_id)
     end
 
