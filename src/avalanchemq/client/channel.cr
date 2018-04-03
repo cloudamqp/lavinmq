@@ -205,13 +205,11 @@ module AvalancheMQ
       def close
         @log.debug { "Closing" }
         @consumers.each { |c| c.queue.rm_consumer(c) }
-        @consumers.clear
         @map.each_value do |queue, sp, consumer|
           if consumer.nil?
             queue.reject sp, true
           end
         end
-        @map.clear
         @log.debug { "Closed" }
       end
 
