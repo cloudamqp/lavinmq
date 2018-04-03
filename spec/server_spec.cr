@@ -452,8 +452,8 @@ describe AvalancheMQ::Server do
     s.try &.close
   end
 
-  it "supports x-max-length" do
-    s = AvalancheMQ::Server.new("/tmp/spec-ml", Logger::DEBUG)
+  it "supports x-max-length drop-head" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -472,8 +472,42 @@ describe AvalancheMQ::Server do
       pmsg2 = AMQP::Message.new("m2")
       x.publish pmsg2, q.name
       msgs = [] of AMQP::Message
-      tag = q.subscribe { |msg| msgs << msg }
-      Fiber.yield
+      q.subscribe { |msg| msgs << msg }
+      until msgs.size == 1
+        Fiber.yield
+      end
+      acks.should eq 2
+      msgs.size.should eq 1
+    end
+  ensure
+    s.try &.close
+  end
+
+  it "supports x-max-length reject-publish" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+      ch = conn.channel
+      ch.confirm
+      acks = 0
+      ch.on_confirm do |tag, acked|
+        acks += 1 if acked
+      end
+      args = AMQP::Protocol::Table.new
+      args["x-max-length"] = 1.to_u16
+      args["x-overflow"] = "reject-publish"
+      q = ch.queue("", args: args)
+      x = ch.exchange("", "direct")
+      pmsg1 = AMQP::Message.new("m1")
+      x.publish pmsg1, q.name
+      pmsg2 = AMQP::Message.new("m2")
+      x.publish pmsg2, q.name
+      msgs = [] of AMQP::Message
+      q.subscribe { |msg| msgs << msg }
+      until msgs.size == 1
+        Fiber.yield
+      end
       acks.should eq 1
       msgs.size.should eq 1
     end
