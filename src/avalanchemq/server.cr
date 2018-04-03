@@ -24,6 +24,7 @@ module AvalancheMQ
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       Dir.mkdir_p @data_dir
       @vhosts = {
+        "/" => VHost.new("/", @data_dir, @log),
         "default" => VHost.new("default", @data_dir, @log),
         "bunny_testbed" => VHost.new("bunny_testbed", @data_dir, @log)
       }
