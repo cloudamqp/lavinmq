@@ -102,8 +102,6 @@ module AvalancheMQ
           Fiber.yield
         end
       end
-      @socket.close_write
-      cleanup
     rescue ex : ::Channel::ClosedError
       @log.debug { "#{ex}, when waiting for frames to send" }
       @log.debug { "Closing socket" }
