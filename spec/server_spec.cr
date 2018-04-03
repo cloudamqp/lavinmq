@@ -311,9 +311,7 @@ describe AvalancheMQ::Server do
         reply_msg = text
       end
       ch.publish(pmsg, "amq.topic", "rk", mandatory = false, immediate = true)
-      until reply_code == 313
-        Fiber.yield
-      end
+      wait_for { reply_code == 313 }
       reply_code.should eq 313
     end
   ensure

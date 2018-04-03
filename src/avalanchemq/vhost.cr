@@ -33,7 +33,7 @@ module AvalancheMQ
 
     def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
-      return false if ex.nil?
+      raise MessageUnroutableError.new if ex.nil?
 
       ok = false
       matches = ex.matches(msg.routing_key, msg.properties.headers)
@@ -42,10 +42,9 @@ module AvalancheMQ
       ok = exchanges.map do |e|
         emsg = msg.dup
         emsg.exchange_name = e.name
-        publish(emsg, immediate)
+        publish(emsg, immediate).as(Bool)
       end.all?
-      ok = false if exchanges.empty?
-      return ok if queues.empty?
+      raise MessageUnroutableError.new if matches.empty?
 
       pos = @wfile.pos.to_u32
       sp = SegmentPosition.new(@segment, pos)
@@ -57,9 +56,10 @@ module AvalancheMQ
       @wfile.write msg.body.to_slice
       flush = true # msg.properties.delivery_mode == 2_u8
       @wfile.flush if flush
-      ok = true
-      ok = queues.all? { |q| q.immediate_delivery? } if immediate
-      accepted = queues.all? { |q| q.publish(sp, flush) }
+      if immediate
+        raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
+      end
+      ok = queues.all? { |q| q.publish(sp, flush) } && ok
 
       if @wfile.pos >= MAX_SEGMENT_SIZE
         @segment += 1
@@ -67,7 +67,7 @@ module AvalancheMQ
         @wfile = open_wfile
         spawn gc_segments!
       end
-      ok && accepted
+      ok
     end
 
     private def open_wfile : MessageFile
@@ -247,4 +247,7 @@ module AvalancheMQ
       end
     end
   end
+
+  class MessageUnroutableError < Exception; end
+  class NoImmediateDeliveryError < Exception; end
 end
