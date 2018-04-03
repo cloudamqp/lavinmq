@@ -261,8 +261,6 @@ module AvalancheMQ
         when AMQP::Connection::CloseOk
           @log.debug { "Closing socket" }
           @socket.close
-          @log.debug { "Closing outbox" }
-          @outbox.close # Notifies send_loop to close up shop
           cleanup
           break
         when AMQP::Channel::Open
