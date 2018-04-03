@@ -317,8 +317,6 @@ module AvalancheMQ
           Fiber.yield
         end
       end
-      #@log.debug { "Close read socket" }
-      #@socket.close_read
     rescue ex : KeyError
       @log.error { "Channel already closed" }
     rescue ex : AMQP::NotImplemented
