@@ -145,7 +145,9 @@ module AvalancheMQ
           reject(sp, false)
           return false
         when "drop-head"
-          reject(@ready.shift?, false)
+          if spr = @ready.shift?
+            reject(spr, false)
+          end
         end
       end
       @log.debug { "Enqueuing message #{sp}" }

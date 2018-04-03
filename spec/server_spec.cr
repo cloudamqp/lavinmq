@@ -360,7 +360,9 @@ describe AvalancheMQ::Server do
       x.publish pmsg2, q.name
       msgs = [] of AMQP::Message
       tag = q.subscribe { |msg| msgs << msg }
-      Fiber.yield
+      until msgs.size == 1
+        Fiber.yield
+      end
       msgs.size.should eq 1
     end
   ensure
@@ -484,7 +486,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length reject-publish" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::DEBUG)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
@@ -494,10 +496,8 @@ describe AvalancheMQ::Server do
       nacks = 0
       ch.on_confirm do |tag, acked|
         if acked
-          puts "ACK"
           acks += 1
         else
-          puts "NACK"
           nacks += 1
         end
       end
