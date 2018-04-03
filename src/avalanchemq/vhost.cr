@@ -200,12 +200,12 @@ module AvalancheMQ
           when AMQP::Exchange::Delete
             next unless @exchanges[frame.exchange_name]?.try(&.durable)
           when AMQP::Queue::Delete
-            next unless @queues[frame.queue_name]?.try(&.durable)
+            next unless @queues[frame.queue_name]?.try { |q| q.durable && !q.exclusive }
           when AMQP::Queue::Bind, AMQP::Queue::Unbind
             e = @exchanges[frame.exchange_name]
             next unless e.durable
             q = @queues[frame.queue_name]
-            next unless q.durable
+            next unless q.durable && !q.exclusive
           when AMQP::Exchange::Bind, AMQP::Exchange::Unbind
             s = @exchanges[frame.source]
             next unless s.durable
@@ -213,13 +213,15 @@ module AvalancheMQ
             next unless d.durable
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
-          @log.debug { "Storing #{f.inspect} to definitions" }
+          @log.debug { "Storing definition: #{f.inspect}" }
           frame.encode(f)
           f.flush
         end
       end
     rescue Channel::ClosedError
       @log.debug "Save channel closed"
+    ensure
+      @save.close
     end
 
     private def last_segment : UInt32
