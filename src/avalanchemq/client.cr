@@ -287,7 +287,7 @@ module AvalancheMQ
       @log.debug { "Closing outbox" }
       @outbox.close # Notifies send_loop to close up shop
     rescue ex : Exception
-      @log.error { "#{ex}, in read loop" }
+      @log.error { "#{ex.inspect}, in read loop" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
@@ -367,7 +367,7 @@ module AvalancheMQ
       true
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::MethodFrame
-      @log.error { "#{ex}, when processing frame" }
+      @log.error { "#{ex.inspect}, when processing frame" }
       send AMQP::Channel::Close.new(frame.channel, 541_u16, "Internal error",
                                     frame.class_id, frame.method_id)
       true
