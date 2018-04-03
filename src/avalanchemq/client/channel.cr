@@ -225,10 +225,13 @@ module AvalancheMQ
         @log.debug { "Canceling consumer #{frame.consumer_tag}" }
         if c = @consumers.find { |c| c.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
-          @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag) unless frame.no_wait
+          unless frame.no_wait
+            @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+          end
         else
           text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
-          @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
+          @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text,
+                                                frame.class_id, frame.method_id)
         end
       end
     end
