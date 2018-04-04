@@ -77,9 +77,11 @@ module AvalancheMQ
           if @next_publish_immediate
             @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
                                                  msg.exchange_name, msg.routing_key)
+            deliver(msg)
           elsif @next_publish_mandatory
             @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
                                                  msg.exchange_name, msg.routing_key)
+            deliver(msg)
           end
         end
         if @confirm
@@ -116,16 +118,7 @@ module AvalancheMQ
             @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
                                                 false, env.message.exchange_name,
                                                 env.message.routing_key, q.message_count)
-            @client.send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16,
-                                               env.message.size, env.message.properties)
-            body = env.message.body
-            pos = 0
-            while pos < body.size
-              length = [body.size - pos, @client.max_frame_size - 8].min
-              body_part = body[pos, length]
-              @client.send AMQP::BodyFrame.new(frame.channel, body_part)
-              pos += @client.max_frame_size - 8
-            end
+            deliver(env.message)
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
           end
@@ -133,6 +126,19 @@ module AvalancheMQ
           reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'"
           @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code, frame.class_id, frame.method_id)
           close
+        end
+      end
+
+      def deliver(msg)
+        @log.debug { "Sending HeaderFrame" }
+        @client.send AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties)
+        pos = 0
+        while pos < msg.size
+          length = [msg.size - pos, @client.max_frame_size - 8].min
+          body_part = msg.body[pos, length]
+          @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
+          @client.send AMQP::BodyFrame.new(@id, body_part)
+          pos += @client.max_frame_size - 8
         end
       end
 
@@ -197,13 +203,14 @@ module AvalancheMQ
       end
 
       def close
+        @log.debug { "Closing" }
         @consumers.each { |c| c.queue.rm_consumer(c) }
-        @consumers.clear
         @map.each_value do |queue, sp, consumer|
-          consumer.reject sp if consumer
-          queue.reject sp, true
+          if consumer.nil?
+            queue.reject sp, true
+          end
         end
-        @map.clear
+        @log.debug { "Closed" }
       end
 
       def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
@@ -216,10 +223,13 @@ module AvalancheMQ
         @log.debug { "Canceling consumer #{frame.consumer_tag}" }
         if c = @consumers.find { |c| c.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
-          @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag) unless frame.no_wait
+          unless frame.no_wait
+            @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+          end
         else
           text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
-          @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
+          @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text,
+                                                frame.class_id, frame.method_id)
         end
       end
     end

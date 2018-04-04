@@ -17,6 +17,7 @@ module AvalancheMQ
       @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
       @outbox = ::Channel(AMQP::Frame).new(1000)
+      @exclusive_queues = Array(Queue).new
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
       spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
@@ -62,6 +63,7 @@ module AvalancheMQ
 
     def cleanup
       @log.debug "Cleaning up"
+      @exclusive_queues.each &.close
       @channels.each_value &.close
       @channels.clear
       @on_close_callback.try &.call(self)
@@ -171,6 +173,9 @@ module AvalancheMQ
         end
         size = q.message_count
         @vhost.apply(frame)
+        if q.exclusive
+          @exclusive_queues.delete q
+        end
         unless frame.no_wait
           send AMQP::Queue::DeleteOk.new(frame.channel, size)
         end
@@ -202,6 +207,9 @@ module AvalancheMQ
         send_not_found(frame)
       else
         @vhost.apply(frame)
+        if frame.exclusive
+          @exclusive_queues << @vhost.queues[frame.queue_name]
+        end
         unless frame.no_wait
           send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
         end

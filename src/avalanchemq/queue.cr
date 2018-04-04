@@ -111,13 +111,17 @@ module AvalancheMQ
     end
 
     def close(deleting = false) : Nil
+      if @closed
+        @log.debug "Already closed"
+        return
+      end
       @log.info "Closing"
       @closed = true
       @message_available.close
       @consumer_available.close
       @consumers.clear
       @segments.each_value &.close
-      delete if !deleting && @auto_delete
+      delete if !deleting && (@auto_delete || @exclusive)
       @log.info "Closed"
     end
 
@@ -243,13 +247,14 @@ module AvalancheMQ
 
     def reject(sp : SegmentPosition, requeue : Bool)
       @log.debug { "Rejecting #{sp}" }
-      @unacked.delete sp
-      if requeue
-        i = @ready.index { |rsp| rsp > sp } || 0
-        @ready.insert(i, sp)
-        @message_available.send nil unless @message_available.full?
-      else
-        expire_msg(sp, :rejected)
+      if @unacked.delete sp
+        if requeue
+          i = @ready.index { |rsp| rsp > sp } || 0
+          @ready.insert(i, sp)
+          @message_available.send nil unless @message_available.full?
+        else
+          expire_msg(sp, :rejected)
+        end
       end
     end
 
@@ -261,8 +266,8 @@ module AvalancheMQ
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       @consumers.delete consumer
-      consumer.unacked.each { |sp| reject(sp, true) }
-      @log.debug { "Removing consumer (now #{@consumers.size})" }
+      consumer.unacked.reverse_each { |sp| reject(sp, true) }
+      @log.debug { "Removing consumer (#{@consumers.size} left)" }
       if @auto_delete && @consumers.size == 0
         delete
       end
@@ -271,6 +276,7 @@ module AvalancheMQ
     def purge
       purged_count = message_count
       @ready.clear
+      @consumers.each { |c| c.unacked.clear }
       @log.debug { "Purged #{purged_count} messages" }
       purged_count
     end
