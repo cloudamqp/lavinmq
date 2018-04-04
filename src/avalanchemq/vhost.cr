@@ -277,12 +277,10 @@ module AvalancheMQ
 
     private def save_policies!
       @log.debug "Saving #{@policies.size} policies"
-      File.open(File.join(@data_dir, "policies.json"), "a") do |f|
-        slices = @policies.values.to_json.to_slice
-        f.truncate
-        f.write(slices)
-        f.flush
+      File.open(File.join(@data_dir, "policies.json.tmp"), "w") do |f|
+        @policies.values.to_json(f)
       end
+      File.rename File.join(@data_dir, "policies.json.tmp"), File.join(@data_dir, "policies.json")
     end
 
     private def last_segment : UInt32
