@@ -2,6 +2,7 @@ require "json"
 require "logger"
 require "./amqp/io"
 require "./segment_position"
+require "./policy"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -9,12 +10,13 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
-    getter name, exchanges, queues, log, data_dir
+    getter name, exchanges, queues, log, data_dir, policies
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
     @wfile : MessageFile
     @log : Logger
+    @policies = Array(Policy).new
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger)
       @log = server_log.dup
@@ -139,6 +141,13 @@ module AvalancheMQ
           end
         end
       end
+      File.open(File.join(@data_dir, "policies.json"), "r") do |io|
+        data = JSON.parse(io)
+        if data.is_a?(Hash)
+          policy = Policy.from_json(self, data)
+          @policies.concat(policy)
+        end
+      end
     rescue Errno
       load_default_definitions
     end
@@ -218,6 +227,10 @@ module AvalancheMQ
           f.flush
         end
       end
+      # File.open(File.join(@data_dir, "policies.json"), "a") do |f|
+      #   f.write(@policies.to_json.to_slice)
+      #   f.flush
+      # end
     rescue Channel::ClosedError
       @log.debug "Save channel closed"
     end
