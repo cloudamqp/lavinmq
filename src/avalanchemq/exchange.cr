@@ -15,8 +15,10 @@ module AvalancheMQ
 
     def apply_policy(@policy : Policy)
       @policy.not_nil!.definition.each do |k, v|
-        # case k
-        # end
+        case k
+        when "alternate-exchange"
+          # TODO
+        end
       end
     end
 
@@ -24,7 +26,7 @@ module AvalancheMQ
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        bindings: @bindings
+        bindings: @bindings, policy: @policy.to_json
       }.to_json(builder)
     end
 

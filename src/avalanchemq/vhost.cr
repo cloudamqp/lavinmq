@@ -84,8 +84,9 @@ module AvalancheMQ
       @save.send f unless loading
       case f
       when AMQP::Exchange::Declare
-        @exchanges[f.exchange_name] =
+        e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
+        spawn apply_policies([e] of Exchange)
       when AMQP::Exchange::Delete
         @exchanges.each_value do |e|
           e.bindings.each_value do |destination|
@@ -107,6 +108,7 @@ module AvalancheMQ
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
           end
         @exchanges[""].bind(q, f.queue_name, f.arguments)
+        spawn apply_policies([q] of Queue)
       when AMQP::Queue::Delete
         q = @queues.delete(f.queue_name)
         @exchanges.each_value do |e|

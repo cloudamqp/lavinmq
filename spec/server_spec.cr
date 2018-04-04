@@ -457,8 +457,7 @@ describe AvalancheMQ::Server do
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
-      ch = conn.channel
-      ch.confirm
+      ch = conn.channel.confirm
       acks = 0
       ch.on_confirm do |tag, acked|
         acks += 1 if acked
@@ -467,15 +466,11 @@ describe AvalancheMQ::Server do
       args["x-max-length"] = 1.to_u16
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
-      pmsg1 = AMQP::Message.new("m1")
-      x.publish pmsg1, q.name
-      pmsg2 = AMQP::Message.new("m2")
-      x.publish pmsg2, q.name
+      x.publish AMQP::Message.new("m1"), q.name
+      x.publish AMQP::Message.new("m2"), q.name
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }
-      until msgs.size == 1
-        Fiber.yield
-      end
+      wait_for { msgs.size == 1 }
       acks.should eq 2
       msgs.size.should eq 1
     end
@@ -488,36 +483,57 @@ describe AvalancheMQ::Server do
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
-      ch = conn.channel
-      ch.confirm
+      ch = conn.channel.confirm
       acks = 0
       nacks = 0
       ch.on_confirm do |tag, acked|
-        if acked
-          acks += 1
-        else
-          nacks += 1
-        end
+        acked ? (acks += 1) : (nacks += 1)
       end
       args = AMQP::Protocol::Table.new
       args["x-max-length"] = 1.to_u16
       args["x-overflow"] = "reject-publish"
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
-      pmsg1 = AMQP::Message.new("m1")
-      x.publish pmsg1, q.name
-      pmsg2 = AMQP::Message.new("m2")
-      x.publish pmsg2, q.name
+      x.publish AMQP::Message.new("m1"), q.name
+      x.publish AMQP::Message.new("m2"), q.name
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }
-      until msgs.size == 1
-        Fiber.yield
-      end
+      wait_for { msgs.size == 1 }
       acks.should eq 1
       nacks.should eq 1
       msgs.size.should eq 1
     end
   ensure
     s.try &.close
+  end
+
+  describe "Policies" do
+    it "supports max-length" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      definitions = { "max-length" => 1 } of String => AvalancheMQ::Policy::Value
+      s.vhosts["default"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
+      spawn { s.not_nil!.listen(5672) }
+      Fiber.yield
+      AMQP::Connection.start(AMQP::Config.new(host: "127.0.0.1", port: 5672, vhost: "default")) do |conn|
+        ch = conn.channel.confirm
+        acks = 0
+        nacks = 0
+        ch.on_confirm do |tag, acked|
+          acked ? (acks += 1) : (nacks += 1)
+        end
+
+        q = ch.queue("")
+        x = ch.exchange("", "direct")
+        x.publish AMQP::Message.new("m1"), q.name
+        x.publish AMQP::Message.new("m2"), q.name
+        msgs = [] of AMQP::Message
+        q.subscribe { |msg| msgs << msg }
+        wait_for { msgs.size == 1 }
+        acks.should eq 2
+        msgs.size.should eq 1
+      end
+    ensure
+      s.try &.close
+    end
   end
 end
