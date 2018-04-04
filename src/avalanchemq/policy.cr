@@ -6,7 +6,7 @@ module AvalancheMQ
     abstract def apply_policy(@policy : Policy)
   end
   class Policy
-    alias Value = Int32 | String | Bool | Nil
+    alias Value = Int64 | String | Bool | Nil
     APPLY_TO = ["all", "exchanges", "queues"]
     getter name, apply_to, definition, priority
     def_equals_and_hash @vhost.name, @name
@@ -51,7 +51,7 @@ module AvalancheMQ
       data["definition"].as_h.each do |k, v|
         val = case v
               when Int64, Float64
-                v.to_i32
+                v.to_i64
               when String, Nil
                 v.to_s
               when Bool
