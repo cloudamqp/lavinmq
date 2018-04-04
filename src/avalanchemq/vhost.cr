@@ -16,13 +16,13 @@ module AvalancheMQ
     @segment : UInt32
     @wfile : MessageFile
     @log : Logger
-    @policies = Array(Policy).new
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger)
       @log = server_log.dup
       @log.progname = "VHost[#{@name}]"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
+      @policies = Hash(String, Policy).new
       @save = Channel(AMQP::Frame).new(32)
       @data_dir = File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
       Dir.mkdir_p @data_dir
@@ -125,12 +125,33 @@ module AvalancheMQ
       end
     end
 
+    def add_policy(name : String, pattern : String, apply_to : String,
+                   definition : Hash(String, Policy::Value), priority : Int8)
+      @policies[name] = Policy.new(self, name, pattern, apply_to, definition, priority)
+      save_policies!
+    end
+
+    def add_policy(policy : Policy)
+      @policies[policy.name] = policy
+      save_policies!
+    end
+
+    def remove_policy(name)
+      @policies.delete(name)
+      save_policies!
+    end
+
     def close
       @queues.each_value &.close
       @save.close
     end
 
     private def load!
+      load_policies!
+      load_definitions!
+    end
+
+    private def load_definitions!
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         loop do
           begin
@@ -141,15 +162,21 @@ module AvalancheMQ
           end
         end
       end
-      File.open(File.join(@data_dir, "policies.json"), "r") do |io|
-        data = JSON.parse(io)
-        if data.is_a?(Hash)
-          policy = Policy.from_json(self, data)
-          @policies.concat(policy)
-        end
-      end
     rescue Errno
       load_default_definitions
+    end
+
+    private def load_policies!
+      file = File.join(@data_dir, "policies.json")
+      return unless File.exists?(file)
+      policies = File.read(File.join(@data_dir, "policies.json"))
+      data = JSON.parse(policies)
+      return unless data.is_a?(Array)
+      data.each do |p|
+        next unless p.is_a?(Hash)
+        policy = Policy.from_json(self, p)
+        @policies.push(policy)
+      end
     end
 
     private def load_default_definitions
@@ -227,14 +254,20 @@ module AvalancheMQ
           f.flush
         end
       end
-      # File.open(File.join(@data_dir, "policies.json"), "a") do |f|
-      #   f.write(@policies.to_json.to_slice)
-      #   f.flush
-      # end
+      save_policies!
     rescue Channel::ClosedError
       @log.debug "Save channel closed"
     ensure
       @save.close
+    end
+
+    private def save_policies!
+      File.open(File.join(@data_dir, "policies.json"), "a") do |f|
+        slices = @policies.values.to_json.to_slice
+        f.truncate
+        f.write(slices)
+        f.flush
+      end
     end
 
     private def last_segment : UInt32
