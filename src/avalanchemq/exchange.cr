@@ -1,5 +1,7 @@
 module AvalancheMQ
   abstract class Exchange
+    include PolicyTarget
+
     getter name, durable, auto_delete, internal, arguments, bindings
     def_equals_and_hash @vhost.name, @name
 
@@ -8,6 +10,13 @@ module AvalancheMQ
                    @arguments = AMQP::Table.new)
       @bindings = Hash(Tuple(String, AMQP::Table), Set(Queue | Exchange)).new do |h, k|
         h[k] = Set(Queue | Exchange).new
+      end
+    end
+
+    def apply_policy(@policy : Policy)
+      @policy.not_nil!.definition.each do |k, v|
+        # case k
+        # end
       end
     end
 

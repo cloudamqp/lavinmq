@@ -1,8 +1,15 @@
 module AvalancheMQ
+
+  module PolicyTarget
+    getter policy
+
+    abstract def apply_policy(@policy : Policy)
+  end
   class Policy
     alias Value = Int32 | String | Bool | Nil
     APPLY_TO = ["all", "exchanges", "queues"]
     getter name, apply_to, definition, priority
+    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String, @pattern : String, @apply_to : String,
                    @definition : Hash(String, Value), @priority : Int8)
@@ -18,8 +25,14 @@ module AvalancheMQ
       raise ArgumentError.new("pattern: #{pattern_error}") unless pattern_error.nil?
     end
 
-    def match?(name)
-      !@re_pattern.match(name).nil?
+    def match?(resource : Queue | Exchange)
+      match = !@re_pattern.match(resource.name).nil?
+      case resource
+      when Queue
+        match && @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[2]
+      when Exchange
+        match && @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[1]
+      end
     end
 
     def to_json(json : JSON::Builder)

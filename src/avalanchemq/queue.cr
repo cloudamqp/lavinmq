@@ -5,6 +5,7 @@ require "./segment_position"
 
 module AvalancheMQ
   class Queue
+    include PolicyTarget
     class QueueFile < File
       include AMQP::IO
     end
@@ -42,6 +43,15 @@ module AvalancheMQ
         h[seg] = QueueFile.open(path, "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+    end
+
+    def apply_policy(@policy : Policy)
+      @policy.not_nil!.definition.each do |k, v|
+        case k
+        when "max-length"
+          @max_length = v.as Int32
+        end
+      end
     end
 
     def immediate_delivery?
