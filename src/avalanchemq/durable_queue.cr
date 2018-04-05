@@ -11,13 +11,15 @@ module AvalancheMQ
                    @arguments : AMQP::Table)
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      @log.debug { "Index dir: #{@index_dir}" }
       Dir.mkdir_p @index_dir
-      @enq = QueueFile.open(File.join(@index_dir, "enq"), "w")
-      @ack = QueueFile.open(File.join(@index_dir, "ack"), "w")
+      @enq = QueueFile.open(File.join(@index_dir, "enq"), "a+")
+      @ack = QueueFile.open(File.join(@index_dir, "ack"), "a+")
       restore_index
     end
 
     private def compact_index! : Nil
+      @log.debug { "Compacting index" }
       @enq.close
       QueueFile.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
         unacked = @unacked.to_a.sort.each
@@ -36,6 +38,7 @@ module AvalancheMQ
     end
 
     def close(deleting = false) : Nil
+      @log.debug { "Closing index files" }
       @ack.close
       @enq.close
       super
@@ -76,6 +79,7 @@ module AvalancheMQ
     end
 
     def purge
+      @log.info "Purging"
       @enq.truncate
       @ack.truncate
       super
@@ -96,8 +100,8 @@ module AvalancheMQ
         @ready << sp unless acked.includes? sp
       end
       @log.info "#{message_count} messages"
-    rescue Errno
-      @log.debug "Index not found"
+    rescue ex : Errno
+      @log.debug { "Could not restore index: #{ex.inspect}" }
     end
   end
 end
