@@ -19,9 +19,9 @@ module AvalancheMQ
       position <=> other.position
     end
 
-    def self.decode(io : IO)
-      seg = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
-      pos = io.read_bytes(UInt32, IO::ByteFormat::BigEndian)
+    def self.decode(io : IO, format = IO::ByteFormat::NetworkEndian)
+      seg = io.read_bytes(UInt32, format)
+      pos = io.read_bytes(UInt32, format)
       self.new(seg, pos)
     end
 

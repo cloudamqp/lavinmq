@@ -74,7 +74,7 @@ module AvalancheMQ
     private def open_wfile : MessageFile
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      wfile = MessageFile.open(File.join(@data_dir, filename), "w")
+      wfile = MessageFile.open(File.join(@data_dir, filename), "a")
       wfile.seek(0, IO::Seek::End)
       wfile
     end
