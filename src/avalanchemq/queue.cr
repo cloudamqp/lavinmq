@@ -36,7 +36,7 @@ module AvalancheMQ
       @consumers = Array(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
-      @unacked = Set(SegmentPosition).new
+      @unacked = Deque(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
@@ -244,15 +244,20 @@ module AvalancheMQ
       Envelope.new(sp, msg)
     end
 
-    def ack(sp : SegmentPosition)
+    def ack(sp : SegmentPosition, flush : Bool)
       @log.debug { "Acking #{sp}" }
-      @unacked.delete sp
+      idx = @unacked.rindex(sp)
+      @log.debug { "Acking idx #{idx} in unacked deque" }
+      @unacked.delete_at(idx) if idx
       @consumer_available.send nil unless @consumer_available.full?
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
       @log.debug { "Rejecting #{sp}" }
-      if @unacked.delete sp
+      idx = @unacked.rindex(sp)
+      @log.debug { "Rejecting idx #{idx} in unacked deque" }
+      if idx
+        @unacked.delete_at(idx)
         if requeue
           i = @ready.index { |rsp| rsp > sp } || 0
           @ready.insert(i, sp)
@@ -273,7 +278,7 @@ module AvalancheMQ
     def rm_consumer(consumer : Client::Channel::Consumer)
       if @consumers.delete consumer
         @exclusive_consumer = false if consumer.exclusive
-        consumer.unacked.reverse_each { |sp| reject(sp, true) }
+        consumer.unacked.each { |sp| reject(sp, true) }
         @log.debug { "Removing consumer (#{@consumers.size} left)" }
         if @auto_delete && @consumers.size == 0
           delete

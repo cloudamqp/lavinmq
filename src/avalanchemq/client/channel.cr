@@ -154,16 +154,17 @@ module AvalancheMQ
 
       def basic_ack(frame)
         if qspc = @map.delete(frame.delivery_tag)
-          queue, sp, consumer = qspc
-          consumer.ack(sp) if consumer
-          queue.ack(sp)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }.each_value do |queue, sp, consumer|
+            @map.select { |k, _| k < frame.delivery_tag }.
+              each_value do |queue, sp, consumer|
               consumer.ack(sp) if consumer
-              queue.ack(sp)
+              queue.ack(sp, flush: false)
             end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
+          queue, sp, consumer = qspc
+          consumer.ack(sp) if consumer
+          queue.ack(sp, flush: true)
         else
           reply_text = "Unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
@@ -189,16 +190,17 @@ module AvalancheMQ
           end
           @map.clear
         elsif qspc = @map.delete(frame.delivery_tag)
-          queue, sp, consumer = qspc
-          consumer.reject(sp) if consumer
-          queue.reject(sp, frame.requeue)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }.each_value do |queue, sp, consumer|
+            @map.select { |k, _| k < frame.delivery_tag }.
+              each_value do |queue, sp, consumer|
               consumer.reject(sp) if consumer
               queue.reject(sp, frame.requeue)
             end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
+          queue, sp, consumer = qspc
+          consumer.reject(sp) if consumer
+          queue.reject(sp, frame.requeue)
         else
           reply_text = "Unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
