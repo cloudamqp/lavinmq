@@ -534,4 +534,34 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "disallows deleting exchanges named amq.*" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+        ch.exchange("amq.topic", "topic", passive: true).delete
+      end
+      ch = conn.channel
+      ch.exchange("amq.topic", "topic", passive: true).should_not be_nil
+    end
+  ensure
+    s.try &.close
+  end
+
+  it "disallows creating new exchanges named amq.*" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+        ch.exchange("amq.topic2", "topic")
+      end
+    end
+  ensure
+    s.try &.close
+  end
 end

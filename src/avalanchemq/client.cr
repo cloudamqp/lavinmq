@@ -140,6 +140,10 @@ module AvalancheMQ
         end
       elsif frame.passive
         send_not_found(frame)
+      elsif frame.exchange_name.starts_with? "amq."
+        send AMQP::Channel::Close.new(frame.channel, 403_u16,
+                                      "ACCESS_REFUSED",
+                                      frame.class_id, frame.method_id)
       else
         @vhost.apply(frame)
         unless frame.no_wait
@@ -150,6 +154,12 @@ module AvalancheMQ
 
     private def delete_exchange(frame)
       if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+        if frame.exchange_name.starts_with? "amq."
+          send AMQP::Channel::Close.new(frame.channel, 403_u16,
+                                        "ACCESS_REFUSED",
+                                        frame.class_id, frame.method_id)
+          return
+        end
         @vhost.apply(frame)
         unless frame.no_wait
           send AMQP::Exchange::DeleteOk.new(frame.channel)
