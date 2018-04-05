@@ -195,8 +195,11 @@ module AvalancheMQ
         loop do
           frame = @save.receive
           case frame
-          when AMQP::Exchange::Declare, AMQP::Queue::Declare
+          when AMQP::Exchange::Declare
             next unless frame.durable
+          when AMQP::Queue::Declare
+            next unless frame.durable
+            next if frame.exclusive
           when AMQP::Exchange::Delete
             next unless @exchanges[frame.exchange_name]?.try(&.durable)
           when AMQP::Queue::Delete

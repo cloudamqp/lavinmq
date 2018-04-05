@@ -5,10 +5,11 @@ module AvalancheMQ
   class Client
     class Channel
       class Consumer
-        getter no_ack, queue, unacked, tag
+        getter no_ack, queue, unacked, tag, exclusive
         @log : Logger
 
-        def initialize(@channel : Client::Channel, @tag : String, @queue : Queue, @no_ack : Bool)
+        def initialize(@channel : Client::Channel, @tag : String, @queue : Queue,
+                       @no_ack : Bool, @exclusive : Bool)
           @log = @channel.log.dup
           @log.progname += "/Consumer[#{@tag}]"
           @unacked = Deque(SegmentPosition).new

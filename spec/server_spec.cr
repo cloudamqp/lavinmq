@@ -574,12 +574,14 @@ describe AvalancheMQ::Server do
       q = ch.queue("exlusive_consumer", auto_delete: true)
       consumer_tag = q.subscribe(exclusive: true) { }
 
-      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
-        ch2 = conn.channel
-        q2 = ch2.queue("exlusive_consumer", passive: true)
+      ch2 = conn.channel
+      q2 = ch2.queue("exlusive_consumer", passive: true)
+      expect_raises(AMQP::ChannelClosed, /RESOURCE_LOCKED/) do
         q2.subscribe { }
       end
-      q.unsubscribe(consumer_tag)
+      ch.close
+      ch = conn.channel
+      q = ch.queue("exlusive_consumer", auto_delete: true)
       q.subscribe { }
     end
   ensure
@@ -594,9 +596,9 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       q = ch.queue("exlusive_queue", durable: true, exclusive: true)
       AMQP::Connection.start do |conn2|
-        ch = conn2.channel
-        expect_raises(AMQP::ChannelClosed, /REFUSED/) do
-          q = ch.queue("exlusive_queue", passive: true)
+        ch2 = conn2.channel
+        expect_raises(AMQP::ChannelClosed, /RESOURCE_LOCKED/) do
+          ch2.queue("exlusive_queue", passive: true)
         end
       end
     end

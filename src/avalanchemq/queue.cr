@@ -17,6 +17,7 @@ module AvalancheMQ
     @dlrk : String?
     @overflow : String?
     @closed = false
+    @exclusive_consumer = false
     getter name, durable, exclusive, auto_delete, arguments
     def_equals_and_hash @vhost.name, @name
 
@@ -42,6 +43,10 @@ module AvalancheMQ
         h[seg] = QueueFile.open(path, "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+    end
+
+    def has_exclusive_consumer?
+      @exclusive_consumer
     end
 
     def immediate_delivery?
@@ -260,16 +265,19 @@ module AvalancheMQ
 
     def add_consumer(consumer : Client::Channel::Consumer)
       @consumers.push consumer
+      @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @consumer_available.send nil unless @consumer_available.full?
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      @consumers.delete consumer
-      consumer.unacked.reverse_each { |sp| reject(sp, true) }
-      @log.debug { "Removing consumer (#{@consumers.size} left)" }
-      if @auto_delete && @consumers.size == 0
-        delete
+      if @consumers.delete consumer
+        @exclusive_consumer = false if consumer.exclusive
+        consumer.unacked.reverse_each { |sp| reject(sp, true) }
+        @log.debug { "Removing consumer (#{@consumers.size} left)" }
+        if @auto_delete && @consumers.size == 0
+          delete
+        end
       end
     end
 
