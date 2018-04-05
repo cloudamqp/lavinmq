@@ -47,6 +47,15 @@ module AvalancheMQ
       raise MessageUnroutableError.new if matches.empty?
 
       pos = @wfile.pos.to_u32
+
+      if pos >= MAX_SEGMENT_SIZE
+        @segment += 1
+        @wfile.close
+        @wfile = open_wfile
+        pos = 0_u32
+        spawn gc_segments!
+      end
+
       sp = SegmentPosition.new(@segment, pos)
       @wfile.write_int msg.timestamp
       @wfile.write_short_string msg.exchange_name
@@ -59,15 +68,7 @@ module AvalancheMQ
       if immediate
         raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
       end
-      ok = queues.all? { |q| q.publish(sp, flush) } && ok
-
-      if @wfile.pos >= MAX_SEGMENT_SIZE
-        @segment += 1
-        @wfile.close
-        @wfile = open_wfile
-        spawn gc_segments!
-      end
-      ok
+      queues.all? { |q| q.publish(sp, flush) } && ok
     end
 
     private def open_wfile : MessageFile
