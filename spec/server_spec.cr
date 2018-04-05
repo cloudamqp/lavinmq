@@ -520,4 +520,18 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "disallows creating queues starting with amq." do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+        ch.queue("amq.test")
+      end
+    end
+  ensure
+    s.try &.close
+  end
 end

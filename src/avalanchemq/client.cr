@@ -185,9 +185,6 @@ module AvalancheMQ
     end
 
     private def declare_queue(frame)
-      if frame.queue_name.empty?
-        frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
-      end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if frame.passive ||
             q.durable == frame.durable &&
@@ -199,13 +196,20 @@ module AvalancheMQ
                                             q.message_count, q.consumer_count)
           end
         else
-          send AMQP::Channel::Close.new(frame.channel, 401_u16,
+          send AMQP::Channel::Close.new(frame.channel, 403_u16,
                                         "Existing queue declared with other arguments",
                                         frame.class_id, frame.method_id)
         end
       elsif frame.passive
         send_not_found(frame)
+      elsif frame.queue_name.starts_with? "amq."
+        send AMQP::Channel::Close.new(frame.channel, 403_u16,
+                                      "ACCESS_REFUSED",
+                                      frame.class_id, frame.method_id)
       else
+        if frame.queue_name.empty?
+          frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
+        end
         @vhost.apply(frame)
         if frame.exclusive
           @exclusive_queues << @vhost.queues[frame.queue_name]
