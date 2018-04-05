@@ -564,4 +564,43 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "only allow one consumer on when exlusive consumers flag is set" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("exlusive_consumer", auto_delete: true)
+      consumer_tag = q.subscribe(exclusive: true) { }
+
+      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+        ch2 = conn.channel
+        q2 = ch2.queue("exlusive_consumer", passive: true)
+        q2.subscribe { }
+      end
+      q.unsubscribe(consumer_tag)
+      q.subscribe { }
+    end
+  ensure
+    s.try &.close
+  end
+
+  it "only allow one connection access an exlusive queues" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("exlusive_queue", durable: true, exclusive: true)
+      AMQP::Connection.start do |conn2|
+        ch = conn2.channel
+        expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+          q = ch.queue("exlusive_queue", passive: true)
+        end
+      end
+    end
+  ensure
+    s.try &.close
+  end
 end
