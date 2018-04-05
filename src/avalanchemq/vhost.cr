@@ -63,11 +63,11 @@ module AvalancheMQ
       @wfile.write_bytes msg.properties
       @wfile.write_int msg.size
       @wfile.write msg.body.to_slice
-      flush = true # msg.properties.delivery_mode == 2_u8
-      @wfile.flush if flush
+      @wfile.flush
       if immediate
         raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
       end
+      flush = msg.properties.delivery_mode == 2_u8
       queues.all? { |q| q.publish(sp, flush) } && ok
     end
 

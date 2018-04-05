@@ -221,7 +221,7 @@ module AvalancheMQ
         @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
         @vhost.publish msg
       end
-      ack(sp)
+      ack(sp, true)
     end
 
     def get(no_ack : Bool) : Envelope | Nil
