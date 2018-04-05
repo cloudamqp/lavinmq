@@ -605,4 +605,34 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "it persists msgs between restarts" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("durable_queue", durable: true)
+      x = ch.exchange("", "direct", passive: true)
+      1000.times do |i|
+        delivery_mode = i % 2 == 0 ? 2_u8 : 0_u8
+        props = AMQP::Protocol::Properties.new(delivery_mode: delivery_mode)
+        msg = AMQP::Message.new(i.to_s, props)
+        x.publish(msg, q.name)
+      end
+    end
+    s.try &.close
+
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("durable_queue", durable: true)
+      deleted_msgs = q.delete
+      deleted_msgs.should eq(500)
+    end
+  ensure
+    s.try &.close
+  end
 end
