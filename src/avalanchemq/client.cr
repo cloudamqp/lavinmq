@@ -66,6 +66,8 @@ module AvalancheMQ
     end
 
     def cleanup
+      @log.debug "Yielding before cleaning up"
+      Fiber.yield
       @log.debug "Cleaning up"
       @exclusive_queues.each &.close
       @channels.each_value &.close
@@ -300,6 +302,7 @@ module AvalancheMQ
       end
     rescue ex : AMQP::FrameDecodeError
       @log.error { "#{ex.cause} when reading from socket" }
+      Fiber.yield
       @log.debug { "Closing outbox" }
       @outbox.close # Notifies send_loop to close up shop
     rescue ex : Exception
