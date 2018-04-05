@@ -148,7 +148,7 @@ module AvalancheMQ
           body_part = msg.body[pos, length]
           @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
           @client.send AMQP::BodyFrame.new(@id, body_part)
-          pos += @client.max_frame_size - 8
+          pos += length
         end
       end
 
