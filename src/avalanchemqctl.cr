@@ -24,8 +24,7 @@ parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
 parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 parser.parse!
 
-entity = ARGV.first
-abort banner if ARGV.size != 1 || !["queues", "policies", "exchanges"].includes?(entity)
+abort banner unless (entity = ARGV.shift?) && ["queues", "policies", "exchanges"].includes?(entity)
 headers = HTTP::Headers{"Content-Type" => "application/json"}
 
 begin

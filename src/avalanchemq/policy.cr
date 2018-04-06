@@ -20,20 +20,19 @@ module AvalancheMQ
 
     protected def validate!
       unless APPLY_TO.includes?(@apply_to)
-        raise ArgumentError.new("apply-to not any of #{APPLY_TO}")
+        raise InvalidDefinitionError.new("apply-to not any of #{APPLY_TO}")
       end
-      pattern_error = Regex.error?(@pattern)
-      raise ArgumentError.new("Invalid pattern: #{pattern_error}") unless pattern_error.nil?
+      (e = Regex.error?(@pattern)) && raise InvalidDefinitionError.new("Invalid pattern: #{e}")
     end
 
     def match?(resource : Queue | Exchange)
-      match = !@re_pattern.match(resource.name).nil?
-      case resource
-      when Queue
-        match && @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[2]
-      when Exchange
-        match && @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[1]
-      end
+      applies = case resource
+                when Queue
+                  @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[2]
+                when Exchange
+                  @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[1]
+                end
+      applies && !@re_pattern.match(resource.name).nil?
     end
 
     def to_json(json : JSON::Builder)
@@ -58,7 +57,7 @@ module AvalancheMQ
               when Bool
                 v
               else
-                raise InvalidJSONError.new("Invalid definition")
+                raise InvalidDefinitionError.new("Invalid definition, unknow data type #{v.class}")
               end
         definitions[k] = val
       end
@@ -72,5 +71,7 @@ module AvalancheMQ
       @log.info "Deleting"
       @vhost.remove_policy(name)
     end
+
+    class InvalidDefinitionError < ArgumentError; end
   end
 end
