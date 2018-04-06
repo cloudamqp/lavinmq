@@ -47,13 +47,13 @@ module AvalancheMQ
 
     def post(context)
       case context.request.path
-      when "/api/policies"
-        body = JSON.parse(context.request.body.not_nil!)
+      when "/api/policies/"
+        body = parse_body(context)
         vhost = @amqp_server.vhosts[body["vhost"].as_s]?
         raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
         vhost.add_policy(Policy.from_json(vhost, body))
       when "/api/vhosts"
-        body = JSON.parse(context.request.body.not_nil!)
+        body = parse_body(context)
         @amqp_server.create_vhost(body["name"].as_s)
       else
         not_found(context)
@@ -66,12 +66,12 @@ module AvalancheMQ
     def delete(context)
       case context.request.path
       when "/api/policies"
-        body = JSON.parse(context.request.body.not_nil!)
+        body = parse_body(context)
         vhost = @amqp_server.vhosts[body["vhost"].as_s]?
         raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
         vhost.delete_policy(body["name"].as_s)
       when "/api/vhosts"
-        body = JSON.parse(context.request.body.not_nil!)
+        body = parse_body(context)
         @amqp_server.delete_vhost(body["name"].as_s)
       else
         not_found(context)
@@ -85,6 +85,11 @@ module AvalancheMQ
       context.response.print message
     end
 
+    def parse_body(context)
+      raise ExpectedBodyError.new if context.request.body.nil?
+      JSON.parse(context.request.body)
+    end
+
     def listen
       server = @http.bind
       print "HTTP API listening on ", server.local_address, "\n"
@@ -96,5 +101,6 @@ module AvalancheMQ
     end
 
     class NotFoundError < Exception; end
+    class ExpectedBodyError < ArgumentError; end
   end
 end

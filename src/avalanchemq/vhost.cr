@@ -17,7 +17,7 @@ module AvalancheMQ
     @wfile : MessageFile
     @log : Logger
 
-    def initialize(@name : String, @server_data_dir : String, server_log : Logger, clean = false)
+    def initialize(@name : String, @server_data_dir : String, server_log : Logger)
       @log = server_log.dup
       @log.progname = "VHost[#{@name}]"
       @exchanges = Hash(String, Exchange).new
@@ -26,7 +26,6 @@ module AvalancheMQ
       @save = Channel(AMQP::Frame).new(32)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
-      FileUtils.rm_rf(@data_dir) if clean
       Dir.mkdir_p @data_dir
       @segment = last_segment
       @wfile = open_wfile
@@ -159,6 +158,12 @@ module AvalancheMQ
     def close
       @queues.each_value &.close
       @save.close
+    end
+
+    def delete
+      close
+      Fiber.yield
+      FileUtils.rm_rf(@data_dir)
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)

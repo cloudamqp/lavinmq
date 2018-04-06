@@ -24,10 +24,10 @@ module AvalancheMQ
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = Hash(String, VHost).new
       Dir.mkdir_p @data_dir
-      load_server_definitions
-      create_vhost("/", false)
-      create_vhost("default", false)
-      create_vhost("bunny_testbed", false)
+      load_definitions
+      create_vhost("/")
+      create_vhost("default")
+      create_vhost("bunny_testbed")
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -82,7 +82,7 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.each_value &.close
-      save_server_definitions
+      save_definitions
     end
 
     def to_json(json : JSON::Builder)
@@ -91,18 +91,18 @@ module AvalancheMQ
       }.to_json(json)
     end
 
-    def create_vhost(name, clean = true)
+    def create_vhost(name)
       return if @vhosts.has_key?(name)
-      @vhosts[name] = VHost.new(name, @data_dir, @log, clean)
-      save_server_definitions
+      @vhosts[name] = VHost.new(name, @data_dir, @log)
+      save_definitions
     end
 
     def delete_vhost(name)
-      @vhosts.delete(name).try &.close
-      save_server_definitions
+      @vhosts.delete(name).try &.delete
+      save_definitions
     end
 
-    private def load_server_definitions
+    private def load_definitions
       file = File.join(@data_dir, "definitions.json")
       if File.exists?(file)
         File.open(File.join(@data_dir, "definitions.json"), "r") do |f|
@@ -110,7 +110,10 @@ module AvalancheMQ
           data.each do |k, v|
             case k
             when "vhosts"
-              v.each { |vhost| create_vhost(vhost["name"].as_s, false) }
+              v.each do |vhost|
+                name = vhost["name"].as_s
+                @vhosts[name] = VHost.new(name, @data_dir, @log)
+              end
             else
               @log.warn("Unknown definition property: #{k}")
             end
@@ -122,7 +125,7 @@ module AvalancheMQ
       @log.error("Could not load definitions.json: #{e.inspect}")
     end
 
-    private def save_server_definitions
+    private def save_definitions
       @log.debug "Saving server definitions"
       tmpfile = File.join(@data_dir, "definitions.json.tmp")
       File.open(tmpfile, "w") { |f| self.to_json(f) }
