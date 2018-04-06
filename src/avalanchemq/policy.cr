@@ -19,10 +19,10 @@ module AvalancheMQ
 
     protected def validate!
       unless APPLY_TO.includes?(@apply_to)
-        raise ArgumentError.new("apply_to not any of #{APPLY_TO}")
+        raise ArgumentError.new("apply-to not any of #{APPLY_TO}")
       end
       pattern_error = Regex.error?(@pattern)
-      raise ArgumentError.new("pattern: #{pattern_error}") unless pattern_error.nil?
+      raise ArgumentError.new("Invalid pattern: #{pattern_error}") unless pattern_error.nil?
     end
 
     def match?(resource : Queue | Exchange)
@@ -42,7 +42,7 @@ module AvalancheMQ
         pattern: @pattern,
         definition: @definition.to_json,
         priority: @priority,
-        apply_to: @apply_to
+        "apply-to": @apply_to
       }.to_json(json)
     end
 
@@ -61,13 +61,15 @@ module AvalancheMQ
               end
         definitions[k] = val
       end
-      self.new vhost, data["name"].as_s, data["pattern"].as_s, data["apply_to"].as_s,
+      self.new vhost, data["name"].as_s, data["pattern"].as_s, data["apply-to"].as_s,
                definitions, data["priority"].as_i.to_i8
+    rescue e : KeyError
+      raise ArgumentError.new("Policy json invalid: #{e.message}")
     end
-  end
 
-  protected def delete
-    @log.info "Deleting"
-    @vhost.remove_policy(name)
+    protected def delete
+      @log.info "Deleting"
+      @vhost.remove_policy(name)
+    end
   end
 end

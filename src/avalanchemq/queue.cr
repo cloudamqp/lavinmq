@@ -44,9 +44,9 @@ module AvalancheMQ
       @policy.not_nil!.definition.each do |k, v|
         case k
         when "max-length"
-          @max_length = v.as Int32
+          @max_length = v.as Int64
         when "message-ttl"
-          @message_ttl = v.as Int32
+          @message_ttl = v.as Int64
         when "overflow"
           @overflow = v.to_s
         when "expires"
