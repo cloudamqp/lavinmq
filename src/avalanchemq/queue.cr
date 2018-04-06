@@ -168,7 +168,7 @@ module AvalancheMQ
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
         unacked: @unacked.size,
-        policy: @policy.to_json
+        policy: @policy
       }.to_json(json)
     end
 

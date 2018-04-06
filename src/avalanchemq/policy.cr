@@ -40,7 +40,7 @@ module AvalancheMQ
         vhost: @vhost.name,
         name: @name,
         pattern: @pattern,
-        definition: @definition.to_json,
+        definition: @definition,
         priority: @priority,
         "apply-to": @apply_to
       }.to_json(json)
