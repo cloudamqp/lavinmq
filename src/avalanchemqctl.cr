@@ -24,46 +24,31 @@ parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
 parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 parser.parse!
 
-abort banner if ARGV.size != 1
+entity = ARGV.first
+abort banner if ARGV.size != 1 || !["queues", "policies", "exchanges"].includes?(entity)
 headers = HTTP::Headers{"Content-Type" => "application/json"}
 
 begin
-  case ARGV.first
-  when "queues"
-    response = HTTP::Client.get "#{options["host"]}/api/queues"
-    abort "Response status #{response.status_code}" unless response.status_code == 200
-    STDOUT << "Name\tMessages\n"
-    queues = JSON.parse(response.body)
-    queues.each do |q|
-      STDOUT << q["name"]
-      STDOUT << "\t"
-      STDOUT << q["messages"]
-      STDOUT << "\n"
+  if name = options["remove"]?
+    resp = HTTP::Client.delete "#{options["host"]}/api/#{entity}", headers, name.to_s
+    if resp.status_code == 200
+      exit 0
+    else
+      puts resp.body
+      exit 1
     end
-  when "policies"
-    if name = options["remove"]?
-      resp = HTTP::Client.delete "#{options["host"]}/api/policies", headers, options["remove"].to_s
-      if resp.status_code == 200
-        exit 0
-      else
-        puts resp.body
-        exit 1
-      end
+  elsif data = options["add"]?
+    resp = HTTP::Client.post "#{options["host"]}/api/#{entity}", headers, data.to_s
+    if resp.status_code == 200
+      exit 0
+    else
+      puts resp.body
+      exit 1
     end
-    if name = options["add"]?
-      resp = HTTP::Client.post "#{options["host"]}/api/policies", headers, options["add"].to_s
-      if resp.status_code == 200
-        exit 0
-      else
-        puts resp.body
-        exit 1
-      end
-    end
-    response = HTTP::Client.get "#{options["host"]}/api/policies"
-    abort "Response status #{response.status_code}" unless response.status_code == 200
-    STDOUT << response.body
   else
-    abort banner
+    response = HTTP::Client.get "#{options["host"]}/api/#{entity}"
+    abort "Response status #{response.status_code}" unless response.status_code == 200
+    puts response.body
   end
 rescue ex : IO::Error | Errno
   abort ex
