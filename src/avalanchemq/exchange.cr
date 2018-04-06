@@ -1,5 +1,7 @@
 module AvalancheMQ
   abstract class Exchange
+    include PolicyTarget
+
     getter name, durable, auto_delete, internal, arguments, bindings
     def_equals_and_hash @vhost.name, @name
 
@@ -11,11 +13,20 @@ module AvalancheMQ
       end
     end
 
+    def apply_policy(@policy : Policy)
+      @policy.not_nil!.definition.each do |k, v|
+        case k
+        when "alternate-exchange"
+          # TODO
+        end
+      end
+    end
+
     def to_json(builder : JSON::Builder)
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        bindings: @bindings
+        bindings: @bindings, policy: @policy.to_json
       }.to_json(builder)
     end
 

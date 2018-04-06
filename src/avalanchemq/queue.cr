@@ -5,6 +5,7 @@ require "./segment_position"
 
 module AvalancheMQ
   class Queue
+    include PolicyTarget
     class QueueFile < File
       include AMQP::IO
     end
@@ -26,13 +27,7 @@ module AvalancheMQ
                    @arguments = AMQP::Table.new)
       @log = @vhost.log.dup
       @log.progname += "/Queue[#{@name}]"
-      message_ttl = @arguments.fetch("x-message-ttl", nil)
-      @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
-      @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
-      @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
-      max_length = @arguments.fetch("x-max-length", nil)
-      @max_length = max_length if max_length.is_a? UInt16 | Int32 | Int64
-      @overflow = @arguments.fetch("x-overflow", "drop-head").try &.to_s
+      handle_arguments
       @consumers = Array(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
@@ -47,6 +42,36 @@ module AvalancheMQ
 
     def has_exclusive_consumer?
       @exclusive_consumer
+    end
+
+    def apply_policy(@policy : Policy)
+      handle_arguments
+      @policy.not_nil!.definition.each do |k, v|
+        case k
+        when "max-length"
+          @max_length = v.as Int64
+        when "message-ttl"
+          @message_ttl = v.as Int64
+        when "overflow"
+          @overflow = v.to_s
+        when "expires"
+          # TODO
+        when "dead-letter-exchange"
+          @dlx = v.to_s
+        when "dead-letter-routing-key"
+          @dlrk = v.to_s
+        end
+      end
+    end
+
+    def handle_arguments
+      message_ttl = @arguments.fetch("x-message-ttl", nil)
+      @message_ttl = message_ttl if message_ttl.is_a? UInt16 | Int32 | Int64
+      @dlx = @arguments.fetch("x-dead-letter-exchange", nil).try &.to_s
+      @dlrk = @arguments.fetch("x-dead-letter-routing-key", nil).try &.to_s
+      max_length = @arguments.fetch("x-max-length", nil)
+      @max_length = max_length if max_length.is_a? UInt16 | Int32 | Int64
+      @overflow = @arguments.fetch("x-overflow", "drop-head").try &.to_s
     end
 
     def immediate_delivery?
@@ -142,7 +167,8 @@ module AvalancheMQ
         consumers: @consumers.size, vhost: @vhost.name,
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
-        unacked: @unacked.size
+        unacked: @unacked.size,
+        policy: @policy
       }.to_json(json)
     end
 

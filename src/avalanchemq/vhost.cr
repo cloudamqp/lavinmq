@@ -2,6 +2,7 @@ require "json"
 require "logger"
 require "./amqp/io"
 require "./segment_position"
+require "./policy"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -9,7 +10,7 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
-    getter name, exchanges, queues, log, data_dir
+    getter name, exchanges, queues, log, data_dir, policies
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
@@ -21,6 +22,7 @@ module AvalancheMQ
       @log.progname = "VHost[#{@name}]"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
+      @policies = Hash(String, Policy).new
       @save = Channel(AMQP::Frame).new(32)
       @data_dir = File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
       Dir.mkdir_p @data_dir
@@ -83,8 +85,9 @@ module AvalancheMQ
       @save.send f unless loading
       case f
       when AMQP::Exchange::Declare
-        @exchanges[f.exchange_name] =
+        e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
+        spawn apply_policies([e] of Exchange)
       when AMQP::Exchange::Delete
         @exchanges.each_value do |e|
           e.bindings.each_value do |destination|
@@ -106,6 +109,7 @@ module AvalancheMQ
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
           end
         @exchanges[""].bind(q, f.queue_name, f.arguments)
+        spawn apply_policies([q] of Queue)
       when AMQP::Queue::Delete
         q = @queues.delete(f.queue_name)
         @exchanges.each_value do |e|
@@ -124,12 +128,49 @@ module AvalancheMQ
       end
     end
 
+    def add_policy(name : String, pattern : String, apply_to : String,
+                   definition : Hash(String, Policy::Value), priority : Int8)
+      @policies[name] = Policy.new(self, name, pattern, apply_to, definition, priority)
+      save_policies!
+      spawn apply_policies
+    end
+
+    def add_policy(policy : Policy)
+      @policies[policy.name] = policy
+      save_policies!
+      spawn apply_policies
+    end
+
+    def remove_policy(name)
+      @policies.delete(name)
+      save_policies!
+      spawn apply_policies
+    end
+
     def close
       @queues.each_value &.close
       @save.close
     end
 
+    private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
+      itr = if resources
+              resources.each
+            else
+              @queues.values.each.chain(@exchanges.values.each)
+            end
+      sorted_policies = @policies.values.sort_by!(&.priority).reverse
+      itr.each do |r|
+        match = sorted_policies.find { |p| p.match?(r) }
+        r.apply_policy(match) unless match.nil?
+      end
+    end
+
     private def load!
+      load_policies!
+      load_definitions!
+    end
+
+    private def load_definitions!
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         loop do
           begin
@@ -142,6 +183,20 @@ module AvalancheMQ
       end
     rescue Errno
       load_default_definitions
+    end
+
+    private def load_policies!
+      file = File.join(@data_dir, "policies.json")
+      return unless File.exists?(file)
+      policies = File.read(File.join(@data_dir, "policies.json"))
+      data = JSON.parse(policies)
+      return unless data.is_a?(Array)
+      data.each do |p|
+        next unless p.is_a?(Hash)
+        policy = Policy.from_json(self, p)
+        @policies[policy.name] = policy
+      end
+      spawn apply_policies
     end
 
     private def load_default_definitions
@@ -222,10 +277,19 @@ module AvalancheMQ
           f.flush
         end
       end
+      save_policies!
     rescue Channel::ClosedError
       @log.debug "Save channel closed"
     ensure
       @save.close
+    end
+
+    private def save_policies!
+      @log.debug "Saving #{@policies.size} policies"
+      File.open(File.join(@data_dir, "policies.json.tmp"), "w") do |f|
+        @policies.values.to_json(f)
+      end
+      File.rename File.join(@data_dir, "policies.json.tmp"), File.join(@data_dir, "policies.json")
     end
 
     private def last_segment : UInt32
