@@ -24,12 +24,13 @@ parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
 parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 parser.parse!
 
-abort banner unless (entity = ARGV.shift?) && ["queues", "policies", "exchanges"].includes?(entity)
+ENTITIES = ["queues", "policies", "exchanges", "vhosts"]
+abort banner unless (entity = ARGV.shift?) && ENTITIES.includes?(entity)
 headers = HTTP::Headers{"Content-Type" => "application/json"}
 
 begin
   if name = options["remove"]?
-    resp = HTTP::Client.delete "#{options["host"]}/api/#{entity}", headers, name.to_s
+    resp = HTTP::Client.delete "#{options["host"]}/api/#{entity}", headers, { name: name.to_s, vhost: options["vhost"]? }.to_json
     if resp.status_code == 200
       exit 0
     else

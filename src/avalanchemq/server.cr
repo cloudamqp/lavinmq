@@ -12,8 +12,6 @@ module AvalancheMQ
   class Server
     getter connections, vhosts, data_dir
 
-    @vhosts : Hash(String, VHost)
-
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
@@ -24,7 +22,9 @@ module AvalancheMQ
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
+      @vhosts = Hash(String, VHost).new
       Dir.mkdir_p @data_dir
+      load_server_definitions
       create_vhost("/")
       create_vhost("default")
       create_vhost("bunny_testbed")
@@ -82,16 +82,51 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.each_value &.close
+      save_server_definitions
     end
 
-    def load_vhosts
-    end
-
-    def save_vhosts
+    def to_json(json : JSON::Builder)
+      {
+        vhosts: @vhosts.values
+      }.to_json(json)
     end
 
     def create_vhost(name)
+      return if @vhosts.has_key?(name)
       @vhosts[name] = VHost.new(name, @data_dir, @log)
+      save_server_definitions
+    end
+
+    def delete_vhost(name)
+      @vhosts.delete(name)
+      save_server_definitions
+    end
+
+    private def load_server_definitions
+      file = File.join(@data_dir, "definitions.json")
+      if File.exists?(file)
+        File.open(File.join(@data_dir, "definitions.json"), "r") do |f|
+          data = JSON.parse(f)
+          data.each do |k, v|
+            case k
+            when "vhosts"
+              v.each { |vhost| create_vhost(vhost["name"].as_s) }
+            else
+              @log.warn("Unknown definition property: #{k}")
+            end
+          end
+        end
+      end
+      @log.debug("#{@vhosts.size} vhosts loaded")
+    rescue e : Exception
+      @log.error("Could not load definitions.json: #{e.inspect}")
+    end
+
+    private def save_server_definitions
+      @log.debug "Saving server definitions"
+      tmpfile = File.join(@data_dir, "definitions.json.tmp")
+      File.open(tmpfile, "w") { |f| self.to_json(f) }
+      File.rename tmpfile, File.join(@data_dir, "definitions.json")
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)

@@ -12,6 +12,8 @@ module AvalancheMQ
           get(context)
         when "POST"
           post(context)
+        when "DELETE"
+          delete(context)
         else
           context.response.content_type = "text/plain"
           context.response.status_code = 405
@@ -33,6 +35,8 @@ module AvalancheMQ
         @amqp_server.vhosts.flat_map { |_, v| v.queues.values }.to_json(context.response)
       when "/api/policies"
         @amqp_server.vhosts.flat_map { |_, v| v.policies.values }.to_json(context.response)
+      when "/api/vhosts"
+        @amqp_server.vhosts.to_json(context.response)
       when "/"
         context.response.content_type = "text/plain"
         context.response.print "AvalancheMQ"
@@ -46,14 +50,32 @@ module AvalancheMQ
       when "/api/policies"
         body = JSON.parse(context.request.body.not_nil!)
         vhost = @amqp_server.vhosts[body["vhost"].as_s]?
-        raise NotFoundError.new("No vhost named #{body["vhost"]}") unless vhost
+        raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
         vhost.add_policy(Policy.from_json(vhost, body))
+      when "/api/vhosts"
+        body = JSON.parse(context.request.body.not_nil!)
+        @amqp_server.create_vhost(body["name"].as_s)
       else
         not_found(context)
       end
     rescue e : JSON::Error | ArgumentError
       context.response.status_code = 400
       { error: "#{e.class}: #{e.message}" }.to_json(context.response)
+    end
+
+    def delete(context)
+      case context.request.path
+      when "/api/policies"
+        body = JSON.parse(context.request.body.not_nil!)
+        vhost = @amqp_server.vhosts[body["vhost"].as_s]?
+        raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
+        vhost.delete_policy(body["name"].as_s)
+      when "/api/vhosts"
+        body = JSON.parse(context.request.body.not_nil!)
+        @amqp_server.delete_vhost(body["name"].as_s)
+      else
+        not_found(context)
+      end
     end
 
     def not_found(context, message = nil)
