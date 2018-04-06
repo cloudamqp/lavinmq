@@ -17,7 +17,7 @@ module AvalancheMQ
     @wfile : MessageFile
     @log : Logger
 
-    def initialize(@name : String, @server_data_dir : String, server_log : Logger)
+    def initialize(@name : String, @server_data_dir : String, server_log : Logger, clean = false)
       @log = server_log.dup
       @log.progname = "VHost[#{@name}]"
       @exchanges = Hash(String, Exchange).new
@@ -26,6 +26,7 @@ module AvalancheMQ
       @save = Channel(AMQP::Frame).new(32)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
+      FileUtils.rm_rf(@data_dir) if clean
       Dir.mkdir_p @data_dir
       @segment = last_segment
       @wfile = open_wfile

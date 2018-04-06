@@ -25,9 +25,9 @@ module AvalancheMQ
       @vhosts = Hash(String, VHost).new
       Dir.mkdir_p @data_dir
       load_server_definitions
-      create_vhost("/")
-      create_vhost("default")
-      create_vhost("bunny_testbed")
+      create_vhost("/", false)
+      create_vhost("default", false)
+      create_vhost("bunny_testbed", false)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -91,14 +91,14 @@ module AvalancheMQ
       }.to_json(json)
     end
 
-    def create_vhost(name)
+    def create_vhost(name, clean = true)
       return if @vhosts.has_key?(name)
-      @vhosts[name] = VHost.new(name, @data_dir, @log)
+      @vhosts[name] = VHost.new(name, @data_dir, @log, clean)
       save_server_definitions
     end
 
     def delete_vhost(name)
-      @vhosts.delete(name)
+      @vhosts.delete(name).try &.close
       save_server_definitions
     end
 
@@ -110,7 +110,7 @@ module AvalancheMQ
           data.each do |k, v|
             case k
             when "vhosts"
-              v.each { |vhost| create_vhost(vhost["name"].as_s) }
+              v.each { |vhost| create_vhost(vhost["name"].as_s, false) }
             else
               @log.warn("Unknown definition property: #{k}")
             end
