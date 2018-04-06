@@ -167,6 +167,22 @@ describe AvalancheMQ::Server do
     s.try &.close
   end
 
+  it "can auto delete exchange" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      x = ch.exchange("test_ad_exchange", "topic", durable: true, auto_delete: true)
+      q = ch.queue("test_ad_exchange", auto_delete: true, durable: false, exclusive: false)
+      q.bind(x)
+      q.unbind(x)
+      x.publish(AMQP::Message.new("m1"), q.name)
+    end
+  ensure
+    s.try &.close
+  end
+
   it "can purge a queue" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }

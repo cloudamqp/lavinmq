@@ -919,10 +919,10 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        getter reserved1, queue_name, exchange_name, routing_key, no_wait, arguments
+        getter reserved1, queue_name, exchange_name, routing_key, arguments
 
         def initialize(channel : UInt16, @reserved1 : UInt16, @queue_name : String,
-                       @exchange_name : String, @routing_key : String, @no_wait : Bool,
+                       @exchange_name : String, @routing_key : String,
                        @arguments : Hash(String, Field))
           super(channel)
         end
@@ -933,7 +933,6 @@ module AvalancheMQ
           io.write_short_string @queue_name
           io.write_short_string @exchange_name
           io.write_short_string @routing_key
-          io.write_bool @no_wait
           io.write_table @arguments
           super io.to_slice
         end
@@ -943,10 +942,8 @@ module AvalancheMQ
           queue_name = io.read_short_string
           exchange_name = io.read_short_string
           routing_key = io.read_short_string
-          bits = io.read_byte
-          no_wait = bits.bit(0) == 1
           args = io.read_table
-          self.new channel, reserved1, queue_name, exchange_name, routing_key, no_wait, args
+          self.new channel, reserved1, queue_name, exchange_name, routing_key, args
         end
       end
 

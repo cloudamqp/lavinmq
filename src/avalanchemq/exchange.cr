@@ -44,6 +44,17 @@ module AvalancheMQ
       end
     end
 
+    def after_unbind
+      if @auto_delete && @bindings.size == 0
+        delete
+      end
+    end
+
+    protected def delete
+      @vhost.log.info "Deleting exchange: #{@name}"
+      @vhost.apply AMQP::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
+    end
+
     abstract def type : String
     abstract def bind(destination : Queue | Exchange, routing_key : String,
                       headers : AMQP::Table?) : Nil
@@ -63,6 +74,7 @@ module AvalancheMQ
 
     def unbind(destination, routing_key, headers = nil)
       @bindings[{routing_key, AMQP::Table.new}].delete destination
+      after_unbind
     end
 
     def matches(routing_key, headers = nil)
@@ -81,6 +93,7 @@ module AvalancheMQ
 
     def unbind(destination, routing_key, headers = nil)
       @bindings[{"", AMQP::Table.new}].delete destination
+      after_unbind
     end
 
     def matches(routing_key, headers = nil)
@@ -99,6 +112,7 @@ module AvalancheMQ
 
     def unbind(destination, routing_key, headers = nil)
       @bindings[{routing_key, AMQP::Table.new}].delete destination
+      after_unbind
     end
 
     def matches(routing_key, headers = nil)
@@ -146,6 +160,7 @@ module AvalancheMQ
     def unbind(destination, routing_key, headers)
       args = @arguments.merge(headers)
       @bindings[{"", args}].delete destination
+      after_unbind
     end
 
     def matches(routing_key, headers)
