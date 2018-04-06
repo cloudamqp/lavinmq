@@ -44,7 +44,7 @@ module AvalancheMQ
       end
     end
 
-    def after_unbind
+    private def after_unbind
       if @auto_delete && @bindings.values.none? { |s| s.size > 0 }
         delete
       end
