@@ -261,8 +261,7 @@ module AvalancheMQ
           when AMQP::Queue::Delete
             next unless @queues[frame.queue_name]?.try { |q| q.durable && !q.exclusive }
           when AMQP::Queue::Bind, AMQP::Queue::Unbind
-            e = @exchanges[frame.exchange_name]
-            next unless e.durable
+            next unless @exchanges[frame.exchange_name]?.try(&.durable)
             q = @queues[frame.queue_name]
             next unless q.durable && !q.exclusive
           when AMQP::Exchange::Bind, AMQP::Exchange::Unbind
