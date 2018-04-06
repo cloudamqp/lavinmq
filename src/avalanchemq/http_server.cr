@@ -1,5 +1,6 @@
 require "http/server"
 require "json"
+require "./error"
 
 module AvalancheMQ
   class HTTPServer
@@ -50,7 +51,7 @@ module AvalancheMQ
       else
         not_found(context)
       end
-    rescue e : JSON::Error | ArgumentError
+    rescue e : JSON::Error | ArgumentError | InvalidJSONError
       context.response.status_code = 400
       context.response.write({ error: "#{e.class}: #{e.message}" }.to_json.to_slice)
     end

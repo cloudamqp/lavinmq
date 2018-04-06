@@ -1,3 +1,4 @@
+require "./error"
 module AvalancheMQ
 
   module PolicyTarget
@@ -57,14 +58,14 @@ module AvalancheMQ
               when Bool
                 v
               else
-                raise ArgumentError.new("Invalid definition")
+                raise InvalidJSONError.new("Invalid definition")
               end
         definitions[k] = val
       end
       self.new vhost, data["name"].as_s, data["pattern"].as_s, data["apply-to"].as_s,
                definitions, data["priority"].as_i.to_i8
     rescue e : KeyError
-      raise ArgumentError.new("Policy json invalid: #{e.message}")
+      raise InvalidJSONError.new("Policy json invalid: #{e.message}")
     end
 
     protected def delete
