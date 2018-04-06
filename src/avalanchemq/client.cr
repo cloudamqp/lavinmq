@@ -5,7 +5,7 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter socket, vhost, channels, log, max_frame_size
+    getter socket, vhost, channels, log, max_frame_size, exclusive_queues
 
     @log : Logger
 
@@ -57,11 +57,17 @@ module AvalancheMQ
     end
 
     def close
-      @log.debug "Gracefully closing"
-      send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
+      if @outbox.closed?
+        @log.debug "Connection already closed"
+      else
+        @log.debug "Gracefully closing"
+        send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
+      end
     end
 
     def cleanup
+      @log.debug "Yielding before cleaning up"
+      Fiber.yield
       @log.debug "Cleaning up"
       @exclusive_queues.each &.close
       @channels.each_value &.close
@@ -134,12 +140,12 @@ module AvalancheMQ
             send AMQP::Exchange::DeclareOk.new(frame.channel)
           end
         else
-          send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                        "Existing exchange declared with other arguments",
-                                        frame.class_id, frame.method_id)
+          send_access_refused(frame, "Existing exchange declared with other arguments")
         end
       elsif frame.passive
         send_not_found(frame)
+      elsif frame.exchange_name.starts_with? "amq."
+        send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
         @vhost.apply(frame)
         unless frame.no_wait
@@ -150,6 +156,10 @@ module AvalancheMQ
 
     private def delete_exchange(frame)
       if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+        if frame.exchange_name.starts_with? "amq."
+          send_access_refused(frame, "Not allowed to use the amq. prefix")
+          return
+        end
         @vhost.apply(frame)
         unless frame.no_wait
           send AMQP::Exchange::DeleteOk.new(frame.channel)
@@ -161,23 +171,18 @@ module AvalancheMQ
 
     private def delete_queue(frame)
       if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if frame.if_unused && !q.consumer_count.zero?
-          send AMQP::Channel::Close.new(frame.channel, 403_u16, "In use",
-                                        frame.class_id, frame.method_id)
-          return
-        end
-        if frame.if_empty && !q.message_count.zero?
-          send AMQP::Channel::Close.new(frame.channel, 403_u16, "Not empty",
-                                        frame.class_id, frame.method_id)
-          return
-        end
-        size = q.message_count
-        @vhost.apply(frame)
-        if q.exclusive
-          @exclusive_queues.delete q
-        end
-        unless frame.no_wait
-          send AMQP::Queue::DeleteOk.new(frame.channel, size)
+        if q.exclusive && !exclusive_queues.includes? q
+          send_resource_locked(frame, "Exclusive queue")
+        elsif frame.if_unused && !q.consumer_count.zero?
+          send_precondition_failed(frame, "In use")
+        elsif frame.if_empty && !q.message_count.zero?
+          send_precondition_failed(frame, "Not empty")
+        else
+          size = q.message_count
+          q.delete
+          @vhost.apply(frame)
+          @exclusive_queues.delete(q) if q.exclusive
+          send AMQP::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
         end
       else
         send_not_found(frame)
@@ -185,11 +190,10 @@ module AvalancheMQ
     end
 
     private def declare_queue(frame)
-      if frame.queue_name.empty?
-        frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
-      end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if frame.passive ||
+        if q.exclusive && !exclusive_queues.includes? q
+          send_resource_locked(frame, "Exclusive queue")
+        elsif frame.passive ||
             q.durable == frame.durable &&
             q.exclusive == frame.exclusive &&
             q.auto_delete == frame.auto_delete &&
@@ -199,13 +203,16 @@ module AvalancheMQ
                                             q.message_count, q.consumer_count)
           end
         else
-          send AMQP::Channel::Close.new(frame.channel, 401_u16,
-                                        "Existing queue declared with other arguments",
-                                        frame.class_id, frame.method_id)
+          send_access_refused(frame, "Existing queue declared with other arguments")
         end
       elsif frame.passive
         send_not_found(frame)
+      elsif frame.queue_name.starts_with? "amq."
+        send_access_refused(frame, "Forbidden to use the prefix amq.")
       else
+        if frame.queue_name.empty?
+          frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
+        end
         @vhost.apply(frame)
         if frame.exclusive
           @exclusive_queues << @vhost.queues[frame.queue_name]
@@ -264,8 +271,12 @@ module AvalancheMQ
 
     private def purge_queue(frame)
       if q = @vhost.queues.fetch(frame.queue_name, nil)
-        messages_purged = q.purge
-        send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
+        if q.exclusive && !exclusive_queues.includes? q
+          send_resource_locked(frame, "Exclusive queue")
+        else
+          messages_purged = q.purge
+          send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
+        end
       else
         send_not_found(frame, "Queue #{frame.queue_name} not found")
       end
@@ -292,6 +303,7 @@ module AvalancheMQ
       end
     rescue ex : AMQP::FrameDecodeError
       @log.error { "#{ex.cause} when reading from socket" }
+      Fiber.yield
       @log.debug { "Closing outbox" }
       @outbox.close # Notifies send_loop to close up shop
     rescue ex : Exception
@@ -365,28 +377,42 @@ module AvalancheMQ
     rescue ex : AMQP::NotImplemented
       @log.error { "#{frame.inspect}, not implemented" }
       raise ex if ex.channel == 0
-      send AMQP::Channel::Close.new(ex.channel, 540_u16, "Not implemented", ex.class_id, ex.method_id)
+      send AMQP::Channel::Close.new(ex.channel, 540_u16, "NOT_IMPLEMENTED", ex.class_id, ex.method_id)
       true
     rescue ex : KeyError
       raise ex unless frame.is_a? AMQP::MethodFrame
       @log.error { "Channel #{frame.channel} not open" }
-      send AMQP::Connection::Close.new(504_u16, "Channel #{frame.channel} not open",
+      send AMQP::Connection::Close.new(504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open",
                                        frame.class_id, frame.method_id)
       true
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::MethodFrame
       @log.error { "#{ex.inspect}, when processing frame" }
-      send AMQP::Channel::Close.new(frame.channel, 541_u16, "Internal error",
+      send AMQP::Channel::Close.new(frame.channel, 541_u16, "INTERNAL_ERROR",
                                     frame.class_id, frame.method_id)
       true
     end
 
-    def send_not_found(frame, reply_text = "Not found")
+    def send_access_refused(frame, text)
+      reply_text = "ACCESS_REFUSED - #{text}"
+      send AMQP::Channel::Close.new(frame.channel, 403_u16, reply_text,
+                                    frame.class_id, frame.method_id)
+    end
+
+    def send_not_found(frame, text = "")
+      reply_text = "NOT_FOUND - #{text}"
       send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_text,
                                     frame.class_id, frame.method_id)
     end
 
-    def send_precondition_failed(frame, reply_text = "Precondition failed")
+    def send_resource_locked(frame, text)
+      reply_text = "RESOURCE_LOCKED - #{text}"
+      send AMQP::Channel::Close.new(frame.channel, 405_u16, reply_text,
+                                    frame.class_id, frame.method_id)
+    end
+
+    def send_precondition_failed(frame, text)
+      reply_text = "PRECONDITION_FAILED - #{text}"
       send AMQP::Channel::Close.new(frame.channel, 406_u16, reply_text,
                                     frame.class_id, frame.method_id)
     end

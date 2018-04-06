@@ -49,6 +49,15 @@ module AvalancheMQ
       raise MessageUnroutableError.new if matches.empty?
 
       pos = @wfile.pos.to_u32
+
+      if pos >= MAX_SEGMENT_SIZE
+        @segment += 1
+        @wfile.close
+        @wfile = open_wfile
+        pos = 0_u32
+        spawn gc_segments!
+      end
+
       sp = SegmentPosition.new(@segment, pos)
       @wfile.write_int msg.timestamp
       @wfile.write_short_string msg.exchange_name
@@ -56,26 +65,18 @@ module AvalancheMQ
       @wfile.write_bytes msg.properties
       @wfile.write_int msg.size
       @wfile.write msg.body.to_slice
-      flush = true # msg.properties.delivery_mode == 2_u8
-      @wfile.flush if flush
+      @wfile.flush
       if immediate
         raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
       end
-      ok = queues.all? { |q| q.publish(sp, flush) } && ok
-
-      if @wfile.pos >= MAX_SEGMENT_SIZE
-        @segment += 1
-        @wfile.close
-        @wfile = open_wfile
-        spawn gc_segments!
-      end
-      ok
+      flush = msg.properties.delivery_mode == 2_u8
+      queues.all? { |q| q.publish(sp, flush) } && ok
     end
 
     private def open_wfile : MessageFile
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      wfile = MessageFile.open(File.join(@data_dir, filename), "w")
+      wfile = MessageFile.open(File.join(@data_dir, filename), "a")
       wfile.seek(0, IO::Seek::End)
       wfile
     end
@@ -245,8 +246,11 @@ module AvalancheMQ
         loop do
           frame = @save.receive
           case frame
-          when AMQP::Exchange::Declare, AMQP::Queue::Declare
+          when AMQP::Exchange::Declare
             next unless frame.durable
+          when AMQP::Queue::Declare
+            next unless frame.durable
+            next if frame.exclusive
           when AMQP::Exchange::Delete
             next unless @exchanges[frame.exchange_name]?.try(&.durable)
           when AMQP::Queue::Delete

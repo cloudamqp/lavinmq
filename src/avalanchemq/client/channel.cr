@@ -100,10 +100,18 @@ module AvalancheMQ
 
       def consume(frame)
         q = @client.vhost.queues[frame.queue]
+        if q.exclusive && !@client.exclusive_queues.includes? q
+          @client.send_resource_locked(frame, "Exclusive queue")
+          return
+        end
+        if q.has_exclusive_consumer?
+          @client.send_resource_locked(frame, "Queue has an exclusive consumer")
+          return
+        end
         if frame.consumer_tag.empty?
           frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
         end
-        c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack)
+        c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
         unless frame.no_wait
           @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
@@ -113,7 +121,9 @@ module AvalancheMQ
 
       def basic_get(frame)
         if q = @client.vhost.queues.fetch(frame.queue, nil)
-          if env = q.get(frame.no_ack)
+          if q.exclusive && !@client.exclusive_queues.includes? q
+            @client.send_resource_locked(frame, "Exclusive queue")
+          elsif env = q.get(frame.no_ack)
             delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
             @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
                                                 false, env.message.exchange_name,
@@ -138,24 +148,25 @@ module AvalancheMQ
           body_part = msg.body[pos, length]
           @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
           @client.send AMQP::BodyFrame.new(@id, body_part)
-          pos += @client.max_frame_size - 8
+          pos += length
         end
       end
 
       def basic_ack(frame)
         if qspc = @map.delete(frame.delivery_tag)
-          queue, sp, consumer = qspc
-          consumer.ack(sp) if consumer
-          queue.ack(sp)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }.each_value do |queue, sp, consumer|
+            @map.select { |k, _| k < frame.delivery_tag }.
+              each_value do |queue, sp, consumer|
               consumer.ack(sp) if consumer
-              queue.ack(sp)
+              queue.ack(sp, flush: false)
             end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
+          queue, sp, consumer = qspc
+          consumer.ack(sp) if consumer
+          queue.ack(sp, flush: true)
         else
-          reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "Unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -166,7 +177,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "Unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -179,18 +190,19 @@ module AvalancheMQ
           end
           @map.clear
         elsif qspc = @map.delete(frame.delivery_tag)
-          queue, sp, consumer = qspc
-          consumer.reject(sp) if consumer
-          queue.reject(sp, frame.requeue)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }.each_value do |queue, sp, consumer|
+            @map.select { |k, _| k < frame.delivery_tag }.
+              each_value do |queue, sp, consumer|
               consumer.reject(sp) if consumer
               queue.reject(sp, frame.requeue)
             end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
+          queue, sp, consumer = qspc
+          consumer.reject(sp) if consumer
+          queue.reject(sp, frame.requeue)
         else
-          reply_text = "PRECONDITION_FAILED - unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "Unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end

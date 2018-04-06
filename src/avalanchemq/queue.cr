@@ -18,6 +18,7 @@ module AvalancheMQ
     @dlrk : String?
     @overflow : String?
     @closed = false
+    @exclusive_consumer = false
     getter name, durable, exclusive, auto_delete, arguments
     def_equals_and_hash @vhost.name, @name
 
@@ -30,13 +31,17 @@ module AvalancheMQ
       @consumers = Array(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
-      @unacked = Set(SegmentPosition).new
+      @unacked = Deque(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = QueueFile.open(path, "r")
       end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+    end
+
+    def has_exclusive_consumer?
+      @exclusive_consumer
     end
 
     def apply_policy(@policy : Policy)
@@ -242,7 +247,7 @@ module AvalancheMQ
         @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
         @vhost.publish msg
       end
-      ack(sp)
+      ack(sp, true)
     end
 
     def get(no_ack : Bool) : Envelope | Nil
@@ -265,15 +270,20 @@ module AvalancheMQ
       Envelope.new(sp, msg)
     end
 
-    def ack(sp : SegmentPosition)
+    def ack(sp : SegmentPosition, flush : Bool)
       @log.debug { "Acking #{sp}" }
-      @unacked.delete sp
+      idx = @unacked.rindex(sp)
+      @log.debug { "Acking idx #{idx} in unacked deque" }
+      @unacked.delete_at(idx) if idx
       @consumer_available.send nil unless @consumer_available.full?
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
       @log.debug { "Rejecting #{sp}" }
-      if @unacked.delete sp
+      idx = @unacked.rindex(sp)
+      @log.debug { "Rejecting idx #{idx} in unacked deque" }
+      if idx
+        @unacked.delete_at(idx)
         if requeue
           i = @ready.index { |rsp| rsp > sp } || 0
           @ready.insert(i, sp)
@@ -286,16 +296,19 @@ module AvalancheMQ
 
     def add_consumer(consumer : Client::Channel::Consumer)
       @consumers.push consumer
+      @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @consumer_available.send nil unless @consumer_available.full?
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      @consumers.delete consumer
-      consumer.unacked.reverse_each { |sp| reject(sp, true) }
-      @log.debug { "Removing consumer (#{@consumers.size} left)" }
-      if @auto_delete && @consumers.size == 0
-        delete
+      if @consumers.delete consumer
+        @exclusive_consumer = false if consumer.exclusive
+        consumer.unacked.each { |sp| reject(sp, true) }
+        @log.debug { "Removing consumer (#{@consumers.size} left)" }
+        if @auto_delete && @consumers.size == 0
+          delete
+        end
       end
     end
 
