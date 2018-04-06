@@ -132,19 +132,19 @@ module AvalancheMQ
                    definition : Hash(String, Policy::Value), priority : Int8)
       @policies[name] = Policy.new(self, name, pattern, apply_to, definition, priority)
       save_policies!
-      apply_policies(@queues.values + @exchanges.values)
+      spawn apply_policies
     end
 
     def add_policy(policy : Policy)
       @policies[policy.name] = policy
       save_policies!
-      apply_policies(@queues.values + @exchanges.values)
+      spawn apply_policies
     end
 
     def remove_policy(name)
       @policies.delete(name)
       save_policies!
-      spawn apply_policies(@queues.values + @exchanges.values)
+      spawn apply_policies
     end
 
     def close
@@ -152,9 +152,14 @@ module AvalancheMQ
       @save.close
     end
 
-    private def apply_policies(resources : Array(Queue | Exchange))
+    private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
+      itr = if resources
+              resources.each
+            else
+              @queues.values.each.chain(@exchanges.values.each)
+            end
       sorted_policies = @policies.values.sort_by!(&.priority).reverse
-      resources.each do |r|
+      itr.each do |r|
         match = sorted_policies.find { |p| p.match?(r) }
         r.apply_policy(match) unless match.nil?
       end
@@ -191,7 +196,7 @@ module AvalancheMQ
         policy = Policy.from_json(self, p)
         @policies[policy.name] = policy
       end
-      spawn apply_policies(@queues.values + @exchanges.values)
+      spawn apply_policies
     end
 
     private def load_default_definitions
