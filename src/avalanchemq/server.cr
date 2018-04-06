@@ -12,6 +12,8 @@ module AvalancheMQ
   class Server
     getter connections, vhosts, data_dir
 
+    @vhosts : Hash(String, VHost)
+
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
@@ -23,11 +25,9 @@ module AvalancheMQ
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       Dir.mkdir_p @data_dir
-      @vhosts = {
-        "/" => VHost.new("/", @data_dir, @log),
-        "default" => VHost.new("default", @data_dir, @log),
-        "bunny_testbed" => VHost.new("bunny_testbed", @data_dir, @log)
-      }
+      create_vhost("/")
+      create_vhost("default")
+      create_vhost("bunny_testbed")
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -82,6 +82,16 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.each_value &.close
+    end
+
+    def load_vhosts
+    end
+
+    def save_vhosts
+    end
+
+    def create_vhost(name)
+      @vhosts[name] = VHost.new(name, @data_dir, @log)
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
