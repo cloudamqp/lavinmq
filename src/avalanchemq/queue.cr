@@ -2,6 +2,7 @@ require "logger"
 require "digest/sha1"
 require "./amqp/io"
 require "./segment_position"
+require "./policy"
 
 module AvalancheMQ
   class Queue
@@ -251,6 +252,7 @@ module AvalancheMQ
     end
 
     def get(no_ack : Bool) : Envelope | Nil
+      return if @closed
       sp = @ready.shift? || return nil
       @unacked << sp unless no_ack
       read(sp)
@@ -271,6 +273,7 @@ module AvalancheMQ
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
+      return if @closed
       @log.debug { "Acking #{sp}" }
       idx = @unacked.rindex(sp)
       @log.debug { "Acking idx #{idx} in unacked deque" }
@@ -279,6 +282,7 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
+      return if @closed
       @log.debug { "Rejecting #{sp}" }
       idx = @unacked.rindex(sp)
       @log.debug { "Rejecting idx #{idx} in unacked deque" }
