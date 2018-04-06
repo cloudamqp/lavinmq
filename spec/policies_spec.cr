@@ -5,8 +5,8 @@ describe AvalancheMQ::VHost do
   # log.level = Logger::DEBUG
   vhost = AvalancheMQ::VHost.new("add_policy", "/tmp/spec", log)
   definitions = {
-      "max-length" => 10,
-      "alternate-exchange" => "dead-letters" } of String => AvalancheMQ::Policy::Value
+    "max-length" => 10_i64,
+    "alternate-exchange" => "dead-letters" } of String => AvalancheMQ::Policy::Value
 
   it "should be able to add policy" do
     vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
@@ -44,7 +44,7 @@ describe AvalancheMQ::VHost do
   end
 
   it "should apply policy" do
-    definitions = { "max-length" => 1 } of String => AvalancheMQ::Policy::Value
+    definitions = { "max-length" => 1_i64 } of String => AvalancheMQ::Policy::Value
     vhost.queues["test"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml", "^.*$", "queues", definitions, 11_i8)
     Fiber.yield
@@ -53,7 +53,7 @@ describe AvalancheMQ::VHost do
   end
 
   it "should respect priroty" do
-    definitions = { "max-length" => 1 } of String => AvalancheMQ::Policy::Value
+    definitions = { "max-length" => 1_i64 } of String => AvalancheMQ::Policy::Value
     vhost.queues["test2"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml2", "^.*$", "queues", definitions, 1_i8)
     vhost.add_policy("ml1", "^.*$", "queues", definitions, 0_i8)
