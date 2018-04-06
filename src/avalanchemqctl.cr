@@ -47,7 +47,7 @@ begin
   else
     response = HTTP::Client.get "#{options["host"]}/api/#{entity}"
     abort "Response status #{response.status_code}" unless response.status_code == 200
-    puts response.body
+    JSON.parse(response.body).to_pretty_json(STDOUT)
   end
 rescue ex : IO::Error | Errno
   abort ex
