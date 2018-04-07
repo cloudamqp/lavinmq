@@ -4,9 +4,10 @@ require "json"
 module AvalancheMQ
   class User
     getter name, password
+
     def initialize(pull : JSON::PullParser)
-      name = nil
-      hash = nil
+      loc = pull.location
+      name = hash = nil
       pull.read_object do |key|
         case key
         when "name" 
@@ -15,22 +16,14 @@ module AvalancheMQ
           hash = pull.read_string
         end
       end
-      raise JSON::ParseException.new("Missing json attribute: name", *pull.location) if name.nil?
-      raise JSON::ParseException.new("Missing json attribute: password_hash", *pull.location) if hash.nil?
+      raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
+      raise JSON::ParseException.new("Missing json attribute: password_hash", *loc) if hash.nil?
       @name = name
       @password = Crypto::Bcrypt::Password.new(hash)
     end
 
-    def initialize(@name : String, password : String? = nil, hash : String? = nil)
-      @password =
-        case
-        when password
-          Crypto::Bcrypt::Password.create(password)
-        when hash
-          Crypto::Bcrypt::Password.new(hash)
-        else
-          raise ArgumentError.new("Password or password_hash has to be given")
-        end
+    def initialize(@name : String, password : String)
+      @password = Crypto::Bcrypt::Password.create(password, cost: 4)
     end
 
     def to_json(json)
