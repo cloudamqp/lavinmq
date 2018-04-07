@@ -3,7 +3,7 @@ require "logger"
 require "openssl"
 require "./amqp"
 require "./client"
-require "./vhost"
+require "./vhost_store"
 require "./exchange"
 require "./queue"
 require "./durable_queue"
@@ -19,15 +19,11 @@ module AvalancheMQ
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         io << progname << ": " << message
       end
+      Dir.mkdir_p @data_dir
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
-      @vhosts = Hash(String, VHost).new
-      Dir.mkdir_p @data_dir
-      load_definitions
-      create_vhost("/")
-      create_vhost("default")
-      create_vhost("bunny_testbed")
+      @vhosts = VHostStore.new(@data_dir, @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -81,55 +77,7 @@ module AvalancheMQ
       @log.debug "Closing connections"
       @connections.each &.close
       @log.debug "Closing vhosts"
-      @vhosts.each_value &.close
-      save_definitions
-    end
-
-    def to_json(json : JSON::Builder)
-      {
-        vhosts: @vhosts.values
-      }.to_json(json)
-    end
-
-    def create_vhost(name)
-      return if @vhosts.has_key?(name)
-      @vhosts[name] = VHost.new(name, @data_dir, @log)
-      save_definitions
-    end
-
-    def delete_vhost(name)
-      @vhosts.delete(name).try &.delete
-      save_definitions
-    end
-
-    private def load_definitions
-      file = File.join(@data_dir, "definitions.json")
-      if File.exists?(file)
-        File.open(File.join(@data_dir, "definitions.json"), "r") do |f|
-          data = JSON.parse(f)
-          data.each do |k, v|
-            case k
-            when "vhosts"
-              v.each do |vhost|
-                name = vhost["name"].as_s
-                @vhosts[name] = VHost.new(name, @data_dir, @log)
-              end
-            else
-              @log.warn("Unknown definition property: #{k}")
-            end
-          end
-        end
-      end
-      @log.debug("#{@vhosts.size} vhosts loaded")
-    rescue e : Exception
-      @log.error("Could not load definitions.json: #{e.inspect}")
-    end
-
-    private def save_definitions
-      @log.debug "Saving server definitions"
-      tmpfile = File.join(@data_dir, "definitions.json.tmp")
-      File.open(tmpfile, "w") { |f| self.to_json(f) }
-      File.rename tmpfile, File.join(@data_dir, "definitions.json")
+      @vhosts.close
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
