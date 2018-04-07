@@ -3,9 +3,15 @@ require "./vhost"
 
 module AvalancheMQ
   class VHostStore
+    include Enumerable(VHost)
+
     def initialize(@data_dir : String, @log : Logger)
       @vhosts = Hash(String, VHost).new
       load!
+    end
+
+    def each
+      @vhosts.values.each { |e| yield e }
     end
 
     def [](name)
