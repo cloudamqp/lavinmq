@@ -14,7 +14,8 @@ module AvalancheMQ
                    @vhost : VHost,
                    @max_frame_size : UInt32)
       @log = @vhost.log.dup
-      @log.progname = "Client[#{@remote_address}]"
+      @log.progname += "/Client[#{@remote_address}]"
+      @log.info "Connected"
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
@@ -33,18 +34,30 @@ module AvalancheMQ
       socket.write AMQP::Connection::Start.new.to_slice
       socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
-      socket.write AMQP::Connection::Tune.new(heartbeat: 0_u16).to_slice
+      _, username, password = start_ok.response.split("\u0000")
+      user = users[username]?
+      unless user && user.password == password
+        log.warn "Access denied for #{remote_address}, username: #{username}"
+        socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
+                                                 start_ok.class_id,
+                                                 start_ok.method_id).to_slice
+        AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+        socket.close
+        return
+      end
+      socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
+                                              frame_max: 131072_u32,
+                                              heartbeat: 0_u16).to_slice
       socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]?
         socket.write AMQP::Connection::OpenOk.new.to_slice
         socket.flush
-        log.info "Accepting connection from #{remote_address} to vhost #{open.vhost}"
         return self.new(socket, remote_address, vhost, tune_ok.frame_max)
       else
         log.warn "Access denied for #{remote_address} to vhost #{open.vhost}"
-        socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
+        socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH",
                                                  open.class_id, open.method_id).to_slice
         socket.close
         return nil
@@ -268,6 +281,7 @@ module AvalancheMQ
         send AMQP::Connection::CloseOk.new
         return false
       when AMQP::Connection::CloseOk
+        @log.info "Disconnected"
         @log.debug { "Closing socket" }
         @socket.close
         cleanup

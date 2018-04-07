@@ -4,6 +4,7 @@ require "openssl"
 require "./amqp"
 require "./client"
 require "./vhost_store"
+require "./user_store"
 require "./exchange"
 require "./queue"
 require "./durable_queue"
@@ -24,6 +25,7 @@ module AvalancheMQ
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = VHostStore.new(@data_dir, @log)
+      @users = UserStore.new(@data_dir, @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -92,9 +94,9 @@ module AvalancheMQ
       socket.recv_buffer_size = 131072
       client =
         if ssl_client
-          Client.start(ssl_client, socket.remote_address, @vhosts, @log)
+          Client.start(ssl_client, socket.remote_address, @vhosts, @users, @log)
         else
-          Client.start(socket, socket.remote_address, @vhosts, @log)
+          Client.start(socket, socket.remote_address, @vhosts, @users, @log)
         end
       if client
         @connection_events.send({ client, :connected })
