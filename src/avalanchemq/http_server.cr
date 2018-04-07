@@ -87,7 +87,7 @@ module AvalancheMQ
 
     def parse_body(context)
       raise ExpectedBodyError.new if context.request.body.nil?
-      JSON.parse(context.request.body)
+      JSON.parse(context.request.body.not_nil!)
     end
 
     def listen
