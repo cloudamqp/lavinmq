@@ -43,6 +43,9 @@ module AvalancheMQ
 
     def post(context)
       case context.request.path
+      when "/api/parameters"
+        body = JSON.parse(context.request.body.not_nil!)
+        @amqp_server.add_parameters(body)
       when "/api/policies"
         body = JSON.parse(context.request.body.not_nil!)
         vhost = @amqp_server.vhosts[body["vhost"].as_s]?

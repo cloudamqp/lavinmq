@@ -1,13 +1,7 @@
 require "./error"
+require "./parameter"
 module AvalancheMQ
-
-  module PolicyTarget
-    getter policy
-
-    abstract def apply_policy(@policy : Policy)
-  end
-  class Policy
-    alias Value = Int64 | String | Bool | Nil
+  class Policy < Parameter
     APPLY_TO = ["all", "exchanges", "queues"]
     getter name, apply_to, definition, priority
     def_equals_and_hash @vhost.name, @name

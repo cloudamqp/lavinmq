@@ -7,10 +7,13 @@ require "./vhost"
 require "./exchange"
 require "./queue"
 require "./durable_queue"
+require "./parameter"
 
 module AvalancheMQ
   class Server
     getter connections, vhosts, data_dir
+
+    include ParameterTarget
 
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
@@ -82,6 +85,10 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.each_value &.close
+    end
+
+    def add_parameters(body : JSON::Any)
+
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
