@@ -241,7 +241,7 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
       else
         @vhost.apply(frame)
-        send AMQP::Queue::UnbindOk.new(frame.channel) unless frame.no_wait
+        send AMQP::Queue::UnbindOk.new(frame.channel)
       end
     end
 
@@ -252,9 +252,7 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
       else
         @vhost.apply(frame)
-        unless frame.no_wait
-          send AMQP::Exchange::BindOk.new(frame.channel)
-        end
+        send AMQP::Exchange::BindOk.new(frame.channel) unless frame.no_wait
       end
     end
 

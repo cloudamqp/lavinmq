@@ -3,7 +3,7 @@ require "logger"
 require "openssl"
 require "./amqp"
 require "./client"
-require "./vhost"
+require "./vhost_store"
 require "./exchange"
 require "./queue"
 require "./durable_queue"
@@ -22,15 +22,11 @@ module AvalancheMQ
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         io << progname << ": " << message
       end
+      Dir.mkdir_p @data_dir
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
-      Dir.mkdir_p @data_dir
-      @vhosts = {
-        "/" => VHost.new("/", @data_dir, @log),
-        "default" => VHost.new("default", @data_dir, @log),
-        "bunny_testbed" => VHost.new("bunny_testbed", @data_dir, @log)
-      }
+      @vhosts = VHostStore.new(@data_dir, @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -84,7 +80,7 @@ module AvalancheMQ
       @log.debug "Closing connections"
       @connections.each &.close
       @log.debug "Closing vhosts"
-      @vhosts.each_value &.close
+      @vhosts.close
     end
 
     def add_parameters(body : JSON::Any)

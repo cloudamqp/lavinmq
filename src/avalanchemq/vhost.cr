@@ -24,7 +24,8 @@ module AvalancheMQ
       @queues = Hash(String, Queue).new
       @policies = Hash(String, Policy).new
       @save = Channel(AMQP::Frame).new(32)
-      @data_dir = File.join(@server_data_dir, Digest::SHA1.hexdigest(@name))
+      @dir = Digest::SHA1.hexdigest(@name)
+      @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p @data_dir
       @segment = last_segment
       @wfile = open_wfile
@@ -79,6 +80,13 @@ module AvalancheMQ
       wfile = MessageFile.open(File.join(@data_dir, filename), "a")
       wfile.seek(0, IO::Seek::End)
       wfile
+    end
+
+    def to_json(json : JSON::Builder)
+      {
+        name: @name,
+        dir: @dir
+      }.to_json(json)
     end
 
     def apply(f, loading = false)
@@ -141,7 +149,7 @@ module AvalancheMQ
       spawn apply_policies
     end
 
-    def remove_policy(name)
+    def delete_policy(name)
       @policies.delete(name)
       save_policies!
       spawn apply_policies
@@ -150,6 +158,12 @@ module AvalancheMQ
     def close
       @queues.each_value &.close
       @save.close
+    end
+
+    def delete
+      close
+      Fiber.yield
+      FileUtils.rm_rf(@data_dir)
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
@@ -187,16 +201,20 @@ module AvalancheMQ
 
     private def load_policies!
       file = File.join(@data_dir, "policies.json")
-      return unless File.exists?(file)
-      policies = File.read(File.join(@data_dir, "policies.json"))
-      data = JSON.parse(policies)
-      return unless data.is_a?(Array)
-      data.each do |p|
-        next unless p.is_a?(Hash)
-        policy = Policy.from_json(self, p)
-        @policies[policy.name] = policy
+      if File.exists?(file)
+        @log.debug("File exists")
+        File.open(File.join(@data_dir, "policies.json"), "r") do |f|
+          data = JSON.parse(f)
+          data.each do |p|
+            policy = Policy.from_json(self, p)
+            @policies[policy.name] = policy
+          end
+        end
       end
+      @log.debug { "#{@policies.size} policies loaded" }
       spawn apply_policies
+    rescue e : Exception
+      @log.error("Can't load policies: #{e.inspect}")
     end
 
     private def load_default_definitions
@@ -261,8 +279,7 @@ module AvalancheMQ
           when AMQP::Queue::Delete
             next unless @queues[frame.queue_name]?.try { |q| q.durable && !q.exclusive }
           when AMQP::Queue::Bind, AMQP::Queue::Unbind
-            e = @exchanges[frame.exchange_name]
-            next unless e.durable
+            next unless @exchanges[frame.exchange_name]?.try(&.durable)
             q = @queues[frame.queue_name]
             next unless q.durable && !q.exclusive
           when AMQP::Exchange::Bind, AMQP::Exchange::Unbind
@@ -286,10 +303,11 @@ module AvalancheMQ
 
     private def save_policies!
       @log.debug "Saving #{@policies.size} policies"
-      File.open(File.join(@data_dir, "policies.json.tmp"), "w") do |f|
+      tmpfile = File.join(@data_dir, "policies.json.tmp")
+      File.open(tmpfile, "w") do |f|
         @policies.values.to_json(f)
       end
-      File.rename File.join(@data_dir, "policies.json.tmp"), File.join(@data_dir, "policies.json")
+      File.rename tmpfile, File.join(@data_dir, "policies.json")
     end
 
     private def last_segment : UInt32

@@ -63,7 +63,7 @@ module AvalancheMQ
 
     protected def delete
       @log.info "Deleting"
-      @vhost.remove_policy(name)
+      @vhost.delete_policy(name)
     end
 
     class InvalidDefinitionError < ArgumentError; end
