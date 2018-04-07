@@ -31,17 +31,22 @@ module AvalancheMQ
         return
       end
 
-      socket.write AMQP::Connection::Start.new.to_slice
+      start = AMQP::Connection::Start.new
+      socket.write start.to_slice
       socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
       _, username, password = start_ok.response.split("\u0000")
       user = users[username]?
       unless user && user.password == password
         log.warn "Access denied for #{remote_address}, username: #{username}"
-        socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
-                                                 start_ok.class_id,
-                                                 start_ok.method_id).to_slice
-        AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+        props = start_ok.client_properties
+        capabilities = props["capabilities"]?.try &.as(AMQP::Table)
+        if capabilities && capabilities["authentication_failure_close"]?
+          socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
+                                                   start_ok.class_id,
+                                                   start_ok.method_id).to_slice
+          AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+        end
         socket.close
         return
       end
