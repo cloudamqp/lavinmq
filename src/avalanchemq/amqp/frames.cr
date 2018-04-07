@@ -159,39 +159,50 @@ module AvalancheMQ
                                     4 + @locales.bytesize)
           body.write_byte(@version_major)
           body.write_byte(@version_minor)
-          body.write_table(@server_props)
+          body.write_table(@server_properties)
           body.write_long_string(@mechanisms)
           body.write_long_string(@locales)
           super(body.to_slice)
         end
 
+        getter server_properties
         def initialize(@version_major = 0_u8, @version_minor = 9_u8,
-                       @server_props = { "Product" => "AvalancheMQ",
-                                         "Version" => VERSION } of String => Field,
-                       @mechanisms = "PLAIN", @locales = "en_US")
+                       @server_properties = {
+          "product" => "AvalancheMQ",
+          "version" => VERSION,
+          "capabilities" => {
+            "publisher_confirms" => true,
+            "exchange_exchange_bindings" => true,
+            "basic.nack" => true,
+            "per_consumer_qos" => true,
+            "authentication_failure_close" => true,
+            "consumer_cancel_notify" => true,
+          } of String => Field,
+        } of String => Field,
+        @mechanisms = "PLAIN", @locales = "en_US")
           super()
         end
 
         def self.decode(io)
           version_major = io.read_byte
           version_minor = io.read_byte
-          server_props = io.read_table
+          server_properties = io.read_table
           mech = io.read_long_string
           locales = io.read_long_string
-          self.new(version_major, version_minor, server_props, mech, locales)
+          self.new(version_major, version_minor, server_properties, mech, locales)
         end
       end
 
       struct StartOk < Connection
-        getter client_props, mechanism, response, locale
+        getter client_properties, mechanism, response, locale
 
         METHOD_ID = 11_u16
         def method_id
           METHOD_ID
         end
 
-        def initialize(@client_props = {} of String => Field, @mechanism = "PLAIN",
-                       @response = "\u0000guest\u0000guest", @locale = "en_US")
+        def initialize(@client_properties : Table, @mechanism : String,
+                       @response : String, @locale : String)
           super()
         end
 
@@ -199,7 +210,7 @@ module AvalancheMQ
           body = AMQP::MemoryIO.new(1 + @mechanism.bytesize +
                                     4 + @response.bytesize +
                                     1 + @locale.bytesize)
-          body.write_table(@client_props)
+          body.write_table(@client_properties)
           body.write_short_string(@mechanism)
           body.write_long_string(@response)
           body.write_short_string(@locale)
