@@ -23,11 +23,11 @@ module AvalancheMQ
     end
 
     def self.start(socket, remote_address, vhosts, log)
-      start = Bytes.new(8)
-      bytes = socket.read_fully(start)
+      start = uninitialized UInt8[8]
+      bytes = socket.read_fully(start.to_slice)
 
       if start != AMQP::PROTOCOL_START
-        socket.write AMQP::PROTOCOL_START
+        socket.write AMQP::PROTOCOL_START.to_slice
         socket.close
         return
       end
