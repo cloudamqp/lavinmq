@@ -420,7 +420,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default", frame_max: 4096_u32)) do |conn|
+    AMQP::Connection.start(AMQP::Config.new(port: 5672, frame_max: 4096_u32)) do |conn|
       ch = conn.channel
       pmsg1 = AMQP::Message.new("m" * (2**17 + 1))
       x = ch.exchange("", "direct", passive: true)
@@ -647,10 +647,10 @@ describe AvalancheMQ::Server do
   it "supports max-length" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     definitions = { "max-length" => 1_i64 } of String => AvalancheMQ::Policy::Value
-    s.vhosts["default"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
+    s.vhosts["/"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(port: 5672, vhost: "default")) do |conn|
+    AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
       nacks = 0
