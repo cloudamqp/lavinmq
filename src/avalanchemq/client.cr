@@ -5,13 +5,14 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter socket, vhost, channels, log, max_frame_size, exclusive_queues
+    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues
 
     @log : Logger
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket,
                    @remote_address : Socket::IPAddress,
                    @vhost : VHost,
+                   @user : User,
                    @max_frame_size : UInt32)
       @log = @vhost.log.dup
       @log.progname += "/Client[#{@remote_address}]"
@@ -61,7 +62,7 @@ module AvalancheMQ
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
           socket.flush
-          return self.new(socket, remote_address, vhost, tune_ok.frame_max)
+          return self.new(socket, remote_address, vhost, user, tune_ok.frame_max)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
