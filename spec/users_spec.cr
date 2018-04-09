@@ -56,4 +56,64 @@ describe AvalancheMQ::Server do
     s.users.delete("u1")
     s.close
   end
+
+  it "prohibits declaring if don't have access" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
+    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
+    Fiber.yield
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        x = ch.exchange("x1", "direct")
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+  ensure
+    s.try &.close
+  end
+
+  it "prohibits publish if user doesn't have access" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
+    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
+    Fiber.yield
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        x = ch.exchange("", "direct")
+        q = ch.queue("")
+        x.publish AMQP::Message.new("msg"), q.name
+        q.get
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+  ensure
+    s.try &.close
+  end
+
+  it "prohibits consuming if user doesn't have access" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
+    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
+    Fiber.yield
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        x = ch.exchange("", "direct")
+        q = ch.queue("")
+        x.publish AMQP::Message.new("msg"), q.name
+        q.get
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+  ensure
+    s.try &.close
+  end
 end
