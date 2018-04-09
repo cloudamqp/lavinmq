@@ -57,10 +57,20 @@ module AvalancheMQ
       socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
-      if vhost = vhosts[open.vhost]?
-        socket.write AMQP::Connection::OpenOk.new.to_slice
-        socket.flush
-        return self.new(socket, remote_address, vhost, tune_ok.frame_max)
+      if vhost = vhosts[open.vhost]? || nil
+        if vhost.allow_connect? username
+          socket.write AMQP::Connection::OpenOk.new.to_slice
+          socket.flush
+          return self.new(socket, remote_address, vhost, tune_ok.frame_max)
+        else
+          log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
+          reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
+          socket.write AMQP::Connection::Close.new(403_u16, reply_text,
+                                                   open.class_id, open.method_id).to_slice
+          socket.flush
+          AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+          socket.close
+        end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
         socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH - vhost not found",

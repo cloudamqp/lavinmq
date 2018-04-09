@@ -34,6 +34,10 @@ module AvalancheMQ
       spawn save!, name: "VHost#save!"
     end
 
+    def allow_connect?(username)
+      true
+    end
+
     def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
       raise MessageUnroutableError.new if ex.nil?
