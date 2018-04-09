@@ -38,13 +38,14 @@ module AvalancheMQ
       _, username, password = start_ok.response.split("\u0000")
       user = users[username]?
       unless user && user.password == password
-        log.warn "Access denied for #{remote_address}, username: #{username}"
+        log.warn "Access denied for #{remote_address} using username \"#{username}\""
         props = start_ok.client_properties
         capabilities = props["capabilities"]?.try &.as(AMQP::Table)
-        if capabilities && capabilities["authentication_failure_close"]?
-          socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
+        if capabilities && capabilities["authentication_failure_close"].try &.as(Bool)
+          socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
                                                    start_ok.class_id,
                                                    start_ok.method_id).to_slice
+          socket.flush
           AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
         end
         socket.close
@@ -61,14 +62,20 @@ module AvalancheMQ
         socket.flush
         return self.new(socket, remote_address, vhost, tune_ok.frame_max)
       else
-        log.warn "Access denied for #{remote_address} to vhost #{open.vhost}"
-        socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH",
+        log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
+        socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH - vhost not found",
                                                  open.class_id, open.method_id).to_slice
+        socket.flush
+        AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
         socket.close
-        return nil
       end
+      nil
     rescue ex : AMQP::FrameDecodeError
-      log.warn "#{ex.cause.inspect} while establishing connection"
+      log.warn "#{ex.cause.inspect} while #{remote_address} tried to establish connection"
+      nil
+    rescue ex : Exception
+      log.warn "#{ex.inspect} while #{remote_address} tried to establish connection"
+      socket.close unless socket.closed?
       nil
     end
 
