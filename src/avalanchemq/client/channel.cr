@@ -71,6 +71,12 @@ module AvalancheMQ
                           @next_msg_size.not_nil!,
                           @next_msg_body.not_nil!.to_slice)
         routed = false
+        write_perm = @client.user.permissions[@client.vhost.name][:write]
+        if write_perm == /^$/ || !write_perm.match msg.exchange_name
+          @client.send AMQP::Channel::Close.new(frame.channel, 403_u16, "ACCESS_REFUSED", 60_u16, 40_u16)
+          return
+        end
+
         begin
           routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
         rescue NoImmediateDeliveryError | MessageUnroutableError
