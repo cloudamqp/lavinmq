@@ -79,7 +79,7 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
-    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
+    s.try &.users.add_permission("guest", "v1", /.*/, /.*/, /^$/)
     # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
     Fiber.yield
     expect_raises(AMQP::ChannelClosed, /403/) do
