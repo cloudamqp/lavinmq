@@ -58,7 +58,7 @@ module AvalancheMQ
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
-        if vhost.allow_connect? username
+        if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
           socket.flush
           return self.new(socket, remote_address, vhost, tune_ok.frame_max)

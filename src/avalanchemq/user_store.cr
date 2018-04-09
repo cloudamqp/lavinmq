@@ -24,17 +24,25 @@ module AvalancheMQ
       user
     end
 
-    def delete(name) : User?
-      if user = @users.delete name
-        user.delete
+    def add_permission(user, vhost, config, read, write)
+      perm = { config: config, read: read, write: write }
+      @users[user].permissions[vhost] = perm
+      save!
+      perm
+    end
+
+    def rm_permission(user, vhost)
+      if perm = @users[user].permissions.delete vhost
         save!
-        user
+        perm
       end
     end
 
-    def close
-      @users.each_value &.close
-      save!
+    def delete(name) : User?
+      if user = @users.delete name
+        save!
+        user
+      end
     end
 
     def to_json(json : JSON::Builder)

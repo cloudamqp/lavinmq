@@ -11,7 +11,7 @@ require "./durable_queue"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, data_dir
+    getter connections, vhosts, users, data_dir
 
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
