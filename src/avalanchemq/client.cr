@@ -19,7 +19,7 @@ module AvalancheMQ
       @outbox = ::Channel(AMQP::Frame).new(1000)
       @exclusive_queues = Array(Queue).new
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
-      spawn send_loop, name: "Client#send_loop #{@remote_address}"
+      #spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
 
     def self.start(socket, remote_address, vhosts, log)
@@ -91,20 +91,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = @outbox.receive
-        @log.debug { "Send #{frame.inspect}"}
-        @socket.write frame.to_slice
-        unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
-          @socket.flush
-        end
-        case frame
-        when AMQP::Connection::Close
-          break
-        when AMQP::Connection::CloseOk
-          @log.debug { "Closing socket" }
-          @socket.close
-          cleanup
-          break
-        end
+        send_frame(frame)
         if (i += 1) % 1000 == 0
           @log.debug "send_loop yielding"
           Fiber.yield
@@ -115,12 +102,27 @@ module AvalancheMQ
       @log.debug { "Closing socket" }
       @socket.close
       cleanup
-    rescue ex : IO::Error | Errno
-      @log.debug { "#{ex} when writing to socket" }
-      cleanup
     ensure
       @log.debug { "Closing outbox" }
       @outbox.close
+    end
+
+    private def send_frame(frame)
+      @log.debug { "Send #{frame.inspect}"}
+      @socket.write frame.to_slice
+      unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
+        @socket.flush
+      end
+      case frame
+      when AMQP::Connection::CloseOk
+        @log.info "Disconnected"
+        @log.debug { "Closing socket" }
+        @socket.close
+        cleanup
+      end
+    rescue ex : IO::Error | Errno
+      @log.debug { "#{ex} when writing to socket" }
+      cleanup
     end
 
     private def open_channel(frame)
@@ -416,10 +418,7 @@ module AvalancheMQ
     end
 
     def send(frame : AMQP::Frame)
-      @outbox.send frame
-      if frame.is_a? AMQP::Channel::Close || frame.is_a? AMQP::Connection::Close
-        Fiber.yield
-      end
+      send_frame(frame)
     end
   end
 end
