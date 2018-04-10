@@ -64,7 +64,7 @@ module AvalancheMQ
       end
 
       private def finish_publish(frame)
-        msg = Message.new(Time.now.epoch_ms,
+        msg = Message.new(Time.utc_now.epoch_ms,
                           @next_publish_exchange_name.not_nil!,
                           @next_publish_routing_key.not_nil!,
                           @next_msg_props.not_nil!,
