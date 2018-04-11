@@ -113,20 +113,11 @@ module AvalancheMQ
         end
         break if @closed
         @log.debug { "Looking for available consumers" }
-        consumers = @consumers.select { |c| c.accepts? }
-        if consumers.size != 0
-          @log.debug { "Picking a consumer" }
-          c = consumers.sample
+        if c = @consumers.find &.accepts?
           @log.debug { "Getting a new message" }
           if env = get(c.no_ack)
             @log.debug { "Delivering #{env.segment_position} to consumer" }
-            begin
-              c.deliver(env.message, env.segment_position, self)
-            rescue Channel::ClosedError
-              @log.debug "Consumer chosen for delivery has disconnected"
-              reject env.segment_position, true
-              Fiber.yield
-            end
+            c.deliver(env.message, env.segment_position, self)
             @log.debug { "Delivery done" }
           end
         else
