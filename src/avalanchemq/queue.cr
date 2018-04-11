@@ -29,7 +29,7 @@ module AvalancheMQ
       @log = @vhost.log.dup
       @log.progname += "/Queue[#{@name}]"
       handle_arguments
-      @consumers = Array(Client::Channel::Consumer).new
+      @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
       @unacked = Deque(SegmentPosition).new
@@ -113,7 +113,14 @@ module AvalancheMQ
         end
         break if @closed
         @log.debug { "Looking for available consumers" }
-        if c = @consumers.find &.accepts?
+        c = nil
+        @consumers.size.times do
+          c = @consumers.shift
+          @consumers.push c
+          break if c.accepts?
+          c = nil
+        end
+        if c
           @log.debug { "Getting a new message" }
           if env = get(c.no_ack)
             @log.debug { "Delivering #{env.segment_position} to consumer" }
