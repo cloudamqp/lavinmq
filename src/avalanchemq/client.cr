@@ -239,16 +239,11 @@ module AvalancheMQ
     end
 
     private def read_loop
-      i = 0
       loop do
         frame = AMQP::Frame.decode @socket
         @log.debug { "Read #{frame.inspect}" }
         ok = process_frame(frame)
         break unless ok
-        if (i += 1) % 1000 == 0
-          @log.debug "read_loop yielding"
-          Fiber.yield
-        end
       end
     rescue ex : AMQP::NotImplemented
       @log.error { "#{ex} when reading from socket" }
