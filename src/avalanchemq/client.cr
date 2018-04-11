@@ -116,12 +116,11 @@ module AvalancheMQ
       case frame
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
-        @log.debug { "Closing socket" }
         @socket.close
         cleanup
       end
     rescue ex : IO::Error | Errno
-      @log.debug { "#{ex} when writing to socket" }
+      @log.info { "Lost connection, while sending (#{ex})" }
       cleanup
     end
 
@@ -302,10 +301,8 @@ module AvalancheMQ
         send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
       end
     rescue ex : AMQP::FrameDecodeError
-      @log.error { "#{ex.cause} when reading from socket" }
-      Fiber.yield
-      @log.debug { "Closing outbox" }
-      @outbox.close # Notifies send_loop to close up shop
+      @log.info "Lost connection, while reading (#{ex.cause})"
+      cleanup
     rescue ex : Exception
       @log.error { "#{ex.inspect}, in read loop" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
