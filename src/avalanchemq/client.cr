@@ -16,10 +16,8 @@ module AvalancheMQ
       @log = @vhost.log.dup
       @log.progname = "Client[#{@remote_address}]"
       @channels = Hash(UInt16, Client::Channel).new
-      @outbox = ::Channel(AMQP::Frame).new(1000)
       @exclusive_queues = Array(Queue).new
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
-      #spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
 
     def self.start(socket, remote_address, vhosts, log)
@@ -57,12 +55,8 @@ module AvalancheMQ
     end
 
     def close
-      if @outbox.closed?
-        @log.debug "Connection already closed"
-      else
-        @log.debug "Gracefully closing"
-        send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
-      end
+      @log.debug "Gracefully closing"
+      send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
     end
 
     def cleanup
@@ -85,43 +79,6 @@ module AvalancheMQ
         address: @remote_address.to_s,
         channels: @channels.size,
       }.to_json(json)
-    end
-
-    private def send_loop
-      i = 0
-      loop do
-        frame = @outbox.receive
-        send_frame(frame)
-        if (i += 1) % 1000 == 0
-          @log.debug "send_loop yielding"
-          Fiber.yield
-        end
-      end
-    rescue ex : ::Channel::ClosedError
-      @log.debug { "#{ex}, when waiting for frames to send" }
-      @log.debug { "Closing socket" }
-      @socket.close
-      cleanup
-    ensure
-      @log.debug { "Closing outbox" }
-      @outbox.close
-    end
-
-    private def send_frame(frame)
-      @log.debug { "Send #{frame.inspect}"}
-      @socket.write frame.to_slice
-      unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
-        @socket.flush
-      end
-      case frame
-      when AMQP::Connection::CloseOk
-        @log.info "Disconnected"
-        @socket.close
-        cleanup
-      end
-    rescue ex : IO::Error | Errno
-      @log.info { "Lost connection, while sending (#{ex})" }
-      cleanup
     end
 
     private def open_channel(frame)
@@ -304,7 +261,7 @@ module AvalancheMQ
       @log.info "Lost connection, while reading (#{ex.cause})"
       cleanup
     rescue ex : Exception
-      @log.error { "#{ex.inspect}, in read loop" }
+      @log.error { "Unexpected error, while reading: #{ex.inspect}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
@@ -415,7 +372,23 @@ module AvalancheMQ
     end
 
     def send(frame : AMQP::Frame)
-      send_frame(frame)
+      @log.debug { "Send #{frame.inspect}"}
+      @socket.write frame.to_slice
+      unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
+        @socket.flush
+      end
+      case frame
+      when AMQP::Connection::CloseOk
+        @log.info "Disconnected"
+        @socket.close
+        cleanup
+      end
+    rescue ex : IO::Error | Errno
+      @log.info { "Lost connection, while sending (#{ex})" }
+      cleanup
+    rescue ex
+      @log.error { "Unexpected error, while sending: #{ex.inspect}" }
+      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
   end
 end
