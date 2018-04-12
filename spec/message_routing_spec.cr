@@ -6,8 +6,8 @@ describe AvalancheMQ::DirectExchange do
     vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
     x = AvalancheMQ::DirectExchange.new(vhost, "")
-    x.bind(q1, "q1", AvalancheMQ::AMQP::Table.new)
-    x.matches("q1", AvalancheMQ::AMQP::Table.new).should eq(Set{q1})
+    x.bind(q1, "q1", Hash(String, AvalancheMQ::AMQP::Field).new)
+    x.matches("q1", Hash(String, AvalancheMQ::AMQP::Field).new).should eq(Set{q1})
   end
 end
 
@@ -18,7 +18,7 @@ describe AvalancheMQ::TopicExchange do
 
   it "matches exact rk" do
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
-    x.bind(q1, "rk1", AvalancheMQ::AMQP::Table.new)
+    x.bind(q1, "rk1", Hash(String, AvalancheMQ::AMQP::Field).new)
     x.matches("rk1", nil).should eq(Set{q1})
   end
 

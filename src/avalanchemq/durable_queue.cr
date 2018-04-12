@@ -8,7 +8,7 @@ module AvalancheMQ
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
-                   @arguments : AMQP::Table)
+                   @arguments : Hash(String, AMQP::Field))
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       @log.debug { "Index dir: #{@index_dir}" }

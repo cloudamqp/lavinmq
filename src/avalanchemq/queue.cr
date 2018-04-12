@@ -25,7 +25,7 @@ module AvalancheMQ
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+                   @arguments = Hash(String, AMQP::Field).new)
       @log = @vhost.log.dup
       @log.progname += "/Queue[#{@name}]"
       handle_arguments

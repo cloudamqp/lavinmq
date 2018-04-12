@@ -27,13 +27,7 @@ module AvalancheMQ
       end
 
       def write_table(hash : Hash(String, Field))
-        tmp = MemoryIO.new
-        hash.each do |key, value|
-          tmp.write_short_string(key)
-          tmp.write_field(value)
-        end
-        write_bytes(tmp.size.to_u32)
-        write tmp.to_slice
+        write_bytes Table.new(hash), ::IO::ByteFormat::NetworkEndian
       end
 
       def write_field(value)

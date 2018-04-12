@@ -27,11 +27,147 @@ module AvalancheMQ
       def initialize(@hash : Hash(String, Field))
       end
 
-      def bytesize
-        size = 4
+      def self.from_io(io, format) : Hash(String, Field)
+        size = UInt32.from_io(io, format)
+        end_pos = io.pos + size
+        hash = Hash(String, Field).new
+        while io.pos < end_pos
+          key = ShortString.from_io(io, format)
+          val = read_field(io, format)
+          hash[key] = val
+        end
+        hash
       end
 
-      def self.from_io(io, format)
+      def to_io(io, format)
+        io.write_bytes(bytesize.to_u32, format)
+        @hash.each do |key, value|
+          io.write_bytes(ShortString.new(key), format)
+          write_field(value, io, format)
+        end
+      end
+
+      def bytesize : UInt32
+        size = 0_u32
+        @hash.each do |key, value|
+          size += 1_u32 + key.bytesize
+          size += 1_u32 + field_bytesize(value)
+        end
+        size
+      end
+
+      private def field_bytesize(value : Field) : UInt32
+        size = 0_u32
+        case value
+        when String
+          size += sizeof(UInt32) + value.bytesize
+        when UInt8
+          size += sizeof(UInt8)
+        when UInt16
+          size += sizeof(UInt16)
+        when Int32
+          size += sizeof(Int32)
+        when Int64
+          size += sizeof(Int64)
+        when Time
+          size += sizeof(Int64)
+        when Hash(String, Field)
+          size += 4 + Table.new(value).bytesize
+        when Bool
+          size += sizeof(Bool)
+        when Array(Field)
+          size += 4 + array_bytesize(value)
+        when Array(UInt8)
+          size += 4 + value.size
+        when Float32
+          size += sizeof(Float32)
+        when Float64
+          size += sizeof(Float64)
+        else raise "Unsupported Field type: #{value.class}"
+        end
+        size
+      end
+
+      private def array_bytesize(a : Array(Field)) : UInt32
+        size = 0_u32
+        a.each do |v|
+          size += 1 + field_bytesize(v)
+        end
+        size
+      end
+
+      private def write_field(value, io, format)
+        case value
+        when String
+          io.write_byte 'S'.ord.to_u8
+          io.write_bytes LongString.new(value), format
+        when UInt8
+          io.write_byte 'b'.ord.to_u8
+          io.write_byte(value)
+        when UInt16
+          io.write_byte 's'.ord.to_u8
+          io.write_bytes(value, format)
+        when Int32
+          io.write_byte 'I'.ord.to_u8
+          io.write_bytes(value, format)
+        when Int64
+          io.write_byte 'l'.ord.to_u8
+          io.write_bytes(value, format)
+        when Time
+          io.write_byte 'T'.ord.to_u8
+          io.write_bytes(value.epoch_ms.to_i64, format)
+        when Hash(String, Field)
+          io.write_byte 'F'.ord.to_u8
+          io.write_bytes Table.new(value), format
+        when Bool
+          io.write_byte 't'.ord.to_u8
+          io.write_byte(value ? 1_u8 : 0_u8)
+        when Array
+          io.write_byte 'A'.ord.to_u8
+          size = array_bytesize(value)
+          io.write_bytes(size.to_u32, format)
+          value.each { |v| write_field(v, io, format) }
+        when Float32
+          io.write_byte 'f'.ord.to_u8
+          io.write_bytes(value, format)
+        when Float64
+          io.write_byte 'd'.ord.to_u8
+          io.write_bytes(value, format)
+        when nil
+          io.write_byte 'V'.ord.to_u8
+        else raise "Unsupported Field type: #{value.class}"
+        end
+      end
+
+      private def self.read_field(io, format) : Field
+        type = io.read_byte
+        case type
+        when 'S' then LongString.from_io(io, format)
+        when 's' then UInt16.from_io(io, format)
+        when 'I' then Int32.from_io(io, format)
+        when 'l' then Int64.from_io(io, format)
+        when 'F' then Table.from_io(io, format)
+        when 't' then io.read_byte == 1_u8
+        when 'T' then Time.epoch_ms(Int64.from_io(io, format))
+        when 'V' then nil
+        when 'b' then io.read_byte
+        when 'A' then read_array(io, format)
+        when 'f' then Float32.from_io(io, format)
+        when 'd' then Float64.from_io(io, format)
+        when 'D' then raise "Cannot parse decimal"
+        when 'x' then raise "Cannot parse byte array"
+        else raise "Unknown type '#{type}' at #{io.pos}"
+        end
+      end
+
+      private def self.read_array(io, format)
+        size = UInt32.from_io(io, format)
+        end_pos = io.pos + size
+        a = Array(Field).new
+        while io.pos < end_pos
+          a << read_field(io, format)
+        end
+        a
       end
     end
 
@@ -75,7 +211,7 @@ module AvalancheMQ
 
       def initialize(@content_type : String?,
                      @content_encoding : String?,
-                     @headers : Table?,
+                     @headers : Hash(String, Field)?,
                      @delivery_mode : UInt8?,
                      @priority : UInt8?,
                      @correlation_id : String?,
@@ -169,20 +305,20 @@ module AvalancheMQ
 
       def bytesize
         size = 2
-        size += 1 + @content_type.bytesize     if @content_type
-        size += 1 + @content_encoding.bytesize if @content_encoding
-        size += @headers.bytesize              if @headers
-        size += 1                              if @delivery_mode
-        size += 1                              if @priority
-        size += 1 + @correlation_id.bytesize   if @correlation_id
-        size += 1 + @reply_to.bytesize         if @reply_to
-        size += 1 + @expiration.bytesize       if @expiration
-        size += 1 + @message_id.bytesize       if @message_id
-        size += sizeof(Int64)                  if @timestamp
-        size += 1 + @type.bytesize             if @type
-        size += 1 + @user_id.bytesize          if @user_id
-        size += 1 + @app_id.bytesize           if @app_id
-        size += 1 + @reserved1.bytesize        if @reserved1
+        size += 1 + @content_type.not_nil!.bytesize     if @content_type
+        size += 1 + @content_encoding.not_nil!.bytesize if @content_encoding
+        size += Table.new(@headers.not_nil!).bytesize   if @headers
+        size += 1                                       if @delivery_mode
+        size += 1                                       if @priority
+        size += 1 + @correlation_id.not_nil!.bytesize   if @correlation_id
+        size += 1 + @reply_to.not_nil!.bytesize         if @reply_to
+        size += 1 + @expiration.not_nil!.bytesize       if @expiration
+        size += 1 + @message_id.not_nil!.bytesize       if @message_id
+        size += sizeof(Int64)                           if @timestamp
+        size += 1 + @type.not_nil!.bytesize             if @type
+        size += 1 + @user_id.not_nil!.bytesize          if @user_id
+        size += 1 + @app_id.not_nil!.bytesize           if @app_id
+        size += 1 + @reserved1.not_nil!.bytesize        if @reserved1
         size
       end
 
