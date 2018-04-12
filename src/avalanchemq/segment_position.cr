@@ -22,8 +22,10 @@ module AvalancheMQ
     end
 
     def self.decode(io : IO, format = IO::ByteFormat::SystemEndian)
-      seg = io.read_bytes(UInt32, format)
-      pos = io.read_bytes(UInt32, format)
+      buf = Bytes.new(8)
+      io.read_fully(buf)
+      seg = format.decode(UInt32, buf[0, 4])
+      pos = format.decode(UInt32, buf[4, 4])
       self.new(seg, pos)
     end
 
