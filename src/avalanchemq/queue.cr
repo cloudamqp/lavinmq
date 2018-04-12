@@ -101,7 +101,7 @@ module AvalancheMQ
           f.close
         end
       end
-      @segments.reject! s.to_a
+      @segments.select! s.to_a
       s
     end
 
