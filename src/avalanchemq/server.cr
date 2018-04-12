@@ -89,6 +89,7 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.linger = nil
       socket.write_timeout = 15
+      socket.recv_buffer_size = 131072
       client =
         if ssl_client
           Client.start(ssl_client, socket.remote_address, @vhosts, @log)
