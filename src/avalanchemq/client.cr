@@ -123,6 +123,10 @@ module AvalancheMQ
     end
 
     private def declare_exchange(frame)
+      unless can_declare? frame.exchange_name
+        send_access_refused(frame, "User doesn't have permissions to exchange '#{frame.exchange_name}'")
+        return
+      end
       if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
         if frame.passive ||
             e.type == frame.exchange_type &&
@@ -184,6 +188,10 @@ module AvalancheMQ
     end
 
     private def declare_queue(frame)
+      unless can_declare? frame.queue_name
+        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
+        return
+      end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
@@ -423,6 +431,36 @@ module AvalancheMQ
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+    end
+
+    @acl_write_cache = Hash(String, Bool).new
+    def can_publish?(exchange_name)
+      unless @acl_write_cache.has_key? exchange_name
+        perm = @user.permissions[@vhost.name][:write]
+        ok = perm != /^$/ && !!perm.match(exchange_name)
+        @acl_write_cache[exchange_name] = ok
+      end
+      @acl_write_cache[exchange_name]
+    end
+
+    @acl_read_cache = Hash(String, Bool).new
+    def can_consume?(queue_name)
+      unless @acl_read_cache.has_key? queue_name
+        perm = @user.permissions[@vhost.name][:read]
+        ok = perm != /^$/ && !!perm.match queue_name
+        @acl_read_cache[queue_name] = ok
+      end
+      @acl_read_cache[queue_name]
+    end
+
+    @acl_declare_cache = Hash(String, Bool).new
+    def can_declare?(name)
+      unless @acl_declare_cache.has_key? name
+        perm = @user.permissions[@vhost.name][:config]
+        ok = perm != /^$/ && !!perm.match name
+        @acl_declare_cache[name] = ok
+      end
+      @acl_declare_cache[name]
     end
   end
 end

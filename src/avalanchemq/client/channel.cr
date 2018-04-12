@@ -42,6 +42,11 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
+        unless @client.can_publish?(frame.exchange)
+          @client.send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+          return false
+        end
+
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -71,12 +76,6 @@ module AvalancheMQ
                           @next_msg_size.not_nil!,
                           @next_msg_body.not_nil!.to_slice)
         routed = false
-        write_perm = @client.user.permissions[@client.vhost.name][:write]
-        if write_perm == /^$/ || !write_perm.match msg.exchange_name
-          @client.send AMQP::Channel::Close.new(frame.channel, 403_u16, "ACCESS_REFUSED", 60_u16, 40_u16)
-          return
-        end
-
         begin
           routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
         rescue NoImmediateDeliveryError | MessageUnroutableError
@@ -105,6 +104,10 @@ module AvalancheMQ
       end
 
       def consume(frame)
+        unless @client.can_consume? frame.queue
+          @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+          return
+        end
         q = @client.vhost.queues[frame.queue]
         if q.exclusive && !@client.exclusive_queues.includes? q
           @client.send_resource_locked(frame, "Exclusive queue")
@@ -126,6 +129,10 @@ module AvalancheMQ
       end
 
       def basic_get(frame)
+        unless @client.can_consume? frame.queue
+          @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+          return
+        end
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")

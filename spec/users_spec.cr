@@ -7,8 +7,8 @@ describe AvalancheMQ::Server do
     spawn { s.try &.listen(5672) }
     Fiber.yield
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(username: "guest", password: "invalid")) do |conn|
-      end
+      AMQP::Connection.start(AMQP::Config.new(username: "guest",
+                                              password: "invalid")) { }
     end
   ensure
     s.try &.close
@@ -19,7 +19,8 @@ describe AvalancheMQ::Server do
     spawn { s.try &.listen(5672) }
     Fiber.yield
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(username: "invalid", password: "guest")) do |conn|
+      AMQP::Connection.start(AMQP::Config.new(username: "invalid",
+                                              password: "guest")) do |conn|
       end
     end
   ensure
@@ -30,9 +31,11 @@ describe AvalancheMQ::Server do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
+    s.try &.users.rm_permission("guest", "v1")
     Fiber.yield
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1", username: "guest", password: "guest")) do |conn|
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1", username: "guest",
+                                              password: "guest")) do |conn|
       end
     end
     s.try &.vhosts.delete("v1")
@@ -46,7 +49,6 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.create("u1", "p1")
     s.users.add_permission("u1", "v1", /.*/, /.*/, /.*/)
-    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(vhost: "v1", username: "u1", password: "p1")) do |conn|
       conn.config.vhost.should eq "v1"
@@ -57,12 +59,11 @@ describe AvalancheMQ::Server do
     s.close
   end
 
-  it "prohibits declaring if don't have access" do
+  it "prohibits declaring exchanges if don't have access" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
-    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
     Fiber.yield
     expect_raises(AMQP::ChannelClosed, /403/) do
       AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
@@ -71,6 +72,25 @@ describe AvalancheMQ::Server do
       end
     end
     s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
+
+  it "prohibits declaring queues if don't have access" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
+    Fiber.yield
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        x = ch.queue("q1")
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
   ensure
     s.try &.close
   end
@@ -92,6 +112,7 @@ describe AvalancheMQ::Server do
       end
     end
     s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
   ensure
     s.try &.close
   end
@@ -101,18 +122,35 @@ describe AvalancheMQ::Server do
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
-    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
     Fiber.yield
     expect_raises(AMQP::ChannelClosed, /403/) do
       AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
         ch = conn.channel
-        x = ch.exchange("", "direct")
         q = ch.queue("")
-        x.publish AMQP::Message.new("msg"), q.name
-        q.get
+        q.subscribe(no_ack: true) { }
       end
     end
     s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
+
+  it "prohibits getting from queue if user doesn't have access" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
+    Fiber.yield
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        q = ch.queue("")
+        q.get(no_ack: true)
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
   ensure
     s.try &.close
   end
