@@ -201,7 +201,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def initialize(@client_properties : Table, @mechanism : String,
+        def initialize(@client_properties : Hash(String, Field), @mechanism : String,
                        @response : String, @locale : String)
           super()
         end

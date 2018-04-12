@@ -22,11 +22,11 @@ module AvalancheMQ
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(socket, remote_address, vhosts, log)
-      start = uninitialized UInt8[8]
-      bytes = socket.read_fully(start.to_slice)
+    def self.start(socket, remote_address, vhosts, users, log)
+      proto = uninitialized UInt8[8]
+      bytes = socket.read_fully(proto.to_slice)
 
-      if start != AMQP::PROTOCOL_START
+      if proto != AMQP::PROTOCOL_START
         socket.write AMQP::PROTOCOL_START.to_slice
         socket.close
         return
@@ -41,7 +41,7 @@ module AvalancheMQ
       unless user && user.password == password
         log.warn "Access denied for #{remote_address} using username \"#{username}\""
         props = start_ok.client_properties
-        capabilities = props["capabilities"]?.try &.as(AMQP::Table)
+        capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
         if capabilities && capabilities["authentication_failure_close"].try &.as(Bool)
           socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
                                                    start_ok.class_id,
