@@ -24,15 +24,11 @@ module AvalancheMQ
       end
 
       def self.decode(io)
-        buf = uninitialized UInt8[7]
-        io.read_fully(buf.to_slice)
-        mem = MemoryIO.new(buf.to_slice, false)
-
-        t = mem.read_byte
-        raise ::IO::EOFError.new if t.nil?
-        type = Type.new(t)
-        channel = mem.read_uint16
-        size = mem.read_uint32
+        buf = Bytes.new(7)
+        io.read_fully(buf)
+        type = Type.new(buf[0])
+        channel = ::IO::ByteFormat::NetworkEndian.decode(UInt16, buf[1, 2])
+        size = ::IO::ByteFormat::NetworkEndian.decode(UInt32, buf[3, 4])
 
         payload = Bytes.new(size + 1)
         io.read_fully(payload)
