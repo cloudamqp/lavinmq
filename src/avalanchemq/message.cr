@@ -1,5 +1,5 @@
 module AvalancheMQ
-  struct Message
+  class Message
     property timestamp, exchange_name, routing_key, properties
     getter size, body
 
@@ -9,7 +9,7 @@ module AvalancheMQ
     end
   end
 
-  struct MessageMetadata
+  class MessageMetadata
     getter timestamp, exchange_name, routing_key, properties
 
     def initialize(@timestamp : Int64, @exchange_name : String,
