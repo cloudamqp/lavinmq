@@ -81,7 +81,7 @@ module AvalancheMQ
       end
 
       def to_slice
-        super(Slice(UInt8).new(0))
+        super(Bytes.empty)
       end
 
       def self.decode
@@ -356,7 +356,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -469,7 +469,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super(Slice(UInt8).new(0))
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -550,7 +550,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -598,7 +598,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -650,7 +650,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -702,7 +702,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -844,7 +844,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -950,7 +950,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -1269,7 +1269,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -1491,7 +1491,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
