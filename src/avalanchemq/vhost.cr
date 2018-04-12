@@ -65,7 +65,7 @@ module AvalancheMQ
       @wfile.write_short_string msg.routing_key
       @wfile.write_bytes msg.properties
       @wfile.write_int msg.size
-      @wfile.write msg.body.to_slice
+      @wfile.write msg.body
       @wfile.flush
       if immediate
         raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
