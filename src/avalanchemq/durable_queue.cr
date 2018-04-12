@@ -2,8 +2,8 @@ require "./queue"
 module AvalancheMQ
   class DurableQueue < Queue
     MAX_ACK_FILE_SIZE = 16 * 1024**2
-    @ack : QueueFile
-    @enq : QueueFile
+    @ack : File
+    @enq : File
     @durable = true
 
     def initialize(@vhost : VHost, @name : String,
@@ -13,15 +13,16 @@ module AvalancheMQ
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       @log.debug { "Index dir: #{@index_dir}" }
       Dir.mkdir_p @index_dir
-      @enq = QueueFile.open(File.join(@index_dir, "enq"), "a+")
-      @ack = QueueFile.open(File.join(@index_dir, "ack"), "a+")
+      @enq = File.open(File.join(@index_dir, "enq"), "a+")
+      @ack = File.open(File.join(@index_dir, "ack"), "a+")
+      @enq.sync = @ack.sync = true
       restore_index
     end
 
     private def compact_index! : Nil
       @log.debug { "Compacting index" }
       @enq.close
-      QueueFile.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+      File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
         unacked = @unacked.to_a.sort.each
         next_unacked = unacked.next
         @ready.each do |sp|
@@ -33,7 +34,8 @@ module AvalancheMQ
         end
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-      @enq = QueueFile.open(File.join(@index_dir, "enq"))
+      @enq = File.open(File.join(@index_dir, "enq"))
+      @enq.sync = true
       @ack.truncate
     end
 
