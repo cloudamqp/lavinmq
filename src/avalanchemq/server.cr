@@ -56,7 +56,7 @@ module AvalancheMQ
           begin
             ssl_client = OpenSSL::SSL::Socket::Server.new(client, context)
             ssl_client.sync_close = true
-            ssl_client.sync = false
+            ssl_client.sync = true
             spawn handle_connection(client, ssl_client)
           rescue e : OpenSSL::SSL::Error
             @log.error "Error accepting OpenSSL connection from #{client.remote_address}: #{e.inspect}"
@@ -81,7 +81,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
-      socket.sync = false
+      socket.sync = true
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
