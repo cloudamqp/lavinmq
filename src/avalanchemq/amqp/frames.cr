@@ -1418,11 +1418,12 @@ module AvalancheMQ
       end
 
       def to_slice
-        body = AMQP::MemoryIO.new
+        prop_slice = @properties.to_slice
+        body = AMQP::MemoryIO.new(sizeof(UInt16) + sizeof(UInt16) + sizeof(UInt64) + prop_slice.size)
         body.write_int @class_id
         body.write_int @weight
         body.write_int @body_size
-        body.write @properties.to_slice
+        body.write prop_slice
         super body.to_slice
       end
 

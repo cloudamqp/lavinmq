@@ -22,7 +22,18 @@ module AvalancheMQ
       Array(UInt8) |
       Time |
       Hash(String, Field)
-    alias Table = Hash(String, Field)
+
+    struct Table
+      def initialize(@hash : Hash(String, Field))
+      end
+
+      def bytesize
+        size = 4
+      end
+
+      def self.from_io(io, format)
+      end
+    end
 
     enum Type : UInt8
       Method = 1
@@ -156,8 +167,27 @@ module AvalancheMQ
         io.write_short_string(@reserved1.not_nil!)        if @reserved1
       end
 
+      def bytesize
+        size = 2
+        size += 1 + @content_type.bytesize     if @content_type
+        size += 1 + @content_encoding.bytesize if @content_encoding
+        size += @headers.bytesize              if @headers
+        size += 1                              if @delivery_mode
+        size += 1                              if @priority
+        size += 1 + @correlation_id.bytesize   if @correlation_id
+        size += 1 + @reply_to.bytesize         if @reply_to
+        size += 1 + @expiration.bytesize       if @expiration
+        size += 1 + @message_id.bytesize       if @message_id
+        size += sizeof(Int64)                  if @timestamp
+        size += 1 + @type.bytesize             if @type
+        size += 1 + @user_id.bytesize          if @user_id
+        size += 1 + @app_id.bytesize           if @app_id
+        size += 1 + @reserved1.bytesize        if @reserved1
+        size
+      end
+
       def to_slice
-        io = AMQP::MemoryIO.new
+        io = AMQP::MemoryIO.new(bytesize)
         encode(io)
         io.to_slice
       end
