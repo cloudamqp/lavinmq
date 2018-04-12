@@ -5,9 +5,9 @@ require "file_utils"
 describe AvalancheMQ::Server do
   it "accepts connections" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5674) }
+    spawn { s.try &.listen(5672) }
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(port: 5674, vhost: "default")) do |conn|
+    AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
       q = ch.queue("", auto_delete: true, durable: false, exclusive: false)

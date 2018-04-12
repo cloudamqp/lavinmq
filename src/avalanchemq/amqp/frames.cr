@@ -1422,7 +1422,7 @@ module AvalancheMQ
         body.write_int @class_id
         body.write_int @weight
         body.write_int @body_size
-        body.write_bytes @properties, IO::ByteFormat::NetworkEndian
+        body.write_bytes @properties, ::IO::ByteFormat::NetworkEndian
         super body.to_slice
       end
 

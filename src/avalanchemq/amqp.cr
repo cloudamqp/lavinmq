@@ -40,7 +40,7 @@ module AvalancheMQ
       end
 
       def to_io(io, format)
-        io.write_bytes(bytesize.to_u32, format)
+        io.write_bytes(bytesize.to_u32 - 4, format)
         @hash.each do |key, value|
           io.write_bytes(ShortString.new(key), format)
           write_field(value, io, format)
@@ -48,16 +48,16 @@ module AvalancheMQ
       end
 
       def bytesize : UInt32
-        size = 0_u32
+        size = 4_u32
         @hash.each do |key, value|
           size += 1_u32 + key.bytesize
-          size += 1_u32 + field_bytesize(value)
+          size += field_bytesize(value)
         end
         size
       end
 
       private def field_bytesize(value : Field) : UInt32
-        size = 0_u32
+        size = 1_u32
         case value
         when String
           size += sizeof(UInt32) + value.bytesize
@@ -72,13 +72,13 @@ module AvalancheMQ
         when Time
           size += sizeof(Int64)
         when Hash(String, Field)
-          size += 4 + Table.new(value).bytesize
+          size += Table.new(value).bytesize
         when Bool
           size += sizeof(Bool)
-        when Array(Field)
-          size += 4 + array_bytesize(value)
         when Array(UInt8)
           size += 4 + value.size
+        when Array(Field)
+          size += array_bytesize(value)
         when Float32
           size += sizeof(Float32)
         when Float64
@@ -89,9 +89,9 @@ module AvalancheMQ
       end
 
       private def array_bytesize(a : Array(Field)) : UInt32
-        size = 0_u32
+        size = 4_u32
         a.each do |v|
-          size += 1 + field_bytesize(v)
+          size += field_bytesize(v)
         end
         size
       end
@@ -162,12 +162,43 @@ module AvalancheMQ
 
       private def self.read_array(io, format)
         size = UInt32.from_io(io, format)
-        end_pos = io.pos + size
+        end_pos = io.pos + size - 4
         a = Array(Field).new
         while io.pos < end_pos
           a << read_field(io, format)
         end
         a
+      end
+    end
+
+    struct ShortString
+      def initialize(@str : String)
+      end
+
+      def to_io(io, format)
+        raise ArgumentError.new("ShortString too long, max 255") if @str.bytesize > 255
+        io.write_byte(@str.bytesize.to_u8)
+        io.write(@str.to_slice)
+      end
+
+      def self.from_io(io, format) : String
+        sz = io.read_byte || raise ::IO::EOFError.new
+        io.read_string(sz.to_i32)
+      end
+    end
+
+    struct LongString
+      def initialize(@str : String)
+      end
+
+      def to_io(io, format)
+        io.write_bytes(@str.bytesize.to_u32, format)
+        io.write(@str.to_slice)
+      end
+
+      def self.from_io(io, format) : String
+        sz = UInt32.from_io(io, format)
+        io.read_string(sz)
       end
     end
 
@@ -208,6 +239,10 @@ module AvalancheMQ
       property user_id
       property app_id
       property reserved1
+
+      def_equals_and_hash content_type, content_encoding, headers, delivery_mode,
+        priority, correlation_id, reply_to, expiration, message_id, timestamp,
+        type, user_id, app_id, reserved1
 
       def initialize(@content_type : String?,
                      @content_encoding : String?,
