@@ -190,4 +190,26 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "allows declaring queues passivly even without config perms" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+      ch = conn.channel
+      q1 = ch.queue("q1", durable: false, auto_delete: true)
+    end
+    s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
+    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+      ch = conn.channel
+      q1 = ch.queue("q1", passive: true)
+      q1.is_a?(AMQP::Queue).should be_true
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
 end

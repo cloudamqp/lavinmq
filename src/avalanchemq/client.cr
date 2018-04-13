@@ -188,10 +188,6 @@ module AvalancheMQ
     end
 
     private def declare_queue(frame)
-      unless can_declare? frame.queue_name
-        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
-        return
-      end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
@@ -214,6 +210,10 @@ module AvalancheMQ
       else
         if frame.queue_name.empty?
           frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
+        end
+        unless can_declare? frame.queue_name
+          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
+          return
         end
         @vhost.apply(frame)
         if frame.exclusive
