@@ -173,4 +173,21 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "allows declaring exchanges passivly even without config perms" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+      ch = conn.channel
+      x = ch.exchange("amq.topic", "topic", passive: true)
+      x.is_a?(AMQP::Exchange).should be_true
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
 end

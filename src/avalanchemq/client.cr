@@ -123,10 +123,6 @@ module AvalancheMQ
     end
 
     private def declare_exchange(frame)
-      unless can_declare? frame.exchange_name
-        send_access_refused(frame, "User doesn't have permissions to exchange '#{frame.exchange_name}'")
-        return
-      end
       if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
         if frame.passive ||
             e.type == frame.exchange_type &&
@@ -145,6 +141,10 @@ module AvalancheMQ
       elsif frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
+        unless can_declare? frame.exchange_name
+          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
+          return
+        end
         @vhost.apply(frame)
         unless frame.no_wait
           send AMQP::Exchange::DeclareOk.new(frame.channel)
