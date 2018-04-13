@@ -154,4 +154,23 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "prohibits purging queue if user doesn't have write access" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /^$/, /.*/, /^$/)
+    Fiber.yield
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        q = ch.queue("")
+        q.purge
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
 end

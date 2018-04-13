@@ -270,6 +270,10 @@ module AvalancheMQ
     end
 
     private def purge_queue(frame)
+      unless can_consume? frame.queue_name
+        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+        return
+      end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
