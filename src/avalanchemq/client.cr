@@ -141,7 +141,7 @@ module AvalancheMQ
       elsif frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
-        unless can_declare? frame.exchange_name
+        unless can_config? frame.exchange_name
           send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
           return
         end
@@ -157,10 +157,13 @@ module AvalancheMQ
         if frame.exchange_name.starts_with? "amq."
           send_access_refused(frame, "Not allowed to use the amq. prefix")
           return
-        end
+        elsif !can_config?(frame.exchange_name)
+          send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
+        else
         @vhost.apply(frame)
         unless frame.no_wait
           send AMQP::Exchange::DeleteOk.new(frame.channel)
+        end
         end
       else
         send_not_found(frame)
@@ -175,6 +178,8 @@ module AvalancheMQ
           send_precondition_failed(frame, "In use")
         elsif frame.if_empty && !q.message_count.zero?
           send_precondition_failed(frame, "Not empty")
+        elsif !can_config?(frame.queue_name)
+          send_access_refused(frame, "User doesn't have permissions to delete queue '#{frame.queue_name}'")
         else
           size = q.message_count
           q.delete
@@ -211,7 +216,7 @@ module AvalancheMQ
         if frame.queue_name.empty?
           frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
         end
-        unless can_declare? frame.queue_name
+        unless can_config? frame.queue_name
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
@@ -457,14 +462,14 @@ module AvalancheMQ
       @acl_read_cache[queue_name]
     end
 
-    @acl_declare_cache = Hash(String, Bool).new
-    def can_declare?(name)
-      unless @acl_declare_cache.has_key? name
+    @acl_config_cache = Hash(String, Bool).new
+    def can_config?(name)
+      unless @acl_config_cache.has_key? name
         perm = @user.permissions[@vhost.name][:config]
         ok = perm != /^$/ && !!perm.match name
-        @acl_declare_cache[name] = ok
+        @acl_config_cache[name] = ok
       end
-      @acl_declare_cache[name]
+      @acl_config_cache[name]
     end
   end
 end

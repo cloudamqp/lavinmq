@@ -212,4 +212,52 @@ describe AvalancheMQ::Server do
   ensure
     s.try &.close
   end
+
+  it "disallows deleting queues without config perms" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+      ch = conn.channel
+      q1 = ch.queue("q1", durable: false, auto_delete: true)
+    end
+    s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        q1 = ch.queue("q1", passive: true)
+        q1.delete
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
+
+  it "disallows deleting exchanges without config perms" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    spawn { s.try &.listen(5672) }
+    s.try &.vhosts.create("v1")
+    s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
+    Fiber.yield
+    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+      ch = conn.channel
+      ch.exchange("x1", "direct", durable: false)
+    end
+    s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
+    expect_raises(AMQP::ChannelClosed, /403/) do
+      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
+        ch = conn.channel
+        x1 = ch.exchange("x1", "direct", passive: true)
+        x1.delete
+      end
+    end
+    s.try &.users.rm_permission("guest", "v1")
+    s.try &.vhosts.delete("v1")
+  ensure
+    s.try &.close
+  end
 end
