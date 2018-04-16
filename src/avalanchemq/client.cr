@@ -265,6 +265,10 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.destination} doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
+      elsif !can_read? frame.source
+        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
+      elsif !can_write? frame.destination
+        send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
         send AMQP::Exchange::BindOk.new(frame.channel) unless frame.no_wait
@@ -276,6 +280,10 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.destination} doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
+      elsif !can_read? frame.source
+        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
+      elsif !can_write? frame.destination
+        send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
         send AMQP::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
