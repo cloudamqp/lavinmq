@@ -36,7 +36,22 @@ module AvalancheMQ
       socket.write start.to_slice
       socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
-      _, username, password = start_ok.response.split("\u0000")
+
+      username = password = ""
+      case start_ok.mechanism
+      when "PLAIN"
+        resp = start_ok.response
+        i = resp.index('\u0000', 1).not_nil!
+        username = resp[1...i]
+        password = resp[(i + 1)..-1]
+      when "AMQPLAIN"
+        io = ::IO::Memory.new(start_ok.response)
+        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.size.to_u32)
+        username = tbl["LOGIN"].as(String)
+        password = tbl["PASSWORD"].as(String)
+      else "Unsupported authentication mechanism: #{start_ok.mechanism}"
+      end
+
       user = users[username]?
       unless user && user.password == password
         log.warn "Access denied for #{remote_address} using username \"#{username}\""

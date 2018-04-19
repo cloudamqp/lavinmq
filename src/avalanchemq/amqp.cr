@@ -27,8 +27,8 @@ module AvalancheMQ
       def initialize(@hash : Hash(String, Field))
       end
 
-      def self.from_io(io, format) : Hash(String, Field)
-        size = UInt32.from_io(io, format)
+      def self.from_io(io, format, size : UInt32? = nil) : Hash(String, Field)
+        size ||= UInt32.from_io(io, format)
         end_pos = io.pos + size
         hash = Hash(String, Field).new
         while io.pos < end_pos
