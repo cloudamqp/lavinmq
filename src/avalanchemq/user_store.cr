@@ -16,6 +16,8 @@ module AvalancheMQ
       @users.size
     end
 
+    # Adds a user to the use store
+    # Returns nil if user is already created
     def create(name, password, save = true)
       return if @users.has_key?(name)
       user = User.new(name, password)
