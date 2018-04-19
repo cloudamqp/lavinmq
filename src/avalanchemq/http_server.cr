@@ -18,8 +18,11 @@ module AvalancheMQ
           context.response.content_type = "text/plain"
           context.response.status_code = 405
           context.response.print "Method not allowed"
-          next
         end
+      rescue ex : UnknownContentType
+        context.response.content_type = "text/plain"
+        context.response.status_code = 415
+        context.response.print ex.message
       rescue e : NotFoundError
         not_found(context, e.message)
       end
@@ -90,7 +93,12 @@ module AvalancheMQ
 
     def parse_body(context)
       raise ExpectedBodyError.new if context.request.body.nil?
-      JSON.parse(context.request.body.not_nil!)
+      ct = context.request.headers["Content-Type"]? || nil
+      if ct.nil? || ct.empty? || ct == "application/json"
+        JSON.parse(context.request.body.not_nil!)
+      else
+        raise UnknownContentType.new("Unknown Content-Type: #{ct}")
+      end
     end
 
     def listen
@@ -105,5 +113,6 @@ module AvalancheMQ
 
     class NotFoundError < Exception; end
     class ExpectedBodyError < ArgumentError; end
+    class UnknownContentType < Exception; end
   end
 end
