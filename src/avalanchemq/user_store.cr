@@ -20,7 +20,8 @@ module AvalancheMQ
     # Returns nil if user is already created
     def create(name, password, save = true)
       return if @users.has_key?(name)
-      user = User.new(name, password)
+      user = User.create(name, password, "Bcrypt")
+      user.permissions["/"] = { config: /.*/, read: /.*/, write: /.*/ }
       @users[name] = user
       save! if save
       user
