@@ -20,7 +20,7 @@ module AvalancheMQ
     @overflow : String?
     @closed = false
     @exclusive_consumer = false
-    getter name, durable, exclusive, auto_delete, arguments
+    getter name, durable, exclusive, auto_delete, arguments, policy
     def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,

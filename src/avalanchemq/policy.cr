@@ -1,18 +1,21 @@
 require "./error"
 require "./parameter"
 module AvalancheMQ
-  class Policy < Parameter
-    APPLY_TO = ["all", "exchanges", "queues"]
-    getter name, apply_to, definition, priority
-    def_equals_and_hash @vhost.name, @name
 
-    def initialize(@vhost : VHost, @name : String, @pattern : String, @apply_to : String,
-                   @definition : Hash(String, Value), @priority : Int8)
-      validate!
-      @re_pattern = Regex.new(pattern)
+  module PolicyTarget
+    abstract def apply_policy(p : Policy)
+    abstract def policy : Policy?
+  end
+  class Policy
+    def_equals_and_hash @name, @vhost
+    getter name, vhost, definition, pattern, apply_to, priority
+    APPLY_TO = ["all", "exchanges", "queues"]
+
+    def initialize(@name : String, @vhost : String, @definition : Hash(String, ParameterValue),
+                   @pattern : String, @apply_to : String, @priority : Int8)
     end
 
-    protected def validate!
+    def validate!
       unless APPLY_TO.includes?(@apply_to)
         raise InvalidDefinitionError.new("apply-to not any of #{APPLY_TO}")
       end
@@ -20,18 +23,19 @@ module AvalancheMQ
     end
 
     def match?(resource : Queue | Exchange)
+      @re_pattern ||= Regex.new(@pattern)
       applies = case resource
                 when Queue
                   @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[2]
                 when Exchange
                   @apply_to == APPLY_TO[0] || @apply_to == APPLY_TO[1]
                 end
-      applies && !@re_pattern.match(resource.name).nil?
+      applies && !@re_pattern.not_nil!.match(resource.name).nil?
     end
 
     def to_json(json : JSON::Builder)
       {
-        vhost: @vhost.name,
+        vhost: @vhost,
         name: @name,
         pattern: @pattern,
         definition: @definition,
@@ -40,8 +44,8 @@ module AvalancheMQ
       }.to_json(json)
     end
 
-    def self.from_json(vhost : VHost, data : JSON::Any)
-      definitions = Hash(String, Value).new
+    def self.from_json(data : JSON::Any)
+      definition = Hash(String, ParameterValue).new
       data["definition"].as_h.each do |k, v|
         val = case v
               when Int64, Float64
@@ -53,17 +57,12 @@ module AvalancheMQ
               else
                 raise InvalidDefinitionError.new("Invalid definition, unknow data type #{v.class}")
               end
-        definitions[k] = val
+        definition[k] = val
       end
-      self.new vhost, data["name"].as_s, data["pattern"].as_s, data["apply-to"].as_s,
-               definitions, data["priority"].as_i.to_i8
+      self.new data["name"].as_s, data["vhost"].as_s, definition, data["pattern"].as_s,
+               data["apply-to"].as_s, data["priority"].as_i.to_i8
     rescue e : KeyError
       raise InvalidJSONError.new("Policy json invalid: #{e.message}")
-    end
-
-    protected def delete
-      @log.info "Deleting"
-      @vhost.delete_policy(name)
     end
 
     class InvalidDefinitionError < ArgumentError; end

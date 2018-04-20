@@ -11,7 +11,7 @@ require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, data_dir
+    getter connections, vhosts, data_dir, parameters
 
     include ParameterTarget
 
@@ -27,6 +27,7 @@ module AvalancheMQ
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = VHostStore.new(@data_dir, @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -83,8 +84,12 @@ module AvalancheMQ
       @vhosts.close
     end
 
-    def add_parameters(body : JSON::Any)
+    def add_parameter(p : Parameter)
+      @parameters[p.name] = p
+    end
 
+    def apply_parameter(p : Parameter)
+      @log.warn("apply_parameter has no action for #{p.compontent_name}")
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)

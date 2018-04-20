@@ -3,6 +3,8 @@ require "logger"
 require "./amqp/io"
 require "./segment_position"
 require "./policy"
+require "./parameter_store"
+require "./parameter"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -10,7 +12,7 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
-    getter name, exchanges, queues, log, data_dir, policies
+    getter name, exchanges, queues, log, data_dir
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
@@ -22,11 +24,11 @@ module AvalancheMQ
       @log.progname = "VHost[#{@name}]"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
-      @policies = Hash(String, Policy).new
       @save = Channel(AMQP::Frame).new(32)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p @data_dir
+      @policy_store = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @segment = last_segment
       @wfile = open_wfile
       load!
@@ -136,23 +138,24 @@ module AvalancheMQ
       end
     end
 
-    def add_policy(name : String, pattern : String, apply_to : String,
-                   definition : Hash(String, Policy::Value), priority : Int8)
-      @policies[name] = Policy.new(self, name, pattern, apply_to, definition, priority)
-      save_policies!
-      spawn apply_policies
+    def add_policy(name : String, definition : Hash(String, ParameterValue),
+                   pattern : String, apply_to : String, priority : Int8)
+      add_policy(Policy.new(name, @name, definition, pattern, apply_to, priority))
     end
 
-    def add_policy(policy : Policy)
-      @policies[policy.name] = policy
-      save_policies!
+    def add_policy(p : Policy)
+      p.validate!
+      @policy_store[p.name] = p
       spawn apply_policies
     end
 
     def delete_policy(name)
-      @policies.delete(name)
-      save_policies!
+      @policy_store.delete(name)
       spawn apply_policies
+    end
+
+    def policies
+      @policy_store.as_h
     end
 
     def close
@@ -172,7 +175,7 @@ module AvalancheMQ
             else
               @queues.values.each.chain(@exchanges.values.each)
             end
-      sorted_policies = @policies.values.sort_by!(&.priority).reverse
+      sorted_policies = @policy_store.as_h.values.sort_by!(&.priority).reverse
       itr.each do |r|
         match = sorted_policies.find { |p| p.match?(r) }
         r.apply_policy(match) unless match.nil?
@@ -180,7 +183,6 @@ module AvalancheMQ
     end
 
     private def load!
-      load_policies!
       load_definitions!
     end
 
@@ -197,24 +199,6 @@ module AvalancheMQ
       end
     rescue Errno
       load_default_definitions
-    end
-
-    private def load_policies!
-      file = File.join(@data_dir, "policies.json")
-      if File.exists?(file)
-        @log.debug("File exists")
-        File.open(File.join(@data_dir, "policies.json"), "r") do |f|
-          data = JSON.parse(f)
-          data.each do |p|
-            policy = Policy.from_json(self, p)
-            @policies[policy.name] = policy
-          end
-        end
-      end
-      @log.debug { "#{@policies.size} policies loaded" }
-      spawn apply_policies
-    rescue e : Exception
-      @log.error("Can't load policies: #{e.inspect}")
     end
 
     private def load_default_definitions
@@ -294,20 +278,11 @@ module AvalancheMQ
           f.flush
         end
       end
-      save_policies!
+      @policy_store.save!
     rescue Channel::ClosedError
       @log.debug "Save channel closed"
     ensure
       @save.close
-    end
-
-    private def save_policies!
-      @log.debug "Saving #{@policies.size} policies"
-      tmpfile = File.join(@data_dir, "policies.json.tmp")
-      File.open(tmpfile, "w") do |f|
-        @policies.values.to_json(f)
-      end
-      File.rename tmpfile, File.join(@data_dir, "policies.json")
     end
 
     private def last_segment : UInt32
