@@ -42,6 +42,11 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
+        unless @client.can_write?(frame.exchange)
+          @client.send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+          return false
+        end
+
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -64,7 +69,7 @@ module AvalancheMQ
       end
 
       private def finish_publish(frame)
-        msg = Message.new(Time.now.epoch_ms,
+        msg = Message.new(Time.utc_now.epoch_ms,
                           @next_publish_exchange_name.not_nil!,
                           @next_publish_routing_key.not_nil!,
                           @next_msg_props.not_nil!,
@@ -99,6 +104,10 @@ module AvalancheMQ
       end
 
       def consume(frame)
+        unless @client.can_read? frame.queue
+          @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+          return
+        end
         q = @client.vhost.queues[frame.queue]
         if q.exclusive && !@client.exclusive_queues.includes? q
           @client.send_resource_locked(frame, "Exclusive queue")
@@ -120,6 +129,10 @@ module AvalancheMQ
       end
 
       def basic_get(frame)
+        unless @client.can_read? frame.queue
+          @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+          return
+        end
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")

@@ -4,6 +4,7 @@ require "openssl"
 require "./amqp"
 require "./client"
 require "./vhost_store"
+require "./user_store"
 require "./exchange"
 require "./queue"
 require "./durable_queue"
@@ -11,7 +12,7 @@ require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, data_dir, parameters
+    getter connections, vhosts, users, data_dir, parameters
 
     include ParameterTarget
 
@@ -27,6 +28,7 @@ module AvalancheMQ
       @connections = Array(Client).new
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = VHostStore.new(@data_dir, @log)
+      @users = UserStore.new(@data_dir, @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
@@ -60,7 +62,7 @@ module AvalancheMQ
           begin
             ssl_client = OpenSSL::SSL::Socket::Server.new(client, context)
             ssl_client.sync_close = true
-            ssl_client.sync = false
+            ssl_client.sync = true
             spawn handle_connection(client, ssl_client)
           rescue e : OpenSSL::SSL::Error
             @log.error "Error accepting OpenSSL connection from #{client.remote_address}: #{e.inspect}"
@@ -93,7 +95,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
-      socket.sync = false
+      socket.sync = true
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
@@ -101,11 +103,12 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.linger = nil
       socket.write_timeout = 15
+      socket.recv_buffer_size = 131072
       client =
         if ssl_client
-          Client.start(ssl_client, socket.remote_address, @vhosts, @log)
+          Client.start(ssl_client, socket.remote_address, @vhosts, @users, @log)
         else
-          Client.start(socket, socket.remote_address, @vhosts, @log)
+          Client.start(socket, socket.remote_address, @vhosts, @users, @log)
         end
       if client
         @connection_events.send({ client, :connected })

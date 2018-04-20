@@ -24,15 +24,11 @@ module AvalancheMQ
       end
 
       def self.decode(io)
-        buf = uninitialized UInt8[7]
-        io.read_fully(buf.to_slice)
-        mem = MemoryIO.new(buf.to_slice, false)
-
-        t = mem.read_byte
-        raise ::IO::EOFError.new if t.nil?
-        type = Type.new(t)
-        channel = mem.read_uint16
-        size = mem.read_uint32
+        buf = Bytes.new(7)
+        io.read_fully(buf)
+        type = Type.new(buf[0])
+        channel = ::IO::ByteFormat::NetworkEndian.decode(UInt16, buf[1, 2])
+        size = ::IO::ByteFormat::NetworkEndian.decode(UInt32, buf[3, 4])
 
         payload = Bytes.new(size + 1)
         io.read_fully(payload)
@@ -85,7 +81,7 @@ module AvalancheMQ
       end
 
       def to_slice
-        super(Slice(UInt8).new(0))
+        super(Bytes.empty)
       end
 
       def self.decode
@@ -163,39 +159,50 @@ module AvalancheMQ
                                     4 + @locales.bytesize)
           body.write_byte(@version_major)
           body.write_byte(@version_minor)
-          body.write_table(@server_props)
+          body.write_table(@server_properties)
           body.write_long_string(@mechanisms)
           body.write_long_string(@locales)
           super(body.to_slice)
         end
 
+        getter server_properties
         def initialize(@version_major = 0_u8, @version_minor = 9_u8,
-                       @server_props = { "Product" => "AvalancheMQ",
-                                         "Version" => VERSION } of String => Field,
-                       @mechanisms = "PLAIN", @locales = "en_US")
+                       @server_properties = {
+          "product" => "AvalancheMQ",
+          "version" => VERSION,
+          "capabilities" => {
+            "publisher_confirms" => true,
+            "exchange_exchange_bindings" => true,
+            "basic.nack" => true,
+            "per_consumer_qos" => true,
+            "authentication_failure_close" => true,
+            "consumer_cancel_notify" => true,
+          } of String => Field,
+        } of String => Field,
+        @mechanisms = "PLAIN", @locales = "en_US")
           super()
         end
 
         def self.decode(io)
           version_major = io.read_byte
           version_minor = io.read_byte
-          server_props = io.read_table
+          server_properties = io.read_table
           mech = io.read_long_string
           locales = io.read_long_string
-          self.new(version_major, version_minor, server_props, mech, locales)
+          self.new(version_major, version_minor, server_properties, mech, locales)
         end
       end
 
       struct StartOk < Connection
-        getter client_props, mechanism, response, locale
+        getter client_properties, mechanism, response, locale
 
         METHOD_ID = 11_u16
         def method_id
           METHOD_ID
         end
 
-        def initialize(@client_props = {} of String => Field, @mechanism = "PLAIN",
-                       @response = "\u0000guest\u0000guest", @locale = "en_US")
+        def initialize(@client_properties : Hash(String, Field), @mechanism : String,
+                       @response : String, @locale : String)
           super()
         end
 
@@ -203,7 +210,7 @@ module AvalancheMQ
           body = AMQP::MemoryIO.new(1 + @mechanism.bytesize +
                                     4 + @response.bytesize +
                                     1 + @locale.bytesize)
-          body.write_table(@client_props)
+          body.write_table(@client_properties)
           body.write_short_string(@mechanism)
           body.write_long_string(@response)
           body.write_short_string(@locale)
@@ -360,7 +367,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -473,7 +480,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super(Slice(UInt8).new(0))
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -554,7 +561,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -602,7 +609,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -654,7 +661,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -706,7 +713,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -848,7 +855,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -954,7 +961,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)
@@ -1273,7 +1280,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(io)
@@ -1422,11 +1429,11 @@ module AvalancheMQ
       end
 
       def to_slice
-        body = AMQP::MemoryIO.new
+        body = AMQP::MemoryIO.new(sizeof(UInt16) + sizeof(UInt16) + sizeof(UInt64) + @properties.bytesize)
         body.write_int @class_id
         body.write_int @weight
         body.write_int @body_size
-        body.write @properties.to_slice
+        body.write_bytes @properties, ::IO::ByteFormat::NetworkEndian
         super body.to_slice
       end
 
@@ -1495,7 +1502,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          super Bytes.new(0)
+          super Bytes.empty
         end
 
         def self.decode(channel, io)

@@ -5,64 +5,109 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter socket, vhost, channels, log, max_frame_size, exclusive_queues
+    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues
 
     @log : Logger
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket,
                    @remote_address : Socket::IPAddress,
                    @vhost : VHost,
+                   @user : User,
                    @max_frame_size : UInt32)
       @log = @vhost.log.dup
-      @log.progname = "Client[#{@remote_address}]"
+      @log.progname += "/Client[#{@remote_address}]"
+      @log.info "Connected"
       @channels = Hash(UInt16, Client::Channel).new
-      @outbox = ::Channel(AMQP::Frame).new(1000)
       @exclusive_queues = Array(Queue).new
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
-      spawn send_loop, name: "Client#send_loop #{@remote_address}"
     end
 
-    def self.start(socket, remote_address, vhosts, log)
-      start = Bytes.new(8)
-      bytes = socket.read_fully(start)
+    def self.start(socket, remote_address, vhosts, users, log)
+      proto = uninitialized UInt8[8]
+      bytes = socket.read_fully(proto.to_slice)
 
-      if start != AMQP::PROTOCOL_START
-        socket.write AMQP::PROTOCOL_START
+      if proto != AMQP::PROTOCOL_START
+        socket.write AMQP::PROTOCOL_START.to_slice
         socket.close
         return
       end
 
-      socket.write AMQP::Connection::Start.new.to_slice
+      start = AMQP::Connection::Start.new
+      socket.write start.to_slice
       socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
-      socket.write AMQP::Connection::Tune.new(heartbeat: 0_u16).to_slice
+
+      username = password = ""
+      case start_ok.mechanism
+      when "PLAIN"
+        resp = start_ok.response
+        i = resp.index('\u0000', 1).not_nil!
+        username = resp[1...i]
+        password = resp[(i + 1)..-1]
+      when "AMQPLAIN"
+        io = ::IO::Memory.new(start_ok.response)
+        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.size.to_u32)
+        username = tbl["LOGIN"].as(String)
+        password = tbl["PASSWORD"].as(String)
+      else "Unsupported authentication mechanism: #{start_ok.mechanism}"
+      end
+
+      user = users[username]?
+      unless user && user.password == password
+        log.warn "Access denied for #{remote_address} using username \"#{username}\""
+        props = start_ok.client_properties
+        capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
+        if capabilities && capabilities["authentication_failure_close"].try &.as(Bool)
+          socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
+                                                   start_ok.class_id,
+                                                   start_ok.method_id).to_slice
+          socket.flush
+          AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+        end
+        socket.close
+        return
+      end
+      socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
+                                              frame_max: 131072_u32,
+                                              heartbeat: 0_u16).to_slice
       socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
-      if vhost = vhosts[open.vhost]?
-        socket.write AMQP::Connection::OpenOk.new.to_slice
-        socket.flush
-        log.info "Accepting connection from #{remote_address} to vhost #{open.vhost}"
-        return self.new(socket, remote_address, vhost, tune_ok.frame_max)
+      if vhost = vhosts[open.vhost]? || nil
+        if user.permissions[open.vhost]? || nil
+          socket.write AMQP::Connection::OpenOk.new.to_slice
+          socket.flush
+          return self.new(socket, remote_address, vhost, user, tune_ok.frame_max)
+        else
+          log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
+          reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
+          socket.write AMQP::Connection::Close.new(403_u16, reply_text,
+                                                   open.class_id, open.method_id).to_slice
+          socket.flush
+          AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+          socket.close
+        end
       else
-        log.warn "Access denied for #{remote_address} to vhost #{open.vhost}"
-        socket.write AMQP::Connection::Close.new(530_u16, "ACCESS_REFUSED",
+        log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
+        socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH - vhost not found",
                                                  open.class_id, open.method_id).to_slice
+        socket.flush
+        AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
         socket.close
-        return nil
       end
+      nil
     rescue ex : AMQP::FrameDecodeError
-      log.warn "#{ex.cause.inspect} while establishing connection"
+      log.warn "#{ex.cause.inspect} while #{remote_address} tried to establish connection"
+      nil
+    rescue ex : Exception
+      log.warn "#{ex.inspect} while #{remote_address} tried to establish connection"
+      socket.close unless socket.closed?
       nil
     end
 
     def close
-      if @outbox.closed?
-        @log.debug "Connection already closed"
-      else
-        @log.debug "Gracefully closing"
-        send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
-      end
+      @log.debug "Gracefully closing"
+      send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
     end
 
     def cleanup
@@ -85,42 +130,6 @@ module AvalancheMQ
         address: @remote_address.to_s,
         channels: @channels.size,
       }.to_json(json)
-    end
-
-    private def send_loop
-      i = 0
-      loop do
-        frame = @outbox.receive
-        @log.debug { "Send #{frame.inspect}"}
-        @socket.write frame.to_slice
-        unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
-          @socket.flush
-        end
-        case frame
-        when AMQP::Connection::Close
-          break
-        when AMQP::Connection::CloseOk
-          @log.debug { "Closing socket" }
-          @socket.close
-          cleanup
-          break
-        end
-        if (i += 1) % 1000 == 0
-          @log.debug "send_loop yielding"
-          Fiber.yield
-        end
-      end
-    rescue ex : ::Channel::ClosedError
-      @log.debug { "#{ex}, when waiting for frames to send" }
-      @log.debug { "Closing socket" }
-      @socket.close
-      cleanup
-    rescue ex : IO::Error | Errno
-      @log.debug { "#{ex} when writing to socket" }
-      cleanup
-    ensure
-      @log.debug { "Closing outbox" }
-      @outbox.close
     end
 
     private def open_channel(frame)
@@ -147,6 +156,10 @@ module AvalancheMQ
       elsif frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
+        unless can_config? frame.exchange_name
+          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
+          return
+        end
         @vhost.apply(frame)
         unless frame.no_wait
           send AMQP::Exchange::DeclareOk.new(frame.channel)
@@ -159,10 +172,13 @@ module AvalancheMQ
         if frame.exchange_name.starts_with? "amq."
           send_access_refused(frame, "Not allowed to use the amq. prefix")
           return
-        end
-        @vhost.apply(frame)
-        unless frame.no_wait
-          send AMQP::Exchange::DeleteOk.new(frame.channel)
+        elsif !can_config?(frame.exchange_name)
+          send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
+        else
+          @vhost.apply(frame)
+          unless frame.no_wait
+            send AMQP::Exchange::DeleteOk.new(frame.channel)
+          end
         end
       else
         send_not_found(frame)
@@ -177,6 +193,8 @@ module AvalancheMQ
           send_precondition_failed(frame, "In use")
         elsif frame.if_empty && !q.message_count.zero?
           send_precondition_failed(frame, "Not empty")
+        elsif !can_config?(frame.queue_name)
+          send_access_refused(frame, "User doesn't have permissions to delete queue '#{frame.queue_name}'")
         else
           size = q.message_count
           q.delete
@@ -194,10 +212,10 @@ module AvalancheMQ
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive ||
-            q.durable == frame.durable &&
-            q.exclusive == frame.exclusive &&
-            q.auto_delete == frame.auto_delete &&
-            q.arguments == frame.arguments
+          q.durable == frame.durable &&
+          q.exclusive == frame.exclusive &&
+          q.auto_delete == frame.auto_delete &&
+          q.arguments == frame.arguments
           unless frame.no_wait
             send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
                                             q.message_count, q.consumer_count)
@@ -212,6 +230,10 @@ module AvalancheMQ
       else
         if frame.queue_name.empty?
           frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
+        end
+        unless can_config? frame.queue_name
+          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
+          return
         end
         @vhost.apply(frame)
         if frame.exclusive
@@ -228,6 +250,10 @@ module AvalancheMQ
         send_not_found frame, "Queue #{frame.queue_name} not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
+      elsif !can_read? frame.exchange_name
+        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
+      elsif !can_write? frame.queue_name
+        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       else
         @vhost.apply(frame)
         send AMQP::Queue::BindOk.new(frame.channel) unless frame.no_wait
@@ -239,6 +265,10 @@ module AvalancheMQ
         send_not_found frame, "Queue #{frame.queue_name} not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
+      elsif !can_read? frame.exchange_name
+        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
+      elsif !can_write? frame.queue_name
+        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       else
         @vhost.apply(frame)
         send AMQP::Queue::UnbindOk.new(frame.channel)
@@ -250,6 +280,10 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.destination} doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
+      elsif !can_read? frame.source
+        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
+      elsif !can_write? frame.destination
+        send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
         send AMQP::Exchange::BindOk.new(frame.channel) unless frame.no_wait
@@ -261,6 +295,10 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.destination} doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
+      elsif !can_read? frame.source
+        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
+      elsif !can_write? frame.destination
+        send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
         send AMQP::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
@@ -268,6 +306,10 @@ module AvalancheMQ
     end
 
     private def purge_queue(frame)
+      unless can_read? frame.queue_name
+        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+        return
+      end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
@@ -287,10 +329,7 @@ module AvalancheMQ
         @log.debug { "Read #{frame.inspect}" }
         ok = process_frame(frame)
         break unless ok
-        if (i += 1) % 1000 == 0
-          @log.debug "read_loop yielding"
-          Fiber.yield
-        end
+        Fiber.yield if (i += 1) % 1000 == 0
       end
     rescue ex : AMQP::NotImplemented
       @log.error { "#{ex} when reading from socket" }
@@ -300,12 +339,10 @@ module AvalancheMQ
         send AMQP::Connection::Close.new(540_u16, "Not implemented", ex.class_id, ex.method_id)
       end
     rescue ex : AMQP::FrameDecodeError
-      @log.error { "#{ex.cause} when reading from socket" }
-      Fiber.yield
-      @log.debug { "Closing outbox" }
-      @outbox.close # Notifies send_loop to close up shop
+      @log.info "Lost connection, while reading (#{ex.cause})"
+      cleanup
     rescue ex : Exception
-      @log.error { "#{ex.inspect}, in read loop" }
+      @log.error { "Unexpected error, while reading: #{ex.inspect}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
@@ -315,6 +352,7 @@ module AvalancheMQ
         send AMQP::Connection::CloseOk.new
         return false
       when AMQP::Connection::CloseOk
+        @log.info "Disconnected"
         @log.debug { "Closing socket" }
         @socket.close
         cleanup
@@ -416,10 +454,53 @@ module AvalancheMQ
     end
 
     def send(frame : AMQP::Frame)
-      @outbox.send frame
-      if frame.is_a? AMQP::Channel::Close || frame.is_a? AMQP::Connection::Close
-        Fiber.yield
+      @log.debug { "Send #{frame.inspect}"}
+      @socket.write frame.to_slice
+      unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
+        @socket.flush
       end
+      case frame
+      when AMQP::Connection::CloseOk
+        @log.info "Disconnected"
+        @socket.close
+        cleanup
+      end
+    rescue ex : IO::Error | Errno
+      @log.info { "Lost connection, while sending (#{ex})" }
+      cleanup
+    rescue ex
+      @log.error { "Unexpected error, while sending: #{ex.inspect}" }
+      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+    end
+
+    @acl_write_cache = Hash(String, Bool).new
+    def can_write?(exchange_name)
+      unless @acl_write_cache.has_key? exchange_name
+        perm = @user.permissions[@vhost.name][:write]
+        ok = perm != /^$/ && !!perm.match(exchange_name)
+        @acl_write_cache[exchange_name] = ok
+      end
+      @acl_write_cache[exchange_name]
+    end
+
+    @acl_read_cache = Hash(String, Bool).new
+    def can_read?(queue_name)
+      unless @acl_read_cache.has_key? queue_name
+        perm = @user.permissions[@vhost.name][:read]
+        ok = perm != /^$/ && !!perm.match queue_name
+        @acl_read_cache[queue_name] = ok
+      end
+      @acl_read_cache[queue_name]
+    end
+
+    @acl_config_cache = Hash(String, Bool).new
+    def can_config?(name)
+      unless @acl_config_cache.has_key? name
+        perm = @user.permissions[@vhost.name][:config]
+        ok = perm != /^$/ && !!perm.match name
+        @acl_config_cache[name] = ok
+      end
+      @acl_config_cache[name]
     end
   end
 end

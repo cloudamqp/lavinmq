@@ -25,11 +25,11 @@ module AvalancheMQ
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+                   @arguments = Hash(String, AMQP::Field).new)
       @log = @vhost.log.dup
       @log.progname += "/Queue[#{@name}]"
       handle_arguments
-      @consumers = Array(Client::Channel::Consumer).new
+      @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
       @unacked = Deque(SegmentPosition).new
@@ -101,11 +101,12 @@ module AvalancheMQ
           f.close
         end
       end
-      @segments.reject! s.to_a
+      @segments.select! s.to_a
       s
     end
 
     def deliver_loop
+      i = 0
       loop do
         unless @ready[0]?
           @log.debug { "Waiting for msgs" }
@@ -113,20 +114,18 @@ module AvalancheMQ
         end
         break if @closed
         @log.debug { "Looking for available consumers" }
-        consumers = @consumers.select { |c| c.accepts? }
-        if consumers.size != 0
-          @log.debug { "Picking a consumer" }
-          c = consumers.sample
+        c = nil
+        @consumers.size.times do
+          c = @consumers.shift
+          @consumers.push c
+          break if c.accepts?
+          c = nil
+        end
+        if c
           @log.debug { "Getting a new message" }
           if env = get(c.no_ack)
             @log.debug { "Delivering #{env.segment_position} to consumer" }
-            begin
-              c.deliver(env.message, env.segment_position, self)
-            rescue Channel::ClosedError
-              @log.debug "Consumer chosen for delivery has disconnected"
-              reject env.segment_position, true
-              Fiber.yield
-            end
+            c.deliver(env.message, env.segment_position, self)
             @log.debug { "Delivery done" }
           end
         else
@@ -135,6 +134,7 @@ module AvalancheMQ
           @log.debug "Waiting for consumer"
           @consumer_available.receive
         end
+        Fiber.yield if (i += 1) % 1000 == 0
       end
       @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError

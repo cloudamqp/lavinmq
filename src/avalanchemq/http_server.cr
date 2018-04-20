@@ -30,11 +30,11 @@ module AvalancheMQ
       when "/api/connections"
         @amqp_server.connections.to_json(context.response)
       when "/api/exchanges"
-        @amqp_server.vhosts.flat_map { |_, v| v.exchanges.values }.to_json(context.response)
+        @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
       when "/api/queues"
-        @amqp_server.vhosts.flat_map { |_, v| v.queues.values }.to_json(context.response)
+        @amqp_server.vhosts.flat_map { |v| v.queues.values }.to_json(context.response)
       when "/api/policies"
-        @amqp_server.vhosts.flat_map { |_, v| v.policies.values }.to_json(context.response)
+        @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
       when "/api/vhosts"
         @amqp_server.vhosts.to_json(context.response)
       when "/"
@@ -57,7 +57,7 @@ module AvalancheMQ
         vhost.add_policy(Policy.from_json(body))
       when "/api/vhosts"
         body = parse_body(context)
-        @amqp_server.create_vhost(body["name"].as_s)
+        @amqp_server.vhosts.create(body["name"].as_s)
       else
         not_found(context)
       end
@@ -75,7 +75,7 @@ module AvalancheMQ
         vhost.delete_policy(body["name"].as_s)
       when "/api/vhosts"
         body = parse_body(context)
-        @amqp_server.delete_vhost(body["name"].as_s)
+        @amqp_server.vhosts.delete(body["name"].as_s)
       else
         not_found(context)
       end
@@ -90,7 +90,7 @@ module AvalancheMQ
 
     def parse_body(context)
       raise ExpectedBodyError.new if context.request.body.nil?
-      JSON.parse(context.request.body)
+      JSON.parse(context.request.body.not_nil!)
     end
 
     def listen

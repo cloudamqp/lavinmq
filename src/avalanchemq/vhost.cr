@@ -67,7 +67,7 @@ module AvalancheMQ
       @wfile.write_short_string msg.routing_key
       @wfile.write_bytes msg.properties
       @wfile.write_int msg.size
-      @wfile.write msg.body.to_slice
+      @wfile.write msg.body
       @wfile.flush
       if immediate
         raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
@@ -166,7 +166,8 @@ module AvalancheMQ
     def delete
       close
       Fiber.yield
-      FileUtils.rm_rf(@data_dir)
+      Dir.children(@data_dir).each { |f| File.delete File.join(@data_dir, f) }
+      Dir.rmdir @data_dir
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
