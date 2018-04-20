@@ -17,7 +17,7 @@ describe AvalancheMQ::VHost do
 
   it "should be able to list policies" do
     vhost2 = AvalancheMQ::VHost.new("add_remove_policy", "/tmp/spec_lp", log)
-    vhost2.add_policy("test", " ^.*$", "all", definitions, -10_i8)
+    vhost2.add_policy("test", "^.*$", "all", definitions, -10_i8)
     vhost2.delete_policy("test")
     vhost2.policies.size.should eq 0
     vhost2.delete

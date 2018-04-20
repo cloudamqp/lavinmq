@@ -651,8 +651,7 @@ describe AvalancheMQ::Server do
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
-      ch = conn.channel
-      ch.confirm
+      ch = conn.channel.confirm
       acks = 0
       nacks = 0
       ch.on_confirm do |tag, acked|
