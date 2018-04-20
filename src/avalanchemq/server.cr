@@ -12,7 +12,7 @@ require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, parameters
+    getter connections, vhosts, users, data_dir, log, parameters
 
     include ParameterTarget
 

@@ -1,10 +1,14 @@
 require "http/server"
 require "json"
+require "logger"
 require "./error"
 
 module AvalancheMQ
   class HTTPServer
+    @log : Logger
     def initialize(@amqp_server : AvalancheMQ::Server, port)
+      @log = @amqp_server.log.dup
+      @log.progname = "HTTP(#{port})"
       @http = HTTP::Server.new(port) do |context|
         context.response.content_type = "application/json"
         case context.request.method
@@ -23,8 +27,12 @@ module AvalancheMQ
         context.response.content_type = "text/plain"
         context.response.status_code = 415
         context.response.print ex.message
-      rescue e : NotFoundError
-        not_found(context, e.message)
+      rescue ex : NotFoundError
+        not_found(context, ex.message)
+      rescue ex : JSON::Error | ArgumentError
+        @log.error "path=#{context.request.path} error=#{ex.inspect}"
+        context.response.status_code = 400
+        { error: "#{ex.inspect}" }.to_json(context.response)
       end
     end
 
@@ -85,56 +93,52 @@ module AvalancheMQ
       else
         not_found(context)
       end
-      rescue e : JSON::Error | ArgumentError
-        puts e.inspect
-        context.response.status_code = 400
-        { error: "#{e.class}: #{e.message}" }.to_json(context.response)
-      end
-
-      def delete(context)
-        case context.request.path
-        when "/api/policies"
-          body = parse_body(context)
-          vhost = @amqp_server.vhosts[body["vhost"].as_s]?
-            raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
-          vhost.delete_policy(body["name"].as_s)
-        when "/api/vhosts"
-          body = parse_body(context)
-          @amqp_server.vhosts.delete(body["name"].as_s)
-        else
-          not_found(context)
-        end
-      end
-
-      def not_found(context, message = nil)
-        context.response.content_type = "text/plain"
-        context.response.status_code = 404
-        context.response.print "Not found\n"
-        context.response.print message
-      end
-
-      def parse_body(context)
-        raise ExpectedBodyError.new if context.request.body.nil?
-        ct = context.request.headers["Content-Type"]? || nil
-        if ct.nil? || ct.empty? || ct == "application/json"
-          JSON.parse(context.request.body.not_nil!)
-        else
-          raise UnknownContentType.new("Unknown Content-Type: #{ct}")
-        end
-      end
-
-      def listen
-        server = @http.bind
-        print "HTTP API listening on ", server.local_address, "\n"
-        @http.listen
-      end
-
-      def close
-        @http.close
-      end
-
-      class NotFoundError < Exception; end
-      class ExpectedBodyError < ArgumentError; end
-      class UnknownContentType < Exception; end
     end
+
+    def delete(context)
+      case context.request.path
+      when "/api/policies"
+        body = parse_body(context)
+        vhost = @amqp_server.vhosts[body["vhost"].as_s]?
+          raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
+        vhost.delete_policy(body["name"].as_s)
+      when "/api/vhosts"
+        body = parse_body(context)
+        @amqp_server.vhosts.delete(body["name"].as_s)
+      else
+        not_found(context)
+      end
+    end
+
+    def not_found(context, message = nil)
+      context.response.content_type = "text/plain"
+      context.response.status_code = 404
+      context.response.print "Not found\n"
+      context.response.print message
+    end
+
+    def parse_body(context)
+      raise ExpectedBodyError.new if context.request.body.nil?
+      ct = context.request.headers["Content-Type"]? || nil
+      if ct.nil? || ct.empty? || ct == "application/json"
+        JSON.parse(context.request.body.not_nil!)
+      else
+        raise UnknownContentType.new("Unknown Content-Type: #{ct}")
+      end
+    end
+
+    def listen
+      server = @http.bind
+      @log.info "Listening on #{server.local_address}"
+      @http.listen
+    end
+
+    def close
+      @http.close
+    end
+
+    class NotFoundError < Exception; end
+    class ExpectedBodyError < ArgumentError; end
+    class UnknownContentType < Exception; end
   end
+end
