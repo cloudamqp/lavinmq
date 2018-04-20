@@ -50,17 +50,17 @@ module AvalancheMQ
       @policy.not_nil!.definition.each do |k, v|
         case k
         when "max-length"
-          @max_length = v.as Int64
+          @max_length = v.as_i64
         when "message-ttl"
-          @message_ttl = v.as Int64
+          @message_ttl = v.as_i64
         when "overflow"
-          @overflow = v.to_s
+          @overflow = v.as_s
         when "expires"
           # TODO
         when "dead-letter-exchange"
-          @dlx = v.to_s
+          @dlx = v.as_s
         when "dead-letter-routing-key"
-          @dlrk = v.to_s
+          @dlrk = v.as_s
         end
       end
     end

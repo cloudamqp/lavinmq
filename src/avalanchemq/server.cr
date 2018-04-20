@@ -91,7 +91,11 @@ module AvalancheMQ
     end
 
     def apply_parameter(p : Parameter)
-      @log.warn("apply_parameter has no action for #{p.compontent_name}")
+      @log.warn("apply_parameter has no action for #{p.component_name}")
+    end
+
+    def delete_parameter(component_name, parameter_name)
+      @parameters.delete({ component_name, parameter_name })
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)

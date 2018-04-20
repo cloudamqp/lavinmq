@@ -16,21 +16,22 @@ module AvalancheMQ
       @parameters[id]?
     end
 
-    def []=(id : ParameterId?, p : T)
-      @parameters[id] = p
-      save!
-    end
-
-    def as_h
-      @parameters
+    def values
+      @parameters.values
     end
 
     def size
       @parameters.size
     end
 
-    def create(id, data)
-      self[id] = T.from_json(data)
+    def create(data : JSON::Any, save = true)
+      p = T.from_json(data)
+      create(p, save)
+    end
+
+    def create(parameter : T, save = true)
+      @parameters[parameter.name] = parameter
+      save! if save
     end
 
     def delete(id) : T?
@@ -59,11 +60,7 @@ module AvalancheMQ
       file = File.join(@data_dir, @file_name)
       if File.exists?(file)
         File.open(file, "r") do |f|
-          data = JSON.parse(f)
-          data.each do |p|
-            parameter = T.from_json(p)
-            @parameters[parameter.name] = parameter
-          end
+          Array(T).from_json(f).each { |p| create(p, save: false) }
         end
       end
       @log.debug("#{@parameters.size} items loaded from #{@file_name}")

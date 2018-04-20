@@ -2,6 +2,11 @@ require "crypto/bcrypt/password"
 require "json"
 
 class Regex
+  def self.new(pull : JSON::PullParser)
+    pattern = pull.read_string
+    self.new(pattern)
+  end
+
   def to_json(io)
     self.source.to_json(io)
   end
@@ -22,7 +27,7 @@ module AvalancheMQ
       name = hash = nil
       pull.read_object do |key|
         case key
-        when "name" 
+        when "name"
           name = pull.read_string
         when "password_hash"
           hash = pull.read_string

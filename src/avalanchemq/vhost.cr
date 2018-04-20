@@ -12,7 +12,7 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
-    getter name, exchanges, queues, log, data_dir
+    getter name, exchanges, queues, log, data_dir, policies
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
@@ -28,7 +28,7 @@ module AvalancheMQ
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p @data_dir
-      @policy_store = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
+      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @segment = last_segment
       @wfile = open_wfile
       load!
@@ -97,7 +97,7 @@ module AvalancheMQ
       when AMQP::Exchange::Declare
         e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
-        spawn apply_policies([e] of Exchange)
+        apply_policies([e] of Exchange)
       when AMQP::Exchange::Delete
         @exchanges.each_value do |e|
           e.bindings.each_value do |destination|
@@ -119,7 +119,7 @@ module AvalancheMQ
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
           end
         @exchanges[""].bind(q, f.queue_name, f.arguments)
-        spawn apply_policies([q] of Queue)
+        apply_policies([q] of Queue)
       when AMQP::Queue::Delete
         q = @queues.delete(f.queue_name)
         @exchanges.each_value do |e|
@@ -138,24 +138,19 @@ module AvalancheMQ
       end
     end
 
-    def add_policy(name : String, pattern : String, apply_to : String,
-                   definition : Hash(String, ParameterValue), priority : Int8)
+    def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
+                   definition : JSON::Any, priority : Int8)
       add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))
     end
 
     def add_policy(p : Policy)
-      p.validate!
-      @policy_store[p.name] = p
+      @policies.create(p)
       spawn apply_policies
     end
 
     def delete_policy(name)
-      @policy_store.delete(name)
+      @policies.delete(name)
       spawn apply_policies
-    end
-
-    def policies
-      @policy_store.as_h
     end
 
     def close
@@ -176,7 +171,7 @@ module AvalancheMQ
             else
               @queues.values.each.chain(@exchanges.values.each)
             end
-      sorted_policies = @policy_store.as_h.values.sort_by!(&.priority).reverse
+      sorted_policies = @policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
         match = sorted_policies.find { |p| p.match?(r) }
         r.apply_policy(match) unless match.nil?
@@ -279,7 +274,7 @@ module AvalancheMQ
           f.flush
         end
       end
-      @policy_store.save!
+      @policies.save!
     rescue Channel::ClosedError
       @log.debug "Save channel closed"
     ensure
