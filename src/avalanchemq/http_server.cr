@@ -76,10 +76,17 @@ module AvalancheMQ
           end
           @amqp_server.users.save!
         end
+        if vhosts = body["vhosts"]? || nil
+          vhosts.each do |v|
+            name = v["name"].as_s
+            @amqp_server.vhosts.create name
+          end
+        end
       else
         not_found(context)
       end
       rescue e : JSON::Error | ArgumentError
+        puts e.inspect
         context.response.status_code = 400
         { error: "#{e.class}: #{e.message}" }.to_json(context.response)
       end
