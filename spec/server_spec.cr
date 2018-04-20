@@ -647,7 +647,7 @@ describe AvalancheMQ::Server do
   it "supports max-length" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     definitions = { "max-length" => 1_i64 } of String => AvalancheMQ::ParameterValue
-    s.vhosts["/"].add_policy("ml", definitions, "^.*$", "queues", 10_i8)
+    s.vhosts["/"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|

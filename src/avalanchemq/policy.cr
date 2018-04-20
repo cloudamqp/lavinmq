@@ -1,5 +1,4 @@
 require "./error"
-require "./parameter"
 module AvalancheMQ
 
   module PolicyTarget
@@ -11,8 +10,8 @@ module AvalancheMQ
     getter name, vhost, definition, pattern, apply_to, priority
     APPLY_TO = ["all", "exchanges", "queues"]
 
-    def initialize(@name : String, @vhost : String, @definition : Hash(String, ParameterValue),
-                   @pattern : String, @apply_to : String, @priority : Int8)
+    def initialize(@name : String, @vhost : String, @pattern : String, @apply_to : String,
+                   @definition : Hash(String, ParameterValue), @priority : Int8)
     end
 
     def validate!
@@ -45,7 +44,7 @@ module AvalancheMQ
     end
 
     def self.from_json(data : JSON::Any)
-      definition = Hash(String, ParameterValue).new
+      definitions = Hash(String, ParameterValue).new
       data["definition"].as_h.each do |k, v|
         val = case v
               when Int64, Float64
@@ -57,10 +56,10 @@ module AvalancheMQ
               else
                 raise InvalidDefinitionError.new("Invalid definition, unknow data type #{v.class}")
               end
-        definition[k] = val
+        definitions[k] = val
       end
-      self.new data["name"].as_s, data["vhost"].as_s, definition, data["pattern"].as_s,
-               data["apply-to"].as_s, data["priority"].as_i.to_i8
+      self.new data["name"].as_s, data["vhost"].as_s, data["pattern"].as_s,
+               data["apply-to"].as_s, definitions, data["priority"].as_i.to_i8
     rescue e : KeyError
       raise InvalidJSONError.new("Policy json invalid: #{e.message}")
     end

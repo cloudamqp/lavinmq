@@ -138,9 +138,9 @@ module AvalancheMQ
       end
     end
 
-    def add_policy(name : String, definition : Hash(String, ParameterValue),
-                   pattern : String, apply_to : String, priority : Int8)
-      add_policy(Policy.new(name, @name, definition, pattern, apply_to, priority))
+    def add_policy(name : String, pattern : String, apply_to : String,
+                   definition : Hash(String, ParameterValue), priority : Int8)
+      add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))
     end
 
     def add_policy(p : Policy)
