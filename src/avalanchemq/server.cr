@@ -8,10 +8,13 @@ require "./user_store"
 require "./exchange"
 require "./queue"
 require "./durable_queue"
+require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir
+    getter connections, vhosts, users, data_dir, parameters
+
+    include ParameterTarget
 
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
@@ -26,6 +29,7 @@ module AvalancheMQ
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = VHostStore.new(@data_dir, @log)
       @users = UserStore.new(@data_dir, @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -80,6 +84,18 @@ module AvalancheMQ
       @connections.each &.close
       @log.debug "Closing vhosts"
       @vhosts.close
+    end
+
+    def add_parameter(p : Parameter)
+      @parameters[p.name] = p
+    end
+
+    def apply_parameter(p : Parameter)
+      @log.warn("apply_parameter has no action for #{p.component_name}")
+    end
+
+    def delete_parameter(component_name, parameter_name)
+      @parameters.delete({ component_name, parameter_name })
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
