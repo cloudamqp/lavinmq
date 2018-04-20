@@ -57,6 +57,16 @@ module AvalancheMQ
       self.new(name, password)
     end
 
+    def initialize(@name, password_hash, hash_algorithm)
+      @password =
+        case hash_algorithm
+        when "MD5" then MD5Password.new(password_hash)
+        when "SHA256" then SHA256Password.new(password_hash)
+        when "Bcrypt" then Crypto::Bcrypt::Password.new(password_hash)
+        else raise "Unknown password hash algorithm"
+        end
+    end
+
     def initialize(@name, @password)
     end
 

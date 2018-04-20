@@ -27,6 +27,15 @@ module AvalancheMQ
       user
     end
 
+    def add(name, password_hash, password_algorithm, save = true)
+      return if @users.has_key?(name)
+      user = User.new(name, password_hash, password_algorithm)
+      user.permissions["/"] = { config: /.*/, read: /.*/, write: /.*/ }
+      @users[name] = user
+      save! if save
+      user
+    end
+
     def add_permission(user, vhost, config, read, write)
       perm = { config: config, read: read, write: write }
       @users[user].permissions[vhost] = perm
@@ -69,7 +78,7 @@ module AvalancheMQ
       @log.debug("#{@users.size} users loaded")
     end
 
-    private def save!
+    def save!
       @log.debug "Saving users to file"
       tmpfile = File.join(@data_dir, "users.json.tmp")
       File.open(tmpfile, "w") { |f| self.to_json(f) }

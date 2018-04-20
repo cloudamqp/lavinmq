@@ -10,6 +10,8 @@ describe AvalancheMQ::HTTPServer do
     Fiber.yield
     response = HTTP::Client.get "http://localhost:8080/"
     response.status_code.should eq 200
+    h.close
+    s.close
   end
 
   it "POST /api/definitions" do
@@ -17,7 +19,7 @@ describe AvalancheMQ::HTTPServer do
     h = AvalancheMQ::HTTPServer.new(s, 8080)
     spawn { h.listen }
     Fiber.yield
-    s.users["bunny_gem"]?.should be_nil
+    s.users.delete("bunny_gem")
     body = %({
       "rabbit_version":"3.7.4", "users":[{
         "name":"bunny_gem",
@@ -29,6 +31,11 @@ describe AvalancheMQ::HTTPServer do
                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
                                  body: body)
     response.status_code.should eq 200
-    s.users["bunny_gem"]?.should be_truthy
+    user = s.users["bunny_gem"]? || nil
+    user.should be_a(AvalancheMQ::User)
+    ok = user.not_nil!.password == "bunny_password"
+    ok.should be_true
+    h.close
+    s.close
   end
 end

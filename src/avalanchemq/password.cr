@@ -17,9 +17,12 @@ module AvalancheMQ
       end
 
       def initialize(@raw_hash : String)
+        unless @raw_hash.starts_with? hash_prefix
+          @raw_hash = hash_prefix + @raw_hash
+        end
         bytes = Base64.decode @raw_hash[hash_prefix.size..-1]
-        @salt = bytes[0, 32]
-        @hash = bytes + 32
+        @salt = bytes[0, 4]
+        @hash = bytes + 4
       end
 
       def ==(password)
