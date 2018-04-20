@@ -5,7 +5,6 @@ module AvalancheMQ
   end
 
   alias ParameterId = { String, String } | String
-  alias ParameterValue = JSON::Type | Hash(String, ParameterValue) | Array(ParameterValue)
   class Parameter
     def_equals_and_hash @name
     getter component_name, parameter_name, value
