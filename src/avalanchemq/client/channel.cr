@@ -75,23 +75,21 @@ module AvalancheMQ
                           @next_msg_props.not_nil!,
                           @next_msg_size.not_nil!,
                           @next_msg_body.not_nil!.to_slice)
-        routed = false
-        begin
-          routed = @client.vhost.publish(msg, immediate: @next_publish_immediate)
-        rescue NoImmediateDeliveryError | MessageUnroutableError
+        delivered = @client.vhost.publish(msg, immediate: @next_publish_immediate)
+        unless delivered
           if @next_publish_immediate
             @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
-                                                 msg.exchange_name, msg.routing_key)
+                                                  msg.exchange_name, msg.routing_key)
             deliver(msg)
           elsif @next_publish_mandatory
             @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
-                                                 msg.exchange_name, msg.routing_key)
+                                                  msg.exchange_name, msg.routing_key)
             deliver(msg)
           end
         end
         if @confirm
           @confirm_count += 1
-          if routed
+          if delivered
             @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
           else
             @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false)

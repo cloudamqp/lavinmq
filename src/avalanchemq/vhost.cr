@@ -38,7 +38,7 @@ module AvalancheMQ
 
     def publish(msg : Message, immediate = false)
       ex = @exchanges[msg.exchange_name]?
-      raise MessageUnroutableError.new if ex.nil?
+      return false if ex.nil?
 
       ok = false
       matches = ex.matches(msg.routing_key, msg.properties.headers)
@@ -49,7 +49,7 @@ module AvalancheMQ
         emsg.exchange_name = e.name
         publish(emsg, immediate).as(Bool)
       end.all?
-      raise MessageUnroutableError.new if matches.empty?
+      return false if matches.empty?
 
       pos = @wfile.pos.to_u32
 
@@ -69,11 +69,10 @@ module AvalancheMQ
       @wfile.write_int msg.size
       @wfile.write msg.body
       @wfile.flush
-      if immediate
-        raise NoImmediateDeliveryError.new if queues.any? { |q| !q.immediate_delivery? }
-      end
+      return false if immediate && queues.any? { |q| !q.immediate_delivery? }
       flush = msg.properties.delivery_mode == 2_u8
-      queues.all? { |q| q.publish(sp, flush) } && ok
+      return true if queues.all? { |q| q.publish(sp, flush) } && ok
+      return false
     end
 
     private def open_wfile : MessageFile
@@ -306,7 +305,4 @@ module AvalancheMQ
       end
     end
   end
-
-  class MessageUnroutableError < Exception; end
-  class NoImmediateDeliveryError < Exception; end
 end
