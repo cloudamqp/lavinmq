@@ -90,6 +90,24 @@ module AvalancheMQ
       }.to_json(json)
     end
 
+    def declare_queue(name, durable, auto_delete, arguments)
+      apply AMQP::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
+                                     auto_delete, false, arguments)
+    end
+
+    def delete_queue(name)
+      apply AMQP::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
+    end
+
+    def declare_exchange(name, type, durable, auto_delete, internal, arguments)
+      apply AMQP::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
+                                        auto_delete, internal, false, arguments)
+    end
+
+    def delete_exchange(name)
+      apply AMQP::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
+    end
+
     def apply(f, loading = false)
       @save.send f unless loading
       case f
@@ -100,7 +118,7 @@ module AvalancheMQ
       when AMQP::Exchange::Delete
         @exchanges.each_value do |e|
           e.bindings.each_value do |destination|
-            destination.delete @exchanges[f.exchange_name]
+            destination.delete f.exchange_name
           end
         end
         @exchanges.delete f.exchange_name

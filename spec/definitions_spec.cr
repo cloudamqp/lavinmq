@@ -15,7 +15,7 @@ describe AvalancheMQ::HTTPServer do
   end
 
   describe "POST /api/definitions" do
-    it "accepts users" do
+    it "imports users" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.listen }
@@ -40,7 +40,7 @@ describe AvalancheMQ::HTTPServer do
       s.close
     end
 
-    it "accepts permissions" do
+    it "imports vhosts" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.listen }
@@ -53,6 +53,38 @@ describe AvalancheMQ::HTTPServer do
       response.status_code.should eq 200
       vhost = s.vhosts["def"]? || nil
       vhost.should be_a(AvalancheMQ::VHost)
+      h.close
+      s.close
+    end
+
+    it "imports queues" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.vhosts["/"].delete_queue("q1")
+      body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+      response = HTTP::Client.post("http://localhost:8080/api/definitions",
+                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].queues.has_key?("q1").should be_true
+      h.close
+      s.close
+    end
+
+    it "imports exchanges" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.vhosts["/"].delete_exchange("x1")
+      body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
+      response = HTTP::Client.post("http://localhost:8080/api/definitions",
+                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].exchanges.has_key?("x1").should be_true
       h.close
       s.close
     end

@@ -1,3 +1,5 @@
+require "./policy"
+
 module AvalancheMQ
   abstract class Exchange
     include PolicyTarget
