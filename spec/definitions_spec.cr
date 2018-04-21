@@ -127,5 +127,29 @@ describe AvalancheMQ::HTTPServer do
       h.close
       s.close
     end
+
+    it "imports permissions" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.users.create("u1", "")
+      body = %({ "permissions": [
+        {
+          "user": "u1",
+          "vhost": "/",
+          "configure": "c",
+          "write": "w",
+          "read": "r"
+        }
+      ]})
+      response = HTTP::Client.post("http://localhost:8080/api/definitions",
+                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   body: body)
+      response.status_code.should eq 200
+      s.users["u1"].permissions["/"][:write].should eq(/w/)
+      h.close
+      s.close
+    end
   end
 end

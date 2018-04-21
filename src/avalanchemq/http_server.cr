@@ -194,6 +194,21 @@ module AvalancheMQ
           end
         end
       end
+
+      if permissions = body["permissions"]? || nil
+        permissions.each do |p|
+          user = p["user"].as_s
+          vhost = p["vhost"].as_s
+          configure = p["configure"].as_s
+          read = p["read"].as_s
+          write = p["write"].as_s
+          @amqp_server.users[user].permissions[vhost] = {
+            config: Regex.new(configure),
+            read: Regex.new(read),
+            write: Regex.new(write)
+          }
+        end
+      end
     end
 
     class NotFoundError < Exception; end

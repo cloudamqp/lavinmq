@@ -8,6 +8,10 @@ module AvalancheMQ
       load!
     end
 
+    def [](name)
+      @users[name]
+    end
+
     def []?(name)
       @users[name]?
     end
