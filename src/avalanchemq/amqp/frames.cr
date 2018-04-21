@@ -1117,7 +1117,12 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
+          consumer_tag = io.read_short_string
+          delivery_tag = io.read_uint64
+          redelivered = io.read_bool
+          exchange = io.read_short_string
+          routing_key = io.read_short_string
+          self.new channel, consumer_tag, delivery_tag, redelivered, exchange, routing_key
         end
       end
 
@@ -1305,8 +1310,8 @@ module AvalancheMQ
           super Bytes.empty
         end
 
-        def self.decode(io)
-          self.new
+        def self.decode(channel, io)
+          self.new(channel)
         end
       end
 
