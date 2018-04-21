@@ -119,8 +119,8 @@ describe AvalancheMQ::HTTPServer do
                                    headers: HTTP::Headers{"Content-Type" => "application/json"},
                                    body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges["x1"].bindings.values.includes? "x2"
-      s.vhosts["/"].exchanges["x1"].bindings.values.includes? "q1"
+      s.vhosts["/"].exchanges["x1"].matches("r.k2", nil).map(&.name).includes?("x2").should be_true
+      s.vhosts["/"].exchanges["x1"].matches("rk", nil).map(&.name).includes?("q1").should be_true
       s.vhosts["/"].delete_queue("q1")
       s.vhosts["/"].delete_exchange("x1")
       s.vhosts["/"].delete_exchange("x2")
