@@ -9,20 +9,16 @@ module AvalancheMQ
     end
 
     def run
-      loop do
+      destination = Publisher.new(@destination)
+      source = Consumer.new(@source)
+      source.subscribe do |routing_key, properties, body|
         break if @stopped
-        destination = Publisher.new(@destination)
-        source = Consumer.new(@source)
-        source.subscribe do |routing_key, properties, body|
-          break if @stopped
-          destination.publish(@destination.exchange.not_nil!,
-                              @destination.exchange_key || routing_key,
-                              properties, body)
-        end
-      rescue ex
-        puts "Shovel exception #{ex}"
-        sleep 5
+        destination.publish(@destination.exchange.not_nil!,
+                            @destination.exchange_key || routing_key,
+                            properties, body)
       end
+      destination.stop
+      source.stop
     end
 
     def stop
@@ -72,7 +68,7 @@ module AvalancheMQ
         open_channel
       end
 
-      def disconnect
+      def stop
         @socket.close
       end
 
@@ -142,7 +138,7 @@ module AvalancheMQ
         @socket.write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
                                                false, false, false, true,
                                                {} of String => AMQP::Field).to_slice
-
+        message_counter = 0_u32
         routing_key = ""
         delivery_tag = 0_u64
         properties = AMQP::Properties.new
@@ -165,6 +161,14 @@ module AvalancheMQ
               body.clear
               ack = AMQP::Basic::Ack.new(1_u16, delivery_tag, false)
               @socket.write ack.to_slice
+
+              message_counter += 1
+              if @source.delete_after == DeleteAfter::QueueLength &&
+                  message_count <= message_counter
+                @socket.write AMQP::Connection::Close.new(320_u16,
+                                                          "shovel done",
+                                                          0_u16, 0_u16).to_slice
+              end
             end
           when AMQP::Channel::Close
             puts "Server unexpectedly sent #{frame}"
@@ -176,8 +180,10 @@ module AvalancheMQ
             puts "Server unexpectedly sent #{frame}"
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             @socket.close
+            break
           when AMQP::Connection::CloseOk
             @socket.close
+            break
           else
             raise "Unexpected frame #{frame}"
           end
