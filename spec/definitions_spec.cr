@@ -88,5 +88,44 @@ describe AvalancheMQ::HTTPServer do
       h.close
       s.close
     end
+
+    it "imports bindings" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("x1", "direct", false, true)
+      s.vhosts["/"].declare_exchange("x2", "fanout", false, true)
+      s.vhosts["/"].declare_queue("q1", false, true)
+      body = %({ "bindings": [
+        {
+          "source": "x1",
+          "vhost": "/",
+          "destination": "x2",
+          "destination_type": "exchange",
+          "routing_key": "r.k2",
+          "arguments": {}
+        },
+        {
+          "source": "x1",
+          "vhost": "/",
+          "destination": "q1",
+          "destination_type": "queue",
+          "routing_key": "rk",
+          "arguments": {}
+        }
+      ]})
+      response = HTTP::Client.post("http://localhost:8080/api/definitions",
+                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].exchanges["x1"].bindings.values.includes? "x2"
+      s.vhosts["/"].exchanges["x1"].bindings.values.includes? "q1"
+      s.vhosts["/"].delete_queue("q1")
+      s.vhosts["/"].delete_exchange("x1")
+      s.vhosts["/"].delete_exchange("x2")
+      h.close
+      s.close
+    end
   end
 end

@@ -172,6 +172,28 @@ module AvalancheMQ
                                                       arguments)
         end
       end
+      if bindings = body["bindings"]? || nil
+        bindings.each do |b|
+          source = b["source"].as_s
+          vhost = b["vhost"].as_s
+          destination = b["destination"].as_s
+          destination_type = b["destination_type"].as_s
+          routing_key = b["routing_key"].as_s
+          json_args = b["arguments"].as_h
+          arguments = Hash(String, AMQP::Field).new(json_args.size)
+          json_args.each do |k, v|
+            arguments[k] = v.as AMQP::Field
+          end
+          case destination_type
+          when "queue"
+            @amqp_server.vhosts[vhost].bind_queue(destination, source,
+                                                  routing_key, arguments)
+          when "exchange"
+            @amqp_server.vhosts[vhost].bind_exchange(destination, source,
+                                                     routing_key, arguments)
+          end
+        end
+      end
     end
 
     class NotFoundError < Exception; end

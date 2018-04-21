@@ -90,7 +90,8 @@ module AvalancheMQ
       }.to_json(json)
     end
 
-    def declare_queue(name, durable, auto_delete, arguments)
+    def declare_queue(name, durable, auto_delete,
+                      arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
                                      auto_delete, false, arguments)
     end
@@ -99,13 +100,24 @@ module AvalancheMQ
       apply AMQP::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
     end
 
-    def declare_exchange(name, type, durable, auto_delete, internal, arguments)
+    def declare_exchange(name, type, durable, auto_delete, internal = false,
+                         arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
                                         auto_delete, internal, false, arguments)
     end
 
     def delete_exchange(name)
       apply AMQP::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
+    end
+
+    def bind_queue(destination, source, routing_key, arguments)
+      apply AMQP::Queue::Bind.new(0_u16, 0_u16, destination, source,
+                                  routing_key, false, arguments)
+    end
+
+    def bind_exchange(destination, source, routing_key, arguments)
+      apply AMQP::Exchange::Bind.new(0_u16, 0_u16, destination, source,
+                                     routing_key, false, arguments)
     end
 
     def apply(f, loading = false)
