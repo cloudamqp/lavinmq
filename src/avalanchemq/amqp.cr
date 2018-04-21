@@ -244,20 +244,20 @@ module AvalancheMQ
         priority, correlation_id, reply_to, expiration, message_id, timestamp,
         type, user_id, app_id, reserved1
 
-      def initialize(@content_type : String?,
-                     @content_encoding : String?,
-                     @headers : Hash(String, Field)?,
-                     @delivery_mode : UInt8?,
-                     @priority : UInt8?,
-                     @correlation_id : String?,
-                     @reply_to : String?,
-                     @expiration : String?,
-                     @message_id : String?,
-                     @timestamp : Time?,
-                     @type : String? ,
-                     @user_id : String?,
-                     @app_id : String?,
-                     @reserved1 : String?)
+      def initialize(@content_type : String? = nil,
+                     @content_encoding : String? = nil,
+                     @headers : Hash(String, Field)? = nil,
+                     @delivery_mode : UInt8? = nil,
+                     @priority : UInt8? = nil,
+                     @correlation_id : String? = nil,
+                     @reply_to : String? = nil,
+                     @expiration : String? = nil,
+                     @message_id : String? = nil,
+                     @timestamp : Time? = nil,
+                     @type : String? = nil,
+                     @user_id : String? = nil,
+                     @app_id : String? = nil,
+                     @reserved1 : String? = nil)
       end
 
       def self.seek_past(io)

@@ -794,6 +794,8 @@ module AvalancheMQ
           METHOD_ID
         end
 
+        getter queue_name, message_count, consumer_count
+
         def initialize(channel : UInt16, @queue_name : String, @message_count : UInt32, @consumer_count : UInt32)
           super(channel)
         end
@@ -807,7 +809,10 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
+          queue_name = io.read_short_string
+          message_count = io.read_uint32
+          consumer_count = io.read_uint32
+          self.new channel, queue_name, message_count, consumer_count
         end
       end
 
@@ -1091,6 +1096,8 @@ module AvalancheMQ
         def method_id
           METHOD_ID
         end
+
+        getter consumer_tag, delivery_tag, redelivered, exchange, routing_key
 
         def initialize(channel, @consumer_tag : String, @delivery_tag : UInt64,
                        @redelivered : Bool, @exchange : String, @routing_key : String)
