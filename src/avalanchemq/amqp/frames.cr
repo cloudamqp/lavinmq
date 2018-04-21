@@ -1061,7 +1061,18 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(@channel, class_id, method_id)
+          io = AMQP::MemoryIO.new(2 +
+                                  1 + @exchange.bytesize +
+                                  1 + @routing_key.bytesize +
+                                  1)
+          io.write_int @reserved1
+          io.write_short_string @exchange
+          io.write_short_string @routing_key
+          bits = 0_u8
+          bits = bits | (1 << 0) if @mandatory
+          bits = bits | (1 << 1) if @immediate
+          io.write_byte(bits)
+          super(io.to_slice)
         end
 
         def self.decode(channel, io)
@@ -1302,7 +1313,18 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(@channel, class_id, method_id)
+          io = AMQP::MemoryIO.new
+          io.write_int @reserved1
+          io.write_short_string @queue
+          io.write_short_string @consumer_tag
+          bits = 0_u8
+          bits = bits | (1 << 0) if @no_local
+          bits = bits | (1 << 1) if @no_ack
+          bits = bits | (1 << 2) if @exclusive
+          bits = bits | (1 << 3) if @no_wait
+          io.write_byte(bits)
+          io.write_table @arguments
+          super(io.to_slice)
         end
 
         def self.decode(channel, io)
