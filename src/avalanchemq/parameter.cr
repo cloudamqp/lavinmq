@@ -1,10 +1,12 @@
-module AvalancheMQ
+require "json"
 
+module AvalancheMQ
   module ParameterTarget
     abstract def apply_parameter(p : Parameter)
   end
 
   alias ParameterId = { String, String } | String
+
   class Parameter
     def_equals_and_hash @name
     getter component_name, parameter_name, value

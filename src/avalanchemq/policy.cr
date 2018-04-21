@@ -1,12 +1,13 @@
+require "json"
 require "./error"
-module AvalancheMQ
 
+module AvalancheMQ
   module PolicyTarget
     abstract def apply_policy(p : Policy)
     abstract def policy : Policy?
   end
-  class Policy
 
+  class Policy
     enum Target
       All
       Queues

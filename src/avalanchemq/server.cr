@@ -87,7 +87,7 @@ module AvalancheMQ
     end
 
     def add_parameter(p : Parameter)
-      @parameters[p.name] = p
+      @parameters.create p
     end
 
     def apply_parameter(p : Parameter)

@@ -59,13 +59,13 @@ module AvalancheMQ
     def post(context)
       case context.request.path
       when "/api/parameters"
-        body = parse_body(context)
-        @amqp_server.add_parameter(Parameter.from_json(body))
+        p = Parameter.from_json context.request.body.not_nil!
+        @amqp_server.add_parameter p
       when "/api/policies"
-        body = parse_body(context)
-        vhost = @amqp_server.vhosts[body["vhost"].as_s]?
-        raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
-        vhost.add_policy(Policy.from_json(body))
+        p = Policy.from_json context.request.body.not_nil!
+        vhost = @amqp_server.vhosts[p.vhost]? || nil
+        raise NotFoundError.new("No vhost named #{p.vhost}") unless vhost
+        vhost.add_policy(p)
       when "/api/vhosts"
         body = parse_body(context)
         @amqp_server.vhosts.create(body["name"].as_s)
