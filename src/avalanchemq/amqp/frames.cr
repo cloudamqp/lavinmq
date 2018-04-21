@@ -1280,7 +1280,11 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(@channel, class_id, method_id)
+          io = AMQP::MemoryIO.new
+          io.write_int @prefetch_size
+          io.write_int @prefetch_count
+          io.write_bool @global
+          super(io.to_slice)
         end
 
         def self.decode(channel, io)
