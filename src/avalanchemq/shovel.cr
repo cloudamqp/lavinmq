@@ -1,5 +1,6 @@
 require "uri"
 require "socket"
+require "openssl/ssl/socket"
 require "./amqp"
 
 module AvalancheMQ
@@ -68,16 +69,26 @@ module AvalancheMQ
     end
 
     class Connection
+      @socket : TCPSocket | OpenSSL::SSL::Socket::Client
       def initialize(@uri : URI)
-        @socket = TCPSocket.new(@uri.host.not_nil!, @uri.port || 5672)
-        @socket.sync = true
-        @socket.keepalive = true
-        @socket.tcp_nodelay = true
-        @socket.tcp_keepalive_idle = 60
-        @socket.tcp_keepalive_count = 3
-        @socket.tcp_keepalive_interval = 10
-        @socket.write_timeout = 15
-        @socket.recv_buffer_size = 131072
+        host = @uri.host || "localhost"
+        tls = @uri.scheme == "amqps"
+        socket = TCPSocket.new(host, @uri.port || tls ? 5671 : 5672)
+        socket.sync = true
+        socket.keepalive = true
+        socket.tcp_nodelay = true
+        socket.tcp_keepalive_idle = 60
+        socket.tcp_keepalive_count = 3
+        socket.tcp_keepalive_interval = 10
+        socket.write_timeout = 15
+        socket.recv_buffer_size = 131072
+        @socket =
+          if tls
+            OpenSSL::SSL::Socket::Client.new(socket, sync_close: true,
+                                             hostname: host)
+          else
+            socket
+          end
         negotiate_connection
         open_channel
       end
