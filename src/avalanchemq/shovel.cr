@@ -1,12 +1,15 @@
 require "uri"
 require "socket"
-require "openssl/ssl/socket"
+require "openssl"
 require "./amqp"
 
 module AvalancheMQ
   class Shovel
+    @pub : Publisher?
+    @sub : Consumer?
+    @stopped = false
+
     def initialize(@source : Source, @destination : Destination)
-      @stopped = false
     end
 
     def run
@@ -22,9 +25,12 @@ module AvalancheMQ
         sub.on_body_frame do |b|
           pub.send_body_frame(b)
         end
+        @pub = pub
+        @sub = sub
         sub.consume_loop
         break
       rescue ex
+        break if @stopped
         puts "Shovel failure: #{ex.inspect}"
         sleep 3
       end
@@ -32,6 +38,8 @@ module AvalancheMQ
 
     def stop
       @stopped = true
+      @sub.try &.close
+      @pub.try &.close
     end
 
     enum DeleteAfter
@@ -93,10 +101,6 @@ module AvalancheMQ
         open_channel
       end
 
-      def stop
-        @socket.close
-      end
-
       def negotiate_connection
         @socket.write AMQP::PROTOCOL_START.to_slice
         start = AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
@@ -112,12 +116,20 @@ module AvalancheMQ
         path = @uri.path || ""
         vhost = path.size > 1 ? path[1..-1] : "/"
         @socket.write AMQP::Connection::Open.new(vhost).to_slice
-        open_ok = AMQP::Frame.decode(@socket).as(AMQP::Connection::OpenOk)
+        AMQP::Frame.decode(@socket).as(AMQP::Connection::OpenOk)
       end
 
       def open_channel
         @socket.write AMQP::Channel::Open.new(1_u16).to_slice
-        open_ok = AMQP::Frame.decode(@socket).as(AMQP::Channel::OpenOk)
+        AMQP::Frame.decode(@socket).as(AMQP::Channel::OpenOk)
+      end
+
+      def close
+        @socket.write AMQP::Connection::Close.new(200_u16,
+                                                  "shovel stopped",
+                                                  0_u16, 0_u16).to_slice
+        #AMQP::Frame.decode(@socket).as(AMQP::Connection::CloseOk)
+        @socket.close
       end
     end
 
@@ -190,7 +202,7 @@ module AvalancheMQ
               message_counter += 1
               if @source.delete_after == DeleteAfter::QueueLength &&
                   message_count <= message_counter
-                @socket.write AMQP::Connection::Close.new(320_u16,
+                @socket.write AMQP::Connection::Close.new(200_u16,
                                                           "shovel done",
                                                           0_u16, 0_u16).to_slice
               end
