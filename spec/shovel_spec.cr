@@ -60,7 +60,7 @@ describe AvalancheMQ::Shovel do
   end
 
   it "can shovel forever" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::DEBUG)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
