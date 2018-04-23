@@ -15,7 +15,7 @@ module AvalancheMQ
                                      config["dest-exchange-key"].as_s?)
       shovel = Shovel.new(src, dest)
       @shovels[name] = shovel
-      spawn shovel.run
+      spawn(name: "Shovel #{name}") { shovel.run }
       shovel
     end
 
