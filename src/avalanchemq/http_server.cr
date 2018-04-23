@@ -6,10 +6,13 @@ require "./error"
 module AvalancheMQ
   class HTTPServer
     @log : Logger
-    def initialize(@amqp_server : AvalancheMQ::Server, port)
+    def initialize(@amqp_server : AvalancheMQ::Server, port, @public_dir = "./static")
       @log = @amqp_server.log.dup
       @log.progname = "HTTP(#{port})"
-      @http = HTTP::Server.new(port) do |context|
+      @http = HTTP::Server.new("::", port, [
+        HTTP::LogHandler.new,
+        HTTP::ErrorHandler.new,
+      ]) do |context|
         context.response.content_type = "application/json"
         case context.request.method
         when "GET"
@@ -49,10 +52,40 @@ module AvalancheMQ
       when "/api/vhosts"
         @amqp_server.vhosts.to_json(context.response)
       when "/"
-        context.response.content_type = "text/plain"
-        context.response.print "AvalancheMQ"
+        static(context, "index.html")
       else
         not_found(context)
+      end
+    end
+
+    private def static(context, filename)
+      file_path = File.join(@public_dir, filename)
+      file_stats = File.stat(file_path)
+      etag = file_stats.mtime.epoch_ms.to_s
+      context.response.content_type = mime_type(file_path)
+      if context.request.headers["If-None-Match"]? == etag
+        context.response.status_code = 304
+      else
+        context.response.headers.add("Cache-Control", "public")
+        context.response.headers.add("ETag", etag)
+        context.response.content_length = file_stats.size
+        File.open(file_path) do |file|
+          file.sync = false
+          IO.copy(file, context.response)
+        end
+      end
+    end
+
+    private def mime_type(path)
+      case File.extname(path)
+      when ".txt"  then "text/plain"
+      when ".html" then "text/html"
+      when ".css"  then "text/css"
+      when ".js"   then "application/javascript"
+      when ".png"  then "image/png"
+      when ".jpg"  then "image/jpeg"
+      when ".gif"  then "image/gif"
+      else              "application/octet-stream"
       end
     end
 
