@@ -79,8 +79,10 @@ describe AvalancheMQ::Shovel do
       )
       shovel = AvalancheMQ::Shovel.new(source, dest)
       spawn { shovel.run }
+      Fiber.yield
       pmsg = AMQP::Message.new("shovel me")
       x.publish pmsg, "q1"
+      Fiber.yield
       rmsg = nil
       until rmsg = q2.get(no_ack: true)
         Fiber.yield

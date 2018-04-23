@@ -9,6 +9,7 @@ require "./exchange"
 require "./queue"
 require "./durable_queue"
 require "./parameter"
+require "./shovel_store"
 
 module AvalancheMQ
   class Server
@@ -29,6 +30,7 @@ module AvalancheMQ
       @connection_events = Channel(Tuple(Client, Symbol)).new(16)
       @vhosts = VHostStore.new(@data_dir, @log)
       @users = UserStore.new(@data_dir, @log)
+      @shovels = ShovelStore.new
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
@@ -88,6 +90,12 @@ module AvalancheMQ
 
     def add_parameter(p : Parameter)
       @parameters.create p
+      case p.component_name
+      when "shovel"
+        @shovels.create(p.parameter_name, p.value)
+      else
+        @log.warn("no action when creating parameter #{p.component_name}")
+      end
     end
 
     def apply_parameter(p : Parameter)
@@ -96,6 +104,12 @@ module AvalancheMQ
 
     def delete_parameter(component_name, parameter_name)
       @parameters.delete({ component_name, parameter_name })
+      case component_name
+      when "shovel"
+        @shovels.delete(parameter_name)
+      else
+        @log.warn("no action when deleting parameter #{p.component_name}")
+      end
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
