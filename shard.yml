@@ -10,6 +10,10 @@ targets:
   avalanchemqctl:
     main: src/avalanchemqctl.cr
 
+dependencies:
+  router:
+    github: tbrand/router.cr
+
 development_dependencies:
   amqp:
     github: cloudamqp/amqp.cr

@@ -1,95 +1,39 @@
 require "http/server"
 require "json"
 require "logger"
+require "router"
 require "./error"
 
 module AvalancheMQ
-  class HTTPServer
-    @log : Logger
-    def initialize(@amqp_server : AvalancheMQ::Server, port)
-      @log = @amqp_server.log.dup
-      @log.progname = "HTTP(#{port})"
-      @http = HTTP::Server.new(port) do |context|
+
+  class ApiDefaultsHandler
+    include HTTP::Handler
+    def call(context)
+      if context.request.path.starts_with?("/api/")
         context.response.content_type = "application/json"
-        case context.request.method
-        when "GET"
-          get(context)
-        when "POST"
-          post(context)
-        when "DELETE"
-          delete(context)
-        else
-          context.response.content_type = "text/plain"
-          context.response.status_code = 405
-          context.response.print "Method not allowed"
-        end
-      rescue ex : UnknownContentType
-        context.response.content_type = "text/plain"
-        context.response.status_code = 415
-        context.response.print ex.message
-      rescue ex : NotFoundError
-        not_found(context, ex.message)
-      rescue ex : JSON::Error | ArgumentError
-        @log.error "path=#{context.request.path} error=#{ex.inspect}"
-        context.response.status_code = 400
-        { error: "#{ex.inspect}" }.to_json(context.response)
       end
+      call_next(context)
+    end
+  end
+
+  class ApiErrorHandler
+    include HTTP::Handler
+
+    def initialize(@log : Logger)
     end
 
-    def get(context)
-      case context.request.path
-      when "/api/connections"
-        @amqp_server.connections.to_json(context.response)
-      when "/api/exchanges"
-        @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
-      when "/api/queues"
-        @amqp_server.vhosts.flat_map { |v| v.queues.values }.to_json(context.response)
-      when "/api/policies"
-        @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
-      when "/api/vhosts"
-        @amqp_server.vhosts.to_json(context.response)
-      when "/"
-        context.response.content_type = "text/plain"
-        context.response.print "AvalancheMQ"
-      else
-        not_found(context)
-      end
-    end
-
-    def post(context)
-      case context.request.path
-      when "/api/parameters"
-        p = Parameter.from_json context.request.body.not_nil!
-        @amqp_server.add_parameter p
-      when "/api/policies"
-        p = Policy.from_json context.request.body.not_nil!
-        vhost = @amqp_server.vhosts[p.vhost]? || nil
-        raise NotFoundError.new("No vhost named #{p.vhost}") unless vhost
-        vhost.add_policy(p)
-      when "/api/vhosts"
-        body = parse_body(context)
-        @amqp_server.vhosts.create(body["name"].as_s)
-      when "/api/definitions"
-        body = parse_body(context)
-        import_definitions(body)
-      else
-        not_found(context)
-      end
-    end
-
-    def delete(context)
-      case context.request.path
-      when "/api/policies"
-        body = parse_body(context)
-        vhost = @amqp_server.vhosts[body["vhost"].as_s]?
-          raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
-        vhost.delete_policy(body["name"].as_s)
-      when "/api/vhosts"
-        body = parse_body(context)
-        @amqp_server.vhosts.delete(body["name"].as_s)
-      else
-        not_found(context)
-      end
+    def call(context)
+      call_next(context)
+    rescue ex : HTTPServer::UnknownContentType
+      context.response.content_type = "text/plain"
+      context.response.status_code = 415
+      context.response.print ex.message
+    rescue ex : HTTPServer::NotFoundError
+      not_found(context, ex.message)
+    rescue ex : JSON::Error | ArgumentError
+      @log.error "path=#{context.request.path} error=#{ex.inspect}"
+      context.response.status_code = 400
+      { error: "#{ex.inspect}" }.to_json(context.response)
     end
 
     def not_found(context, message = nil)
@@ -97,6 +41,79 @@ module AvalancheMQ
       context.response.status_code = 404
       context.response.print "Not found\n"
       context.response.print message
+    end
+  end
+  class HTTPServer
+    include Router
+
+    @log : Logger
+    def initialize(@amqp_server : AvalancheMQ::Server, @port : Int32)
+      @log = @amqp_server.log.dup
+      @log.progname = "HTTP(#{port})"
+    end
+
+    def register_routes
+      get "/api/connections" do |context, _params|
+        @amqp_server.connections.to_json(context.response)
+        context
+      end
+      get "/api/exchanges" do |context, _params|
+        @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
+        context
+      end
+      get "/api/queues" do |context, _params|
+        @amqp_server.vhosts.flat_map { |v| v.queues.values }.to_json(context.response)
+        context
+      end
+      get "/api/policies" do |context, _params|
+        @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
+        context
+      end
+      get "/api/vhosts" do |context, _params|
+        @amqp_server.vhosts.to_json(context.response)
+        context
+      end
+      get "/" do |context, _params|
+        context.response.content_type = "text/plain"
+        context.response.print "AvalancheMQ"
+        context
+      end
+
+      post "/api/parameters" do |context, _params|
+        p = Parameter.from_json context.request.body.not_nil!
+        @amqp_server.add_parameter p
+        context
+      end
+      post "/api/policies" do |context, _params|
+        p = Policy.from_json context.request.body.not_nil!
+        vhost = @amqp_server.vhosts[p.vhost]? || nil
+        raise NotFoundError.new("No vhost named #{p.vhost}") unless vhost
+        vhost.add_policy(p)
+        context
+      end
+      post "/api/vhosts" do |context, _params|
+        body = parse_body(context)
+        @amqp_server.vhosts.create(body["name"].as_s)
+        context
+      end
+      post "/api/definitions" do |context, _params|
+        body = parse_body(context)
+        import_definitions(body)
+        context
+      end
+
+      delete "/api/policies" do |context, _params|
+        body = parse_body(context)
+        vhost = @amqp_server.vhosts[body["vhost"].as_s]?
+          raise NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
+        vhost.delete_policy(body["name"].as_s)
+        context
+      end
+      delete "/api/vhosts" do |context, _params|
+        body = parse_body(context)
+        @amqp_server.vhosts.delete(body["name"].as_s)
+        context
+      end
     end
 
     def parse_body(context)
@@ -110,13 +127,17 @@ module AvalancheMQ
     end
 
     def listen
-      server = @http.bind
+      register_routes
+      @http = HTTP::Server.new(@port, [ApiDefaultsHandler.new,
+                                       ApiErrorHandler.new(@log),
+                                       route_handler])
+      server = @http.not_nil!.bind
       @log.info "Listening on #{server.local_address}"
-      @http.listen
+      @http.not_nil!.listen
     end
 
     def close
-      @http.close
+      @http.try &.close
     end
 
     private def import_definitions(body)

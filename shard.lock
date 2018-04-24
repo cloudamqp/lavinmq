@@ -4,3 +4,11 @@ shards:
     github: cloudamqp/amqp.cr
     commit: e152beeedefd51450f10a233d3c98ffd59c55cc8
 
+  radix:
+    github: luislavena/radix
+    version: 0.3.8
+
+  router:
+    github: tbrand/router.cr
+    version: 0.2.2
+
