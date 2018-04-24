@@ -107,6 +107,14 @@ module AvalancheMQ
       when "/api/definitions"
         body = parse_body(context)
         import_definitions(body)
+        context.response.status_code = 204
+      when "/definitions"
+        HTTP::FormData.parse(context.request) do |part|
+          json = JSON.parse(part.body)
+          import_definitions(json)
+          context.response.status_code = 303
+          context.response.headers.add("Location", "/")
+        end
       else
         not_found(context)
       end
