@@ -51,6 +51,8 @@ module AvalancheMQ
         @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
       when "/api/vhosts"
         @amqp_server.vhosts.to_json(context.response)
+      when "/queues.html"
+        static(context, "queues.html")
       when "/"
         static(context, "index.html")
       else
