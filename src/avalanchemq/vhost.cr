@@ -135,11 +135,13 @@ module AvalancheMQ
         end
         @exchanges.delete f.exchange_name
       when AMQP::Exchange::Bind
+        source = @exchanges[f.source]? || return
         x = @exchanges[f.destination]? || return
-        @exchanges[f.source].bind(x, f.routing_key, f.arguments)
+        source.bind(x, f.routing_key, f.arguments)
       when AMQP::Exchange::Unbind
+        source = @exchanges[f.source]? || return
         x = @exchanges[f.destination]? || return
-        @exchanges[f.source].unbind(x, f.routing_key, f.arguments)
+        source.unbind(x, f.routing_key, f.arguments)
       when AMQP::Queue::Declare
         q = @queues[f.queue_name] =
           if f.durable
@@ -158,11 +160,13 @@ module AvalancheMQ
         end
         q.try &.close
       when AMQP::Queue::Bind
+        x = @exchanges[f.exchange_name]? || return
         q = @queues[f.queue_name]? || return
-        @exchanges[f.exchange_name].bind(q, f.routing_key, f.arguments)
+        x.bind(q, f.routing_key, f.arguments)
       when AMQP::Queue::Unbind
+        x = @exchanges[f.exchange_name]? || return
         q = @queues[f.queue_name]? || return
-        @exchanges[f.exchange_name].unbind(q, f.routing_key, f.arguments)
+        x.unbind(q, f.routing_key, f.arguments)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
     end
