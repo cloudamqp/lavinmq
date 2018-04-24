@@ -3,9 +3,15 @@ require "./parameter"
 
 module AvalancheMQ
   class ParameterStore(T)
+    include Enumerable(T)
+
     def initialize(@data_dir : String, @file_name : String, @log : Logger)
       @parameters = Hash(ParameterId?, T).new
       load!
+    end
+
+    def each
+      @parameters.values.each { |e| yield e }
     end
 
     def [](id)
@@ -22,6 +28,10 @@ module AvalancheMQ
 
     def size
       @parameters.size
+    end
+
+    def empty?
+      @parameters.empty?
     end
 
     def create(data : JSON::Any, save = true)

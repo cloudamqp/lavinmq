@@ -5,7 +5,7 @@ module AvalancheMQ
     private def register_routes
       get "/api/overview" do |context, _params|
         {
-          "avalanchemq_version": VERSION,
+          "avalanchemq_version": AvalancheMQ::VERSION,
           "object_totals": {
             "channels": @amqp_server.connections.reduce(0) { |memo, i| memo + i.channels.size },
             "connections": @amqp_server.connections.size,

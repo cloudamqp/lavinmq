@@ -7,7 +7,7 @@ module AvalancheMQ
     @log : Logger
     def initialize(@amqp_server : AvalancheMQ::Server)
       @log = @amqp_server.log.dup
-      @log.progname += "/#{self.class}"
+      @log.progname += "/#{self.class.name}"
       register_routes
     end
 

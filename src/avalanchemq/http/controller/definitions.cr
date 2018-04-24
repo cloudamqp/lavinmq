@@ -3,6 +3,11 @@ require "../controller"
 module AvalancheMQ
   class DefinitionsController < Controller
     private def register_routes
+      get "/api/definitions" do |context, params|
+        export_definitions(context.response)
+        context
+      end
+
       post "/api/definitions" do |context, _params|
         body = parse_body(context)
         import_definitions(body)
@@ -17,6 +22,22 @@ module AvalancheMQ
       import_exchanges(body)
       import_bindings(body)
       import_permissions(body)
+      import_policies(body)
+      import_parameters(body)
+    end
+
+    private def export_definitions(response)
+      {
+        "avalanchemq_version": AvalancheMQ::VERSION,
+        "users": export_users,
+        "vhosts": @amqp_server.vhosts.map { |v| { name: v.name }},
+        "queues": export_queues,
+        "exchanges": export_exchanges,
+        "bindings": export_bindings,
+        "permissions": export_permissions,
+        "policies": @amqp_server.vhosts.flat_map(&.policies).reject(&.empty?),
+        "parameters": @amqp_server.parameters
+      }.to_json(response)
     end
 
     private def import_vhosts(body)
@@ -117,6 +138,106 @@ module AvalancheMQ
         @amqp_server.users.add(name, pass_hash, hash_algo, save: false)
       end
       @amqp_server.users.save!
+    end
+
+    private def import_parameters(body)
+      return unless parameters = body["parameters"]? || nil
+      parameters.each do |p|
+        p = Parameter.new(p["component"].as_s, p["name"].as_s, p["value"])
+        @amqp_server.add_parameter(p)
+      end
+    end
+
+    private def import_policies(body)
+      return unless policies = body["policies"]? || nil
+      policies.each do |p|
+        name = p["name"].as_s
+        p = Policy.new(name, p["vhost"].as_s, Regex.new(p["pattern"].as_s),
+                       Policy::Target.parse(p["apply-to"].as_s), p["definition"],
+                       p["priority"].as_i.to_i8)
+        vhost = @amqp_server.vhosts[p.vhost]? || nil
+        unless vhost
+          @log.warn "No vhost named #{p.vhost}, can't import #{name}"
+          next
+        end
+        vhost.add_policy(p)
+      end
+    end
+
+    private def export_users
+      @amqp_server.users.map do |u|
+        {
+          "name": u.name,
+          "hashing_algorithm": u.hash_algorithm,
+          "password_hash": u.password.to_s
+        }
+      end
+    end
+
+    private def export_queues
+      @amqp_server.vhosts.flat_map do |v|
+        v.queues.values.map do |q|
+          {
+            "name": q.name,
+            "vhost": q.vhost.name,
+            "durable": q.durable,
+            "auto_delete": q.auto_delete,
+            "arguments": q.arguments
+          }
+        end
+      end
+    end
+
+    private def export_exchanges
+      @amqp_server.vhosts.flat_map do |v|
+        v.exchanges.values.reject(&.internal).map do |e|
+          {
+            "name": e.name,
+            "vhost": e.vhost.name,
+            "type": e.type,
+            "durable": e.durable,
+            "auto_delete": e.auto_delete,
+            "internal": e.internal,
+            "arguments": e.arguments
+          }
+        end
+      end
+    end
+
+    private def export_bindings
+      bindings = Array(Hash(String, AMQP::Field)).new
+      @amqp_server.vhosts.each do |v|
+        v.exchanges.values.each do |e|
+          e.bindings.each do |key, resources|
+            resources.each do |resource|
+              binding = {
+                "source" => e.name,
+                "vhost" => e.vhost.name,
+                "destination" => resource.name,
+                "destination_type" => resource.class.name.downcase,
+                "routing_key" => key[0],
+                "arguments" => key[1]
+              } of String => AMQP::Field
+              bindings << binding
+            end
+          end
+        end
+      end
+      bindings
+    end
+
+    private def export_permissions
+      @amqp_server.users.flat_map do |u|
+        u.permissions.map do |vhost, permissions|
+          {
+            "user": u.name,
+            "vhost": vhost,
+            "configure": permissions[:config],
+            "read": permissions[:read],
+            "write": permissions[:write]
+          }
+        end
+      end
     end
   end
 end
