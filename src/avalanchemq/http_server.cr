@@ -10,8 +10,8 @@ module AvalancheMQ
       @log = @amqp_server.log.dup
       @log.progname = "HTTP(#{port})"
       @http = HTTP::Server.new("::", port, [
-        HTTP::LogHandler.new,
         HTTP::ErrorHandler.new,
+        HTTP::LogHandler.new,
       ]) do |context|
         context.response.content_type = "application/json"
         case context.request.method
