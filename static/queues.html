@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Queues | AvalancheMQ</title>
+    <style>
+      body { font-family: 'Menlo', monospace; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>AvalancheMQ</h1>
+      <div id="xhr-error"></div>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/queues.html">Queues</a></li>
+      </ul>
+      <h2>
+        Queues
+        <small id="queue-count"></small>
+      </h2>
+      <table id="queues">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>VHost</th>
+            <th>Durable</th>
+            <th>Messages</th>
+            <th>Unacked</th>
+            <th>Ready</th>
+            <th>Consumers</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <script>
+      var t = document.getElementById("queues").tBodies[0];
+      updateQueues();
+      setInterval(updateQueues, 5000);
+
+      function updateQueues() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/queues');
+        xhr.onload = function(e) {
+          document.getElementById("xhr-error").textContent = "";
+          var data = JSON.parse(this.response);
+          document.getElementById("queue-count").textContent = data.length;
+          data.forEach(function (queue) {
+            var id = "queue-" + queue.vhost + "-" + queue.name;
+            var tr = document.getElementById(id);
+            if (tr) {
+              updateCell(tr, 3, queue.messages);
+              updateCell(tr, 4, queue.unacked);
+              updateCell(tr, 5, queue.ready);
+              updateCell(tr, 6, queue.consumers);
+            } else {
+              var tr = document.createElement("tr");
+              tr.setAttribute("id", id);
+              appendTextCell(tr, queue.name);
+              appendTextCell(tr, queue.vhost);
+              appendTextCell(tr, queue.durable ? "✅" : "" );
+              appendTextCell(tr, queue.messages);
+              appendTextCell(tr, queue.unacked);
+              appendTextCell(tr, queue.ready);
+              appendTextCell(tr, queue.consumers);
+              t.appendChild(tr);
+            }
+          });
+        }
+        xhr.onerror = function(e) {
+          document.getElementById("xhr-error").textContent = "Error fetching data";
+        };
+        xhr.ontimeout = function(e) {
+          document.getElementById("xhr-error").textContent = "Error fetching data";
+        };
+        xhr.timeout = 5000;
+        xhr.send();
+      }
+
+      function updateCell(tr, index, value) {
+        var text = value.toString();
+        var cell = tr.cells[index];
+        if (cell.textContent !== text)
+          cell.textContent = text;
+      }
+
+      function appendTextCell(tr, text) {
+        var td = document.createElement("td");
+        td.appendChild(document.createTextNode(text));
+        tr.appendChild(td);
+      }
+    </script>
+  </body>
+</html>

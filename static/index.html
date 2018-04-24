@@ -1,3 +1,34 @@
+<!DOCTYPE html>
 <html>
-  <h1>AvalancheMQ</h1>
+  <head>
+    <title>Overview | AvalancheMQ</title>
+    <style>
+      body { font-family: 'Menlo', monospace; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>AvalancheMQ</h1>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/queues.html">Queues</a></li>
+      </ul>
+      <h2>Overview</h2>
+      <div id="overview">
+        <div id="totals">
+          <div id="queued-messages">
+          </div>
+          <div id="message-rates">
+          </div>
+        </div>
+      </div>
+      <form id="definitions" method="post" enctype="multipart/form-data" action="/definitions">
+        <label for="file">Upload definitions</label>
+        <input id="file" type="file" accept=".json" required />
+        <button type="submit">Upload</button>
+      </form>
+    </div>
+    <script>
+    </script>
+  </body>
 </html>
