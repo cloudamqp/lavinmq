@@ -72,7 +72,6 @@ module AvalancheMQ
         context.response.headers.add("ETag", etag)
         context.response.content_length = file_stats.size
         File.open(file_path) do |file|
-          file.sync = false
           IO.copy(file, context.response)
         end
       end
