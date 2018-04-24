@@ -112,6 +112,16 @@ module AvalancheMQ
       end
     end
 
+    def listeners
+      @listeners.map do |l|
+        addr = l.local_address
+        {
+          "ip_address": addr.address,
+          "port": addr.port
+        }
+      end
+    end
+
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
       socket.sync = true
       socket.keepalive = true

@@ -4,7 +4,7 @@ module AvalancheMQ
   abstract class Exchange
     include PolicyTarget
 
-    getter name, durable, auto_delete, internal, arguments, bindings, policy
+    getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type
     def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String, @durable = false,

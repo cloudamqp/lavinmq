@@ -3,9 +3,15 @@ require "./user"
 
 module AvalancheMQ
   class UserStore
+    include Enumerable(User)
+
     def initialize(@data_dir : String, @log : Logger)
       @users = Hash(String, User).new
       load!
+    end
+
+    def each
+      @users.values.each { |e| yield e }
     end
 
     def [](name)

@@ -5,9 +5,10 @@ require "./regex_to_json"
 
 module AvalancheMQ
   class User
-    getter name, password, permissions
+    getter name, password, permissions, hash_algorithm
 
     @name : String
+    @hash_algorithm : String
     @permissions = Hash(String, NamedTuple(config: Regex, read: Regex, write: Regex)).new
 
     def initialize(pull : JSON::PullParser)
@@ -44,6 +45,7 @@ module AvalancheMQ
         when /^\$5\$/ then SHA256Password.new(hash)
         else raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
         end
+      @hash_algorithm = hash_algorithm(hash)
     end
 
     def self.create(name : String, password : String, hash_algo : String)
@@ -52,22 +54,23 @@ module AvalancheMQ
         when "MD5" then MD5Password.create(password)
         when "SHA256" then SHA256Password.create(password)
         when "Bcrypt" then Crypto::Bcrypt::Password.create(password, cost: 4)
-        else raise "Unknown password hash algorithm"
+        else raise UnknownHashAlgoritm.new
         end
       self.new(name, password)
     end
 
-    def initialize(@name, password_hash, hash_algorithm)
+    def initialize(@name, password_hash, @hash_algorithm)
       @password =
-        case hash_algorithm
+        case @hash_algorithm
         when "MD5" then MD5Password.new(password_hash)
         when "SHA256" then SHA256Password.new(password_hash)
         when "Bcrypt" then Crypto::Bcrypt::Password.new(password_hash)
-        else raise "Unknown password hash algorithm"
+        else raise UnknownHashAlgoritm.new
         end
     end
 
     def initialize(@name, @password)
+      @hash_algorithm = hash_algorithm(@password.to_s)
     end
 
     def to_json(json)
@@ -77,5 +80,16 @@ module AvalancheMQ
         permissions: @permissions
       }.to_json(json)
     end
+
+    private def hash_algorithm(hash)
+      case hash
+      when /^\$2a\$/ then "Bcrypt"
+      when /^\$1\$/ then "MD5"
+      when /^\$5\$/ then "SHA256"
+      else raise UnknownHashAlgoritm.new
+      end
+    end
+
+    class UnknownHashAlgoritm < Exception; end
   end
 end

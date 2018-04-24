@@ -1,5 +1,4 @@
 require "json"
-require "./error"
 
 module AvalancheMQ
   module PolicyTarget
