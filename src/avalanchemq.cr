@@ -1,6 +1,6 @@
 require "./avalanchemq/version"
 require "./avalanchemq/server"
-require "./avalanchemq/http_server"
+require "./avalanchemq/http/http_server"
 require "./avalanchemq/stdlib_fixes"
 require "option_parser"
 require "file"
