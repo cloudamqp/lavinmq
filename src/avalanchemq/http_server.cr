@@ -163,25 +163,13 @@ module AvalancheMQ
     end
 
     private def import_definitions(body)
-      if users = body["users"]? || nil
-        users.each do |u|
-          name = u["name"].as_s
-          pass_hash = u["password_hash"].as_s
-          hash_algo =
-            case u["hashing_algorithm"]?.try(&.as_s) || nil
-            when /sha256$/ then "SHA256"
-            else "MD5"
-            end
-          @amqp_server.users.add(name, pass_hash, hash_algo, save: false)
-        end
-        @amqp_server.users.save!
-      end
       if vhosts = body["vhosts"]? || nil
         vhosts.each do |v|
           name = v["name"].as_s
           @amqp_server.vhosts.create name
         end
       end
+
       if queues = body["queues"]? || nil
         queues.each do |q|
           name = q["name"].as_s
@@ -197,6 +185,7 @@ module AvalancheMQ
                                                    arguments)
         end
       end
+
       if exchanges = body["exchanges"]? || nil
         exchanges.each do |e|
           name = e["name"].as_s
@@ -215,6 +204,7 @@ module AvalancheMQ
                                                       arguments)
         end
       end
+
       if bindings = body["bindings"]? || nil
         bindings.each do |b|
           source = b["source"].as_s
@@ -236,6 +226,20 @@ module AvalancheMQ
                                                      routing_key, arguments)
           end
         end
+      end
+
+      if users = body["users"]? || nil
+        users.each do |u|
+          name = u["name"].as_s
+          pass_hash = u["password_hash"].as_s
+          hash_algo =
+            case u["hashing_algorithm"]?.try(&.as_s) || nil
+            when /sha256$/ then "SHA256"
+            else "MD5"
+            end
+          @amqp_server.users.add(name, pass_hash, hash_algo, save: false)
+        end
+        @amqp_server.users.save!
       end
 
       if permissions = body["permissions"]? || nil
