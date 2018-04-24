@@ -6,7 +6,7 @@ module AvalancheMQ
   class Client
     class Channel
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
-        confirm, log
+        confirm, log, consumers
 
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
