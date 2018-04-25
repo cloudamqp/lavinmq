@@ -42,7 +42,7 @@
       var sortColumns = ["vhost", "name"];
       var reverseOrder = false;
       makeHeadersSortable();
-      var raw = localStorage.getItem("queues", this.response);
+      var raw = localStorage.getItem(URL);
       if (raw) updateTable(raw);
       fetchAndUpdate();
       var updateTimer = setInterval(fetchAndUpdate, 5000);
@@ -60,7 +60,7 @@
             clearInterval(updateTimer);
             var t = document.getElementById("table").tBodies[0];
             while (t.rows.length) t.deleteRow(0);
-            var raw = localStorage.getItem("queues", this.response);
+            var raw = localStorage.getItem(URL);
             updateTable(raw);
           });
         }
@@ -71,7 +71,7 @@
         xhr.open('GET', URL);
         xhr.onload = function(e) {
           document.getElementById("xhr-error").textContent = "";
-          localStorage.setItem("queues", this.response);
+          localStorage.setItem(URL, this.response);
           updateTable(this.response);
         }
         xhr.onerror = function(e) {
@@ -96,20 +96,20 @@
         document.getElementById("table-count").textContent = data.length;
         var t = document.getElementById("table").tBodies[0];
         for (var i = 0; i < data.length; i++) {
-          var queue = data[i];
-          var foundIndex = findIndex(t.rows, i, queue);
+          var item = data[i];
+          var foundIndex = findIndex(t.rows, i, item);
           if (foundIndex !== -1) {
             var d = foundIndex - i;
             while (d--) t.deleteRow(i);
 
             var tr = t.rows[i];
-            updateCell(tr, 3, queue.messages);
-            updateCell(tr, 4, queue.unacked);
-            updateCell(tr, 5, queue.ready);
-            updateCell(tr, 6, queue.consumers);
+            renderRow(tr, item);
           } else {
             var tr = t.insertRow(i);
-            updateRow(tr, queue);
+            keyColumns.forEach(function (key) {
+              tr.setAttribute(key, item[key]);
+            });
+            renderRow(tr, item);
           }
         }
 
@@ -118,10 +118,10 @@
           t.deleteRow(t.rows.length - 1);
       }
 
-      function findIndex(rows, start, queue) {
+      function findIndex(rows, start, item) {
         for (var i = start; i < rows.length; i++) {
           for (var k = 0; k < keyColumns.length; k++) {
-            if (rows[i].getAttribute(keyColumns[k]) !== queue[keyColumns[k]])
+            if (rows[i].getAttribute(keyColumns[k]) !== item[keyColumns[k]])
               break;
             else if (k === keyColumns.length - 1)
               return i;
@@ -130,30 +130,21 @@
         return -1;
       }
 
-      function updateCell(tr, index, value) {
+      function renderRow(tr, item) {
+        renderCell(tr, 0, item.name);
+        renderCell(tr, 1, item.vhost);
+        renderCell(tr, 2, item.durable ? "✅" : "" );
+        renderCell(tr, 3, item.messages);
+        renderCell(tr, 4, item.unacked);
+        renderCell(tr, 5, item.ready);
+        renderCell(tr, 6, item.consumers);
+      }
+
+      function renderCell(tr, column, value) {
+        var cell = tr.cells[column] || tr.insertCell(-1);
         var text = value.toString();
-        var cell = tr.cells[index];
         if (cell.textContent !== text)
           cell.textContent = text;
-      }
-
-      function updateRow(tr, queue) {
-        keyColumns.forEach(function (key) {
-          tr.setAttribute(key, queue[key]);
-        });
-        tr.setAttribute("name", queue.name);
-        tr.setAttribute("vhost", queue.vhost);
-        appendTextCell(tr, queue.name);
-        appendTextCell(tr, queue.vhost);
-        appendTextCell(tr, queue.durable ? "✅" : "" );
-        appendTextCell(tr, queue.messages);
-        appendTextCell(tr, queue.unacked);
-        appendTextCell(tr, queue.ready);
-        appendTextCell(tr, queue.consumers);
-      }
-
-      function appendTextCell(tr, text) {
-        tr.insertCell(-1).appendChild(document.createTextNode(text));
       }
     </script>
   </body>
