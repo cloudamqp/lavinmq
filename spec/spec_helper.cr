@@ -1,4 +1,5 @@
 require "spec"
+require "file_utils"
 require "../src/avalanchemq/server"
 module TestHelpers
   def wait_for

@@ -3,28 +3,57 @@ require "../src/avalanchemq/http/http_server"
 require "http/client"
 
 describe AvalancheMQ::HTTPServer do
+  FileUtils.rm_rf("/tmp/spec")
+
+  it "GET /" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    h = AvalancheMQ::HTTPServer.new(s, 8080)
+    spawn { h.listen }
+    Fiber.yield
+    response = HTTP::Client.get "http://localhost:8080/"
+    response.status_code.should eq 200
+    h.close
+    s.close
+  end
+
   describe "POST /api/definitions" do
     it "imports users" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
+      s.users.each { |u| s.users.delete(u.name) }
       spawn { h.listen }
       Fiber.yield
-      s.users.delete("bunny_gem")
       body = %({
         "users":[{
-          "name":"bunny_gem",
-          "password_hash":"rynF7rEzCknjtWTiPKuobNIVNjy/0CpOnaAoI6XFImG4RBJd",
+          "name":"sha256",
+          "password_hash":"nEeL9j6VAMtdsehezoLxjI655S4vkTWs1/EJcsjVY7o",
           "hashing_algorithm":"rabbit_password_hashing_sha256","tags":""
+        },
+        {
+          "name":"sha512",
+          "password_hash":"wiwLjmFjJauaeABIerBxpPx2548gydUaqj9wpxyeio7+gmye+/KuGaLeAqrV1Tx1pk6bwYGR0gHMx+whOqxD6Q",
+          "hashing_algorithm":"rabbit_password_hashing_sha512","tags":""
+        },
+        {
+          "name":"bcrypt",
+          "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
+          "hashing_algorithm":"Bcrypt","tags":""
+        },
+        {
+          "name":"md5",
+          "password_hash":"NTQxQzU3OTYwQkI5OTc5NDI2NTVEMTRFM0I5NjA3Rjk=",
+          "hashing_algorithm":"rabbit_password_hashing_md5","tags":""
         }]
       })
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
                                    headers: HTTP::Headers{"Content-Type" => "application/json"},
                                    body: body)
       response.status_code.should eq 200
-      user = s.users["bunny_gem"]? || nil
-      user.should be_a(AvalancheMQ::User)
-      ok = user.not_nil!.password == "bunny_password"
-      ok.should be_true
+      s.users.all? do |u|
+        u.should be_a(AvalancheMQ::User)
+        ok = u.not_nil!.password == "hej"
+        "#{u.name}:#{ok}".should eq "#{u.name}:true"
+      end
       h.close
       s.close
     end

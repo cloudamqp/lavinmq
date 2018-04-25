@@ -169,7 +169,9 @@ module AvalancheMQ
         pass_hash = u["password_hash"].as_s
         hash_algo =
           case u["hashing_algorithm"]?.try(&.as_s) || nil
+          when /sha512$/ then "SHA512"
           when /sha256$/ then "SHA256"
+          when /^bcrypt$/i then "Bcrypt"
           else "MD5"
           end
         @amqp_server.users.add(name, pass_hash, hash_algo, save: false)

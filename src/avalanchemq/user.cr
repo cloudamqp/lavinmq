@@ -43,6 +43,7 @@ module AvalancheMQ
         when /^\$2a\$/ then Crypto::Bcrypt::Password.new(hash)
         when /^\$1\$/ then MD5Password.new(hash)
         when /^\$5\$/ then SHA256Password.new(hash)
+        when /^\$6\$/ then SHA512Password.new(hash)
         else raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
         end
       @hash_algorithm = hash_algorithm(hash)
@@ -53,8 +54,9 @@ module AvalancheMQ
         case hash_algo
         when "MD5" then MD5Password.create(password)
         when "SHA256" then SHA256Password.create(password)
+        when "SHA512" then SHA512Password.create(password)
         when "Bcrypt" then Crypto::Bcrypt::Password.create(password, cost: 4)
-        else raise UnknownHashAlgoritm.new
+        else raise UnknownHashAlgoritm.new(hash_algo)
         end
       self.new(name, password)
     end
@@ -64,8 +66,9 @@ module AvalancheMQ
         case @hash_algorithm
         when "MD5" then MD5Password.new(password_hash)
         when "SHA256" then SHA256Password.new(password_hash)
+        when "SHA512" then SHA512Password.new(password_hash)
         when "Bcrypt" then Crypto::Bcrypt::Password.new(password_hash)
-        else raise UnknownHashAlgoritm.new
+        else raise UnknownHashAlgoritm.new(@hash_algorithm)
         end
     end
 
@@ -86,6 +89,7 @@ module AvalancheMQ
       when /^\$2a\$/ then "Bcrypt"
       when /^\$1\$/ then "MD5"
       when /^\$5\$/ then "SHA256"
+      when /^\$6\$/ then "SHA512"
       else raise UnknownHashAlgoritm.new
       end
     end
