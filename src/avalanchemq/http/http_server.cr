@@ -22,11 +22,15 @@ module AvalancheMQ
 
     def listen
       @running = true
-      @http = HTTP::Server.new(@port, [ApiDefaultsHandler.new,
-                                       ApiErrorHandler.new(@log),
-                                       StaticController.new("./static").route_handler,
-                                       MainController.new(@amqp_server).route_handler,
-                                       DefinitionsController.new(@amqp_server).route_handler])
+      handlers = [
+        ApiDefaultsHandler.new,
+        ApiErrorHandler.new(@log),
+        StaticController.new("./static").route_handler,
+        MainController.new(@amqp_server).route_handler,
+        DefinitionsController.new(@amqp_server).route_handler
+      ] of HTTP::Handler
+      handlers.unshift(HTTP::LogHandler.new) if @log.level == Logger::DEBUG
+      @http = HTTP::Server.new(@port, handlers)
       server = @http.not_nil!.bind
       @log.info "Listening on #{server.local_address}"
       @http.not_nil!.listen

@@ -1,14 +1,26 @@
+require "uri"
 require "../controller"
 
 module AvalancheMQ
   class DefinitionsController < Controller
     private def register_routes
-      get "/api/definitions" do |context, params|
+      get "/api/definitions" do |context, _params|
         export_definitions(context.response)
         context
       end
 
       post "/api/definitions" do |context, _params|
+        body = parse_body(context)
+        import_definitions(body)
+        context
+      end
+
+      get "/api/definitions/:vhost" do |context, params|
+        export_vhost_definitions(params["vhost"], context.response)
+        context
+      end
+
+      post "/api/definitions/:vhost" do |context, params|
         body = parse_body(context)
         import_definitions(body)
         context
@@ -26,14 +38,26 @@ module AvalancheMQ
       import_parameters(body)
     end
 
+    private def export_vhost_definitions(name, response)
+      unescaped_name = URI.unescape(name)
+      vhosts = @amqp_server.vhosts.select { |v| v.name == unescaped_name }
+      {
+        "avalanchemq_version": AvalancheMQ::VERSION,
+        "exchanges": export_exchanges(vhosts),
+        "queues": export_queues(vhosts),
+        "bindings": export_bindings(vhosts),
+        "policies": vhosts.flat_map(&.policies.values)
+      }.to_json(response)
+    end
+
     private def export_definitions(response)
       {
         "avalanchemq_version": AvalancheMQ::VERSION,
         "users": export_users,
         "vhosts": @amqp_server.vhosts.map { |v| { name: v.name }},
-        "queues": export_queues,
-        "exchanges": export_exchanges,
-        "bindings": export_bindings,
+        "queues": export_queues(@amqp_server.vhosts),
+        "exchanges": export_exchanges(@amqp_server.vhosts),
+        "bindings": export_bindings(@amqp_server.vhosts),
         "permissions": export_permissions,
         "policies": @amqp_server.vhosts.flat_map(&.policies.values),
         "parameters": @amqp_server.parameters.values
@@ -174,8 +198,8 @@ module AvalancheMQ
       end
     end
 
-    private def export_queues
-      @amqp_server.vhosts.flat_map do |v|
+    private def export_queues(vhosts)
+      vhosts.flat_map do |v|
         v.queues.values.map do |q|
           {
             "name": q.name,
@@ -188,8 +212,8 @@ module AvalancheMQ
       end
     end
 
-    private def export_exchanges
-      @amqp_server.vhosts.flat_map do |v|
+    private def export_exchanges(vhosts)
+      vhosts.flat_map do |v|
         v.exchanges.values.reject(&.internal).map do |e|
           {
             "name": e.name,
@@ -204,9 +228,9 @@ module AvalancheMQ
       end
     end
 
-    private def export_bindings
+    private def export_bindings(vhosts)
       bindings = Array(Hash(String, AMQP::Field)).new
-      @amqp_server.vhosts.each do |v|
+      vhosts.each do |v|
         v.exchanges.values.each do |e|
           e.bindings.each do |key, resources|
             resources.each do |resource|
