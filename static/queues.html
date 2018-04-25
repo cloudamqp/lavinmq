@@ -36,8 +36,14 @@
     <script>
       var t = document.getElementById("queues").tBodies[0];
       var sortColumns = ["vhost", "name"];
+      var reverseOrder = false;
       updateQueues();
       setInterval(updateQueues, 5000);
+
+      function reverseTable() {
+        reverseOrder = !reverseOrder;
+        console.log("reverseOrder", reverseOrder);
+      }
 
       function updateQueues() {
         var xhr = new XMLHttpRequest();
@@ -46,8 +52,8 @@
           document.getElementById("xhr-error").textContent = "";
           var data = JSON.parse(this.response).sort(function (a, b) {
             for (var i = 0; i < sortColumns.length; i++) {
-              if (a[sortColumns[i]] > b[sortColumns[i]]) return 1;
-              if (a[sortColumns[i]] < b[sortColumns[i]]) return -1;
+              if (a[sortColumns[i]] > b[sortColumns[i]]) return 1 * (reverseOrder ? -1 : 1);
+              if (a[sortColumns[i]] < b[sortColumns[i]]) return -1 * (reverseOrder ? -1 : 1);
             }
             return 0;
           });
@@ -55,35 +61,25 @@
 
           for (var i = 0; i < data.length; i++) {
             var queue = data[i];
-            if (i < t.rows.length) {
+            var foundIndex = findIndex(t.rows, i, queue);
+            if (foundIndex !== -1) {
+              var d = foundIndex - i;
+              while (d--) t.deleteRow(i);
+
               var tr = t.rows[i];
-              if (tr.getAttribute("name") === queue.name && tr.getAttribute("vhost") === queue.vhost) {
-                updateCell(tr, 3, queue.messages);
-                updateCell(tr, 4, queue.unacked);
-                updateCell(tr, 5, queue.ready);
-                updateCell(tr, 6, queue.consumers);
-              } else {
-                var foundIndex = find(t.rows, i, queue); 
-                if (foundIndex) {
-                  for (var d = i; d < foundIndex; d++)
-                    t.deleteRow(d);
-                  i--;
-                } else {
-                  console.log("next row does not have our data, inserting");
-                  var tr = t.insertRow(i);
-                  updateRow(tr, queue);
-                }
-              }
+              updateCell(tr, 3, queue.messages);
+              updateCell(tr, 4, queue.unacked);
+              updateCell(tr, 5, queue.ready);
+              updateCell(tr, 6, queue.consumers);
             } else {
-              var tr = t.insertRow(-1);
+              var tr = t.insertRow(i);
               updateRow(tr, queue);
             }
           }
 
-          if (data.length < t.rows.length) {
-            for (var i = data.length; i < t.rows.length; i++)
-              t.deleteRow(i);
-          }
+          var rowsToDelete = t.rows.length - data.length;
+          while (0 < rowsToDelete--)
+            t.deleteRow(t.rows.length - 1);
         }
         xhr.onerror = function(e) {
           document.getElementById("xhr-error").textContent = "Error fetching data";
@@ -95,11 +91,12 @@
         xhr.send();
       }
 
-      function find(rows, start, queue) {
+      function findIndex(rows, start, queue) {
         for (var i = start; i < rows.length; i++) {
           if (t.rows[i].getAttribute("name") === queue.name && t.rows[i].getAttribute("vhost") === queue.vhost)
             return i;
         }
+        return -1;
       }
 
       function updateCell(tr, index, value) {
