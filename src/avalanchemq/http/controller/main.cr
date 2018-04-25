@@ -38,11 +38,6 @@ module AvalancheMQ
         @amqp_server.vhosts.to_json(context.response)
         context
       end
-      get "/" do |context, _params|
-        context.response.content_type = "text/plain"
-        context.response.print "AvalancheMQ"
-        context
-      end
 
       post "/api/parameters" do |context, _params|
         p = Parameter.from_json context.request.body.not_nil!
