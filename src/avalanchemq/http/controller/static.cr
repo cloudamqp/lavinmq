@@ -1,8 +1,12 @@
 require "../controller"
-
+require "router"
 module AvalancheMQ
-  class StaticController < Controller
-    @public_dir = "./static"
+  class StaticController
+    include Router
+
+    def initialize(@public_dir : String)
+      register_routes
+    end
 
     private def register_routes
       get "/queues" do |context, _params|

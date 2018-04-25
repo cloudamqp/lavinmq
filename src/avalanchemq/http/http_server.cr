@@ -24,7 +24,7 @@ module AvalancheMQ
       @running = true
       @http = HTTP::Server.new(@port, [ApiDefaultsHandler.new,
                                        ApiErrorHandler.new(@log),
-                                       StaticController.new(@amqp_server).route_handler,
+                                       StaticController.new("./static").route_handler,
                                        MainController.new(@amqp_server).route_handler,
                                        DefinitionsController.new(@amqp_server).route_handler])
       server = @http.not_nil!.bind
