@@ -3,8 +3,10 @@
   <head>
     <title>Queues | AvalancheMQ</title>
     <style>
-      body { font-family: 'Menlo', monospace; }
+      body { font-family: 'Monaco', monospace; }
       .sortable th { cursor: pointer; }
+      table { border-collapse: collapse; width: 100%; }
+      table th, table td { border: 1px solid #EEE; padding: 0.2em 0.3em }
     </style>
   </head>
   <body>
@@ -17,9 +19,9 @@
       </ul>
       <h2>
         Queues
-        <small id="queue-count"></small>
+        <small id="table-count"></small>
       </h2>
-      <table id="queues" class="sortable">
+      <table id="table" class="sortable">
         <thead>
           <tr>
             <th>Name</th>
@@ -35,69 +37,42 @@
       </table>
     </div>
     <script>
-      var t = document.getElementById("queues").tBodies[0];
+      var URL = "/api/queues";
+      var keyColumns = ["name", "vhost"];
       var sortColumns = ["vhost", "name"];
       var reverseOrder = false;
-      var theadCells = document.getElementById("queues").tHead.rows[0].cells;
-      for (var i = 0; i < theadCells.length; i++) {
-        theadCells[i].addEventListener("click", function (e) {
-          var column = e.target.cellIndex;
-          var newSortColumn = e.target.textContent.toLowerCase();
-          if (sortColumns[0] === newSortColumn)
-            reverseOrder = !reverseOrder;
-          else
-            sortColumns = [newSortColumn];
-          clearInterval(updateTimer);
-          while (t.rows.length)
-            t.deleteRow(0);
-          updateQueues()
-          updateTimer = setInterval(updateQueues, 5000);
-        });
+      makeHeadersSortable();
+      var raw = localStorage.getItem("queues", this.response);
+      if (raw) updateTable(raw);
+      fetchAndUpdate();
+      var updateTimer = setInterval(fetchAndUpdate, 5000);
+
+      function makeHeadersSortable() {
+        var cells = document.getElementById("table").tHead.rows[0].cells;
+        for (var i = 0; i < cells.length; i++) {
+          cells[i].addEventListener("click", function (e) {
+            var column = e.target.cellIndex;
+            var newSortColumn = e.target.textContent.toLowerCase();
+            if (sortColumns[0] === newSortColumn)
+              reverseOrder = !reverseOrder;
+            else
+              sortColumns = [newSortColumn];
+            clearInterval(updateTimer);
+            var t = document.getElementById("table").tBodies[0];
+            while (t.rows.length) t.deleteRow(0);
+            var raw = localStorage.getItem("queues", this.response);
+            updateTable(raw);
+          });
+        }
       }
 
-      updateQueues();
-      var updateTimer = setInterval(updateQueues, 5000);
-
-      function reverseTable() {
-        reverseOrder = !reverseOrder;
-        console.log("reverseOrder", reverseOrder);
-      }
-
-      function updateQueues() {
+      function fetchAndUpdate() {
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/api/queues');
+        xhr.open('GET', URL);
         xhr.onload = function(e) {
           document.getElementById("xhr-error").textContent = "";
-          var data = JSON.parse(this.response).sort(function (a, b) {
-            for (var i = 0; i < sortColumns.length; i++) {
-              if (a[sortColumns[i]] > b[sortColumns[i]]) return 1 * (reverseOrder ? -1 : 1);
-              if (a[sortColumns[i]] < b[sortColumns[i]]) return -1 * (reverseOrder ? -1 : 1);
-            }
-            return 0;
-          });
-          document.getElementById("queue-count").textContent = data.length;
-
-          for (var i = 0; i < data.length; i++) {
-            var queue = data[i];
-            var foundIndex = findIndex(t.rows, i, queue);
-            if (foundIndex !== -1) {
-              var d = foundIndex - i;
-              while (d--) t.deleteRow(i);
-
-              var tr = t.rows[i];
-              updateCell(tr, 3, queue.messages);
-              updateCell(tr, 4, queue.unacked);
-              updateCell(tr, 5, queue.ready);
-              updateCell(tr, 6, queue.consumers);
-            } else {
-              var tr = t.insertRow(i);
-              updateRow(tr, queue);
-            }
-          }
-
-          var rowsToDelete = t.rows.length - data.length;
-          while (0 < rowsToDelete--)
-            t.deleteRow(t.rows.length - 1);
+          localStorage.setItem("queues", this.response);
+          updateTable(this.response);
         }
         xhr.onerror = function(e) {
           document.getElementById("xhr-error").textContent = "Error fetching data";
@@ -109,10 +84,48 @@
         xhr.send();
       }
 
+      function updateTable(raw) {
+        var data = JSON.parse(raw);
+        data.sort(function (a, b) {
+          for (var i = 0; i < sortColumns.length; i++) {
+            if (a[sortColumns[i]] > b[sortColumns[i]]) return 1 * (reverseOrder ? -1 : 1);
+            if (a[sortColumns[i]] < b[sortColumns[i]]) return -1 * (reverseOrder ? -1 : 1);
+          }
+          return 0;
+        });
+        document.getElementById("table-count").textContent = data.length;
+        var t = document.getElementById("table").tBodies[0];
+        for (var i = 0; i < data.length; i++) {
+          var queue = data[i];
+          var foundIndex = findIndex(t.rows, i, queue);
+          if (foundIndex !== -1) {
+            var d = foundIndex - i;
+            while (d--) t.deleteRow(i);
+
+            var tr = t.rows[i];
+            updateCell(tr, 3, queue.messages);
+            updateCell(tr, 4, queue.unacked);
+            updateCell(tr, 5, queue.ready);
+            updateCell(tr, 6, queue.consumers);
+          } else {
+            var tr = t.insertRow(i);
+            updateRow(tr, queue);
+          }
+        }
+
+        var rowsToDelete = t.rows.length - data.length;
+        while (0 < rowsToDelete--)
+          t.deleteRow(t.rows.length - 1);
+      }
+
       function findIndex(rows, start, queue) {
         for (var i = start; i < rows.length; i++) {
-          if (t.rows[i].getAttribute("name") === queue.name && t.rows[i].getAttribute("vhost") === queue.vhost)
-            return i;
+          for (var k = 0; k < keyColumns.length; k++) {
+            if (rows[i].getAttribute(keyColumns[k]) !== queue[keyColumns[k]])
+              break;
+            else if (k === keyColumns.length - 1)
+              return i;
+          }
         }
         return -1;
       }
@@ -125,6 +138,9 @@
       }
 
       function updateRow(tr, queue) {
+        keyColumns.forEach(function (key) {
+          tr.setAttribute(key, queue[key]);
+        });
         tr.setAttribute("name", queue.name);
         tr.setAttribute("vhost", queue.vhost);
         appendTextCell(tr, queue.name);
@@ -137,8 +153,7 @@
       }
 
       function appendTextCell(tr, text) {
-        var td = tr.insertCell(-1);
-        td.appendChild(document.createTextNode(text));
+        tr.insertCell(-1).appendChild(document.createTextNode(text));
       }
     </script>
   </body>
