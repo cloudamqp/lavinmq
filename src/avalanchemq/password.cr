@@ -20,16 +20,16 @@ module AvalancheMQ
         unless @raw_hash.starts_with? hash_prefix
           @raw_hash = hash_prefix + @raw_hash
         end
-        bytes = Base64.decode @raw_hash[hash_prefix.size..-1]
         @salt = Bytes.new(0)
         @hash = Bytes.new(0)
+        bytes = Base64.decode @raw_hash[hash_prefix.size..-1]
         case bytes.size
         when self.digest_size
           @hash = bytes
         when self.digest_size + 4
           @salt = bytes[0, 4]
           @hash = bytes + 4
-        else raise ArgumentError.new("Invalid digest size #{bytes.size}")
+        else raise ArgumentError.new("Invalid digest size #{bytes.size} for #{self.hash_algorithm}, raw size #{@raw_hash.size}")
         end
       end
 
@@ -58,11 +58,11 @@ module AvalancheMQ
         32
       end
 
-      def self.hash_algorithm 
+      def self.hash_algorithm
         "SHA256"
       end
 
-      def hash_algorithm 
+      def hash_algorithm
         "SHA256"
       end
 
@@ -71,16 +71,34 @@ module AvalancheMQ
       end
     end
 
-    class MD5Password < Password
+    class SHA512Password < Password
       def digest_size
-        16
+        64
       end
 
-      def self.hash_algorithm 
+      def self.hash_algorithm
+        "SHA512"
+      end
+
+      def hash_algorithm
+        "SHA512"
+      end
+
+      def hash_prefix
+        "$6$"
+      end
+    end
+
+    class MD5Password < Password
+      def digest_size
+        32
+      end
+
+      def self.hash_algorithm
         "MD5"
       end
 
-      def hash_algorithm 
+      def hash_algorithm
         "MD5"
       end
 
