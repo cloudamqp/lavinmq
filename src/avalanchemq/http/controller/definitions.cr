@@ -23,6 +23,7 @@ module AvalancheMQ
             import_definitions(body)
           end
         end
+        redirect_back(context)
         context
       end
 

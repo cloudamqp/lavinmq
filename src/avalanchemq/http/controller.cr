@@ -14,6 +14,12 @@ module AvalancheMQ
 
     private abstract def register_routes
 
+    private def redirect_back(context)
+      context.response.headers["Location"] = context.request.headers["Referer"]
+      context.response.status_code = 301
+      context.response.close
+    end
+
     private def parse_body(context)
       raise HTTPServer::ExpectedBodyError.new if context.request.body.nil?
       ct = context.request.headers["Content-Type"]? || nil
