@@ -41,17 +41,22 @@
       var theadCells = document.getElementById("queues").tHead.rows[0].cells;
       for (var i = 0; i < theadCells.length; i++) {
         theadCells[i].addEventListener("click", function (e) {
+          var column = e.target.cellIndex;
           var newSortColumn = e.target.textContent.toLowerCase();
           if (sortColumns[0] === newSortColumn)
             reverseOrder = !reverseOrder;
           else
             sortColumns = [newSortColumn];
-          console.log(sortColumns);
-          console.log(reverseOrder);
+          clearInterval(updateTimer);
+          while (t.rows.length)
+            t.deleteRow(0);
+          updateQueues()
+          updateTimer = setInterval(updateQueues, 5000);
         });
       }
+
       updateQueues();
-      setInterval(updateQueues, 5000);
+      var updateTimer = setInterval(updateQueues, 5000);
 
       function reverseTable() {
         reverseOrder = !reverseOrder;
