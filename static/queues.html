@@ -35,7 +35,7 @@
     </div>
     <script>
       var t = document.getElementById("queues").tBodies[0];
-      var sortColumn = "name";
+      var sortColumns = ["vhost", "name"];
       updateQueues();
       setInterval(updateQueues, 5000);
 
@@ -45,8 +45,10 @@
         xhr.onload = function(e) {
           document.getElementById("xhr-error").textContent = "";
           var data = JSON.parse(this.response).sort(function (a, b) {
-            if (a[sortColumn] > b[sortColumn]) return 1;
-            if (a[sortColumn] < b[sortColumn]) return -1;
+            for (var i = 0; i < sortColumns.length; i++) {
+              if (a[sortColumns[i]] > b[sortColumns[i]]) return 1;
+              if (a[sortColumns[i]] < b[sortColumns[i]]) return -1;
+            }
             return 0;
           });
           document.getElementById("queue-count").textContent = data.length;
