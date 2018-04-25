@@ -52,32 +52,35 @@
             return 0;
           });
           document.getElementById("queue-count").textContent = data.length;
-          data.forEach(function (queue, index) {
-            var id = "queue-" + queue.vhost + "-" + queue.name;
-            var tr = document.getElementById(id);
-            if (tr) {
-              updateCell(tr, 3, queue.messages);
-              updateCell(tr, 4, queue.unacked);
-              updateCell(tr, 5, queue.ready);
-              updateCell(tr, 6, queue.consumers);
+
+          for (var i = 0; i < data.length; i++) {
+            var queue = data[i];
+            if (i < t.rows.length) {
+              var tr = t.rows[i];
+              if (tr.getAttribute("name") === queue.name && tr.getAttribute("vhost") === queue.vhost) {
+                // update row
+                updateCell(tr, 3, queue.messages);
+                updateCell(tr, 4, queue.unacked);
+                updateCell(tr, 5, queue.ready);
+                updateCell(tr, 6, queue.consumers);
+              } else if (i + 1 < t.rows.length && t.rows[i + 1].getAttribute("name") === queue.name && t.rows[i + 1].getAttribute("vhost") === queue.vhost) {
+                console.log("next row got our data, deleting this and redoing");
+                t.deleteRow(i);
+                i--;
+              } else {
+                // add row because next row doesn't have this queue data
+                console.log("next row does not have our data, inserting");
+                var tr = t.insertRow(i);
+                updateRow(tr, queue);
+              }
             } else {
-              var tr = document.createElement("tr");
-              tr.setAttribute("id", id);
-              appendTextCell(tr, queue.name);
-              appendTextCell(tr, queue.vhost);
-              appendTextCell(tr, queue.durable ? "✅" : "" );
-              appendTextCell(tr, queue.messages);
-              appendTextCell(tr, queue.unacked);
-              appendTextCell(tr, queue.ready);
-              appendTextCell(tr, queue.consumers);
-              t.appendChild(tr);
+              var tr = t.insertRow(-1);
+              updateRow(tr, queue);
             }
-          });
-          var currentRowIds = data.map(function (queue) {
-            return "queue-" + queue.vhost + "-" + queue.name;
-          });
-          for (var i = 0; i < t.rows.length; i++) {
-            if (!currentRowIds.includes(t.rows[i].id))
+          }
+
+          if (data.length < t.rows.length) {
+            for (var i = data.length; i < t.rows.length; i++)
               t.deleteRow(i);
           }
         }
@@ -98,10 +101,21 @@
           cell.textContent = text;
       }
 
+      function updateRow(tr, queue) {
+        tr.setAttribute("name", queue.name);
+        tr.setAttribute("vhost", queue.vhost);
+        appendTextCell(tr, queue.name);
+        appendTextCell(tr, queue.vhost);
+        appendTextCell(tr, queue.durable ? "✅" : "" );
+        appendTextCell(tr, queue.messages);
+        appendTextCell(tr, queue.unacked);
+        appendTextCell(tr, queue.ready);
+        appendTextCell(tr, queue.consumers);
+      }
+
       function appendTextCell(tr, text) {
-        var td = document.createElement("td");
+        var td = tr.insertCell(-1);
         td.appendChild(document.createTextNode(text));
-        tr.appendChild(td);
       }
     </script>
   </body>
