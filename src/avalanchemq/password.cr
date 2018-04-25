@@ -91,7 +91,7 @@ module AvalancheMQ
 
     class MD5Password < Password
       def digest_size
-        32
+        16
       end
 
       def self.hash_algorithm

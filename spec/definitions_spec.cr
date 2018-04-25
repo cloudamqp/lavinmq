@@ -41,7 +41,7 @@ describe AvalancheMQ::HTTPServer do
         },
         {
           "name":"md5",
-          "password_hash":"NTQxQzU3OTYwQkI5OTc5NDI2NTVEMTRFM0I5NjA3Rjk=",
+          "password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==",
           "hashing_algorithm":"rabbit_password_hashing_md5","tags":""
         }]
       })

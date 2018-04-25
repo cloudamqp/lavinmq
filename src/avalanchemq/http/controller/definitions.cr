@@ -15,6 +15,17 @@ module AvalancheMQ
         context
       end
 
+      post "/definitions" do |context, _params|
+        HTTP::FormData.parse(context.request) do |part|
+          case part.name
+          when "file"
+            body = JSON.parse(part.body)
+            import_definitions(body)
+          end
+        end
+        context
+      end
+
       get "/api/definitions/:vhost" do |context, params|
         export_vhost_definitions(params["vhost"], context.response)
         context
