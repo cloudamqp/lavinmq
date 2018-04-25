@@ -4,6 +4,7 @@
     <title>Queues | AvalancheMQ</title>
     <style>
       body { font-family: 'Menlo', monospace; }
+      .sortable th { cursor: pointer; }
     </style>
   </head>
   <body>
@@ -18,7 +19,7 @@
         Queues
         <small id="queue-count"></small>
       </h2>
-      <table id="queues">
+      <table id="queues" class="sortable">
         <thead>
           <tr>
             <th>Name</th>
@@ -37,12 +38,9 @@
       var t = document.getElementById("queues").tBodies[0];
       var sortColumns = ["vhost", "name"];
       var reverseOrder = false;
-      updateQueues();
-      setInterval(updateQueues, 5000);
       var theadCells = document.getElementById("queues").tHead.rows[0].cells;
       for (var i = 0; i < theadCells.length; i++) {
-        var th = theadCells[i];
-        th.addEventListener("click", function (e) {
+        theadCells[i].addEventListener("click", function (e) {
           var newSortColumn = e.target.textContent.toLowerCase();
           if (sortColumns[0] === newSortColumn)
             reverseOrder = !reverseOrder;
@@ -52,6 +50,8 @@
           console.log(reverseOrder);
         });
       }
+      updateQueues();
+      setInterval(updateQueues, 5000);
 
       function reverseTable() {
         reverseOrder = !reverseOrder;
