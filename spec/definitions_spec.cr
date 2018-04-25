@@ -405,4 +405,103 @@ describe AvalancheMQ::HTTPServer do
       h.close
     end
   end
+
+  describe "POST /api/definitions/vhost" do
+    it "imports queues" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.vhosts["/"].delete_queue("q1")
+      body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+      response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
+                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].queues.has_key?("q1").should be_true
+      h.close
+      s.close
+    end
+
+    it "imports exchanges" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.vhosts["/"].delete_exchange("x1")
+      body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
+      response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
+                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].exchanges.has_key?("x1").should be_true
+      h.close
+      s.close
+    end
+
+    it "imports bindings" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("x1", "direct", false, true)
+      s.vhosts["/"].declare_exchange("x2", "fanout", false, true)
+      s.vhosts["/"].declare_queue("q1", false, true)
+      body = %({ "bindings": [
+        {
+          "source": "x1",
+          "vhost": "/",
+          "destination": "x2",
+          "destination_type": "exchange",
+          "routing_key": "r.k2",
+          "arguments": {}
+        },
+        {
+          "source": "x1",
+          "vhost": "/",
+          "destination": "q1",
+          "destination_type": "queue",
+          "routing_key": "rk",
+          "arguments": {}
+        }
+      ]})
+      response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
+                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].exchanges["x1"].matches("r.k2", nil).map(&.name).includes?("x2").should be_true
+      s.vhosts["/"].exchanges["x1"].matches("rk", nil).map(&.name).includes?("q1").should be_true
+      s.vhosts["/"].delete_queue("q1")
+      s.vhosts["/"].delete_exchange("x1")
+      s.vhosts["/"].delete_exchange("x2")
+      h.close
+      s.close
+    end
+
+    it "imports policies" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.listen }
+      Fiber.yield
+      body = %({ "policies": [
+        {
+          "name": "p1",
+          "vhost": "/",
+          "apply-to": "queues",
+          "priority": 1,
+          "pattern": "^.*",
+          "definition": {
+            "x-max-length": 10
+          }
+        }
+      ]})
+      response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
+                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  body: body)
+      response.status_code.should eq 200
+      s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true
+      h.close
+      s.close
+    end
+  end
 end

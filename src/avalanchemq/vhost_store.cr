@@ -22,8 +22,8 @@ module AvalancheMQ
       @vhosts[name]?
     end
 
-    def size
-      @vhosts.size
+    def values
+      @vhosts.values
     end
 
     def create(name, save = true)

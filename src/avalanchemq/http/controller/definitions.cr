@@ -22,31 +22,40 @@ module AvalancheMQ
 
       post "/api/definitions/:vhost" do |context, params|
         body = parse_body(context)
-        import_definitions(body)
+        import_vhost_definitions(params["vhost"], body)
         context
       end
+    end
+
+    private def import_vhost_definitions(name, body)
+      unescaped_name = URI.unescape(name)
+      vhosts = { unescaped_name => @amqp_server.vhosts[unescaped_name] }
+      import_queues(body, vhosts)
+      import_exchanges(body, vhosts)
+      import_bindings(body, vhosts)
+      import_policies(body, vhosts)
     end
 
     private def import_definitions(body)
       import_users(body)
       import_vhosts(body)
-      import_queues(body)
-      import_exchanges(body)
-      import_bindings(body)
+      import_queues(body, @amqp_server.vhosts)
+      import_exchanges(body, @amqp_server.vhosts)
+      import_bindings(body, @amqp_server.vhosts)
       import_permissions(body)
-      import_policies(body)
+      import_policies(body, @amqp_server.vhosts)
       import_parameters(body)
     end
 
     private def export_vhost_definitions(name, response)
       unescaped_name = URI.unescape(name)
-      vhosts = @amqp_server.vhosts.select { |v| v.name == unescaped_name }
+      vhosts = { unescaped_name => @amqp_server.vhosts[unescaped_name] }
       {
         "avalanchemq_version": AvalancheMQ::VERSION,
         "exchanges": export_exchanges(vhosts),
         "queues": export_queues(vhosts),
         "bindings": export_bindings(vhosts),
-        "policies": vhosts.flat_map(&.policies.values)
+        "policies": vhosts.values.flat_map(&.policies.values)
       }.to_json(response)
     end
 
@@ -64,6 +73,12 @@ module AvalancheMQ
       }.to_json(response)
     end
 
+    private def fetch_vhost?(vhosts, name)
+      vhost = vhosts[name]? || nil
+      @log.warn "No vhost named #{name}, can't import #{name}" unless vhost
+      vhost
+    end
+
     private def import_vhosts(body)
       return unless vhosts = body["vhosts"]? || nil
       vhosts.each do |v|
@@ -72,7 +87,7 @@ module AvalancheMQ
       end
     end
 
-    private def import_queues(body)
+    private def import_queues(body, vhosts)
       return unless queues = body["queues"]? || nil
       queues.each do |q|
         name = q["name"].as_s
@@ -84,12 +99,12 @@ module AvalancheMQ
         json_args.each do |k, v|
           arguments[k] = v.as AMQP::Field
         end
-        @amqp_server.vhosts[vhost].declare_queue(name, durable, auto_delete,
-                                                  arguments)
+        next unless v = fetch_vhost?(vhosts, vhost)
+        v.declare_queue(name, durable, auto_delete, arguments)
       end
     end
 
-    private def import_exchanges(body)
+    private def import_exchanges(body, vhosts)
       return unless exchanges = body["exchanges"]? || nil
       exchanges.each do |e|
         name = e["name"].as_s
@@ -103,13 +118,12 @@ module AvalancheMQ
         json_args.each do |k, v|
           arguments[k] = v.as AMQP::Field
         end
-        @amqp_server.vhosts[vhost].declare_exchange(name, type, durable,
-                                                    auto_delete, internal,
-                                                    arguments)
+        next unless v = fetch_vhost?(vhosts, vhost)
+        v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
       end
     end
 
-    private def import_bindings(body)
+    private def import_bindings(body, vhosts)
       return unless bindings = body["bindings"]? || nil
       bindings.each do |b|
         source = b["source"].as_s
@@ -122,13 +136,12 @@ module AvalancheMQ
         json_args.each do |k, v|
           arguments[k] = v.as AMQP::Field
         end
+        next unless v = fetch_vhost?(vhosts, vhost)
         case destination_type
         when "queue"
-          @amqp_server.vhosts[vhost].bind_queue(destination, source,
-                                                routing_key, arguments)
+          v.bind_queue(destination, source, routing_key, arguments)
         when "exchange"
-          @amqp_server.vhosts[vhost].bind_exchange(destination, source,
-                                                    routing_key, arguments)
+          v.bind_exchange(destination, source, routing_key, arguments)
         end
       end
     end
@@ -172,19 +185,16 @@ module AvalancheMQ
       end
     end
 
-    private def import_policies(body)
+    private def import_policies(body, vhosts)
       return unless policies = body["policies"]? || nil
       policies.each do |p|
         name = p["name"].as_s
-        p = Policy.new(name, p["vhost"].as_s, Regex.new(p["pattern"].as_s),
+        vhost = p["vhost"].as_s
+        next unless v = fetch_vhost?(vhosts, vhost)
+        p = Policy.new(name, vhost, Regex.new(p["pattern"].as_s),
                        Policy::Target.parse(p["apply-to"].as_s), p["definition"],
                        p["priority"].as_i.to_i8)
-        vhost = @amqp_server.vhosts[p.vhost]? || nil
-        unless vhost
-          @log.warn "No vhost named #{p.vhost}, can't import #{name}"
-          next
-        end
-        vhost.add_policy(p)
+        v.add_policy(p)
       end
     end
 
@@ -199,7 +209,7 @@ module AvalancheMQ
     end
 
     private def export_queues(vhosts)
-      vhosts.flat_map do |v|
+      vhosts.values.flat_map do |v|
         v.queues.values.map do |q|
           {
             "name": q.name,
@@ -213,7 +223,7 @@ module AvalancheMQ
     end
 
     private def export_exchanges(vhosts)
-      vhosts.flat_map do |v|
+      vhosts.values.flat_map do |v|
         v.exchanges.values.reject(&.internal).map do |e|
           {
             "name": e.name,
@@ -230,7 +240,7 @@ module AvalancheMQ
 
     private def export_bindings(vhosts)
       bindings = Array(Hash(String, AMQP::Field)).new
-      vhosts.each do |v|
+      vhosts.values.each do |v|
         v.exchanges.values.each do |e|
           e.bindings.each do |key, resources|
             resources.each do |resource|
