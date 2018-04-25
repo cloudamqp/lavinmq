@@ -35,6 +35,7 @@
     </div>
     <script>
       var t = document.getElementById("queues").tBodies[0];
+      var sortColumn = "name";
       updateQueues();
       setInterval(updateQueues, 5000);
 
@@ -43,9 +44,13 @@
         xhr.open('GET', '/api/queues');
         xhr.onload = function(e) {
           document.getElementById("xhr-error").textContent = "";
-          var data = JSON.parse(this.response);
+          var data = JSON.parse(this.response).sort(function (a, b) {
+            if (a[sortColumn] > b[sortColumn]) return 1;
+            if (a[sortColumn] < b[sortColumn]) return -1;
+            return 0;
+          });
           document.getElementById("queue-count").textContent = data.length;
-          data.forEach(function (queue) {
+          data.forEach(function (queue, index) {
             var id = "queue-" + queue.vhost + "-" + queue.name;
             var tr = document.getElementById(id);
             if (tr) {
@@ -66,6 +71,13 @@
               t.appendChild(tr);
             }
           });
+          var currentRowIds = data.map(function (queue) {
+            return "queue-" + queue.vhost + "-" + queue.name;
+          });
+          for (var i = 0; i < t.rows.length; i++) {
+            if (!currentRowIds.includes(t.rows[i].id))
+              t.deleteRow(i);
+          }
         }
         xhr.onerror = function(e) {
           document.getElementById("xhr-error").textContent = "Error fetching data";
