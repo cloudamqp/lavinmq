@@ -9,12 +9,16 @@ module AvalancheMQ
     end
 
     private def register_routes
+      get "/" do |context, _|
+        static(context, "index.html")
+      end
+
       get "/queues" do |context, _params|
         static(context, "queues.html")
       end
 
-      get "/" do |context, _|
-        static(context, "index.html")
+      get "/table.js" do |context, _|
+        static(context, "table.js")
       end
     end
 
@@ -38,10 +42,10 @@ module AvalancheMQ
 
     private def mime_type(path)
       case File.extname(path)
-      when ".txt"  then "text/plain"
+      when ".txt"  then "text/plain;charset=utf-8"
       when ".html" then "text/html;charset=utf-8"
-      when ".css"  then "text/css"
-      when ".js"   then "application/javascript"
+      when ".css"  then "text/css;charset=utf-8"
+      when ".js"   then "application/javascript;charset=utf-8"
       when ".png"  then "image/png"
       when ".jpg"  then "image/jpeg"
       when ".gif"  then "image/gif"
