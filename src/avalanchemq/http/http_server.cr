@@ -12,12 +12,16 @@ require "./controller/static"
 module AvalancheMQ
   class HTTPServer
     @log : Logger
+
+    @running = false
+
     def initialize(@amqp_server : AvalancheMQ::Server, @port : Int32)
       @log = @amqp_server.log.dup
       @log.progname = "HTTP(#{port})"
     end
 
     def listen
+      @running = true
       @http = HTTP::Server.new(@port, [ApiDefaultsHandler.new,
                                        ApiErrorHandler.new(@log),
                                        StaticController.new(@amqp_server).route_handler,
@@ -30,6 +34,10 @@ module AvalancheMQ
 
     def close
       @http.try &.close
+    end
+
+    def closed?
+      !@running
     end
 
     class NotFoundError < Exception; end

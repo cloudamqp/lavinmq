@@ -278,6 +278,7 @@ module AvalancheMQ
     end
 
     private def save!
+      return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         loop do
           frame = @save.receive

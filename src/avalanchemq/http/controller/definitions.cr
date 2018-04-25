@@ -35,8 +35,8 @@ module AvalancheMQ
         "exchanges": export_exchanges,
         "bindings": export_bindings,
         "permissions": export_permissions,
-        "policies": @amqp_server.vhosts.flat_map(&.policies).reject(&.empty?),
-        "parameters": @amqp_server.parameters
+        "policies": @amqp_server.vhosts.flat_map(&.policies.values),
+        "parameters": @amqp_server.parameters.values
       }.to_json(response)
     end
 

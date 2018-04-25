@@ -16,7 +16,7 @@ module AvalancheMQ
     rescue ex : JSON::Error | ArgumentError
       @log.error "path=#{context.request.path} error=#{ex.inspect}"
       context.response.status_code = 400
-      { error: "#{ex.inspect}" }.to_json(context.response)
+      { error: "#{ex.message}" }.to_json(context.response)
     end
 
     def not_found(context, message = nil)

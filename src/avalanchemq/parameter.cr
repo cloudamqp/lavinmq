@@ -12,8 +12,8 @@ module AvalancheMQ
     getter component_name, parameter_name, value
 
     JSON.mapping(
-      component_name: { key: "component-name", setter: false, type: String },
-      parameter_name: { key: "parameter-name", setter: false, type: String },
+      component_name: { key: "component", setter: false, type: String },
+      parameter_name: { key: "name", setter: false, type: String },
       value: { setter: false, type: JSON::Any }
     )
 

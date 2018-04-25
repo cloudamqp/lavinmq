@@ -17,6 +17,8 @@ module AvalancheMQ
 
     include ParameterTarget
 
+    @running = false
+
     def initialize(@data_dir : String, log_level)
       @log = Logger.new(STDOUT)
       @log.level = log_level
@@ -36,6 +38,7 @@ module AvalancheMQ
     end
 
     def listen(port : Int)
+      @running = true
       s = TCPServer.new("::", port)
       @listeners << s
       @log.info "Listening on #{s.local_address}"
@@ -53,6 +56,7 @@ module AvalancheMQ
     end
 
     def listen_tls(port, cert_path : String, key_path : String)
+      @running = true
       s = TCPServer.new("::", port)
       @listeners << s
       context = OpenSSL::SSL::Context::Server.new
@@ -88,6 +92,10 @@ module AvalancheMQ
       @vhosts.close
     end
 
+    def closed?
+      !@running
+    end
+
     def add_parameter(p : Parameter)
       @parameters.create p
       case p.component_name
@@ -120,6 +128,10 @@ module AvalancheMQ
           "port": addr.port
         }
       end
+    end
+
+    def stop_shovels
+      @shovels.each &.stop
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
