@@ -39,6 +39,19 @@
       var reverseOrder = false;
       updateQueues();
       setInterval(updateQueues, 5000);
+      var theadCells = document.getElementById("queues").tHead.rows[0].cells;
+      for (var i = 0; i < theadCells.length; i++) {
+        var th = theadCells[i];
+        th.addEventListener("click", function (e) {
+          var newSortColumn = e.target.textContent.toLowerCase();
+          if (sortColumns[0] === newSortColumn)
+            reverseOrder = !reverseOrder;
+          else
+            sortColumns = [newSortColumn];
+          console.log(sortColumns);
+          console.log(reverseOrder);
+        });
+      }
 
       function reverseTable() {
         reverseOrder = !reverseOrder;
