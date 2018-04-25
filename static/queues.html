@@ -39,14 +39,14 @@
     </div>
     <script src="/table.js"></script>
     <script>
-      renderTable("/api/queues", ["vhost", "name"], function (tr, item) {
-        renderCell(tr, 0, item.name);
-        renderCell(tr, 1, item.vhost);
-        renderCell(tr, 2, item.durable ? "✅" : "" );
-        renderCell(tr, 3, item.messages);
-        renderCell(tr, 4, item.unacked);
-        renderCell(tr, 5, item.ready);
-        renderCell(tr, 6, item.consumers);
+      avalanchemq.table.renderTable("/api/queues", ["vhost", "name"], function (tr, item) {
+        avalanchemq.table.renderCell(tr, 0, item.name);
+        avalanchemq.table.renderCell(tr, 1, item.vhost);
+        avalanchemq.table.renderCell(tr, 2, item.durable ? "✅" : "" );
+        avalanchemq.table.renderCell(tr, 3, item.messages);
+        avalanchemq.table.renderCell(tr, 4, item.unacked);
+        avalanchemq.table.renderCell(tr, 5, item.ready);
+        avalanchemq.table.renderCell(tr, 6, item.consumers);
       });
     </script>
   </body>
