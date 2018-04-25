@@ -4,9 +4,10 @@
     <title>Queues | AvalancheMQ</title>
     <style>
       body { font-family: 'Monaco', monospace; }
-      .sortable th { cursor: pointer; }
-      table { border-collapse: collapse; width: 100%; }
-      table th, table td { border: 1px solid #EEE; padding: 0.2em 0.3em }
+      #table th { font-weight: normal; }
+      #table th[sort-columns] { cursor: pointer; font-weight: bold; }
+      #table { border-collapse: collapse; width: 100%; }
+      #table th, #table td { border: 1px solid #EEE; padding: 0.2em 0.3em }
     </style>
   </head>
   <body>
@@ -24,13 +25,13 @@
       <table id="table" class="sortable">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>VHost</th>
+            <th sort-columns="name">Name</th>
+            <th sort-columns="vhost,name">VHost</th>
             <th>Durable</th>
-            <th>Messages</th>
-            <th>Unacked</th>
-            <th>Ready</th>
-            <th>Consumers</th>
+            <th sort-columns="messages,vhost,name">Messages</th>
+            <th sort-columns="unacked,vhost,name">Unacked</th>
+            <th sort-columns="ready,vhost,name">Ready</th>
+            <th sort-columns="consumer,vhost,name">Consumers</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -48,22 +49,22 @@
       var updateTimer = setInterval(fetchAndUpdate, 5000);
 
       function makeHeadersSortable() {
-        var cells = document.getElementById("table").tHead.rows[0].cells;
-        for (var i = 0; i < cells.length; i++) {
-          cells[i].addEventListener("click", function (e) {
+        document.querySelectorAll("#table th[sort-columns]").forEach(function (cell) {
+          cell.addEventListener("click", function (e) {
             var column = e.target.cellIndex;
+            var newSortColumns = e.target.getAttribute("sort-columns").split(",");
             var newSortColumn = e.target.textContent.toLowerCase();
-            if (sortColumns[0] === newSortColumn)
+            if (sortColumns.toString() === newSortColumns.toString())
               reverseOrder = !reverseOrder;
             else
-              sortColumns = [newSortColumn];
+              sortColumns = newSortColumns;
             clearInterval(updateTimer);
             var t = document.getElementById("table").tBodies[0];
             while (t.rows.length) t.deleteRow(0);
             var raw = localStorage.getItem(URL);
             updateTable(raw);
           });
-        }
+        });
       }
 
       function fetchAndUpdate() {
