@@ -58,20 +58,21 @@
             if (i < t.rows.length) {
               var tr = t.rows[i];
               if (tr.getAttribute("name") === queue.name && tr.getAttribute("vhost") === queue.vhost) {
-                // update row
                 updateCell(tr, 3, queue.messages);
                 updateCell(tr, 4, queue.unacked);
                 updateCell(tr, 5, queue.ready);
                 updateCell(tr, 6, queue.consumers);
-              } else if (i + 1 < t.rows.length && t.rows[i + 1].getAttribute("name") === queue.name && t.rows[i + 1].getAttribute("vhost") === queue.vhost) {
-                console.log("next row got our data, deleting this and redoing");
-                t.deleteRow(i);
-                i--;
               } else {
-                // add row because next row doesn't have this queue data
-                console.log("next row does not have our data, inserting");
-                var tr = t.insertRow(i);
-                updateRow(tr, queue);
+                var foundIndex = find(t.rows, i, queue); 
+                if (foundIndex) {
+                  for (var d = i; d < foundIndex; d++)
+                    t.deleteRow(d);
+                  i--;
+                } else {
+                  console.log("next row does not have our data, inserting");
+                  var tr = t.insertRow(i);
+                  updateRow(tr, queue);
+                }
               }
             } else {
               var tr = t.insertRow(-1);
@@ -92,6 +93,13 @@
         };
         xhr.timeout = 5000;
         xhr.send();
+      }
+
+      function find(rows, start, queue) {
+        for (var i = start; i < rows.length; i++) {
+          if (t.rows[i].getAttribute("name") === queue.name && t.rows[i].getAttribute("vhost") === queue.vhost)
+            return i;
+        }
       }
 
       function updateCell(tr, index, value) {
