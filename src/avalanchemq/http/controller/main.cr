@@ -18,6 +18,11 @@ module AvalancheMQ
         context
       end
 
+      get "/api/channels" do |context, params|
+        @amqp_server.connections.flat_map { |c| c.channels.values }.to_json(context.response)
+        context
+      end
+
       get "/api/exchanges" do |context, _params|
         @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
         context

@@ -5,7 +5,7 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues
+    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues, remote_address
 
     @log : Logger
 

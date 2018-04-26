@@ -13,7 +13,7 @@ module AvalancheMQ
         static(context, "index.html")
       end
 
-      %w(queues exchanges connections).each do |page|
+      %w(queues exchanges connections channels).each do |page|
         get "/#{page}" do |context, _params|
           static(context, "#{page}.html")
         end

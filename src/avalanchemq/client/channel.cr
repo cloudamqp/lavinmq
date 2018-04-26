@@ -30,6 +30,19 @@ module AvalancheMQ
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
       end
 
+      def to_json(builder : JSON::Builder)
+        {
+          number: @id,
+          name: "#{@client.remote_address}[#{id}]",
+          vhost: @client.vhost.name,
+          username: @client.user.name,
+          consumer_count: @consumers.size,
+          prefetch_count: @prefetch_count,
+          confirm: @confirm,
+          messages_unacked: @map.size,
+        }.to_json(builder)
+      end
+
       def send(frame)
         @client.send frame
       end

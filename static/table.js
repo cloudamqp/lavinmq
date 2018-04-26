@@ -115,7 +115,7 @@
 
   function renderCell(tr, column, value) {
     var cell = tr.cells[column] || tr.insertCell(-1);
-    var text = value.toString();
+    var text = value === undefined ? "" : value.toString();
     if (cell.textContent !== text) {
       cell.textContent = text;
     }

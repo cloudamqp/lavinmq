@@ -2,7 +2,6 @@ require "uri"
 require "../controller"
 
 module AvalancheMQ
-
   class ConnectionsController < Controller
     private def register_routes
       get "/api/connections" do |context, _params|
