@@ -33,6 +33,30 @@
         </thead>
         <tbody></tbody>
       </table>
+      <form method="post">
+        <fieldset>
+          <legend>Add queue</legend>
+          <label>
+            Virtual host
+            <select name="vhost" required>
+              <option>/</option>
+            </select>
+          </label>
+          <label>
+            Name
+            <input type="text" name="name" required>
+          </label>
+          <label>
+            Durable
+            <input type="checkbox" name="durable" value="1">
+          </label>
+          <label>
+            Auto-delete
+            <input type="checkbox" name="auto_delete" value="1">
+          </label>
+          <button type="submit">Add queue</button>
+        </fieldset>
+      </form>
     </div>
     <script src="/table.js"></script>
     <script>
