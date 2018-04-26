@@ -5,7 +5,7 @@
     <style>
       body { font-family: 'Monaco', monospace; }
       #table th { font-weight: normal; }
-      #table th[sort-columns] { cursor: pointer; font-weight: bold; }
+      #table th[data-sort-key] { cursor: pointer; font-weight: bold; }
       #table { border-collapse: collapse; width: 100%; }
       #table th, #table td { border: 1px solid #EEE; padding: 0.2em 0.3em }
     </style>
@@ -13,7 +13,6 @@
   <body>
     <div class="container">
       <h1>AvalancheMQ</h1>
-      <div id="xhr-error"></div>
       <ul id="menu">
         <li><a href="/">Overview</a></li>
         <li><a href="/queues">Queues</a></li>
@@ -22,16 +21,17 @@
         Queues
         <small id="table-count"></small>
       </h2>
-      <table id="table" class="sortable">
+      <div id="table-error"></div>
+      <table id="table">
         <thead>
           <tr>
-            <th sort-columns="name">Name</th>
-            <th sort-columns="vhost,name">VHost</th>
+            <th data-sort-key="name">Name</th>
+            <th data-sort-key="vhost">VHost</th>
             <th>Durable</th>
-            <th sort-columns="messages,vhost,name">Messages</th>
-            <th sort-columns="unacked,vhost,name">Unacked</th>
-            <th sort-columns="ready,vhost,name">Ready</th>
-            <th sort-columns="consumer,vhost,name">Consumers</th>
+            <th data-sort-key="messages">Messages</th>
+            <th data-sort-key="unacked">Unacked</th>
+            <th data-sort-key="ready">Ready</th>
+            <th data-sort-key="consumer">Consumers</th>
           </tr>
         </thead>
         <tbody></tbody>
