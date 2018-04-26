@@ -6,6 +6,7 @@ require "./handler/error_handler"
 require "./handler/defaults_handler"
 require "./controller"
 require "./controller/definitions"
+require "./controller/connections"
 require "./controller/main"
 require "./controller/static"
 
@@ -27,7 +28,8 @@ module AvalancheMQ
         ApiErrorHandler.new(@log),
         StaticController.new("./static").route_handler,
         MainController.new(@amqp_server).route_handler,
-        DefinitionsController.new(@amqp_server).route_handler
+        DefinitionsController.new(@amqp_server).route_handler,
+        ConnectionsController.new(@amqp_server).route_handler
       ] of HTTP::Handler
       handlers.unshift(HTTP::LogHandler.new) if @log.level == Logger::DEBUG
       @http = HTTP::Server.new(@port, handlers)

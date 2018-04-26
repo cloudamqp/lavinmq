@@ -18,10 +18,6 @@ module AvalancheMQ
         context
       end
 
-      get "/api/connections" do |context, _params|
-        @amqp_server.connections.to_json(context.response)
-        context
-      end
       get "/api/exchanges" do |context, _params|
         @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
         context
