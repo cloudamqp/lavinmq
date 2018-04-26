@@ -39,7 +39,11 @@
       xhr.open('GET', url);
       xhr.onload = function () {
         tableError.textContent = "";
-        localStorage.setItem(url, this.response);
+        try {
+          localStorage.setItem(url, this.response);
+        } catch (e) {
+          console.error("Saving localStorage", e);
+        }
         updateTable(this.response);
       };
       xhr.onerror = function (e) {

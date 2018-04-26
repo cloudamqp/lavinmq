@@ -28,7 +28,7 @@ module AvalancheMQ
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        bindings: @bindings, policy: @policy.to_json
+        policy: @policy.to_json
       }.to_json(builder)
     end
 

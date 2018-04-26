@@ -1,0 +1,7 @@
+body { font-family: 'Monaco', monospace; }
+#table th { font-weight: normal; }
+#table th[data-sort-key] { cursor: pointer; font-weight: bold; }
+#table { border-collapse: collapse; width: 100%; }
+#table th, #table td { border: 1px solid #EEE; padding: 0.2em 0.3em }
+#menu li { display: inline-block; }
+#table-error { color: red; float: right; }

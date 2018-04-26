@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Queues | AvalancheMQ</title>
+    <title>Exchanges | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
   </head>
   <body>
@@ -16,7 +16,7 @@
       </ul>
       <div id="table-error"></div>
       <h2>
-        Queues
+        Exchanges
         <small id="table-count"></small>
       </h2>
       <table id="table">
@@ -25,10 +25,7 @@
             <th data-sort-key="name">Name</th>
             <th data-sort-key="vhost">VHost</th>
             <th>Features</th>
-            <th data-sort-key="messages">Messages</th>
-            <th data-sort-key="unacked">Unacked</th>
-            <th data-sort-key="ready">Ready</th>
-            <th data-sort-key="consumers">Consumers</th>
+            <th data-sort-key="type">Type</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -36,18 +33,15 @@
     </div>
     <script src="/table.js"></script>
     <script>
-      avalanchemq.table.renderTable("/api/queues", ["vhost", "name"], function (tr, item) {
+      avalanchemq.table.renderTable("/api/exchanges", ["vhost", "name"], function (tr, item) {
         var features = "";
         features += item.durable ? " D" : "";
         features += item.auto_delete ? " AD" : "";
-        features += item.exclusive ? " E" : "";
+        features += item.internal ? " I" : "";
         avalanchemq.table.renderCell(tr, 0, item.name);
         avalanchemq.table.renderCell(tr, 1, item.vhost);
         avalanchemq.table.renderCell(tr, 2, features);
-        avalanchemq.table.renderCell(tr, 3, item.messages);
-        avalanchemq.table.renderCell(tr, 4, item.unacked);
-        avalanchemq.table.renderCell(tr, 5, item.ready);
-        avalanchemq.table.renderCell(tr, 6, item.consumers);
+        avalanchemq.table.renderCell(tr, 3, item.type);
       });
     </script>
   </body>

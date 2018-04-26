@@ -17,8 +17,16 @@ module AvalancheMQ
         static(context, "queues.html")
       end
 
+      get "/exchanges" do |context, _params|
+        static(context, "exchanges.html")
+      end
+
       get "/table.js" do |context, _|
         static(context, "table.js")
+      end
+
+      get "/main.css" do |context, _|
+        static(context, "main.css")
       end
     end
 
