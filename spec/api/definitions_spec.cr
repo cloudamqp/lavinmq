@@ -1,6 +1,4 @@
 require "../spec_helper"
-require "../../src/avalanchemq/http/http_server"
-require "http/client"
 
 describe AvalancheMQ::HTTPServer do
   FileUtils.rm_rf("/tmp/spec")

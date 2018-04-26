@@ -1,6 +1,5 @@
 require "./spec_helper"
 require "../src/avalanchemq/shovel"
-require "amqp"
 
 describe AvalancheMQ::Shovel do
   it "can shovel and stop when queue length is met" do

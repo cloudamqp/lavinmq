@@ -1,6 +1,4 @@
 require "./spec_helper"
-require "amqp"
-require "file_utils"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do

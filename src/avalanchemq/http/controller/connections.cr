@@ -1,4 +1,5 @@
 require "uri"
+require "../controller"
 
 module AvalancheMQ
 
