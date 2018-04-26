@@ -13,12 +13,10 @@ module AvalancheMQ
         static(context, "index.html")
       end
 
-      get "/queues" do |context, _params|
-        static(context, "queues.html")
-      end
-
-      get "/exchanges" do |context, _params|
-        static(context, "exchanges.html")
+      %w(queues exchanges connections).each do |page|
+        get "/#{page}" do |context, _params|
+          static(context, "#{page}.html")
+        end
       end
 
       get "/table.js" do |context, _|

@@ -127,7 +127,10 @@ module AvalancheMQ
 
     def to_json(json : JSON::Builder)
       {
-        address: @remote_address.to_s,
+        vhost: @vhost.name,
+        username: @user.name,
+        tls: @socket.is_a?(OpenSSL::SSL::Socket),
+        name: @remote_address.to_s,
         channels: @channels.size,
       }.to_json(json)
     end

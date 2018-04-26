@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Connections | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+  </head>
+  <body>
+    <div class="container">
+      <h1>AvalancheMQ</h1>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+      </ul>
+      <div id="table-error"></div>
+      <h2>
+        Connections
+        <small id="table-count"></small>
+      </h2>
+      <table id="table">
+        <thead>
+          <tr>
+            <th data-sort-key="vhost">VHost</th>
+            <th data-sort-key="name">Name</th>
+            <th data-sort-key="username">Username</th>
+            <th data-sort-key="tls">TLS</th>
+            <th data-sort-key="channels">Channels</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <script src="/table.js"></script>
+    <script>
+      avalanchemq.table.renderTable("/api/connections", ["name"], function (tr, item) {
+        avalanchemq.table.renderCell(tr, 0, item.vhost);
+        avalanchemq.table.renderCell(tr, 1, item.name);
+        avalanchemq.table.renderCell(tr, 2, item.username);
+        avalanchemq.table.renderCell(tr, 3, item.tls ? "🔒" : "");
+        avalanchemq.table.renderCell(tr, 4, item.channels);
+      });
+    </script>
+  </body>
+</html>
