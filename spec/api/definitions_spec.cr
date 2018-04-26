@@ -1,27 +1,16 @@
-require "./spec_helper"
-require "../src/avalanchemq/http/http_server"
+require "../spec_helper"
+require "../../src/avalanchemq/http/http_server"
 require "http/client"
 
 describe AvalancheMQ::HTTPServer do
   FileUtils.rm_rf("/tmp/spec")
-
-  it "GET /" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    h = AvalancheMQ::HTTPServer.new(s, 8080)
-    spawn { h.listen }
-    Fiber.yield
-    response = HTTP::Client.get "http://localhost:8080/"
-    response.status_code.should eq 200
-    h.close
-    s.close
-  end
 
   describe "POST /api/definitions" do
     it "imports users" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.users.each { |u| s.users.delete(u.name) }
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       body = %({
         "users":[{
@@ -54,14 +43,15 @@ describe AvalancheMQ::HTTPServer do
         ok = u.not_nil!.password == "hej"
         "#{u.name}:#{ok}".should eq "#{u.name}:true"
       end
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports vhosts" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts.delete("def")
       body = %({ "vhosts":[{ "name":"def" }] })
@@ -71,14 +61,15 @@ describe AvalancheMQ::HTTPServer do
       response.status_code.should eq 200
       vhost = s.vhosts["def"]? || nil
       vhost.should be_a(AvalancheMQ::VHost)
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports queues" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts["/"].delete_queue("q1")
       body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
@@ -87,14 +78,15 @@ describe AvalancheMQ::HTTPServer do
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("q1").should be_true
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports exchanges" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts["/"].delete_exchange("x1")
       body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
@@ -103,14 +95,15 @@ describe AvalancheMQ::HTTPServer do
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("x1").should be_true
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports bindings" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts["/"].declare_exchange("x1", "direct", false, true)
       s.vhosts["/"].declare_exchange("x2", "fanout", false, true)
@@ -142,14 +135,15 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].delete_queue("q1")
       s.vhosts["/"].delete_exchange("x1")
       s.vhosts["/"].delete_exchange("x2")
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports permissions" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.users.create("u1", "")
       body = %({ "permissions": [
@@ -166,14 +160,15 @@ describe AvalancheMQ::HTTPServer do
                                    body: body)
       response.status_code.should eq 200
       s.users["u1"].permissions["/"][:write].should eq(/w/)
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports policies" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       body = %({ "policies": [
         {
@@ -192,8 +187,9 @@ describe AvalancheMQ::HTTPServer do
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports parameters" do
@@ -201,8 +197,8 @@ describe AvalancheMQ::HTTPServer do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.users.create("guest", "guest")
       s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
-      spawn { s.listen(5672) }
-      spawn { h.listen }
+      spawn { s.try &.listen(5672) }
+      spawn { h.try &.listen }
       Fiber.yield
       body = %({ "parameters": [
         {
@@ -220,10 +216,11 @@ describe AvalancheMQ::HTTPServer do
                                    headers: HTTP::Headers{"Content-Type" => "application/json"},
                                    body: body)
       response.status_code.should eq 200
-      s.stop_shovels
-      s.parameters.any? { |p| p.parameter_name == "p1" }.should be_true
-      s.close
-      h.close
+      s.not_nil!.stop_shovels
+      s.not_nil!.parameters.any? { |p| p.parameter_name == "p1" }.should be_true
+    ensure
+      s.try &.close
+      h.try &.close
     end
   end
 
@@ -232,7 +229,7 @@ describe AvalancheMQ::HTTPServer do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.users.create("guest", "guest")
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
@@ -241,29 +238,31 @@ describe AvalancheMQ::HTTPServer do
       body["users"].all? do |u|
         (["name", "password_hash", "hashing_algorithm"] - u.as_h.keys).empty?
       end.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports vhosts" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["vhosts"].as_a.empty?.should be_false
       body["vhosts"].all? { |v| (["name"] - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports queues" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.vhosts["/"].declare_queue("q1", false, false)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
@@ -272,15 +271,16 @@ describe AvalancheMQ::HTTPServer do
       body["queues"].all? do |v|
         (["name", "vhost", "auto_delete", "durable", "arguments"] - v.as_h.keys).empty?
       end.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports exchanges" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.vhosts["/"].declare_exchange("e1", "topic", false, false)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
@@ -288,8 +288,9 @@ describe AvalancheMQ::HTTPServer do
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
       body["exchanges"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports bindings" do
@@ -316,7 +317,7 @@ describe AvalancheMQ::HTTPServer do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.users.create("guest", "guest")
       s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
@@ -324,8 +325,9 @@ describe AvalancheMQ::HTTPServer do
       keys = ["user", "vhost", "configure", "read", "write"]
       body["permissions"].as_a.empty?.should be_false
       body["permissions"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
      it "exports policies" do
@@ -333,7 +335,7 @@ describe AvalancheMQ::HTTPServer do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       d = JSON::Any.new({ "x-max-lenght" => 10_i64 } of String => JSON::Type)
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
@@ -341,8 +343,9 @@ describe AvalancheMQ::HTTPServer do
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
       body["policies"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports parameters" do
@@ -351,7 +354,7 @@ describe AvalancheMQ::HTTPServer do
       d = JSON::Any.new({ "dummy" => 10_i64 } of String => JSON::Type)
       p = AvalancheMQ::Parameter.new("c1", "p1", d)
       s.add_parameter(p)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
@@ -359,8 +362,9 @@ describe AvalancheMQ::HTTPServer do
       keys = ["name", "component", "value"]
       body["parameters"].as_a.empty?.should be_false
       body["parameters"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
   end
 
@@ -369,7 +373,7 @@ describe AvalancheMQ::HTTPServer do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.vhosts["/"].declare_queue("q1", false, false)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
@@ -378,15 +382,16 @@ describe AvalancheMQ::HTTPServer do
       body["queues"].all? do |v|
         (["name", "vhost", "auto_delete", "durable", "arguments"] - v.as_h.keys).empty?
       end.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports exchanges" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       s.vhosts["/"].declare_exchange("e1", "topic", false, false)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
@@ -394,8 +399,9 @@ describe AvalancheMQ::HTTPServer do
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
       body["exchanges"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
 
     it "exports bindings" do
@@ -422,7 +428,7 @@ describe AvalancheMQ::HTTPServer do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       d = JSON::Any.new({ "x-max-lenght" => 10_i64 } of String => JSON::Type)
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
@@ -430,8 +436,9 @@ describe AvalancheMQ::HTTPServer do
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
       body["policies"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
-      s.close
-      h.close
+    ensure
+      s.try &.close
+      h.try &.close
     end
   end
 
@@ -439,7 +446,7 @@ describe AvalancheMQ::HTTPServer do
     it "imports queues" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts["/"].delete_queue("q1")
       body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
@@ -448,14 +455,15 @@ describe AvalancheMQ::HTTPServer do
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("q1").should be_true
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports exchanges" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts["/"].delete_exchange("x1")
       body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
@@ -464,14 +472,15 @@ describe AvalancheMQ::HTTPServer do
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("x1").should be_true
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports bindings" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       s.vhosts["/"].declare_exchange("x1", "direct", false, true)
       s.vhosts["/"].declare_exchange("x2", "fanout", false, true)
@@ -503,14 +512,15 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].delete_queue("q1")
       s.vhosts["/"].delete_exchange("x1")
       s.vhosts["/"].delete_exchange("x2")
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
 
     it "imports policies" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { h.listen }
+      spawn { h.try &.listen }
       Fiber.yield
       body = %({ "policies": [
         {
@@ -529,8 +539,9 @@ describe AvalancheMQ::HTTPServer do
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true
-      h.close
-      s.close
+    ensure
+      h.try &.close
+      s.try &.close
     end
   end
 end
