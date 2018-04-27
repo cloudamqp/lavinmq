@@ -34,5 +34,14 @@ module AvalancheMQ
       context.response.status_code = 404
       { error: message }.to_json(context.response)
     end
+
+    private def with_vhost(context, params)
+      vhost = URI.unescape(params["vhost"])
+      if @amqp_server.vhosts[vhost]?
+        yield vhost
+      else
+        not_found(context, "VHost #{vhost} does not exist")
+      end
+    end
   end
 end

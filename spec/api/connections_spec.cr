@@ -42,6 +42,17 @@ describe AvalancheMQ::ConnectionsController do
       h.try &.close
       s.try &.close
     end
+
+    it "should return 404 if vhosts does not exist" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      response = HTTP::Client.get("http://localhost:8080/api/vhosts/vhost/connections")
+      response.status_code.should eq 404
+    ensure
+      h.try &.close
+    end
   end
 
   describe "GET /api/connections/name" do
@@ -67,14 +78,12 @@ describe AvalancheMQ::ConnectionsController do
     it "should return 404 if connection does not exist" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      spawn { s.try &.listen(5672) }
       spawn { h.try &.listen }
       Fiber.yield
       response = HTTP::Client.get("http://localhost:8080/api/connections/name")
       response.status_code.should eq 404
     ensure
       h.try &.close
-      s.try &.close
     end
   end
 end

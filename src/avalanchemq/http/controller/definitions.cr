@@ -28,13 +28,17 @@ module AvalancheMQ
       end
 
       get "/api/definitions/:vhost" do |context, params|
-        export_vhost_definitions(params["vhost"], context.response)
+        with_vhost(context, params) do |vhost|
+          export_vhost_definitions(vhost, context.response)
+        end
         context
       end
 
       post "/api/definitions/:vhost" do |context, params|
         body = parse_body(context)
-        import_vhost_definitions(params["vhost"], body)
+        with_vhost(context, params) do |vhost|
+          import_vhost_definitions(vhost, body)
+        end
         context
       end
     end

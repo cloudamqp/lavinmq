@@ -10,8 +10,9 @@ module AvalancheMQ
       end
 
       get "/api/vhosts/:vhost/connections" do |context, params|
-        vhost = URI.unescape(params["vhost"])
-        @amqp_server.connections.select { |c| c.vhost.name == vhost }.to_json(context.response)
+        with_vhost(context, params) do |vhost|
+          @amqp_server.connections.select { |c| c.vhost.name == vhost }.to_json(context.response)
+        end
         context
       end
 
