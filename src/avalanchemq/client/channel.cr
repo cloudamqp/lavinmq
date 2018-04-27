@@ -119,24 +119,27 @@ module AvalancheMQ
           @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
           return
         end
-        q = @client.vhost.queues[frame.queue]
-        if q.exclusive && !@client.exclusive_queues.includes? q
-          @client.send_resource_locked(frame, "Exclusive queue")
-          return
+        if q = @client.vhost.queues[frame.queue]? || nil
+          if q.exclusive && !@client.exclusive_queues.includes? q
+            @client.send_resource_locked(frame, "Exclusive queue")
+            return
+          end
+          if q.has_exclusive_consumer?
+            @client.send_resource_locked(frame, "Queue has an exclusive consumer")
+            return
+          end
+          if frame.consumer_tag.empty?
+            frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
+          end
+          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
+          unless frame.no_wait
+            @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          end
+          @consumers.push(c)
+          q.add_consumer(c)
+        else
+          @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
-        if q.has_exclusive_consumer?
-          @client.send_resource_locked(frame, "Queue has an exclusive consumer")
-          return
-        end
-        if frame.consumer_tag.empty?
-          frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
-        end
-        c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
-        unless frame.no_wait
-          @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
-        end
-        @consumers.push(c)
-        q.add_consumer(c)
       end
 
       def basic_get(frame)
