@@ -170,6 +170,7 @@ module AvalancheMQ
                        @server_properties = {
           "product" => "AvalancheMQ",
           "version" => VERSION,
+          "platform" => "",
           "capabilities" => {
             "publisher_confirms" => true,
             "exchange_exchange_bindings" => true,
