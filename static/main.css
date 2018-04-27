@@ -1,4 +1,4 @@
-body { font-family: 'Monaco', monospace; }
+body { font-family: Courier, monospace; }
 #table th { font-weight: normal; }
 #table th[data-sort-key] { cursor: pointer; font-weight: bold; }
 #table { border-collapse: collapse; width: 100%; }
