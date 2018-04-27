@@ -152,7 +152,7 @@ module AvalancheMQ
             send AMQP::Exchange::DeclareOk.new(frame.channel)
           end
         else
-          send_access_refused(frame, "Existing exchange declared with other arguments")
+          send_precondition_failed(frame, "Existing exchange declared with other arguments")
         end
       elsif frame.passive
         send_not_found(frame)
