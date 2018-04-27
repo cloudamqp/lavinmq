@@ -144,12 +144,7 @@ module AvalancheMQ
       socket.linger = nil
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
-      client =
-        if ssl_client
-          Client.start(ssl_client, socket.remote_address, @vhosts, @users, @log)
-        else
-          Client.start(socket, socket.remote_address, @vhosts, @users, @log)
-        end
+      client = Client.start(socket, ssl_client, @vhosts, @users, @log)
       if client
         @connection_events.send({ client, :connected })
         client.on_close do |c|

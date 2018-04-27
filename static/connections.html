@@ -37,8 +37,8 @@
       avalanchemq.table.renderTable("/api/connections", ["name"], function (tr, item) {
         avalanchemq.table.renderCell(tr, 0, item.vhost);
         avalanchemq.table.renderCell(tr, 1, item.name);
-        avalanchemq.table.renderCell(tr, 2, item.username);
-        avalanchemq.table.renderCell(tr, 3, item.tls ? "🔒" : "");
+        avalanchemq.table.renderCell(tr, 2, item.user);
+        avalanchemq.table.renderCell(tr, 3, item.ssl ? "🔒" : "");
         avalanchemq.table.renderCell(tr, 4, item.channels);
       });
     </script>

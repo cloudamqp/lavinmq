@@ -5,24 +5,47 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues, remote_address
+    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues,
+           remote_address, name
 
     @log : Logger
+    @connected_at : Int64
+    @max_frame_size : UInt32
+    @max_channels : UInt16
+    @heartbeat : UInt16
+    @client_properties : Hash(String, AMQP::Field)
+    @auth_mechanism : String
+    @socket : TCPSocket | OpenSSL::SSL::Socket
+    @remote_address : Socket::IPAddress
+    @local_address : Socket::IPAddress
 
-    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket,
-                   @remote_address : Socket::IPAddress,
+    def initialize(@tcp_socket : TCPSocket,
+                   @ssl_client : OpenSSL::SSL::Socket?,
                    @vhost : VHost,
                    @user : User,
-                   @max_frame_size : UInt32)
+                   tune_ok,
+                   start_ok)
+      @socket = (ssl_client || tcp_socket).not_nil!
+      @remote_address = @tcp_socket.remote_address
+      @local_address = @tcp_socket.local_address
       @log = @vhost.log.dup
       @log.progname += "/Client[#{@remote_address}]"
       @log.info "Connected"
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
+      @connected_at = Time.now.epoch_ms
+      @max_frame_size = tune_ok.frame_max
+      @max_channels = tune_ok.channel_max
+      @heartbeat = tune_ok.heartbeat
+      @client_properties = start_ok.client_properties
+      @auth_mechanism = start_ok.mechanism
+      @name = "#{@remote_address} -> #{@local_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(socket, remote_address, vhosts, users, log)
+    def self.start(tcp_socket, ssl_client, vhosts, users, log)
+      socket = ssl_client.nil? ? tcp_socket : ssl_client
+      remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
       bytes = socket.read_fully(proto.to_slice)
 
@@ -77,7 +100,7 @@ module AvalancheMQ
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
           socket.flush
-          return self.new(socket, remote_address, vhost, user, tune_ok.frame_max)
+          return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
@@ -101,7 +124,7 @@ module AvalancheMQ
       nil
     rescue ex : Exception
       log.warn "#{ex.inspect} while #{remote_address} tried to establish connection"
-      socket.close unless socket.closed?
+      socket.try &.close unless socket.try &.closed?
       nil
     end
 
@@ -127,11 +150,23 @@ module AvalancheMQ
 
     def to_json(json : JSON::Builder)
       {
-        vhost: @vhost.name,
-        username: @user.name,
-        tls: @socket.is_a?(OpenSSL::SSL::Socket),
-        name: @remote_address.to_s,
         channels: @channels.size,
+        connected_at: @connected_at,
+        type: "network",
+        channel_max: @max_channels,
+        timeout: @heartbeat,
+        client_properties: @client_properties,
+        vhost: @vhost.name,
+        user: @user.name,
+        protocol: "AMQP 0-9-1",
+        auth_mechanism: @auth_mechanism,
+        host: @local_address.address,
+        port: @local_address.port,
+        peer_host: @remote_address.address,
+        peer_port: @remote_address.port,
+        name: @name,
+        ssl: @socket.is_a?(OpenSSL::SSL::Socket),
+        state: @socket.closed? ? "closed" : "running"
       }.to_json(json)
     end
 
