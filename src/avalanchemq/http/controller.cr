@@ -29,5 +29,10 @@ module AvalancheMQ
         raise HTTPServer::UnknownContentType.new("Unknown Content-Type: #{ct}")
       end
     end
+
+    private def not_found(context, message = "Not found")
+      context.response.status_code = 404
+      { error: message }.to_json(context.response)
+    end
   end
 end

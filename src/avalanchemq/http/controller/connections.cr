@@ -14,6 +14,17 @@ module AvalancheMQ
         @amqp_server.connections.select { |c| c.vhost.name == vhost }.to_json(context.response)
         context
       end
+
+      get "/api/connections/:name" do |context, params|
+        name = URI.unescape(params["name"])
+        connection = @amqp_server.connections.find { |c| c.name == name }
+        if connection
+          connection.to_json(context.response)
+        else
+          not_found(context, "Connection #{name} does not exist")
+        end
+        context
+      end
     end
   end
 end

@@ -1,5 +1,4 @@
 require "./spec_helper"
-require "amqp"
 
 describe AvalancheMQ::Server do
   it "rejects invalid password" do

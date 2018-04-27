@@ -233,9 +233,8 @@ describe AvalancheMQ::HTTPServer do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["users"].as_a.empty?.should be_false
-      body["users"].all? do |u|
-        (["name", "password_hash", "hashing_algorithm"] - u.as_h.keys).empty?
-      end.should be_true
+      keys = ["name", "password_hash", "hashing_algorithm"]
+      body["users"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -250,7 +249,8 @@ describe AvalancheMQ::HTTPServer do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["vhosts"].as_a.empty?.should be_false
-      body["vhosts"].all? { |v| (["name"] - v.as_h.keys).empty? }.should be_true
+      keys = ["name"]
+      body["vhosts"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -266,9 +266,8 @@ describe AvalancheMQ::HTTPServer do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
-      body["queues"].all? do |v|
-        (["name", "vhost", "auto_delete", "durable", "arguments"] - v.as_h.keys).empty?
-      end.should be_true
+      keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
+      body["queues"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -285,7 +284,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
-      body["exchanges"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["exchanges"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -304,7 +303,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
-      body["bindings"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["bindings"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -322,7 +321,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["user", "vhost", "configure", "read", "write"]
       body["permissions"].as_a.empty?.should be_false
-      body["permissions"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["permissions"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -340,7 +339,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
-      body["policies"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["policies"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -359,7 +358,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "component", "value"]
       body["parameters"].as_a.empty?.should be_false
-      body["parameters"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["parameters"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -377,9 +376,8 @@ describe AvalancheMQ::HTTPServer do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
-      body["queues"].all? do |v|
-        (["name", "vhost", "auto_delete", "durable", "arguments"] - v.as_h.keys).empty?
-      end.should be_true
+      keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
+      body["queues"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -396,7 +394,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
-      body["exchanges"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["exchanges"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -415,7 +413,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
-      body["bindings"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["bindings"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
@@ -433,7 +431,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
-      body["policies"].all? { |v| (keys - v.as_h.keys).empty? }.should be_true
+      body["policies"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.try &.close
       h.try &.close
