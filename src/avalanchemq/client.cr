@@ -5,11 +5,8 @@ require "./client/*"
 
 module AvalancheMQ
   class Client
-<<<<<<< HEAD
-    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues, remote_address
-=======
-    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues, name
->>>>>>> return more stuff for connections
+    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues,
+           remote_address, name
 
     @log : Logger
     @connected_at : Int64
@@ -153,13 +150,6 @@ module AvalancheMQ
 
     def to_json(json : JSON::Builder)
       {
-<<<<<<< HEAD
-        vhost: @vhost.name,
-        username: @user.name,
-        tls: @socket.is_a?(OpenSSL::SSL::Socket),
-        name: @remote_address.to_s,
-=======
->>>>>>> return more stuff for connections
         channels: @channels.size,
         connected_at: @connected_at,
         type: "network",
