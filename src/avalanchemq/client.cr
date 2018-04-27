@@ -164,9 +164,7 @@ module AvalancheMQ
           return
         end
         @vhost.apply(frame)
-        unless frame.no_wait
-          send AMQP::Exchange::DeclareOk.new(frame.channel)
-        end
+        send AMQP::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -179,12 +177,10 @@ module AvalancheMQ
           send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
         else
           @vhost.apply(frame)
-          unless frame.no_wait
-            send AMQP::Exchange::DeleteOk.new(frame.channel)
-          end
+          send AMQP::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
         end
       else
-        send_not_found(frame)
+        send AMQP::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -206,7 +202,7 @@ module AvalancheMQ
           send AMQP::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
         end
       else
-        send_not_found(frame)
+        send AMQP::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
       end
     end
 
