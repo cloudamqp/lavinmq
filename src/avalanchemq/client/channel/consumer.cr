@@ -43,6 +43,10 @@ module AvalancheMQ
             @log.debug { "Rejecting #{sp}. Unacked: #{@unacked.size}" }
           end
         end
+
+        def cancel
+          @channel.send AMQP::Basic::Cancel.new(@channel.id, @tag, true)
+        end
       end
     end
   end

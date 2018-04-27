@@ -150,7 +150,10 @@ module AvalancheMQ
       @closed = true
       @message_available.close
       @consumer_available.close
-      @consumers.clear
+      loop do
+        c = @consumers.shift? || break
+        c.cancel
+      end
       @segments.each_value &.close
       delete if !deleting && (@auto_delete || @exclusive)
       @log.info "Closed"
