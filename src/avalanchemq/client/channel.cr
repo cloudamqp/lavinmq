@@ -193,7 +193,7 @@ module AvalancheMQ
           consumer.ack(sp) if consumer
           queue.ack(sp, flush: true)
         else
-          reply_text = "Unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -204,7 +204,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "Unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -229,7 +229,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "Unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "unknown delivery tag #{frame.delivery_tag}"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
