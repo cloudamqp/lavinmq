@@ -263,9 +263,11 @@ module AvalancheMQ
             @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
-          text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
-          @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text,
-                                                frame.class_id, frame.method_id)
+          #text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
+          #@client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
+          unless frame.no_wait
+            @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+          end
         end
       end
     end
