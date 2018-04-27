@@ -31,7 +31,6 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           export_vhost_definitions(vhost, context.response)
         end
-        context
       end
 
       post "/api/definitions/:vhost" do |context, params|
@@ -39,7 +38,6 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           import_vhost_definitions(vhost, body)
         end
-        context
       end
     end
 

@@ -42,6 +42,7 @@ module AvalancheMQ
       else
         not_found(context, "VHost #{vhost} does not exist")
       end
+      context
     end
   end
 end
