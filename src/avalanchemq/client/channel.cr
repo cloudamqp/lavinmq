@@ -6,7 +6,7 @@ module AvalancheMQ
   class Client
     class Channel
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
-        confirm, log, consumers
+        confirm, log, consumers, name
 
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
@@ -19,6 +19,7 @@ module AvalancheMQ
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
         @log.progname += "/Channel[#{@id}]"
+        @name = "#{@client.remote_address}[#{id}]"
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
         @confirm_count = 0_u64
@@ -34,7 +35,7 @@ module AvalancheMQ
       def to_json(builder : JSON::Builder)
         {
           number: @id,
-          name: "#{@client.remote_address}[#{id}]",
+          name: @name,
           vhost: @client.vhost.name,
           user: @client.user.name,
           consumer_count: @consumers.size,
