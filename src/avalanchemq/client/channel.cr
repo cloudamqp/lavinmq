@@ -14,6 +14,7 @@ module AvalancheMQ
       @next_msg_props : AMQP::Properties?
       @next_msg_body = IO::Memory.new
       @log : Logger
+      @running = true
 
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
@@ -35,11 +36,19 @@ module AvalancheMQ
           number: @id,
           name: "#{@client.remote_address}[#{id}]",
           vhost: @client.vhost.name,
-          username: @client.user.name,
+          user: @client.user.name,
           consumer_count: @consumers.size,
           prefetch_count: @prefetch_count,
+          global_prefetch_count: @global_prefetch ? @prefetch_count : 0,
           confirm: @confirm,
-          messages_unacked: @map.size,
+          transactional: false,
+          messages_unacknowledged: @map.size,
+          connection_details: {
+            peer_host: @client.remote_address.address,
+            peer_port: @client.remote_address.port,
+            name: @client.name
+          },
+          state: @running ? "running" : "closed"
         }.to_json(builder)
       end
 
@@ -243,6 +252,7 @@ module AvalancheMQ
 
       def close
         @log.debug { "Closing" }
+        @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
         @map.each_value do |queue, sp, consumer|
           if consumer.nil?
