@@ -83,6 +83,10 @@ module AvalancheMQ
       else
         @log.debug "Loading default users"
         create("guest", "guest", save: false)
+        create("bunny_gem", "bunny_password", save: false)
+        add_permission("bunny_gem", "bunny_testbed", /.*/, /.*/, /.*/)
+        create("bunny_reader", "reader_password", save: false)
+        add_permission("bunny_reader", "bunny_testbed", /.*/, /.*/, /.*/)
         save!
       end
       @log.debug("#{@users.size} users loaded")
