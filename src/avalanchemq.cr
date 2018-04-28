@@ -70,8 +70,8 @@ if !cert_path.empty? && !key_path.empty?
   end
 end
 
-http_server = AvalancheMQ::HTTPServer.new(amqp_server, 8080)
-spawn(name: "HTTP listening on 8080") do
+http_server = AvalancheMQ::HTTPServer.new(amqp_server, 15672)
+spawn(name: "HTTP listener") do
   http_server.listen
 end
 
