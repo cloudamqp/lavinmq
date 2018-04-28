@@ -83,6 +83,8 @@ module AvalancheMQ
           size += sizeof(Float32)
         when Float64
           size += sizeof(Float64)
+        when Nil
+          size += 0
         else raise "Unsupported Field type: #{value.class}"
         end
         size
@@ -124,7 +126,7 @@ module AvalancheMQ
           io.write_byte(value ? 1_u8 : 0_u8)
         when Array
           io.write_byte 'A'.ord.to_u8
-          size = array_bytesize(value)
+          size = array_bytesize(value) - 4
           io.write_bytes(size.to_u32, format)
           value.each { |v| write_field(v, io, format) }
         when Float32
@@ -133,7 +135,7 @@ module AvalancheMQ
         when Float64
           io.write_byte 'd'.ord.to_u8
           io.write_bytes(value, format)
-        when nil
+        when Nil
           io.write_byte 'V'.ord.to_u8
         else raise "Unsupported Field type: #{value.class}"
         end
