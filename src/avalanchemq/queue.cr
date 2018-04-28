@@ -234,17 +234,35 @@ module AvalancheMQ
     def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
+      dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
       if dlx
         env = read(sp)
         msg = env.message
-        msg.properties.headers.try &.delete("x-dead-letter-exchange")
         msg.exchange_name = dlx.to_s
-        dlrk = msg.properties.headers.try(&.delete("x-dead-letter-routing-key")) || @dlrk
-        if dlrk
-          msg.routing_key = dlrk.to_s
-        end
+        msg.routing_key = dlrk.to_s
         msg.properties.expiration = nil
-        # TODO: Set x-death header https://www.rabbitmq.com/dlx.html
+        msg.properties.headers ||= Hash(String, AMQP::Field).new
+        msg.properties.headers.not_nil!.delete("x-dead-letter-exchange")
+        msg.properties.headers.not_nil!.delete("x-dead-letter-routing-key")
+
+        unless msg.properties.headers.not_nil!.has_key? "x-death"
+          msg.properties.headers.not_nil!["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
+        end
+        xdeaths = msg.properties.headers.not_nil!.fetch("x-death").as(Array(Hash(String, AMQP::Field)))
+        xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
+        xdeaths.delete(xd)
+        count = xd ? xd["count"].as(Int32) : 0
+        death = Hash(String, AMQP::Field){
+          "exchange" => meta.exchange_name,
+          "queue" => @name,
+          "routing_keys" => [ meta.routing_key.as(AMQP::Field) ],
+          "reason" => reason.to_s,
+          "count" => count + 1,
+          "time" => Time.utc_now,
+        }
+        death["original-expiration"] = meta.properties.expiration if meta.properties.expiration
+        xdeaths.unshift death
+
         @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
         @vhost.publish msg
       end

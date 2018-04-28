@@ -18,10 +18,11 @@ module AvalancheMQ
       Float32 |
       Float64 |
       String |
-      Array(Field) |
-      Array(UInt8) |
       Time |
-      Hash(String, Field)
+      Hash(String, Field) |
+      Array(Field) |
+      Array(Hash(String, Field)) |
+      Array(UInt8)
 
     struct Table
       def initialize(@hash : Hash(String, Field))
@@ -63,8 +64,8 @@ module AvalancheMQ
           size += sizeof(UInt32) + value.bytesize
         when UInt8
           size += sizeof(UInt8)
-        when UInt16
-          size += sizeof(UInt16)
+        when Int16
+          size += sizeof(Int16)
         when Int32
           size += sizeof(Int32)
         when Int64
@@ -79,6 +80,11 @@ module AvalancheMQ
           size += 4 + value.size
         when Array(Field)
           size += array_bytesize(value)
+        when Array(Hash(String, Field))
+          size += 4
+          value.each do |t|
+            size += Table.new(t).bytesize
+          end
         when Float32
           size += sizeof(Float32)
         when Float64
@@ -106,7 +112,7 @@ module AvalancheMQ
         when UInt8
           io.write_byte 'b'.ord.to_u8
           io.write_byte(value)
-        when UInt16
+        when Int16
           io.write_byte 's'.ord.to_u8
           io.write_bytes(value, format)
         when Int32
