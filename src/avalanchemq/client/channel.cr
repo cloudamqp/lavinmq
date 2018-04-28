@@ -134,7 +134,7 @@ module AvalancheMQ
             return
           end
           if q.has_exclusive_consumer?
-            @client.send_resource_locked(frame, "Queue has an exclusive consumer")
+            @client.send_access_refused(frame, "queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
           if frame.consumer_tag.empty?
