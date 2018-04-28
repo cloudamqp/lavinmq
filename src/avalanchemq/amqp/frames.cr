@@ -506,7 +506,7 @@ module AvalancheMQ
         when 30_u16 then Bind.decode(channel, body)
         when 31_u16 then BindOk.decode(channel, body)
         when 40_u16 then Unbind.decode(channel, body)
-        when 41_u16 then UnbindOk.decode(channel, body)
+        when 51_u16 then UnbindOk.decode(channel, body)
         else raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
@@ -708,7 +708,7 @@ module AvalancheMQ
       end
 
       struct UnbindOk < Exchange
-        METHOD_ID = 41_u16
+        METHOD_ID = 51_u16
         def method_id
           METHOD_ID
         end
