@@ -108,4 +108,28 @@ describe AvalancheMQ::ConnectionsController do
       s.try &.close
     end
   end
+
+  describe "GET /api/connections/name/channels" do
+    it "should return channels for a connection" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { s.try &.listen(5672) }
+      spawn { h.try &.listen }
+      Fiber.yield
+      AMQP::Connection.start do |conn|
+        ch = conn.channel
+        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        name = URI.escape(body[0]["name"].as_s)
+        response = HTTP::Client.get("http://localhost:8080/api/connections/#{name}/channels")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.size.should eq 1
+      end
+    ensure
+      h.try &.close
+      s.try &.close
+    end
+  end
 end

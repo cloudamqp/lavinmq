@@ -24,6 +24,12 @@ module AvalancheMQ
       delete "/api/connections/:name" do |context, params|
         with_connection(context, params) { |c| c.close }
       end
+
+      get "/api/connections/:name/channels" do |context, params|
+        with_connection(context, params) do |connection|
+          connection.channels.values.to_json(context.response)
+        end
+      end
     end
 
     private def with_connection(context, params)
