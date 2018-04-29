@@ -181,12 +181,9 @@ module AvalancheMQ
         @log.debug { "Overflow #{@max_length} #{@overflow}" }
         case @overflow
         when "reject-publish"
-          reject(sp, false)
           return false
         when "drop-head"
-          if spr = @ready.shift?
-            reject(spr, false)
-          end
+          drophead
         end
       end
       @log.debug { "Enqueuing message #{sp}" }
@@ -298,6 +295,13 @@ module AvalancheMQ
         else
           expire_msg(sp, :rejected)
         end
+      end
+    end
+
+    def drophead
+      if sp = @ready.shift?
+        @log.debug { "Dropping head #{sp}" }
+        expire_msg(sp, :maxlen)
       end
     end
 
