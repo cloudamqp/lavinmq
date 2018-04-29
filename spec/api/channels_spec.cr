@@ -90,6 +90,10 @@ describe AvalancheMQ::ChannelsController do
         name = URI.escape(body[0]["name"].as_s)
         response = HTTP::Client.get("http://localhost:8080/api/channels/#{name}")
         response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        expected_keys = ["consumer_details"]
+        actual_keys = body.as_h.keys
+        expected_keys.each { |k| actual_keys.should contain(k) }
       end
     ensure
       h.try &.close

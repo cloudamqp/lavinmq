@@ -47,6 +47,22 @@ module AvalancheMQ
         def cancel
           @channel.send AMQP::Basic::Cancel.new(@channel.id, @tag, true)
         end
+
+        def details
+          {
+            queue: {
+              name: @queue.name,
+              vhost: @queue.vhost
+            },
+            consumer_tag: @tag,
+            exclusive: @exclusive,
+            ack_required: !@no_ack
+          }
+        end
+
+        def to_json(json : JSON::Builder)
+          details.to_json(json)
+        end
       end
     end
   end

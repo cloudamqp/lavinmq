@@ -32,7 +32,7 @@ module AvalancheMQ
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
       end
 
-      def to_json(builder : JSON::Builder)
+      def details
         {
           number: @id,
           name: @name,
@@ -50,7 +50,11 @@ module AvalancheMQ
             name: @client.name
           },
           state: @running ? "running" : "closed"
-        }.to_json(builder)
+        }
+      end
+
+      def to_json(builder : JSON::Builder)
+        details.to_json(builder)
       end
 
       def send(frame)
