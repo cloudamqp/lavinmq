@@ -277,7 +277,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
       args = AMQP::Protocol::Table.new
-      args["x-message-ttl"] = 1.to_u16
+      args["x-message-ttl"] = 1
       args["x-dead-letter-exchange"] = ""
       args["x-dead-letter-routing-key"] = "dlq"
       q = ch.queue("", args: args)
@@ -483,7 +483,7 @@ describe AvalancheMQ::Server do
         acks += 1 if acked
       end
       args = AMQP::Protocol::Table.new
-      args["x-max-length"] = 1.to_u16
+      args["x-max-length"] = 1_i64
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
       x.publish AMQP::Message.new("m1"), q.name
@@ -510,7 +510,7 @@ describe AvalancheMQ::Server do
         acked ? (acks += 1) : (nacks += 1)
       end
       args = AMQP::Protocol::Table.new
-      args["x-max-length"] = 1.to_u16
+      args["x-max-length"] = 1_i64
       args["x-overflow"] = "reject-publish"
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")

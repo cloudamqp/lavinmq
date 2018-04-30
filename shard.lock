@@ -2,7 +2,7 @@ version: 1.0
 shards:
   amqp:
     github: cloudamqp/amqp.cr
-    commit: e152beeedefd51450f10a233d3c98ffd59c55cc8
+    commit: 4f6b5f6a125a54e85bd1f5aee33e2fb69f147f62
 
   radix:
     github: luislavena/radix

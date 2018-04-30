@@ -1,3 +1,5 @@
+require "json"
+
 class Regex
   def self.new(pull : JSON::PullParser)
     pattern = pull.read_string

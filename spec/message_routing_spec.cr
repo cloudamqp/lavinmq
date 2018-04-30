@@ -130,7 +130,7 @@ describe AvalancheMQ::HeadersExchange do
     arrf = [1] of AvalancheMQ::AMQP::Field
     arru = [1_u8] of AvalancheMQ::AMQP::Field
     hdrs = { "Nil" => nil, "Bool" => true, "UInt8" => 1_u8, "UInt16" => 1_u16, "UInt32" => 1_u32,
-             "UInt64" => 1_u64, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
+             "Int16" => 1_u16, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
              "Float64" => 1_f64, "String" => "String", "Array(Field)" => arrf,
              "Array(UInt8)" => arru, "Time" => Time.now, "Hash(String, Field)" => hsh,
              "x-match" => "all"
