@@ -78,12 +78,10 @@ module AvalancheMQ
           size += sizeof(Bool)
         when Array(UInt8)
           size += 4 + value.size
-        when Array(Field)
-          size += array_bytesize(value)
-        when Array(Hash(String, Field))
+        when Array
           size += 4
-          value.each do |t|
-            size += Table.new(t).bytesize
+          value.each do |v|
+            size += field_bytesize(v)
           end
         when Float32
           size += sizeof(Float32)
@@ -92,14 +90,6 @@ module AvalancheMQ
         when Nil
           size += 0
         else raise "Unsupported Field type: #{value.class}"
-        end
-        size
-      end
-
-      private def array_bytesize(a : Array(Field)) : UInt32
-        size = 4_u32
-        a.each do |v|
-          size += field_bytesize(v)
         end
         size
       end
@@ -132,7 +122,7 @@ module AvalancheMQ
           io.write_byte(value ? 1_u8 : 0_u8)
         when Array
           io.write_byte 'A'.ord.to_u8
-          size = array_bytesize(value) - 4
+          size = value.map { |v| field_bytesize(v) }.sum
           io.write_bytes(size.to_u32, format)
           value.each { |v| write_field(v, io, format) }
         when Float32
