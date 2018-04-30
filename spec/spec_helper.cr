@@ -4,6 +4,7 @@ require "../src/avalanchemq/server"
 require "../src/avalanchemq/http/http_server"
 require "http/client"
 require "amqp"
+require "uri"
 
 module TestHelpers
   def wait_for

@@ -1,5 +1,4 @@
 require "../spec_helper"
-require "uri"
 
 describe AvalancheMQ::ConsumersController do
   describe "GET /api/consumers" do

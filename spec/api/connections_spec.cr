@@ -1,5 +1,4 @@
 require "../spec_helper"
-require "uri"
 
 describe AvalancheMQ::ConnectionsController do
   describe "GET /api/connections" do
