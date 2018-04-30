@@ -19,11 +19,25 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           name = params["name"]
           e = @amqp_server.vhosts[vhost].exchanges[name]?
-          if e
-            e.to_json(context.response)
-          else
-            not_found(context, "Exchange #{name} does not exist")
-          end
+          not_found(context, "Exchange #{name} does not exist") unless e
+          e.to_json(context.response)
+        end
+      end
+
+      put "/api/exchanges/:vhost/:name" do |context, params|
+        with_vhost(context, params) do |vhost|
+          name = params["name"]
+          body = parse_body(context)
+          type = body["type"]?
+          bad_request(context, "Field 'type' is required") unless type
+          durable = body["durable"].as_bool? || false
+          auto_delete = body["auto_delete"].as_bool? || false
+          internal = body["internal"].as_bool? || false
+          arguments = body["arguments"].as_h? || Hash(String, AMQP::Field).new
+          arguments.as Hash(String, AMQP::Field)
+          @amqp_server.vhosts[vhost].declare_exchange(name, type.as_s, durable, auto_delete, internal,
+                                                      arguments.as Hash(String, AMQP::Field))
+          context.response.status_code = 204
         end
       end
     end

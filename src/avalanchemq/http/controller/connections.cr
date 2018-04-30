@@ -35,11 +35,8 @@ module AvalancheMQ
     private def with_connection(context, params)
       name = URI.unescape(params["name"])
       connection = @amqp_server.connections.find { |c| c.name == name }
-      if connection
-        yield connection
-      else
-        not_found(context, "Connection #{name} does not exist")
-      end
+      not_found(context, "Connection #{name} does not exist") unless connection
+      yield connection
       context
     end
   end

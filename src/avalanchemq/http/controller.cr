@@ -16,8 +16,7 @@ module AvalancheMQ
 
     private def redirect_back(context)
       context.response.headers["Location"] = context.request.headers["Referer"]
-      context.response.status_code = 301
-      context.response.close
+      halt(context, 301)
     end
 
     private def parse_body(context)
@@ -31,8 +30,17 @@ module AvalancheMQ
     end
 
     private def not_found(context, message = "Not found")
-      context.response.status_code = 404
-      { error: message }.to_json(context.response)
+      halt(context, 404, { error: "not_found", reason: message })
+    end
+
+    private def bad_request(context, message = "Bad request")
+      halt(context, 400, { error: "bad_request", reason: message })
+    end
+
+    private def halt(context, status_code, body = nil)
+      context.response.status_code = status_code
+      body.try &.to_json(context.response)
+      raise HaltRequest.new
     end
 
     private def with_vhost(context, params)
@@ -44,5 +52,7 @@ module AvalancheMQ
       end
       context
     end
+
+    class HaltRequest < Exception; end
   end
 end

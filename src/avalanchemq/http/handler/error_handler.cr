@@ -16,11 +16,13 @@ module AvalancheMQ
     rescue ex : JSON::Error | ArgumentError
       @log.error "path=#{context.request.path} status=400 error=#{ex.inspect}"
       context.response.status_code = 400
-      { error: "#{ex.message}" }.to_json(context.response)
+      { error: "bad_request", reason: "#{ex.message}" }.to_json(context.response)
+    rescue Controller::HaltRequest
+      context.response.close
     rescue ex : Exception
       @log.error "path=#{context.request.path} status=500\n#{ex.inspect_with_backtrace}"
       context.response.status_code = 500
-      { error: "Internal Server Error" }.to_json(context.response)
+      { error: "internal_server_error", reason: "Internal Server Error" }.to_json(context.response)
     end
 
     def not_found(context, message = nil)

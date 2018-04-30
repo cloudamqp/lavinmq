@@ -24,7 +24,6 @@ module AvalancheMQ
           end
         end
         redirect_back(context)
-        context
       end
 
       get "/api/definitions/:vhost" do |context, params|

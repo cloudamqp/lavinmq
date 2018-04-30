@@ -36,11 +36,8 @@ module AvalancheMQ
     private def with_channel(context, params)
       name = URI.unescape(params["name"])
       channel = all_channels.find { |c| c.name == name }
-      if channel
-        yield channel
-      else
-        not_found(context, "Channel #{name} does not exist")
-      end
+      not_found(context, "Channel #{name} does not exist") unless channel
+      yield channel
       context
     end
   end
