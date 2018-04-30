@@ -36,18 +36,28 @@ module AvalancheMQ
       spawn save!, name: "VHost#save!"
     end
 
-    def publish(msg : Message, immediate = false)
+    def publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
 
       ok = false
       matches = ex.matches(msg.routing_key, msg.properties.headers)
+      if cc = msg.properties.headers.try(&.fetch("CC", nil))
+        cc.as(Array(AMQP::Field)).each do |rk|
+          matches.concat(ex.matches(rk.as(String), msg.properties.headers))
+        end
+      end
+      if bcc = msg.properties.headers.try(&.delete("BCC"))
+        bcc.as(Array(AMQP::Field)).each do |rk|
+          matches.concat(ex.matches(rk.as(String), msg.properties.headers))
+        end
+      end
       exchanges = matches.compact_map { |m| m.as? Exchange }
       queues = matches.compact_map { |m| m.as? Queue }
       ok = exchanges.map do |e|
         emsg = msg.dup
         emsg.exchange_name = e.name
-        publish(emsg, immediate).as(Bool)
+        publish(emsg, immediate)
       end.all?
       return false if matches.empty?
 
