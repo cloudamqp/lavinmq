@@ -49,6 +49,7 @@ module AvalancheMQ
         end
 
         def details
+          channel_details = @channel.details
           {
             queue: {
               name: @queue.name,
@@ -56,7 +57,16 @@ module AvalancheMQ
             },
             consumer_tag: @tag,
             exclusive: @exclusive,
-            ack_required: !@no_ack
+            ack_required: !@no_ack,
+            prefetch_count: @channel.prefetch_count,
+            channel_details: {
+              peer_host: channel_details[:connection_details][:peer_host],
+              peer_port: channel_details[:connection_details][:peer_port],
+              connection_name: channel_details[:connection_details][:name],
+              user: channel_details[:user],
+              number: channel_details[:number],
+              name: channel_details[:name]
+            }
           }
         end
 
