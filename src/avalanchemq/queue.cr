@@ -134,7 +134,7 @@ module AvalancheMQ
           @log.debug "Waiting for consumer"
           @consumer_available.receive
         end
-        Fiber.yield if (i += 1) % 1000 == 0
+        Fiber.yield if (i += 1) % 100 == 0
       end
       @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
