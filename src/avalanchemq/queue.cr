@@ -27,7 +27,7 @@ module AvalancheMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @log = @vhost.log.dup
-      @log.progname += "/Queue[#{@name}]"
+      @log.progname += " queue=#{@name}"
       handle_arguments
       @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)

@@ -29,7 +29,7 @@ module AvalancheMQ
       @remote_address = @tcp_socket.remote_address
       @local_address = @tcp_socket.local_address
       @log = @vhost.log.dup
-      @log.progname += "/Client[#{@remote_address}]"
+      @log.progname += " client=#{@remote_address}"
       @log.info "Connected"
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new

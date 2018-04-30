@@ -11,7 +11,7 @@ module AvalancheMQ
         def initialize(@channel : Client::Channel, @tag : String, @queue : Queue,
                        @no_ack : Bool, @exclusive : Bool)
           @log = @channel.log.dup
-          @log.progname += "/Consumer[#{@tag}]"
+          @log.progname += " consumer=#{@tag}"
           @unacked = Deque(SegmentPosition).new
         end
 

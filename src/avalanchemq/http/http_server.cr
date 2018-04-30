@@ -21,7 +21,7 @@ module AvalancheMQ
 
     def initialize(@amqp_server : AvalancheMQ::Server, @port : Int32)
       @log = @amqp_server.log.dup
-      @log.progname = "HTTP(#{port})"
+      @log.progname = "httpserver"
     end
 
     def listen

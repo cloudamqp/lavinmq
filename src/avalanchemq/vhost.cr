@@ -21,7 +21,7 @@ module AvalancheMQ
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger)
       @log = server_log.dup
-      @log.progname = "VHost[#{@name}]"
+      @log.progname = "vhost=#{@name}"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @save = Channel(AMQP::Frame).new(32)

@@ -18,7 +18,7 @@ module AvalancheMQ
 
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
-        @log.progname += "/Channel[#{@id}]"
+        @log.progname += " channel=#{@id}"
         @name = "#{@client.remote_address}[#{id}]"
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
