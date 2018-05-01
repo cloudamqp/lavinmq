@@ -56,4 +56,30 @@ describe AvalancheMQ::ExchangesController do
       h.try &.close
     end
   end
+
+  describe "PUT /api/exchanges/vhost/name" do
+    it "should create exchange" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({
+        "type": "topic",
+        "durable": false,
+        "internal": false,
+        "auto_delete": true,
+        "arguments": {
+          "alternate-exchange": "spexchange"
+        }
+      })
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/spechange",
+                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  body: body)
+      response.status_code.should eq 204
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/spechange")
+      response.status_code.should eq 200
+    ensure
+      h.try &.close
+    end
+  end
 end

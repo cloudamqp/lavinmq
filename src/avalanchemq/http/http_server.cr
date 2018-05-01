@@ -5,13 +5,7 @@ require "router"
 require "./handler/error_handler"
 require "./handler/defaults_handler"
 require "./controller"
-require "./controller/definitions"
-require "./controller/connections"
-require "./controller/channels"
-require "./controller/consumers"
-require "./controller/exchanges"
-require "./controller/main"
-require "./controller/static"
+require "./controller/*"
 
 module AvalancheMQ
   class HTTPServer

@@ -33,10 +33,13 @@ module AvalancheMQ
           durable = body["durable"].as_bool? || false
           auto_delete = body["auto_delete"].as_bool? || false
           internal = body["internal"].as_bool? || false
-          arguments = body["arguments"].as_h? || Hash(String, AMQP::Field).new
-          arguments.as Hash(String, AMQP::Field)
-          @amqp_server.vhosts[vhost].declare_exchange(name, type.as_s, durable, auto_delete, internal,
-                                                      arguments.as Hash(String, AMQP::Field))
+          if args = body["arguments"].as_h?
+            arguments = AMQP.cast_to_field(args).as Hash(String, AMQP::Field)
+          else
+            arguments = Hash(String, AMQP::Field).new
+          end
+          @amqp_server.vhosts[vhost]
+            .declare_exchange(name, type.as_s, durable, auto_delete, internal, arguments)
           context.response.status_code = 204
         end
       end

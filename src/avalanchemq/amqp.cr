@@ -26,6 +26,23 @@ module AvalancheMQ
       Bytes |
       Array(Hash(String, Field))
 
+    # https://github.com/crystal-lang/crystal/issues/4885#issuecomment-325109328
+    def self.cast_to_field(x :  Array)
+      return x.map { |e| cast_to_field(e).as(Field) }.as(Field)
+    end
+
+    def self.cast_to_field(x : Hash)
+      h = Hash(String, Field).new
+      x.each do |(k, v)|
+        h[k] = cast_to_field(v).as(Field)
+      end
+      h.as(Field)
+    end
+
+    def self.cast_to_field(x)
+      x.try &.as(Field)
+    end
+
     struct Table
       def initialize(@hash : Hash(String, Field))
       end
