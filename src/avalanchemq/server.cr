@@ -40,6 +40,7 @@ module AvalancheMQ
     def listen(port : Int)
       @running = true
       s = TCPServer.new("::", port)
+      s.sync = true
       @listeners << s
       @log.info "Listening on #{s.local_address}"
       loop do
@@ -135,15 +136,14 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
-      socket.sync = true
       socket.keepalive = true
-      socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
       socket.tcp_keepalive_count = 3
       socket.tcp_keepalive_interval = 10
-      socket.linger = nil
-      socket.write_timeout = 15
+      socket.tcp_nodelay = true
+      #socket.write_timeout = 15
       socket.recv_buffer_size = 131072
+      socket.send_buffer_size = 65536
       client = Client.start(socket, ssl_client, @vhosts, @users, @log)
       if client
         @connection_events.send({ client, :connected })

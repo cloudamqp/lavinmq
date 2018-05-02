@@ -57,7 +57,6 @@ module AvalancheMQ
 
       start = AMQP::Connection::Start.new
       socket.write start.to_slice
-      socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
 
       username = password = ""
@@ -84,7 +83,6 @@ module AvalancheMQ
           socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
                                                    start_ok.class_id,
                                                    start_ok.method_id).to_slice
-          socket.flush
           AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
         end
         socket.close
@@ -93,20 +91,17 @@ module AvalancheMQ
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
                                               frame_max: 131072_u32,
                                               heartbeat: 0_u16).to_slice
-      socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
-          socket.flush
           return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
           socket.write AMQP::Connection::Close.new(403_u16, reply_text,
                                                    open.class_id, open.method_id).to_slice
-          socket.flush
           AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
           socket.close
         end
@@ -114,7 +109,6 @@ module AvalancheMQ
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
         socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH - vhost not found",
                                                  open.class_id, open.method_id).to_slice
-        socket.flush
         AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
         socket.close
       end
@@ -487,12 +481,14 @@ module AvalancheMQ
                                     frame.class_id, frame.method_id)
     end
 
+    def write(bytes : Bytes)
+      @log.debug { "Send #{bytes.inspect}"}
+      @socket.write bytes
+    end
+
     def send(frame : AMQP::Frame)
       @log.debug { "Send #{frame.inspect}"}
       @socket.write frame.to_slice
-      unless frame.is_a?(AMQP::Basic::Deliver) || frame.is_a?(AMQP::HeaderFrame)
-        @socket.flush
-      end
       case frame
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
