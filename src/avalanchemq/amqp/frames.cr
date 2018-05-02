@@ -24,7 +24,8 @@ module AvalancheMQ
       end
 
       def self.decode(io)
-        buf = Bytes.new(7)
+        arr = uninitialized UInt8[7]
+        buf = arr.to_slice
         io.read_fully(buf)
         type = Type.new(buf[0])
         channel = ::IO::ByteFormat::NetworkEndian.decode(UInt16, buf[1, 2])
