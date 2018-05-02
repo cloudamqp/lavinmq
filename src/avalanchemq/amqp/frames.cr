@@ -9,8 +9,23 @@ module AvalancheMQ
 
       abstract def to_slice : Bytes
 
-      def encode(io)
-        io.write self.to_slice
+      def wrap(io, body_size : Number? = nil)
+        io.write_byte @type.value
+        io.write_bytes @channel, ::IO::ByteFormat::NetworkEndian
+        if body_size
+          io.write_bytes body_size.to_u32, ::IO::ByteFormat::NetworkEndian
+          yield
+        else
+          size_pos = io.pos
+          io.write_bytes 0_u32, ::IO::ByteFormat::NetworkEndian
+          yield
+          after_body_pos = io.pos
+          body_size = after_body_pos.to_u32 - size_pos - sizeof(UInt32)
+          io.seek(size_pos)
+          io.write_bytes body_size, ::IO::ByteFormat::NetworkEndian
+          io.seek(after_body_pos)
+        end
+        io.write_byte(206_u8)
       end
 
       def to_slice(body : Bytes)
@@ -97,6 +112,18 @@ module AvalancheMQ
 
       abstract def class_id : UInt16
       abstract def method_id : UInt16
+
+      def encode(io)
+        io.write self.to_slice
+      end
+
+      def wrap(io)
+        super(io) do
+          io.write_bytes class_id, ::IO::ByteFormat::NetworkEndian
+          io.write_bytes method_id, ::IO::ByteFormat::NetworkEndian
+          yield
+        end
+      end
 
       def to_slice(body : Bytes)
         io = MemoryIO.new(4 + body.bytesize)
@@ -1106,6 +1133,16 @@ module AvalancheMQ
           super(channel)
         end
 
+        def encode(io)
+          wrap(io) do
+            ShortString.new(@consumer_tag).to_io(io)
+            @delivery_tag.to_io(io, ::IO::ByteFormat::NetworkEndian)
+            io.write_byte @redelivered ? 1_u8 : 0_u8
+            ShortString.new(@exchange).to_io(io)
+            ShortString.new(@routing_key).to_io(io)
+          end
+        end
+
         def to_slice
           io = AMQP::MemoryIO.new(1 + @consumer_tag.bytesize + 8 + 1 +
                                   1 + @exchange.bytesize +
@@ -1468,6 +1505,15 @@ module AvalancheMQ
         super(Type::Header, channel)
       end
 
+      def encode(io)
+        wrap(io) do
+          io.write_bytes @class_id, ::IO::ByteFormat::NetworkEndian
+          io.write_bytes @weight, ::IO::ByteFormat::NetworkEndian
+          io.write_bytes @body_size, ::IO::ByteFormat::NetworkEndian
+          io.write_bytes @properties, ::IO::ByteFormat::NetworkEndian
+        end
+      end
+
       def to_slice
         body = AMQP::MemoryIO.new(sizeof(UInt16) + sizeof(UInt16) + sizeof(UInt64) + @properties.bytesize)
         body.write_int @class_id
@@ -1497,6 +1543,13 @@ module AvalancheMQ
       def to_slice
         super(@body)
       end
+
+      def encode(io)
+        wrap(io, @body.size) do
+          io.write @body
+        end
+      end
+
     end
 
     abstract struct Confirm < MethodFrame

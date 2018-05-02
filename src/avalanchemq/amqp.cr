@@ -222,7 +222,7 @@ module AvalancheMQ
       def initialize(@str : String)
       end
 
-      def to_io(io, format)
+      def to_io(io, format = nil)
         raise ArgumentError.new("ShortString too long, max 255") if @str.bytesize > 255
         io.write_byte(@str.bytesize.to_u8)
         io.write(@str.to_slice)

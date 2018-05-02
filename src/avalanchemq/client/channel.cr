@@ -180,7 +180,8 @@ module AvalancheMQ
         end
       end
 
-      def deliver_one_by_one(msg)
+      def deliver_one_by_one(frame, msg)
+        @client.send frame
         @log.debug { "Sending HeaderFrame" }
         @client.send AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties)
         pos = 0
@@ -196,15 +197,16 @@ module AvalancheMQ
       def deliver(frame, msg)
         @log.debug { "Merging delivery, header and body frame to one" }
         size = msg.size + 256
-        buff = IO::Memory.new(size)
-        buff.write frame.to_slice
-        buff.write AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties).to_slice
+        buff = AMQP::MemoryIO.new(size)
+        frame.encode buff
+        header = AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties)
+        header.encode(buff)
         pos = 0
         while pos < msg.size
           length = [msg.size - pos, @client.max_frame_size - 8].min
           body_part = msg.body[pos, length]
           @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
-          buff.write AMQP::BodyFrame.new(@id, body_part).to_slice
+          AMQP::BodyFrame.new(@id, body_part).encode(buff)
           pos += length
         end
         @client.write buff.to_slice
