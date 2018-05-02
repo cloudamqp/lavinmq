@@ -105,13 +105,13 @@ module AvalancheMQ
         delivered = @client.vhost.publish(msg, immediate: @next_publish_immediate)
         unless delivered
           if @next_publish_immediate
-            @client.send AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
+            frame = AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
                                                   msg.exchange_name, msg.routing_key)
-            deliver(msg)
+            deliver(frame, msg)
           elsif @next_publish_mandatory
-            @client.send AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
+            frame = AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
                                                   msg.exchange_name, msg.routing_key)
-            deliver(msg)
+            deliver(frame, msg)
           end
         end
         if @confirm
@@ -166,10 +166,10 @@ module AvalancheMQ
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif env = q.get(frame.no_ack)
             delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-            @client.send AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
-                                                false, env.message.exchange_name,
-                                                env.message.routing_key, q.message_count)
-            deliver(env.message)
+            get_ok = AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
+                                            false, env.message.exchange_name,
+                                            env.message.routing_key, q.message_count)
+            deliver(get_ok, env.message)
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
           end
@@ -180,7 +180,7 @@ module AvalancheMQ
         end
       end
 
-      def deliver(msg)
+      def deliver_one_by_one(msg)
         @log.debug { "Sending HeaderFrame" }
         @client.send AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties)
         pos = 0
@@ -191,6 +191,23 @@ module AvalancheMQ
           @client.send AMQP::BodyFrame.new(@id, body_part)
           pos += length
         end
+      end
+
+      def deliver(frame, msg)
+        @log.debug { "Merging delivery, header and body frame to one" }
+        size = msg.size + 256
+        buff = IO::Memory.new(size)
+        buff.write frame.to_slice
+        buff.write AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties).to_slice
+        pos = 0
+        while pos < msg.size
+          length = [msg.size - pos, @client.max_frame_size - 8].min
+          body_part = msg.body[pos, length]
+          @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
+          buff.write AMQP::BodyFrame.new(@id, body_part).to_slice
+          pos += length
+        end
+        @client.write buff.to_slice
       end
 
       def basic_ack(frame)
