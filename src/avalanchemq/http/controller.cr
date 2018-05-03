@@ -16,7 +16,7 @@ module AvalancheMQ
 
     private def redirect_back(context)
       context.response.headers["Location"] = context.request.headers["Referer"]
-      halt(context, 301)
+      halt(context, 302)
     end
 
     private def parse_body(context)
