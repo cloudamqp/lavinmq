@@ -2,8 +2,8 @@ require "./queue"
 module AvalancheMQ
   class DurableQueue < Queue
     MAX_ACK_FILE_SIZE = 16 * 1024**2
-    @ack : File
-    @enq : File
+    @ack : File?
+    @enq : File?
     @durable = true
 
     def initialize(@vhost : VHost, @name : String,
@@ -13,15 +13,12 @@ module AvalancheMQ
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       @log.debug { "Index dir: #{@index_dir}" }
       Dir.mkdir_p @index_dir
-      @enq = File.open(File.join(@index_dir, "enq"), "a+")
-      @ack = File.open(File.join(@index_dir, "ack"), "a+")
-      @enq.sync = @ack.sync = true
       restore_index
     end
 
     private def compact_index! : Nil
       @log.debug { "Compacting index" }
-      @enq.close
+      @enq.try &.close
       File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
         unacked = @unacked.to_a.sort.each
         next_unacked = unacked.next
@@ -34,15 +31,15 @@ module AvalancheMQ
         end
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-      @enq = File.open(File.join(@index_dir, "enq"))
-      @enq.sync = true
-      @ack.truncate
+      @enq = File.open(File.join(@index_dir, "enq"), "a").tap { |f| f.sync = true }
+      @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+      @ack.not_nil!.truncate
     end
 
     def close(deleting = false) : Nil
       @log.debug { "Closing index files" }
-      @ack.close
-      @enq.close
+      @ack.try &.close
+      @enq.try &.close
       super
     end
 
@@ -54,8 +51,9 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, persistent = false)
       if persistent
-        @enq.write_bytes sp
-        @enq.flush
+        @enq ||= File.open(File.join(@index_dir, "enq"), "a").tap { |f| f.sync = true }
+        @enq.not_nil!.write_bytes sp
+        @enq.not_nil!.flush
       end
       super
     end
@@ -65,45 +63,58 @@ module AvalancheMQ
         if env && no_ack
           persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
           if persistent
-            @ack.write_bytes env.segment_position
-            @ack.flush
-            compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
+            @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+            @ack.not_nil!.write_bytes env.segment_position
+            @ack.not_nil!.flush
+            compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
           end
         end
       end
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
-      @ack.write_bytes sp
-      @ack.flush if flush
-      compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
+      @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+      @ack.not_nil!.write_bytes sp
+      @ack.not_nil!.flush if flush
+      compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
       super
     end
 
     def purge
       @log.info "Purging"
-      @enq.truncate
-      @ack.truncate
+      @enq ||= File.open(File.join(@index_dir, "enq"), "a").tap { |f| f.sync = true }
+      @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+      @enq.not_nil!.truncate
+      @ack.not_nil!.truncate
       super
     end
 
     private def restore_index
       @log.info "Restoring index"
-      @ack.seek(0, IO::Seek::Set)
-      acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
-      loop do
-        break if @ack.pos == @ack.size
-        acked << SegmentPosition.decode @ack
+      acked = Set(SegmentPosition).new(0)
+      if File.exists? File.join(@index_dir, "ack")
+        File.open(File.join(@index_dir, "ack")) do |ack|
+          ack.sync = true
+          acked = Set(SegmentPosition).new(ack.size / sizeof(SegmentPosition))
+          loop do
+            break if ack.pos == ack.size
+            acked << SegmentPosition.decode ack
+          end
+        end
       end
-      @enq.seek(0, IO::Seek::Set)
-      loop do
-        break if @enq.pos == @enq.size
-        sp = SegmentPosition.decode @enq
-        @ready << sp unless acked.includes? sp
+      if File.exists? File.join(@index_dir, "enq")
+        File.open(File.join(@index_dir, "enq")) do |enq|
+          enq.sync = true
+          loop do
+            break if enq.pos == enq.size
+            sp = SegmentPosition.decode enq
+            @ready << sp unless acked.includes? sp
+          end
+          @log.info "#{message_count} messages"
+        end
       end
-      @log.info "#{message_count} messages"
     rescue ex : Errno
-      @log.debug { "Could not restore index: #{ex.inspect}" }
+      @log.error { "Could not restore index: #{ex.inspect}" }
     end
   end
 end
