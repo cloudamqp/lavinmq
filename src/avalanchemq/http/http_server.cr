@@ -23,7 +23,7 @@ module AvalancheMQ
       handlers = [
         ApiDefaultsHandler.new,
         ApiErrorHandler.new(@log),
-        StaticController.new(File.join(__DIR__, "static")).route_handler,
+        StaticController.new(File.join(__DIR__, "..", "..", "..", "static")).route_handler,
         MainController.new(@amqp_server).route_handler,
         DefinitionsController.new(@amqp_server).route_handler,
         ConnectionsController.new(@amqp_server).route_handler,
