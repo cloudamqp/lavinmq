@@ -582,7 +582,7 @@ describe AvalancheMQ::Server do
 
       ch2 = conn.channel
       q2 = ch2.queue("exlusive_consumer", passive: true)
-      expect_raises(AMQP::ChannelClosed, /RESOURCE_LOCKED/) do
+      expect_raises(AMQP::ChannelClosed, /ACCESS_REFUSED/) do
         q2.subscribe { }
       end
       ch.close
