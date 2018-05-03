@@ -2,11 +2,13 @@ require "http/server"
 require "json"
 require "logger"
 require "router"
-require "./handler/error_handler"
-require "./handler/defaults_handler"
+require "./handler/*"
 require "./controller"
 require "./controller/*"
 
+class HTTP::Server::Context
+  property? authorized_username : String?
+end
 module AvalancheMQ
   class HTTPServer
     @log : Logger
@@ -24,6 +26,7 @@ module AvalancheMQ
         ApiDefaultsHandler.new,
         ApiErrorHandler.new(@log),
         StaticController.new(File.join(__DIR__, "..", "..", "..", "static")).route_handler,
+        BasicAuthHandler.new(@amqp_server.users, @log),
         MainController.new(@amqp_server).route_handler,
         DefinitionsController.new(@amqp_server).route_handler,
         ConnectionsController.new(@amqp_server).route_handler,

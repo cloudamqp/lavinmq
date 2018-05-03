@@ -1,12 +1,13 @@
 require "socket"
 require "logger"
 require "./message"
+require "./auth_service"
 require "./client/*"
 
 module AvalancheMQ
   class Client
     getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues,
-           remote_address, name
+           remote_address, name, auth_service
 
     @log : Logger
     @connected_at : Int64
@@ -40,6 +41,7 @@ module AvalancheMQ
       @client_properties = start_ok.client_properties
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
+      @auth_service = AuthService.new(@user, @vhost.name)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -171,12 +173,7 @@ module AvalancheMQ
 
     private def declare_exchange(frame)
       if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
-        if frame.passive ||
-            e.type == frame.exchange_type &&
-            e.durable == frame.durable &&
-            e.auto_delete == frame.auto_delete &&
-            e.internal == frame.internal &&
-            e.arguments == frame.arguments
+        if frame.passive || e.match?(frame)
           unless frame.no_wait
             send AMQP::Exchange::DeclareOk.new(frame.channel)
           end
@@ -188,7 +185,7 @@ module AvalancheMQ
       elsif frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
-        unless can_config? frame.exchange_name
+        unless @auth_service.can_config? frame.exchange_name
           send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
           return
         end
@@ -202,7 +199,7 @@ module AvalancheMQ
         if frame.exchange_name.starts_with? "amq."
           send_access_refused(frame, "Not allowed to use the amq. prefix")
           return
-        elsif !can_config?(frame.exchange_name)
+        elsif !@auth_service.can_config?(frame.exchange_name)
           send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
         else
           @vhost.apply(frame)
@@ -221,7 +218,7 @@ module AvalancheMQ
           send_precondition_failed(frame, "In use")
         elsif frame.if_empty && !q.message_count.zero?
           send_precondition_failed(frame, "Not empty")
-        elsif !can_config?(frame.queue_name)
+        elsif !@auth_service.can_config?(frame.queue_name)
           send_access_refused(frame, "User doesn't have permissions to delete queue '#{frame.queue_name}'")
         else
           size = q.message_count
@@ -259,7 +256,7 @@ module AvalancheMQ
         if frame.queue_name.empty?
           frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
         end
-        unless can_config? frame.queue_name
+        unless @auth_service.can_config? frame.queue_name
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
@@ -278,9 +275,9 @@ module AvalancheMQ
         send_not_found frame, "Queue #{frame.queue_name} not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
-      elsif !can_read? frame.exchange_name
+      elsif !@auth_service.can_read? frame.exchange_name
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
-      elsif !can_write? frame.queue_name
+      elsif !@auth_service.can_write? frame.queue_name
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       else
         @vhost.apply(frame)
@@ -293,9 +290,9 @@ module AvalancheMQ
         send_not_found frame, "Queue #{frame.queue_name} not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
-      elsif !can_read? frame.exchange_name
+      elsif !@auth_service.can_read? frame.exchange_name
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
-      elsif !can_write? frame.queue_name
+      elsif !@auth_service.can_write? frame.queue_name
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       else
         @vhost.apply(frame)
@@ -308,9 +305,9 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.destination} doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
-      elsif !can_read? frame.source
+      elsif !@auth_service.can_read? frame.source
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
-      elsif !can_write? frame.destination
+      elsif !@auth_service.can_write? frame.destination
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
@@ -323,9 +320,9 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.destination} doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
-      elsif !can_read? frame.source
+      elsif !@auth_service.can_read? frame.source
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
-      elsif !can_write? frame.destination
+      elsif !@auth_service.can_write? frame.destination
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
@@ -334,7 +331,7 @@ module AvalancheMQ
     end
 
     private def purge_queue(frame)
-      unless can_read? frame.queue_name
+      unless @auth_service.can_read? frame.queue_name
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
         return
       end
@@ -501,36 +498,6 @@ module AvalancheMQ
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
-    end
-
-    @acl_write_cache = Hash(String, Bool).new
-    def can_write?(exchange_name)
-      unless @acl_write_cache.has_key? exchange_name
-        perm = @user.permissions[@vhost.name][:write]
-        ok = perm != /^$/ && !!perm.match(exchange_name)
-        @acl_write_cache[exchange_name] = ok
-      end
-      @acl_write_cache[exchange_name]
-    end
-
-    @acl_read_cache = Hash(String, Bool).new
-    def can_read?(queue_name)
-      unless @acl_read_cache.has_key? queue_name
-        perm = @user.permissions[@vhost.name][:read]
-        ok = perm != /^$/ && !!perm.match queue_name
-        @acl_read_cache[queue_name] = ok
-      end
-      @acl_read_cache[queue_name]
-    end
-
-    @acl_config_cache = Hash(String, Bool).new
-    def can_config?(name)
-      unless @acl_config_cache.has_key? name
-        perm = @user.permissions[@vhost.name][:config]
-        ok = perm != /^$/ && !!perm.match name
-        @acl_config_cache[name] = ok
-      end
-      @acl_config_cache[name]
     end
   end
 end

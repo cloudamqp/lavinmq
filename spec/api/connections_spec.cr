@@ -9,7 +9,8 @@ describe AvalancheMQ::ConnectionsController do
       spawn { h.try &.listen }
       Fiber.yield
       AMQP::Connection.start do |conn|
-        response = HTTP::Client.get("http://localhost:8080/api/connections")
+        response = HTTP::Client.get("http://localhost:8080/api/connections",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
@@ -28,7 +29,8 @@ describe AvalancheMQ::ConnectionsController do
       spawn { h.try &.listen }
       Fiber.yield
       AMQP::Connection.start do |conn|
-        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections")
+        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
@@ -47,7 +49,8 @@ describe AvalancheMQ::ConnectionsController do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/vhosts/vhost/connections")
+      response = HTTP::Client.get("http://localhost:8080/api/vhosts/vhost/connections",
+                                  headers: test_headers)
       response.status_code.should eq 404
     ensure
       h.try &.close
@@ -62,11 +65,13 @@ describe AvalancheMQ::ConnectionsController do
       spawn { h.try &.listen }
       Fiber.yield
       AMQP::Connection.start do |conn|
-        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections")
+        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         name = URI.escape(body[0]["name"].as_s)
-        response = HTTP::Client.get("http://localhost:8080/api/connections/#{name}")
+        response = HTTP::Client.get("http://localhost:8080/api/connections/#{name}",
+                                    headers: test_headers)
         response.status_code.should eq 200
       end
     ensure
@@ -79,7 +84,8 @@ describe AvalancheMQ::ConnectionsController do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/connections/name")
+      response = HTTP::Client.get("http://localhost:8080/api/connections/name",
+                                  headers: test_headers)
       response.status_code.should eq 404
     ensure
       h.try &.close
@@ -94,11 +100,13 @@ describe AvalancheMQ::ConnectionsController do
       spawn { h.try &.listen }
       Fiber.yield
       AMQP::Connection.start do |conn|
-        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections")
+        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         name = URI.escape(body[0]["name"].as_s)
-        response = HTTP::Client.delete("http://localhost:8080/api/connections/#{name}")
+        response = HTTP::Client.delete("http://localhost:8080/api/connections/#{name}",
+                                       headers: test_headers)
       ensure
         response.try &.status_code.should eq 200
       end
@@ -117,11 +125,13 @@ describe AvalancheMQ::ConnectionsController do
       Fiber.yield
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections")
+        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/connections",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         name = URI.escape(body[0]["name"].as_s)
-        response = HTTP::Client.get("http://localhost:8080/api/connections/#{name}/channels")
+        response = HTTP::Client.get("http://localhost:8080/api/connections/#{name}/channels",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.size.should eq 1

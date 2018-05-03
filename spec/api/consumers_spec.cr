@@ -12,7 +12,8 @@ describe AvalancheMQ::ConsumersController do
         ch = conn.channel
         q = ch.queue("")
         q.subscribe {}
-        response = HTTP::Client.get("http://localhost:8080/api/consumers")
+        response = HTTP::Client.get("http://localhost:8080/api/consumers",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
@@ -31,7 +32,8 @@ describe AvalancheMQ::ConsumersController do
       spawn { s.try &.listen(5672) }
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/consumers")
+      response = HTTP::Client.get("http://localhost:8080/api/consumers",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true
@@ -52,7 +54,8 @@ describe AvalancheMQ::ConsumersController do
         ch = conn.channel
         q = ch.queue("")
         q.subscribe {}
-        response = HTTP::Client.get("http://localhost:8080/api/consumers/%2f")
+        response = HTTP::Client.get("http://localhost:8080/api/consumers/%2f",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.size.should eq 1
@@ -68,7 +71,8 @@ describe AvalancheMQ::ConsumersController do
       spawn { s.try &.listen(5672) }
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/consumers/%2f")
+      response = HTTP::Client.get("http://localhost:8080/api/consumers/%2f",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true

@@ -7,7 +7,6 @@ describe AvalancheMQ::HTTPServer do
     it "imports users" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      s.users.each { |u| s.users.delete(u.name) }
       spawn { h.try &.listen }
       Fiber.yield
       body = %({
@@ -33,10 +32,10 @@ describe AvalancheMQ::HTTPServer do
         }]
       })
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
-      s.users.all? do |u|
+      s.users.select { |u| ["sha256", "sha512", "bcrypt", "md5"].includes? u.name }.all? do |u|
         u.should be_a(AvalancheMQ::User)
         ok = u.not_nil!.password == "hej"
         "#{u.name}:#{ok}".should eq "#{u.name}:true"
@@ -54,7 +53,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts.delete("def")
       body = %({ "vhosts":[{ "name":"def" }] })
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       vhost = s.vhosts["def"]? || nil
@@ -72,7 +71,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].delete_queue("q1")
       body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("q1").should be_true
@@ -89,7 +88,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].delete_exchange("x1")
       body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("x1").should be_true
@@ -125,7 +124,7 @@ describe AvalancheMQ::HTTPServer do
         }
       ]})
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges["x1"].matches("r.k2", nil).map(&.name).includes?("x2").should be_true
@@ -154,7 +153,7 @@ describe AvalancheMQ::HTTPServer do
         }
       ]})
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       s.users["u1"].permissions["/"][:write].should eq(/w/)
@@ -181,7 +180,7 @@ describe AvalancheMQ::HTTPServer do
         }
       ]})
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true
@@ -193,8 +192,6 @@ describe AvalancheMQ::HTTPServer do
     it "imports parameters" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      s.users.create("guest", "guest")
-      s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
       spawn { s.try &.listen(5672) }
       spawn { h.try &.listen }
       Fiber.yield
@@ -211,7 +208,7 @@ describe AvalancheMQ::HTTPServer do
         }
       ]})
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
-                                   headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                   headers: test_headers,
                                    body: body)
       response.status_code.should eq 200
       s.not_nil!.stop_shovels
@@ -226,10 +223,10 @@ describe AvalancheMQ::HTTPServer do
     it "exports users" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      s.users.create("guest", "guest")
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["users"].as_a.empty?.should be_false
@@ -245,7 +242,8 @@ describe AvalancheMQ::HTTPServer do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["vhosts"].as_a.empty?.should be_false
@@ -262,7 +260,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].declare_queue("q1", false, false)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
@@ -279,7 +278,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].declare_exchange("e1", "topic", false, false)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
@@ -298,7 +298,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].bind_queue("q1", "x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
@@ -312,11 +313,10 @@ describe AvalancheMQ::HTTPServer do
     it "exports permissions" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)
-      s.users.create("guest", "guest")
-      s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["user", "vhost", "configure", "read", "write"]
@@ -334,7 +334,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
@@ -353,7 +354,8 @@ describe AvalancheMQ::HTTPServer do
       s.add_parameter(p)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "component", "value"]
@@ -372,7 +374,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].declare_queue("q1", false, false)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
@@ -389,7 +392,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].declare_exchange("e1", "topic", false, false)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
@@ -408,7 +412,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].bind_queue("q1", "x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
@@ -426,7 +431,8 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f")
+      response = HTTP::Client.get("http://localhost:8080/api/definitions/%2f",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
@@ -447,7 +453,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].delete_queue("q1")
       body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
-                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  headers: test_headers,
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("q1").should be_true
@@ -464,7 +470,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].delete_exchange("x1")
       body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
       response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
-                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  headers: test_headers,
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("x1").should be_true
@@ -500,7 +506,7 @@ describe AvalancheMQ::HTTPServer do
         }
       ]})
       response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
-                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  headers: test_headers,
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges["x1"].matches("r.k2", nil).map(&.name).includes?("x2").should be_true
@@ -531,7 +537,7 @@ describe AvalancheMQ::HTTPServer do
         }
       ]})
       response = HTTP::Client.post("http://localhost:8080/api/definitions/%2f",
-                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  headers: test_headers,
                                   body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true

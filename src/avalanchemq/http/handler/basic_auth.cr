@@ -5,7 +5,7 @@ module AvalancheMQ
   class BasicAuthHandler
     include HTTP::Handler
 
-    def initialize(@user_store)
+    def initialize(@user_store : UserStore, @log : Logger)
     end
 
     def call(context)
@@ -14,8 +14,10 @@ module AvalancheMQ
         base64 = auth[6..-1]
         begin
           username, password = Base64.decode_string(base64).split(":")
-          if user = @user_store[username]? || nil
+          @log.debug { "auth? #{username}" }
+          if user = @user_store[username]?
             if user.password == password
+              context.authorized_username = username
               return call_next(context)
             end
           end

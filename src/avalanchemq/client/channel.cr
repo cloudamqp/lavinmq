@@ -69,7 +69,7 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
-        unless @client.can_write?(frame.exchange)
+        unless @client.auth_service.can_write?(frame.exchange)
           @client.send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
           return false
         end
@@ -129,7 +129,7 @@ module AvalancheMQ
       end
 
       def consume(frame)
-        unless @client.can_read? frame.queue
+        unless @client.auth_service.can_read? frame.queue
           @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
           return
         end
@@ -157,7 +157,7 @@ module AvalancheMQ
       end
 
       def basic_get(frame)
-        unless @client.can_read? frame.queue
+        unless @client.auth_service.can_read? frame.queue
           @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
           return
         end

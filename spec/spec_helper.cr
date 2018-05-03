@@ -17,5 +17,10 @@ module TestHelpers
       end
     end
   end
+
+  def test_headers
+    HTTP::Headers{"Content-Type" => "application/json",
+                  "Authorization" => "Basic Z3Vlc3Q6Z3Vlc3Q="} # guest:guest
+  end
 end
 extend TestHelpers

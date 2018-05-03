@@ -1,8 +1,11 @@
 require "uri"
 require "../controller"
+require "../resource_helper"
 
 module AvalancheMQ
   class ExchangesController < Controller
+    include ResourceHelper
+
     private def register_routes
       get "/api/exchanges" do |context, _params|
         @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
@@ -26,20 +29,39 @@ module AvalancheMQ
 
       put "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          user = authorized_user(context)
+          auth_service = AuthService.new(user, vhost)
           name = params["name"]
           body = parse_body(context)
-          type = body["type"]?
+          type = body["type"]?.try &.as_s
           bad_request(context, "Field 'type' is required") unless type
-          durable = body["durable"].as_bool? || false
-          auto_delete = body["auto_delete"].as_bool? || false
-          internal = body["internal"].as_bool? || false
-          if args = body["arguments"].as_h?
-            arguments = AMQP.cast_to_field(args).as Hash(String, AMQP::Field)
+          durable = body["durable"]?.try(&.as_bool?) || false
+          auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
+          internal = body["internal"]?.try(&.as_bool?) || false
+          arguments = parse_arguments(body)
+          e = @amqp_server.vhosts[vhost].exchanges[name]?
+          if e
+            unless e.match?(type, durable, auto_delete, internal, arguments)
+              bad_request(context, "Existing exchange declared with other arguments arg")
+            end
+            context.response.status_code = 200
+          elsif name.starts_with? "amq."
+            bad_request(context, "Not allowed to use the amq. prefix")
           else
-            arguments = Hash(String, AMQP::Field).new
+            unless auth_service.can_config? name
+              access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
+            end
+            @amqp_server.vhosts[vhost]
+              .declare_exchange(name, type, durable, auto_delete, internal, arguments)
+            context.response.status_code = 201
           end
-          @amqp_server.vhosts[vhost]
-            .declare_exchange(name, type.as_s, durable, auto_delete, internal, arguments)
+        end
+      end
+
+      delete "/api/exchanges/:vhost/:name" do |context, params|
+        with_vhost(context, params) do |vhost|
+          name = params["name"]
+          @amqp_server.vhosts[vhost].delete_exchange(name)
           context.response.status_code = 204
         end
       end
