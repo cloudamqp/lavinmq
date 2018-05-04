@@ -49,12 +49,14 @@ module AvalancheMQ
     def add_permission(user, vhost, config, read, write)
       perm = { config: config, read: read, write: write }
       @users[user].permissions[vhost] = perm
+      @users[user].invalidate_acl_caches
       save!
       perm
     end
 
     def rm_permission(user, vhost)
       if perm = @users[user].permissions.delete vhost
+        @users[user].invalidate_acl_caches
         save!
         perm
       end

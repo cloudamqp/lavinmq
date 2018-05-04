@@ -84,6 +84,45 @@ module AvalancheMQ
       }.to_json(json)
     end
 
+    @acl_write_cache = Hash({String, String}, Bool).new
+    def can_write?(vhost, name)
+      cache_key = {vhost, name}
+      unless @acl_write_cache.has_key? cache_key
+        perm = permissions[vhost][:write]
+        ok = perm != /^$/ && !!perm.match(name)
+        @acl_write_cache[cache_key] = ok
+      end
+      @acl_write_cache[cache_key]
+    end
+
+    @acl_read_cache = Hash({String, String}, Bool).new
+    def can_read?(vhost, name)
+      cache_key = {vhost, name}
+      unless @acl_read_cache.has_key? cache_key
+        perm = permissions[vhost][:read]
+        ok = perm != /^$/ && !!perm.match name
+        @acl_read_cache[cache_key] = ok
+      end
+      @acl_read_cache[cache_key]
+    end
+
+    @acl_config_cache = Hash({String, String}, Bool).new
+    def can_config?(vhost, name)
+      cache_key = {vhost, name}
+      unless @acl_config_cache.has_key? cache_key
+        perm = permissions[vhost][:config]
+        ok = perm != /^$/ && !!perm.match name
+        @acl_config_cache[cache_key] = ok
+      end
+      @acl_config_cache[cache_key]
+    end
+
+    def invalidate_acl_caches
+      @acl_config_cache.clear
+      @acl_read_cache.clear
+      @acl_write_cache.clear
+    end
+
     private def hash_algorithm(hash)
       case hash
       when /^\$2a\$/ then "Bcrypt"

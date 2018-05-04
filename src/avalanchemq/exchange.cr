@@ -28,7 +28,7 @@ module AvalancheMQ
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        policy: @policy.to_json
+        policy: @policy
       }.to_json(builder)
     end
 
@@ -44,6 +44,22 @@ module AvalancheMQ
         HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise "Cannot make exchange type #{type}"
       end
+    end
+
+    def match?(frame : AMQP::Frame)
+      type == frame.exchange_type &&
+        @durable == frame.durable &&
+        @auto_delete == frame.auto_delete &&
+        @internal == frame.internal &&
+        @arguments == frame.arguments
+    end
+
+    def match?(type, durable, auto_delete, internal, arguments)
+      self.type == type &&
+        @durable == durable &&
+        @auto_delete == auto_delete &&
+        @internal == internal &&
+        @arguments == arguments
     end
 
     private def after_unbind

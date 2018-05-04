@@ -37,6 +37,10 @@ module AvalancheMQ
       halt(context, 400, { error: "bad_request", reason: message })
     end
 
+    private def access_refused(context, message = "Access refused")
+      halt(context, 401, { error: "access_refused", reason: message })
+    end
+
     private def halt(context, status_code, body = nil)
       context.response.status_code = status_code
       body.try &.to_json(context.response)
@@ -53,6 +57,17 @@ module AvalancheMQ
       context
     end
 
+    private def user(context) : User
+      user = nil
+      if username = context.authenticated_username?
+        user = @amqp_server.users[username]?
+      end
+      unless user
+        @log.debug "Authorized user not in user store"
+        access_refused(context)
+      end
+      user
+    end
     class HaltRequest < Exception; end
   end
 end

@@ -7,7 +7,8 @@ describe AvalancheMQ::ExchangesController do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/exchanges")
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -24,7 +25,8 @@ describe AvalancheMQ::ExchangesController do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f")
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -39,7 +41,8 @@ describe AvalancheMQ::ExchangesController do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/amq.topic")
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/amq.topic",
+                                  headers: test_headers)
       response.status_code.should eq 200
     ensure
       h.try &.close
@@ -50,7 +53,8 @@ describe AvalancheMQ::ExchangesController do
       h = AvalancheMQ::HTTPServer.new(s, 8080)
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/404")
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/404",
+                                  headers: test_headers)
       response.status_code.should eq 404
     ensure
       h.try &.close
@@ -72,12 +76,112 @@ describe AvalancheMQ::ExchangesController do
           "alternate-exchange": "spexchange"
         }
       })
+      s.vhosts["/"].delete_exchange("spechange")
       response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/spechange",
-                                  headers: HTTP::Headers{"Content-Type" => "application/json"},
+                                  headers: test_headers,
                                   body: body)
-      response.status_code.should eq 204
-      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/spechange")
+      response.status_code.should eq 201
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/spechange",
+                                  headers: test_headers)
       response.status_code.should eq 200
+    ensure
+      h.try &.close
+    end
+
+    it "should require type" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({})
+      s.vhosts["/"].delete_exchange("faulty")
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/faulty",
+                                  headers: test_headers,
+                                  body: body)
+      response.status_code.should eq 400
+    ensure
+      h.try &.close
+    end
+
+    it "should require durable to be the same when overwriting" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({
+        "type": "topic",
+        "durable": true,
+        "arguments": {
+          "alternate-exchange": "tjotjo"
+        }
+      })
+      s.vhosts["/"].delete_exchange("spechange")
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/spechange",
+                                  headers: test_headers,
+                                  body: body)
+      response.status_code.should eq 201
+      body = %({
+        "type": "topic",
+        "durable": false,
+        "arguments": {
+          "alternate-exchange": "tjotjo"
+        }
+      })
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/spechange",
+                                  headers: test_headers,
+                                  body: body)
+      response.status_code.should eq 400
+    ensure
+      h.try &.close
+    end
+
+    it "should not be possible to declare amq. prefixed exchanges" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({
+        "type": "topic"
+      })
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/amq.test",
+                                  headers: test_headers,
+                                  body: body)
+      response.status_code.should eq 400
+    ensure
+      h.try &.close
+    end
+
+    it "should require config access to declare" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      s.users.create("test_perm", "pw")
+      s.users.add_permission("test_perm", "/", /^$/, /^$/, /^$/)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({
+        "type": "topic"
+      })
+      hdrs = HTTP::Headers{"Content-Type" => "application/json",
+                           "Authorization" => "Basic dGVzdF9wZXJtOnB3"}
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/test_perm",
+                                  headers: hdrs,
+                                  body: body)
+      response.status_code.should eq 401
+    ensure
+      h.try &.close
+    end
+  end
+
+  describe "DELETE /api/exchanges/vhost/name" do
+    it "should delete exchange" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      response = HTTP::Client.delete("http://localhost:8080/api/exchanges/%2f/spechange",
+                                     headers: test_headers)
+      response.status_code.should eq 204
     ensure
       h.try &.close
     end

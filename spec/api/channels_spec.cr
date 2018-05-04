@@ -11,7 +11,8 @@ describe AvalancheMQ::ChannelsController do
       Fiber.yield
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        response = HTTP::Client.get("http://localhost:8080/api/channels")
+        response = HTTP::Client.get("http://localhost:8080/api/channels",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
@@ -30,7 +31,8 @@ describe AvalancheMQ::ChannelsController do
       spawn { s.try &.listen(5672) }
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/channels")
+      response = HTTP::Client.get("http://localhost:8080/api/channels",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true
@@ -49,7 +51,8 @@ describe AvalancheMQ::ChannelsController do
       Fiber.yield
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/channels")
+        response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/channels",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.size.should eq 1
@@ -65,7 +68,8 @@ describe AvalancheMQ::ChannelsController do
       spawn { s.try &.listen(5672) }
       spawn { h.try &.listen }
       Fiber.yield
-      response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/channels")
+      response = HTTP::Client.get("http://localhost:8080/api/vhosts/%2f/channels",
+                                  headers: test_headers)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true
@@ -84,11 +88,13 @@ describe AvalancheMQ::ChannelsController do
       Fiber.yield
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        response = HTTP::Client.get("http://localhost:8080/api/channels")
+        response = HTTP::Client.get("http://localhost:8080/api/channels",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         name = URI.escape(body[0]["name"].as_s)
-        response = HTTP::Client.get("http://localhost:8080/api/channels/#{name}")
+        response = HTTP::Client.get("http://localhost:8080/api/channels/#{name}",
+                                    headers: test_headers)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         expected_keys = ["consumer_details"]
