@@ -185,6 +185,36 @@ describe AvalancheMQ::ExchangesController do
     ensure
       h.try &.close
     end
+
+    it "should not delete exchange if in use as source when query param if-unused is set" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      s.vhosts["/"].declare_queue("q1", false, false)
+      s.vhosts["/"].bind_queue("q1", "spechange", ".*")
+      response = HTTP::Client.delete("http://localhost:8080/api/exchanges/%2f/spechange?if-unused=true",
+                                     headers: test_headers)
+      response.status_code.should eq 400
+    ensure
+      h.try &.close
+    end
+
+    it "should not delete exchange if in use as destination when query param if-unused is set" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
+      s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
+      response = HTTP::Client.delete("http://localhost:8080/api/exchanges/%2f/spechange?if-unused=true",
+                                     headers: test_headers)
+      response.status_code.should eq 400
+    ensure
+      h.try &.close
+    end
   end
 
   describe "GET /api/exchanges/vhost/name/bindings/source" do
