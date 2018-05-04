@@ -59,15 +59,36 @@ module AvalancheMQ
       end
 
       delete "/api/exchanges/:vhost/:name" do |context, params|
-        with_vhost(context, params) do |vhost|
+        with_exchange(context, params) do |e|
           user = user(context)
-          name = params["name"]
-          unless user.can_config?(vhost, name)
-            access_refused(context, "User doesn't have permissions to delete exchange '#{name}'")
+          unless user.can_config?(e.vhost.name, e.name)
+            access_refused(context, "User doesn't have permissions to delete exchange '#{e.name}'")
           end
-          @amqp_server.vhosts[vhost].delete_exchange(name)
+          e.delete
           context.response.status_code = 204
         end
+      end
+
+      get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
+        with_exchange(context, params) do |e|
+          e.bindings_details.to_json(context.response)
+        end
+      end
+
+      get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
+        with_exchange(context, params) do |exchange|
+          all_bindings = exchange.vhost.exchanges.values.flat_map(&.bindings_details)
+          all_bindings.select { |b| b[:destination] == exchange.name }.to_json(context.response)
+        end
+      end
+    end
+
+    private def with_exchange(context, params)
+      with_vhost(context, params) do |vhost|
+        name = params["name"]
+        e = @amqp_server.vhosts[vhost].exchanges[name]
+        not_found(context, "Exchange #{name} does not exist") unless e
+        yield e
       end
     end
   end

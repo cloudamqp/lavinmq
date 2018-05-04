@@ -1,3 +1,4 @@
+require "base64"
 require "./policy"
 
 module AvalancheMQ
@@ -60,6 +61,40 @@ module AvalancheMQ
         @auto_delete == auto_delete &&
         @internal == internal &&
         @arguments == arguments
+    end
+
+    def bindings_details
+      @bindings.flat_map do |key, desinations|
+        desinations.map do |destination|
+          {
+            source: name,
+            vhost: vhost.name,
+            destination: destination.name,
+            destination_type: destination.class.name.downcase,
+            routing_key: key[0],
+            arguments: key[1],
+            properties_key: hash_key(key)
+          }
+        end
+      end
+    end
+
+    def binding_details(destination : Queue | Exchange, properties_key : String)
+      bindings_details.find { |b| b[:properties_key] == properties_key }
+    end
+
+    def unbind(destination : Queue | Exchange, properties_key : String)
+      key = parse_key(properties_key)
+      unbind(destination, key[0], key[1]) if key
+    end
+
+    private def parse_key(properties_key : String)
+      @bindings.keys.find { |k| hash_key(k) == properties_key }
+    end
+
+    private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)))
+      hsh = Base64.encode(key[1].to_s)
+      "#{key[0]}~#{hsh}"
     end
 
     private def after_unbind

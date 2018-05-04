@@ -75,7 +75,7 @@ module AvalancheMQ
     private def export_definitions(response)
       {
         "avalanchemq_version": AvalancheMQ::VERSION,
-        "users": export_users,
+        "users": @amqp_server.users,
         "vhosts": @amqp_server.vhosts.map { |v| { name: v.name }},
         "queues": export_queues(@amqp_server.vhosts),
         "exchanges": export_exchanges(@amqp_server.vhosts),
@@ -213,16 +213,6 @@ module AvalancheMQ
       end
     end
 
-    private def export_users
-      @amqp_server.users.map do |u|
-        {
-          "name": u.name,
-          "hashing_algorithm": u.hash_algorithm,
-          "password_hash": u.password.to_s
-        }
-      end
-    end
-
     private def export_queues(vhosts)
       vhosts.values.flat_map do |v|
         v.queues.values.map do |q|
@@ -254,25 +244,11 @@ module AvalancheMQ
     end
 
     private def export_bindings(vhosts)
-      bindings = Array(Hash(String, AMQP::Field)).new
-      vhosts.values.each do |v|
-        v.exchanges.values.each do |e|
-          e.bindings.each do |key, resources|
-            resources.each do |resource|
-              binding = {
-                "source" => e.name,
-                "vhost" => e.vhost.name,
-                "destination" => resource.name,
-                "destination_type" => resource.class.name.downcase,
-                "routing_key" => key[0],
-                "arguments" => key[1]
-              } of String => AMQP::Field
-              bindings << binding
-            end
-          end
+      vhosts.values.flat_map do |v|
+        v.exchanges.values.flat_map do |e|
+          e.bindings_details
         end
       end
-      bindings
     end
 
     private def export_permissions

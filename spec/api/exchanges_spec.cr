@@ -186,4 +186,42 @@ describe AvalancheMQ::ExchangesController do
       h.try &.close
     end
   end
+
+  describe "GET /api/exchanges/vhost/name/bindings/source" do
+    it "should list bindings" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      s.vhosts["/"].declare_queue("q1", false, false)
+      s.vhosts["/"].bind_queue("q1", "spechange", ".*")
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/spechange/bindings/source",
+                                  headers: test_headers)
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body.as_a.size.should eq 1
+    ensure
+      h.try &.close
+    end
+  end
+
+  describe "GET /api/exchanges/vhost/name/bindings/destination" do
+    it "should list bindings" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
+      s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
+      response = HTTP::Client.get("http://localhost:8080/api/exchanges/%2f/spechange/bindings/destination",
+                                  headers: test_headers)
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body.as_a.size.should eq 1
+    ensure
+      h.try &.close
+    end
+  end
 end

@@ -120,12 +120,12 @@ module AvalancheMQ
       apply AMQP::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
     end
 
-    def bind_queue(destination, source, routing_key, arguments)
+    def bind_queue(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Queue::Bind.new(0_u16, 0_u16, destination, source,
                                   routing_key, false, arguments)
     end
 
-    def bind_exchange(destination, source, routing_key, arguments)
+    def bind_exchange(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Exchange::Bind.new(0_u16, 0_u16, destination, source,
                                      routing_key, false, arguments)
     end
