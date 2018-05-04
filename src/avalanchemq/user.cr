@@ -11,6 +11,7 @@ module AvalancheMQ
     @hash_algorithm : String
     @permissions = Hash(String, NamedTuple(config: Regex, read: Regex, write: Regex)).new
     @password = nil
+    @tags = Array(String).new
 
     def initialize(pull : JSON::PullParser)
       loc = pull.location
@@ -34,6 +35,8 @@ module AvalancheMQ
             end
             @permissions[vhost] = { config: config, read: read, write: write }
           end
+        when "tags"
+          @tags = pull.read_string.split(",")
         end
       end
       raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
@@ -96,6 +99,7 @@ module AvalancheMQ
         name: @name,
         password_hash: @password.to_s,
         hashing_algorithm: @hash_algorithm,
+        tags: @tags.join(",")
       }
     end
 
