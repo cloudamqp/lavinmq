@@ -89,6 +89,37 @@ module AvalancheMQ
           all_bindings.select { |b| b[:destination] == exchange.name }.to_json(context.response)
         end
       end
+
+      post "/api/exchanges/:vhost/:name/publish" do |context, params|
+        with_exchange(context, params) do |e|
+          body = parse_body(context)
+          properties = body["properties"]?
+          routing_key = body["routing_key"]?.try(&.as_s)
+          payload = body["payload"]?.try(&.as_s)
+          payload_encoding = body["payload_encoding"]?.try(&.as_s)
+          unless properties && routing_key && payload && payload_encoding
+            bad_request(context, "Fields 'properties', 'routing_key', 'payload' and 'payload_encoding' are required")
+          end
+          case payload_encoding
+          when "string"
+            content = payload
+          when "base64"
+            content = Base64.decode(payload)
+          else
+            bad_request(context, "Unknown payload_encoding #{payload_encoding}")
+          end
+          size = content.bytesize.to_u64
+          msg = Message.new(Time.utc_now.epoch_ms,
+                            e.name,
+                            routing_key,
+                            AMQP::Properties.from_json(properties),
+                            size,
+                            content.to_slice)
+          @log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
+          ok = e.vhost.publish(msg)
+          { routed: ok }.to_json(context.response)
+        end
+      end
     end
 
     private def with_exchange(context, params)

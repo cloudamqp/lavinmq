@@ -350,6 +350,26 @@ module AvalancheMQ
         encode(io)
       end
 
+      def self.from_json(data : JSON::Any)
+        p = Properties.new
+        p.content_type = data["content_type"]?.try(&.as_s)
+        p.content_encoding = data["content_encoding"]?.try(&.as_s)
+        p.headers = data["headers"]?.try(&.as_h?)
+          .try { |hdrs| AMQP.cast_to_field(hdrs).as(Hash(String, Field)) }
+        p.delivery_mode = data["delivery_mode"]?.try(&.as_i?.try(&.to_u8))
+        p.priority = data["priority"]?.try(&.as_i?.try(&.to_u8))
+        p.correlation_id = data["correlation_id"]?.try(&.as_s)
+        p.reply_to = data["reply_to"]?.try(&.as_s)
+        p.expiration = data["expiration"]?.try(&.as_s)
+        p.message_id = data["message_id"]?.try(&.as_s)
+        p.timestamp = data["timestamp"]?.try(&.as_i64?).try { |ms| Time.epoch_ms(ms) }
+        p.type = data["type"]?.try(&.as_s)
+        p.user_id = data["user_id"]?.try(&.as_s)
+        p.app_id = data["app_id"]?.try(&.as_s)
+        p.reserved1 = data["reserved"]?.try(&.as_s)
+        p
+      end
+
       def encode(io)
         flags = 0_u16
         flags = flags | FLAG_CONTENT_TYPE     if @content_type

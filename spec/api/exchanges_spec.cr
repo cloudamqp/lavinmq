@@ -254,4 +254,114 @@ describe AvalancheMQ::ExchangesController do
       h.try &.close
     end
   end
+
+  describe "POST /api/exchanges/vhost/name/publish" do
+    it "should publish" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      s.vhosts["/"].declare_queue("q1", false, false)
+      s.vhosts["/"].bind_queue("q1", "spechange", "*")
+      body = %({
+        "properties": {},
+        "routing_key": "rk",
+        "payload": "test",
+        "payload_encoding": "string"
+      })
+      response = HTTP::Client.post("http://localhost:8080/api/exchanges/%2f/spechange/publish",
+                                  headers: test_headers,
+                                  body: body)
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body["routed"].as_bool.should be_true
+      s.vhosts["/"].queues["q1"].message_count.should eq 1
+    ensure
+      s.try &.vhosts["/"].delete_queue("q1")
+      s.try &.vhosts["/"].delete_exchange("spechange")
+      h.try &.close
+    end
+
+    it "should require all args" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({})
+      response = HTTP::Client.post("http://localhost:8080/api/exchanges/%2f/spechange/publish",
+                                  headers: test_headers,
+                                  body: body)
+      response.status_code.should eq 400
+    ensure
+      h.try &.close
+    end
+
+    it "should handle string encoding" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      spawn { s.try &.listen(5672) }
+      Fiber.yield
+      body = %({
+        "properties": {},
+        "routing_key": "rk",
+        "payload": "test",
+        "payload_encoding": "string"
+      })
+      AMQP::Connection.start do |conn|
+        ch = conn.channel
+        q = ch.queue("q2", durable: false)
+        x = ch.exchange("str_enc", "topic", passive: false)
+        q.bind(x, "*")
+        response = HTTP::Client.post("http://localhost:8080/api/exchanges/%2f/str_enc/publish",
+                                  headers: test_headers,
+                                  body: body)
+        response.status_code.should eq 200
+        msgs = [] of AMQP::Message
+        q.subscribe { |msg| msgs << msg }
+        wait_for { msgs.size == 1 }
+        msgs[0].to_s.should eq("test")
+      end
+    ensure
+      s.try &.vhosts["/"].delete_queue("q2")
+      s.try &.vhosts["/"].delete_exchange("str_enc")
+      h.try &.close
+      s.try &.close
+    end
+
+    it "should handle base64 encoding" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      spawn { s.try &.listen(5672) }
+      Fiber.yield
+      payload = Base64.urlsafe_encode("test")
+      body = %({
+        "properties": {},
+        "routing_key": "rk",
+        "payload": "#{payload}",
+        "payload_encoding": "base64"
+      })
+      AMQP::Connection.start do |conn|
+        ch = conn.channel
+        q = ch.queue("q2", durable: false)
+        x = ch.exchange("str_enc", "topic", passive: false)
+        q.bind(x, "*")
+        response = HTTP::Client.post("http://localhost:8080/api/exchanges/%2f/str_enc/publish",
+                                  headers: test_headers,
+                                  body: body)
+        response.status_code.should eq 200
+        msgs = [] of AMQP::Message
+        q.subscribe { |msg| msgs << msg }
+        wait_for { msgs.size == 1 }
+        msgs[0].to_s.should eq("test")
+      end
+    ensure
+      s.try &.vhosts["/"].delete_queue("q2")
+      s.try &.vhosts["/"].delete_exchange("str_enc")
+      h.try &.close
+      s.try &.close
+    end
+  end
 end
