@@ -44,11 +44,11 @@ module AvalancheMQ
     private def halt(context, status_code, body = nil)
       context.response.status_code = status_code
       body.try &.to_json(context.response)
-      raise HaltRequest.new
+      raise HaltRequest.new(body.try { |b| b[:reason] })
     end
 
-    private def with_vhost(context, params)
-      vhost = URI.unescape(params["vhost"])
+    private def with_vhost(context, params, key = "vhost")
+      vhost = URI.unescape(params[key])
       if @amqp_server.vhosts[vhost]?
         yield vhost
       else

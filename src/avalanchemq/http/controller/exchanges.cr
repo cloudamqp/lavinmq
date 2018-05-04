@@ -3,8 +3,18 @@ require "../controller"
 require "../resource_helper"
 
 module AvalancheMQ
+
+  module ExchangeHelpers
+    private def exchange(context, params, vhost, key = "name")
+      name = params[key]
+      e = @amqp_server.vhosts[vhost].exchanges[name]?
+      not_found(context, "Exchange #{name} does not exist") unless e
+      e
+    end
+  end
   class ExchangesController < Controller
     include ResourceHelper
+    include ExchangeHelpers
 
     private def register_routes
       get "/api/exchanges" do |context, _params|
@@ -20,10 +30,7 @@ module AvalancheMQ
 
       get "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
-          name = params["name"]
-          user = user(context)
-          e = @amqp_server.vhosts[vhost].exchanges[name]?
-          not_found(context, "Exchange #{name} does not exist") unless e
+          e = exchange(context, params, vhost)
           e.to_json(context.response)
         end
       end
@@ -59,7 +66,8 @@ module AvalancheMQ
       end
 
       delete "/api/exchanges/:vhost/:name" do |context, params|
-        with_exchange(context, params) do |e|
+        with_vhost(context, params) do |vhost|
+          e = exchange(context, params, vhost)
           user = user(context)
           unless user.can_config?(e.vhost.name, e.name)
             access_refused(context, "User doesn't have permissions to delete exchange '#{e.name}'")
@@ -73,20 +81,27 @@ module AvalancheMQ
       end
 
       get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
-        with_exchange(context, params) do |e|
+        with_vhost(context, params) do |vhost|
+          e = exchange(context, params, vhost)
           e.bindings_details.to_json(context.response)
         end
       end
 
       get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
-        with_exchange(context, params) do |exchange|
-          all_bindings = exchange.vhost.exchanges.values.flat_map(&.bindings_details)
-          all_bindings.select { |b| b[:destination] == exchange.name }.to_json(context.response)
+        with_vhost(context, params) do |vhost|
+          e = exchange(context, params, vhost)
+          all_bindings = e.vhost.exchanges.values.flat_map(&.bindings_details)
+          all_bindings.select { |b| b[:destination] == e.name }.to_json(context.response)
         end
       end
 
       post "/api/exchanges/:vhost/:name/publish" do |context, params|
-        with_exchange(context, params) do |e|
+        with_vhost(context, params) do |vhost|
+          user = user(context)
+          e = exchange(context, params, vhost)
+          unless user.can_write?(e.vhost.name, e.name)
+            access_refused(context, "User doesn't have permissions to write exchange '#{e.name}'")
+          end
           body = parse_body(context)
           properties = body["properties"]?
           routing_key = body["routing_key"]?.try(&.as_s)
@@ -114,15 +129,6 @@ module AvalancheMQ
           ok = e.vhost.publish(msg)
           { routed: ok }.to_json(context.response)
         end
-      end
-    end
-
-    private def with_exchange(context, params)
-      with_vhost(context, params) do |vhost|
-        name = params["name"]
-        e = @amqp_server.vhosts[vhost].exchanges[name]
-        not_found(context, "Exchange #{name} does not exist") unless e
-        yield e
       end
     end
   end

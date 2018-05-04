@@ -3,8 +3,17 @@ require "../controller"
 require "../resource_helper"
 
 module AvalancheMQ
+  module QueueHelpers
+    private def queue(context, params, vhost, key = "name")
+      name = params[key]
+      q = @amqp_server.vhosts[vhost].queues[name]?
+      not_found(context, "Queue #{name} does not exist") unless q
+      q
+    end
+  end
   class QueuesController < Controller
     include ResourceHelper
+    include QueueHelpers
 
     private def register_routes
       get "/api/queues" do |context, _params|
@@ -21,7 +30,6 @@ module AvalancheMQ
       get "/api/queues/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           name = params["name"]
-          user = user(context)
           e = @amqp_server.vhosts[vhost].queues[name]?
           not_found(context, "Exchange #{name} does not exist") unless e
           e.to_json(context.response)
@@ -57,7 +65,8 @@ module AvalancheMQ
       end
 
       delete "/api/queues/:vhost/:name" do |context, params|
-        with_queue(context, params) do |q|
+        with_vhost(context, params) do |vhost|
+          q = queue(context, params, vhost)
           user = user(context)
           unless user.can_config?(q.vhost.name, q.name)
             access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
@@ -71,18 +80,26 @@ module AvalancheMQ
       end
 
       get "/api/queues/:vhost/:name/bindings" do |context, params|
-        with_queue(context, params) do |queue|
+        with_vhost(context, params) do |vhost|
+          queue = queue(context, params, vhost)
           all_bindings = queue.vhost.exchanges.values.flat_map(&.bindings_details)
           all_bindings.select { |b| b[:destination] == queue.name }.to_json(context.response)
         end
       end
 
       delete "/api/queues/:vhost/:name/contents" do |context, params|
-        with_queue(context, params, &.purge)
+        with_vhost(context, params) do |vhost|
+          queue(context, params, vhost).purge
+        end
       end
 
       post "/api/queues/:vhost/:name/get" do |context, params|
-        with_queue(context, params) do |q|
+        with_vhost(context, params) do |vhost|
+          user = user(context)
+          q = queue(context, params, vhost)
+          unless user.can_read?(q.vhost.name, q.name)
+            access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
+          end
           body = parse_body(context)
           count = body["count"]?.try(&.as_i)
           ack_mode = body["ack_mode"]?.try(&.as_s)
@@ -133,46 +150,6 @@ module AvalancheMQ
           end
           res.to_json(context.response)
         end
-      end
-
-      post "/api/queues/:vhost/:name/publish" do |context, params|
-        with_queue(context, params) do |e|
-          body = parse_body(context)
-          properties = body["properties"]?
-          routing_key = body["routing_key"]?.try(&.as_s)
-          payload = body["payload"]?.try(&.as_s)
-          payload_encoding = body["payload_encoding"]?.try(&.as_s)
-          unless properties && routing_key && payload && payload_encoding
-            bad_request(context, "Fields 'properties', 'routing_key', 'payload' and 'payload_encoding' are required")
-          end
-          case payload_encoding
-          when "string"
-            content = payload
-          when "base64"
-            content = Base64.decode(payload)
-          else
-            bad_request(context, "Unknown payload_encoding #{payload_encoding}")
-          end
-          size = content.bytesize.to_u64
-          msg = Message.new(Time.utc_now.epoch_ms,
-                            e.name,
-                            routing_key,
-                            AMQP::Properties.from_json(properties),
-                            size,
-                            content.to_slice)
-          @log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
-          ok = e.vhost.publish(msg)
-          { routed: ok }.to_json(context.response)
-        end
-      end
-    end
-
-    private def with_queue(context, params)
-      with_vhost(context, params) do |vhost|
-        name = params["name"]
-        e = @amqp_server.vhosts[vhost].queues[name]
-        not_found(context, "Exchange #{name} does not exist") unless e
-        yield e
       end
     end
   end

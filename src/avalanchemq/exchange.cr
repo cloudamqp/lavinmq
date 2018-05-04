@@ -47,6 +47,11 @@ module AvalancheMQ
       end
     end
 
+    def self.hash_key(key : Tuple(String, Hash(String, AMQP::Field)))
+      hsh = Base64.urlsafe_encode(key[1].to_s)
+      "#{key[0]}~#{hsh}"
+    end
+
     def match?(frame : AMQP::Frame)
       type == frame.exchange_type &&
         @durable == frame.durable &&
@@ -74,22 +79,20 @@ module AvalancheMQ
 
     def bindings_details
       @bindings.flat_map do |key, desinations|
-        desinations.map do |destination|
-          {
-            source: name,
-            vhost: vhost.name,
-            destination: destination.name,
-            destination_type: destination.class.name.downcase,
-            routing_key: key[0],
-            arguments: key[1],
-            properties_key: hash_key(key)
-          }
-        end
+        desinations.map { |destination| binding_details(key, destination) }
       end
     end
 
-    def binding_details(destination : Queue | Exchange, properties_key : String)
-      bindings_details.find { |b| b[:properties_key] == properties_key }
+    def binding_details(key, destination)
+      {
+        source: name,
+        vhost: vhost.name,
+        destination: destination.name,
+        destination_type: destination.is_a?(Queue) ? "queue" : "exchange",
+        routing_key: key[0],
+        arguments: key[1],
+        properties_key: Exchange.hash_key(key)
+      }
     end
 
     def unbind(destination : Queue | Exchange, properties_key : String)
@@ -98,12 +101,7 @@ module AvalancheMQ
     end
 
     private def parse_key(properties_key : String)
-      @bindings.keys.find { |k| hash_key(k) == properties_key }
-    end
-
-    private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)))
-      hsh = Base64.encode(key[1].to_s)
-      "#{key[0]}~#{hsh}"
+      @bindings.keys.find { |k| Exchange.hash_key(k) == properties_key }
     end
 
     private def after_unbind
