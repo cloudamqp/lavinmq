@@ -55,7 +55,7 @@ module AvalancheMQ
     end
 
     def match?(type, durable, auto_delete, internal, arguments)
-      type == type &&
+      self.type == type &&
         @durable == durable &&
         @auto_delete == auto_delete &&
         @internal == internal &&

@@ -57,9 +57,9 @@ module AvalancheMQ
       context
     end
 
-    private def authorized_user(context) : User
+    private def user(context) : User
       user = nil
-      if username = context.authorized_username?
+      if username = context.authenticated_username?
         user = @amqp_server.users[username]?
       end
       unless user

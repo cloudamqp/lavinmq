@@ -17,7 +17,7 @@ module AvalancheMQ
           @log.debug { "auth? #{username}" }
           if user = @user_store[username]?
             if user.password == password
-              context.authorized_username = username
+              context.authenticated_username = username
               return call_next(context)
             end
           end

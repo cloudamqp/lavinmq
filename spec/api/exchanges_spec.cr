@@ -151,6 +151,28 @@ describe AvalancheMQ::ExchangesController do
       h.try &.close
     end
 
+    it "should require config access to declare" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      s.users.create("test_perm", "pw")
+      s.users.add_permission("test_perm", "/", /^$/, /^$/, /^$/)
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({
+        "type": "topic"
+      })
+      hdrs = HTTP::Headers{"Content-Type" => "application/json",
+                           "Authorization" => "Basic dGVzdF9wZXJtOnB3"}
+      response = HTTP::Client.put("http://localhost:8080/api/exchanges/%2f/test_perm",
+                                  headers: hdrs,
+                                  body: body)
+      response.status_code.should eq 401
+    ensure
+      h.try &.close
+    end
+  end
+
+  describe "DELETE /api/exchanges/vhost/name" do
     it "should delete exchange" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
       h = AvalancheMQ::HTTPServer.new(s, 8080)

@@ -7,7 +7,7 @@ require "./controller"
 require "./controller/*"
 
 class HTTP::Server::Context
-  property? authorized_username : String?
+  property? authenticated_username : String?
 end
 module AvalancheMQ
   class HTTPServer

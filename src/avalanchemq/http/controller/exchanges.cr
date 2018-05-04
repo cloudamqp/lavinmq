@@ -21,6 +21,7 @@ module AvalancheMQ
       get "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           name = params["name"]
+          user = user(context)
           e = @amqp_server.vhosts[vhost].exchanges[name]?
           not_found(context, "Exchange #{name} does not exist") unless e
           e.to_json(context.response)
@@ -29,9 +30,11 @@ module AvalancheMQ
 
       put "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
-          user = authorized_user(context)
-          auth_service = AuthService.new(user, vhost)
+          user = user(context)
           name = params["name"]
+          unless user.can_config?(vhost, name)
+            access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
+          end
           body = parse_body(context)
           type = body["type"]?.try &.as_s
           bad_request(context, "Field 'type' is required") unless type
@@ -48,9 +51,6 @@ module AvalancheMQ
           elsif name.starts_with? "amq."
             bad_request(context, "Not allowed to use the amq. prefix")
           else
-            unless auth_service.can_config? name
-              access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
-            end
             @amqp_server.vhosts[vhost]
               .declare_exchange(name, type, durable, auto_delete, internal, arguments)
             context.response.status_code = 201
@@ -60,7 +60,11 @@ module AvalancheMQ
 
       delete "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          user = user(context)
           name = params["name"]
+          unless user.can_config?(vhost, name)
+            access_refused(context, "User doesn't have permissions to delete exchange '#{name}'")
+          end
           @amqp_server.vhosts[vhost].delete_exchange(name)
           context.response.status_code = 204
         end
