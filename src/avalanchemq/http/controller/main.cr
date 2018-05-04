@@ -18,14 +18,11 @@ module AvalancheMQ
         context
       end
 
-      get "/api/queues" do |context, _params|
-        @amqp_server.vhosts.flat_map { |v| v.queues.values }.to_json(context.response)
-        context
-      end
       get "/api/policies" do |context, _params|
         @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
         context
       end
+
       get "/api/vhosts" do |context, _params|
         @amqp_server.vhosts.to_json(context.response)
         context
@@ -36,6 +33,7 @@ module AvalancheMQ
         @amqp_server.add_parameter p
         context
       end
+
       post "/api/policies" do |context, _params|
         p = Policy.from_json context.request.body.not_nil!
         vhost = @amqp_server.vhosts[p.vhost]? || nil
@@ -43,6 +41,7 @@ module AvalancheMQ
         vhost.add_policy(p)
         context
       end
+
       post "/api/vhosts" do |context, _params|
         body = parse_body(context)
         @amqp_server.vhosts.create(body["name"].as_s)
@@ -56,6 +55,7 @@ module AvalancheMQ
         vhost.delete_policy(body["name"].as_s)
         context
       end
+
       delete "/api/vhosts" do |context, _params|
         body = parse_body(context)
         @amqp_server.vhosts.delete(body["name"].as_s)

@@ -234,11 +234,7 @@ module AvalancheMQ
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
-        elsif frame.passive ||
-          q.durable == frame.durable &&
-          q.exclusive == frame.exclusive &&
-          q.auto_delete == frame.auto_delete &&
-          q.arguments == frame.arguments
+        elsif frame.passive || q.match?(frame)
           unless frame.no_wait
             send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
                                             q.message_count, q.consumer_count)
@@ -249,10 +245,10 @@ module AvalancheMQ
       elsif frame.passive
         send_not_found(frame)
       elsif frame.queue_name.starts_with? "amq."
-        send_access_refused(frame, "Forbidden to use the prefix amq.")
+        send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
         if frame.queue_name.empty?
-          frame.queue_name = "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
+          frame.queue_name = Queue.generate_name
         end
         unless @user.can_config?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")

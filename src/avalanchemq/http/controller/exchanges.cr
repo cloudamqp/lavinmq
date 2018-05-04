@@ -65,12 +65,7 @@ module AvalancheMQ
             access_refused(context, "User doesn't have permissions to delete exchange '#{e.name}'")
           end
           if context.request.query_params["if-unused"]? == "true"
-            in_use = e.bindings.size > 0
-            unless in_use
-              destinations = e.vhost.exchanges.values.flat_map(&.bindings.values.flat_map(&.to_a))
-              in_use = destinations.includes?(e)
-            end
-            bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if in_use
+            bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if e.in_use?
           end
           e.delete
           context.response.status_code = 204

@@ -41,6 +41,10 @@ module AvalancheMQ
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
 
+    def self.generate_name
+      "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
+    end
+
     def has_exclusive_consumer?
       @exclusive_consumer
     end
@@ -172,7 +176,10 @@ module AvalancheMQ
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
         unacked: @unacked.size,
-        policy: @policy
+        policy: @policy.try &.name,
+        exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
+        state: @closed ? "closed" : "running",
+        effective_policy_definition: @policy
       }.to_json(json)
     end
 
@@ -276,6 +283,11 @@ module AvalancheMQ
       read(sp)
     end
 
+    def peek(length = 1) : Array(Envelope) | Nil
+      return if @closed
+      Array.new(length) { |i| @ready[i]?.try { |sp| read(sp) } }.compact
+    end
+
     def read(sp : SegmentPosition) : Envelope
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
@@ -347,6 +359,23 @@ module AvalancheMQ
       @consumers.each { |c| c.unacked.clear }
       @log.debug { "Purged #{purged_count} messages" }
       purged_count
+    end
+
+    def match?(frame)
+      @durable == frame.durable &&
+        @exclusive == frame.exclusive &&
+        @auto_delete == frame.auto_delete &&
+        @arguments == frame.arguments
+    end
+
+    def match?(durable, auto_delete, arguments)
+      @durable == durable &&
+        @auto_delete == auto_delete &&
+        @arguments == arguments
+    end
+
+    def in_use?
+      !(empty? && @consumers.empty?)
     end
   end
 end

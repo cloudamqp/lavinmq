@@ -370,6 +370,25 @@ module AvalancheMQ
         p
       end
 
+      def to_json(json : JSON::Builder)
+        {
+          "content_type" => @content_type,
+          "content_encoding" => @content_encoding,
+          "headers" => @headers,
+          "delivery_mode" => @delivery_mode,
+          "priority" => @priority,
+          "correlation_id" => @correlation_id,
+          "reply_to" => @reply_to,
+          "expiration" => @expiration,
+          "message_id" => @message_id,
+          "timestamp" => @timestamp,
+          "type" => @type,
+          "user_id" => @user_id,
+          "app_id" => @app_id,
+          "reserved" => @reserved1,
+        }.compact.to_json(json)
+      end
+
       def encode(io)
         flags = 0_u16
         flags = flags | FLAG_CONTENT_TYPE     if @content_type

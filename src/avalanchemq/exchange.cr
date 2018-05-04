@@ -63,6 +63,15 @@ module AvalancheMQ
         @arguments == arguments
     end
 
+    def in_use?
+      in_use = bindings.size > 0
+      unless in_use
+        destinations = vhost.exchanges.values.flat_map(&.bindings.values.flat_map(&.to_a))
+        in_use = destinations.includes?(self)
+      end
+      in_use
+    end
+
     def bindings_details
       @bindings.flat_map do |key, desinations|
         desinations.map do |destination|

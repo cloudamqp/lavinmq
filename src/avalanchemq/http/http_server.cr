@@ -32,7 +32,8 @@ module AvalancheMQ
         ConnectionsController.new(@amqp_server).route_handler,
         ChannelsController.new(@amqp_server).route_handler,
         ConsumersController.new(@amqp_server).route_handler,
-        ExchangesController.new(@amqp_server).route_handler
+        ExchangesController.new(@amqp_server).route_handler,
+        QueuesController.new(@amqp_server).route_handler,
       ] of HTTP::Handler
       handlers.unshift(HTTP::LogHandler.new) if @log.level == Logger::DEBUG
       @http = HTTP::Server.new(@port, handlers)
