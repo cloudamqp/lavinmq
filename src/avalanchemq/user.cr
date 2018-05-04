@@ -80,7 +80,8 @@ module AvalancheMQ
       {
         name: @name,
         password_hash: @password.to_s,
-        permissions: @permissions
+        permissions: @permissions,
+        hashing_algorithm: @hash_algorithm
       }.to_json(json)
     end
 
