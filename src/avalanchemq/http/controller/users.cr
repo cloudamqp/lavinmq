@@ -14,17 +14,20 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/users" do |context, _params|
+        refuse_unless_administrator(context, user(context))
         @amqp_server.users.map(&.user_details).to_json(context.response)
         context
       end
 
       get "/api/users/without-permissions" do |context, _params|
+        refuse_unless_administrator(context, user(context))
         @amqp_server.users.select { |u| u.permissions.empty? }
           .map(&.user_details).to_json(context.response)
         context
       end
 
       post "/api/users/bulk-delete" do |context, _params|
+        refuse_unless_administrator(context, user(context))
         body = parse_body(context)
         users = body["users"]?
         unless users.try &.as_a?
@@ -47,11 +50,13 @@ module AvalancheMQ
       end
 
       put "/api/users/:name" do |context, params|
+        refuse_unless_administrator(context, user(context))
         name = params["name"]
         u = @amqp_server.users[name]?
         body = parse_body(context)
         password_hash = body["password_hash"]?.try &.as_s?
         password = body["password"]?.try &.as_s?
+        tags = body["tags"]?.try(&.as_s).to_s.split(",").map { |t| Tag.parse?(t) }.compact
         hashing_alogrithm = body["hashing_alogrithm"]?.try &.as_s? || "SHA256"
         if u
           if password_hash
@@ -59,11 +64,12 @@ module AvalancheMQ
           else
             bad_request(context, "Field 'password_hash' is required when updating existing user")
           end
+          u.update_tags(tags) if body["tags"]?
         else
           if password_hash
-            @amqp_server.users.add(name, password_hash, hashing_alogrithm)
+            @amqp_server.users.add(name, password_hash, hashing_alogrithm, tags)
           elsif password
-            @amqp_server.users.create(name, password)
+            @amqp_server.users.create(name, password, tags)
           else
             bad_request(context, "Field 'password_hash' or 'password' is required when creating new user")
           end
@@ -75,6 +81,7 @@ module AvalancheMQ
       end
 
       delete "/api/users/:name" do |context, params|
+        refuse_unless_administrator(context, user(context))
         u = user(context, params)
         @amqp_server.users.delete(u.name)
         context.response.status_code = 204
@@ -82,6 +89,7 @@ module AvalancheMQ
       end
 
       get "/api/users/:name/permissions" do |context, params|
+        refuse_unless_administrator(context, user(context))
         u = user(context, params)
         u.permissions_details.to_json(context.response)
         context

@@ -119,6 +119,20 @@ module AvalancheMQ
       @vhosts.each { |v| v.stop_shovels }
     end
 
+    def vhosts(user : User)
+      @vhosts.select do |v|
+        full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
+        amqp_access = user.permissions.has_key?(v.name)
+        full_view_vhosts_access || user.tags.all? &.management? && amqp_access
+      end
+    end
+
+    def connections(user : User)
+      @connections.select do |c|
+        c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
+      end
+    end
+
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
       socket.keepalive = true
       socket.tcp_keepalive_idle = 60

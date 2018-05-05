@@ -17,18 +17,20 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/queues" do |context, _params|
-        @amqp_server.vhosts.flat_map { |v| v.queues.values }.to_json(context.response)
+        @amqp_server.vhosts(user(context)).flat_map { |v| v.queues.values }.to_json(context.response)
         context
       end
 
       get "/api/queues/:vhost" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           @amqp_server.vhosts[vhost].queues.values.to_json(context.response)
         end
       end
 
       get "/api/queues/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           name = params["name"]
           e = @amqp_server.vhosts[vhost].queues[name]?
           not_found(context, "Exchange #{name} does not exist") unless e
@@ -38,16 +40,19 @@ module AvalancheMQ
 
       put "/api/queues/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           user = user(context)
           name = params["name"]
           name = Queue.generate_name if name.empty?
-          unless user.can_config?(vhost, name)
-            access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
-          end
           body = parse_body(context)
           durable = body["durable"]?.try(&.as_bool?) || false
           auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
           arguments = parse_arguments(body)
+          dlx = arguments["x-dead-letter-exchange"]?.try &.as?(String)
+          dlx_ok = dlx.nil? || (user.can_write?(vhost, dlx) && user.can_read?(vhost, name))
+          unless user.can_config?(vhost, name) && dlx_ok
+            access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
+          end
           q = @amqp_server.vhosts[vhost].queues[name]?
           if q
             unless q.match?(durable, auto_delete, arguments)
@@ -66,6 +71,7 @@ module AvalancheMQ
 
       delete "/api/queues/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           q = queue(context, params, vhost)
           user = user(context)
           unless user.can_config?(q.vhost.name, q.name)
@@ -81,6 +87,7 @@ module AvalancheMQ
 
       get "/api/queues/:vhost/:name/bindings" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           queue = queue(context, params, vhost)
           all_bindings = queue.vhost.exchanges.values.flat_map(&.bindings_details)
           all_bindings.select { |b| b[:destination] == queue.name }.to_json(context.response)
@@ -89,13 +96,21 @@ module AvalancheMQ
 
       delete "/api/queues/:vhost/:name/contents" do |context, params|
         with_vhost(context, params) do |vhost|
-          queue(context, params, vhost).purge
+          user = user(context)
+          refuse_unless_management(context, user, vhost)
+          q = queue(context, params, vhost)
+          unless user.can_read?(vhost, q.name)
+            access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
+          end
+          q.purge
+          context.response.status_code = 204
         end
       end
 
       post "/api/queues/:vhost/:name/get" do |context, params|
         with_vhost(context, params) do |vhost|
           user = user(context)
+          refuse_unless_management(context, user, vhost)
           q = queue(context, params, vhost)
           unless user.can_read?(q.vhost.name, q.name)
             access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")

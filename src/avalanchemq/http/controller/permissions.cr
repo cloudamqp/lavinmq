@@ -7,11 +7,13 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/permissions" do |context, params|
+        refuse_unless_administrator(context, user(context))
         @amqp_server.users.flat_map { |u| u.permissions_details }.to_json(context.response)
         context
       end
 
       get "/api/permissions/:vhost/:user" do |context, params|
+        refuse_unless_administrator(context, user(context))
         with_vhost(context, params) do |vhost|
           u = user(context, params, "user")
           u.permissions_details.to_json(context.response)
@@ -19,6 +21,7 @@ module AvalancheMQ
       end
 
       put "/api/permissions/:vhost/:user" do |context, params|
+        refuse_unless_administrator(context, user(context))
         with_vhost(context, params) do |vhost|
           u = user(context, params, "user")
           body = parse_body(context)
@@ -37,6 +40,7 @@ module AvalancheMQ
       end
 
       delete "/api/permissions/:vhost/:user" do |context, params|
+        refuse_unless_administrator(context, user(context))
         with_vhost(context, params) do |vhost|
           u = user(context, params, "user")
           @amqp_server.users.rm_permission(u.name, vhost)

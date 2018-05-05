@@ -32,18 +32,20 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/bindings" do |context, _params|
-        @amqp_server.vhosts.values.flat_map { |v| bindings(v) }.to_json(context.response)
+        @amqp_server.vhosts(user(context)).flat_map { |v| bindings(v) }.to_json(context.response)
         context
       end
 
       get "/api/bindings/:vhost" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           bindings(@amqp_server.vhosts[vhost]).to_json(context.response)
         end
       end
 
       get "/api/bindings/:vhost/e/:name/q/:queue" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
           e.bindings.select { |k, v| v.includes?(q) }
@@ -54,6 +56,7 @@ module AvalancheMQ
 
       post "/api/bindings/:vhost/e/:name/q/:queue" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
           user = user(context)
@@ -76,6 +79,7 @@ module AvalancheMQ
 
       get "/api/bindings/:vhost/e/:name/q/:queue/:props" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
           props = params["props"]
@@ -86,6 +90,7 @@ module AvalancheMQ
 
       delete "/api/bindings/:vhost/e/:name/q/:queue/:props" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
           user = user(context)
@@ -102,6 +107,7 @@ module AvalancheMQ
 
       get "/api/bindings/:vhost/e/:name/e/:destination" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
           source.bindings.select { |k, v| v.includes?(destination) }
@@ -112,6 +118,7 @@ module AvalancheMQ
 
       post "/api/bindings/:vhost/e/:name/e/:destination" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
           user = user(context)
@@ -135,6 +142,7 @@ module AvalancheMQ
 
       get "/api/bindings/:vhost/e/:name/e/:destination/:props" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
           props = params["props"]
@@ -145,6 +153,7 @@ module AvalancheMQ
 
       delete "/api/bindings/:vhost/e/:name/e/:destination/:props" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
           user = user(context)
