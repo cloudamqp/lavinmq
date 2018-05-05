@@ -29,7 +29,7 @@ module AvalancheMQ
         when self.digest_size + 4
           @salt = bytes[0, 4]
           @hash = bytes + 4
-        else raise ArgumentError.new("Invalid digest size #{bytes.size} for #{self.hash_algorithm}, raw size #{@raw_hash.size}")
+        else raise InvalidPasswordHash.new("Invalid digest size #{bytes.size} for #{self.hash_algorithm}, raw size #{@raw_hash.size}")
         end
       end
 
@@ -106,5 +106,7 @@ module AvalancheMQ
         "$1$"
       end
     end
+
+    class InvalidPasswordHash < ArgumentError; end
   end
 end

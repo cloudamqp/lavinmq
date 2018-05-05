@@ -1,8 +1,6 @@
 require "../spec_helper"
 
 describe AvalancheMQ::HTTPServer do
-  FileUtils.rm_rf("/tmp/spec")
-
   describe "POST /api/definitions" do
     it "imports users" do
       s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)

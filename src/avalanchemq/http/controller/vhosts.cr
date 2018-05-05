@@ -32,9 +32,9 @@ module AvalancheMQ
 
       get "/api/vhosts/:vhost/permissions" do |context, params|
         with_vhost(context, params) do |vhost|
-          @amqp_server.users.flat_map do |u|
-            u.permissions[vhost]
-          end.to_json(context.response)
+          @amqp_server.users.map do |u|
+            u.permissions[vhost]?.try { |p| u.permissions_details(vhost, p) }
+          end.compact.to_json(context.response)
         end
       end
     end

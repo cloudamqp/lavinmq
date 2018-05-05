@@ -10,6 +10,7 @@ module AvalancheMQ
     @name : String
     @hash_algorithm : String
     @permissions = Hash(String, NamedTuple(config: Regex, read: Regex, write: Regex)).new
+    @password = nil
 
     def initialize(pull : JSON::PullParser)
       loc = pull.location
@@ -44,6 +45,7 @@ module AvalancheMQ
         when /^\$1\$/ then MD5Password.new(hash)
         when /^\$5\$/ then SHA256Password.new(hash)
         when /^\$6\$/ then SHA512Password.new(hash)
+        when /^$/ then nil
         else raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
         end
       @hash_algorithm = hash_algorithm(hash)
@@ -62,27 +64,53 @@ module AvalancheMQ
     end
 
     def initialize(@name, password_hash, @hash_algorithm)
-      @password =
-        case @hash_algorithm
-        when "MD5" then MD5Password.new(password_hash)
-        when "SHA256" then SHA256Password.new(password_hash)
-        when "SHA512" then SHA512Password.new(password_hash)
-        when "Bcrypt" then Crypto::Bcrypt::Password.new(password_hash)
-        else raise UnknownHashAlgoritm.new(@hash_algorithm)
-        end
+      update_password(password_hash, @hash_algorithm)
     end
 
     def initialize(@name, @password)
       @hash_algorithm = hash_algorithm(@password.to_s)
     end
 
+    def update_password(password_hash, hash_algorithm)
+      if password_hash.empty?
+        @password = nil
+        return
+      end
+      @password =
+        case hash_algorithm
+        when "MD5" then MD5Password.new(password_hash)
+        when "SHA256" then SHA256Password.new(password_hash)
+        when "SHA512" then SHA512Password.new(password_hash)
+        when "Bcrypt" then Crypto::Bcrypt::Password.new(password_hash)
+        else raise UnknownHashAlgoritm.new(hash_algorithm)
+        end
+      @hash_algorithm = hash_algorithm
+    end
+
     def to_json(json)
+      user_details.merge(permissions: @permissions).to_json(json)
+    end
+
+    def user_details
       {
         name: @name,
         password_hash: @password.to_s,
-        permissions: @permissions,
-        hashing_algorithm: @hash_algorithm
-      }.to_json(json)
+        hashing_algorithm: @hash_algorithm,
+      }
+    end
+
+    def permissions_details
+      @permissions.map { |k, p| permissions_details(k, p) }
+    end
+
+    def permissions_details(vhost, p)
+      {
+        user: @name,
+        vhost: vhost,
+        configure: p[:config],
+        read: p[:read],
+        write: p[:write]
+      }
     end
 
     @acl_write_cache = Hash({String, String}, Bool).new
@@ -130,6 +158,7 @@ module AvalancheMQ
       when /^\$1\$/ then "MD5"
       when /^\$5\$/ then "SHA256"
       when /^\$6\$/ then "SHA512"
+      when /^$/ then ""
       else raise UnknownHashAlgoritm.new
       end
     end

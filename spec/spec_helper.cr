@@ -6,6 +6,8 @@ require "http/client"
 require "amqp"
 require "uri"
 
+FileUtils.rm_rf("/tmp/spec")
+
 module TestHelpers
   def wait_for
     timeout = Time.now + 1.seconds

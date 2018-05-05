@@ -225,7 +225,7 @@ describe AvalancheMQ::QueuesController do
       Fiber.yield
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        q = ch.queue("q3")
+        q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
         x = ch.exchange("", "direct")
         x.publish AMQP::Message.new("m1"), q.name
         body = %({
@@ -286,7 +286,7 @@ describe AvalancheMQ::QueuesController do
       Fiber.yield
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        q = ch.queue("q5")
+        q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
         x = ch.exchange("", "direct")
         x.publish AMQP::Message.new("m1"), q.name
         body = %({

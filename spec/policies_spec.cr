@@ -3,7 +3,7 @@ require "./spec_helper"
 describe AvalancheMQ::VHost do
   log = Logger.new(STDOUT)
   log.level = Logger::ERROR
-  FileUtils.rm_rf("/tmp/spec")
+
   vhost = AvalancheMQ::VHost.new("add_policy", "/tmp/spec", log)
   definitions = JSON::Any.new({
     "max-length" => 10_i64,

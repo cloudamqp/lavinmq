@@ -31,7 +31,6 @@ module AvalancheMQ
     def create(name, password, save = true)
       return if @users.has_key?(name)
       user = User.create(name, password, "Bcrypt")
-      user.permissions["/"] = { config: /.*/, read: /.*/, write: /.*/ }
       @users[name] = user
       save! if save
       user
@@ -40,7 +39,6 @@ module AvalancheMQ
     def add(name, password_hash, password_algorithm, save = true)
       return if @users.has_key?(name)
       user = User.new(name, password_hash, password_algorithm)
-      user.permissions["/"] = { config: /.*/, read: /.*/, write: /.*/ }
       @users[name] = user
       save! if save
       user
@@ -62,9 +60,9 @@ module AvalancheMQ
       end
     end
 
-    def delete(name) : User?
+    def delete(name, save = true) : User?
       if user = @users.delete name
-        save!
+        save! if save
         user
       end
     end
@@ -85,6 +83,7 @@ module AvalancheMQ
       else
         @log.debug "Loading default users"
         create("guest", "guest", save: false)
+        add_permission("guest", "/", /.*/, /.*/, /.*/)
         create("bunny_gem", "bunny_password", save: false)
         add_permission("bunny_gem", "bunny_testbed", /.*/, /.*/, /.*/)
         create("bunny_reader", "reader_password", save: false)
