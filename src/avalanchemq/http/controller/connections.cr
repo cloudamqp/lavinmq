@@ -5,12 +5,13 @@ module AvalancheMQ
   class ConnectionsController < Controller
     private def register_routes
       get "/api/connections" do |context, _params|
-        @amqp_server.connections.to_json(context.response)
+        @amqp_server.connections(user(context)).to_json(context.response)
         context
       end
 
       get "/api/vhosts/:vhost/connections" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           @amqp_server.connections.select { |c| c.vhost.name == vhost }.to_json(context.response)
         end
       end
@@ -34,7 +35,7 @@ module AvalancheMQ
 
     private def with_connection(context, params)
       name = URI.unescape(params["name"])
-      connection = @amqp_server.connections.find { |c| c.name == name }
+      connection = @amqp_server.connections(user(context)).find { |c| c.name == name }
       not_found(context, "Connection #{name} does not exist") unless connection
       yield connection
       context

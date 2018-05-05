@@ -18,18 +18,20 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/exchanges" do |context, _params|
-        @amqp_server.vhosts.flat_map { |v| v.exchanges.values }.to_json(context.response)
+        @amqp_server.vhosts(user(context)).flat_map { |v| v.exchanges.values }.to_json(context.response)
         context
       end
 
       get "/api/exchanges/:vhost" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           @amqp_server.vhosts[vhost].exchanges.values.to_json(context.response)
         end
       end
 
       get "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           e.to_json(context.response)
         end
@@ -37,11 +39,9 @@ module AvalancheMQ
 
       put "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           user = user(context)
           name = params["name"]
-          unless user.can_config?(vhost, name)
-            access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
-          end
           body = parse_body(context)
           type = body["type"]?.try &.as_s
           bad_request(context, "Field 'type' is required") unless type
@@ -49,6 +49,11 @@ module AvalancheMQ
           auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
           internal = body["internal"]?.try(&.as_bool?) || false
           arguments = parse_arguments(body)
+          ae = arguments["x-alternate-exchange"]?.try &.as?(String)
+          ae_ok = ae.nil? || (user.can_write?(vhost, ae) && user.can_read?(vhost, name))
+          unless user.can_config?(vhost, name) && ae_ok
+            access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
+          end
           e = @amqp_server.vhosts[vhost].exchanges[name]?
           if e
             unless e.match?(type, durable, auto_delete, internal, arguments)
@@ -67,6 +72,7 @@ module AvalancheMQ
 
       delete "/api/exchanges/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           user = user(context)
           unless user.can_config?(e.vhost.name, e.name)
@@ -82,6 +88,7 @@ module AvalancheMQ
 
       get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           e.bindings_details.to_json(context.response)
         end
@@ -89,6 +96,7 @@ module AvalancheMQ
 
       get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           all_bindings = e.vhost.exchanges.values.flat_map(&.bindings_details)
           all_bindings.select { |b| b[:destination] == e.name }.to_json(context.response)
@@ -98,6 +106,7 @@ module AvalancheMQ
       post "/api/exchanges/:vhost/:name/publish" do |context, params|
         with_vhost(context, params) do |vhost|
           user = user(context)
+          refuse_unless_management(context, user, vhost)
           e = exchange(context, params, vhost)
           unless user.can_write?(e.vhost.name, e.name)
             access_refused(context, "User doesn't have permissions to write exchange '#{e.name}'")

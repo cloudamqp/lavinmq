@@ -28,17 +28,17 @@ module AvalancheMQ
 
     # Adds a user to the use store
     # Returns nil if user is already created
-    def create(name, password, save = true)
+    def create(name, password, tags = Array(Tag).new, save = true)
       return if @users.has_key?(name)
-      user = User.create(name, password, "Bcrypt")
+      user = User.create(name, password, "Bcrypt", tags)
       @users[name] = user
       save! if save
       user
     end
 
-    def add(name, password_hash, password_algorithm, save = true)
+    def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
       return if @users.has_key?(name)
-      user = User.new(name, password_hash, password_algorithm)
+      user = User.new(name, password_hash, password_algorithm, tags)
       @users[name] = user
       save! if save
       user
@@ -81,12 +81,13 @@ module AvalancheMQ
           end
         end
       else
+        tags = [Tag::Administrator]
         @log.debug "Loading default users"
-        create("guest", "guest", save: false)
+        create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
-        create("bunny_gem", "bunny_password", save: false)
+        create("bunny_gem", "bunny_password", tags, save: false)
         add_permission("bunny_gem", "bunny_testbed", /.*/, /.*/, /.*/)
-        create("bunny_reader", "reader_password", save: false)
+        create("bunny_reader", "reader_password", tags, save: false)
         add_permission("bunny_reader", "bunny_testbed", /.*/, /.*/, /.*/)
         save!
       end

@@ -5,17 +5,20 @@ module AvalancheMQ
   class DefinitionsController < Controller
     private def register_routes
       get "/api/definitions" do |context, _params|
+        refuse_unless_administrator(context, user(context))
         export_definitions(context.response)
         context
       end
 
       post "/api/definitions" do |context, _params|
+        refuse_unless_administrator(context, user(context))
         body = parse_body(context)
         import_definitions(body)
         context
       end
 
       post "/definitions" do |context, _params|
+        refuse_unless_administrator(context, user(context))
         HTTP::FormData.parse(context.request) do |part|
           case part.name
           when "file"
@@ -27,12 +30,14 @@ module AvalancheMQ
       end
 
       get "/api/definitions/:vhost" do |context, params|
+        refuse_unless_administrator(context, user(context))
         with_vhost(context, params) do |vhost|
           export_vhost_definitions(vhost, context.response)
         end
       end
 
       post "/api/definitions/:vhost" do |context, params|
+        refuse_unless_administrator(context, user(context))
         body = parse_body(context)
         with_vhost(context, params) do |vhost|
           import_vhost_definitions(vhost, body)
@@ -203,7 +208,8 @@ module AvalancheMQ
           when /^bcrypt$/i then "Bcrypt"
           else "MD5"
           end
-        @amqp_server.users.add(name, pass_hash, hash_algo, save: false)
+        tags = u["tags"]?.try(&.as_s).to_s.split(",").map { |t| Tag.parse?(t) }.compact
+        @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
       end
       @amqp_server.users.save!
     end

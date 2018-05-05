@@ -5,12 +5,13 @@ module AvalancheMQ
   class ChannelsController < Controller
     private def register_routes
       get "/api/channels" do |context, _params|
-        all_channels.to_json(context.response)
+        all_channels(user(context)).to_json(context.response)
         context
       end
 
       get "/api/vhosts/:vhost/channels" do |context, params|
         with_vhost(context, params) do |vhost|
+          refuse_unless_management(context, user(context), vhost)
           c = @amqp_server.connections.find { |c| c.vhost.name == vhost }
           if c
             c.channels.values.to_json(context.response)
@@ -29,13 +30,13 @@ module AvalancheMQ
       end
     end
 
-    private def all_channels
-      @amqp_server.connections.flat_map { |c| c.channels.values }
+    private def all_channels(user)
+      @amqp_server.connections(user).flat_map { |c| c.channels.values }
     end
 
     private def with_channel(context, params)
       name = URI.unescape(params["name"])
-      channel = all_channels.find { |c| c.name == name }
+      channel = all_channels(user(context)).find { |c| c.name == name }
       not_found(context, "Channel #{name} does not exist") unless channel
       yield channel
       context

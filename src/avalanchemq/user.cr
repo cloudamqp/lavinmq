@@ -4,14 +4,25 @@ require "./password"
 require "./regex_to_json"
 
 module AvalancheMQ
+
+  enum Tag
+    Administrator
+    Monitoring
+    Management
+    PolicyMaker
+
+    def to_json(json : JSON::Builder)
+      to_s.downcase.to_json(json)
+    end
+  end
   class User
-    getter name, password, permissions, hash_algorithm
+    getter name, password, permissions, hash_algorithm, tags
 
     @name : String
     @hash_algorithm : String
     @permissions = Hash(String, NamedTuple(config: Regex, read: Regex, write: Regex)).new
     @password = nil
-    @tags = Array(String).new
+    @tags = Array(Tag).new
 
     def initialize(pull : JSON::PullParser)
       loc = pull.location
@@ -36,7 +47,7 @@ module AvalancheMQ
             @permissions[vhost] = { config: config, read: read, write: write }
           end
         when "tags"
-          @tags = pull.read_string.split(",")
+          @tags = pull.read_string.split(",").map { |t| Tag.parse?(t) }.compact
         end
       end
       raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
@@ -54,7 +65,7 @@ module AvalancheMQ
       @hash_algorithm = hash_algorithm(hash)
     end
 
-    def self.create(name : String, password : String, hash_algo : String)
+    def self.create(name : String, password : String, hash_algo : String, tags : Array(Tag))
       password =
         case hash_algo
         when "MD5" then MD5Password.create(password)
@@ -63,14 +74,14 @@ module AvalancheMQ
         when "Bcrypt" then Crypto::Bcrypt::Password.create(password, cost: 4)
         else raise UnknownHashAlgoritm.new(hash_algo)
         end
-      self.new(name, password)
+      self.new(name, password, tags)
     end
 
-    def initialize(@name, password_hash, @hash_algorithm)
+    def initialize(@name, password_hash, @hash_algorithm, @tags)
       update_password(password_hash, @hash_algorithm)
     end
 
-    def initialize(@name, @password)
+    def initialize(@name, @password, @tags)
       @hash_algorithm = hash_algorithm(@password.to_s)
     end
 
@@ -90,6 +101,9 @@ module AvalancheMQ
       @hash_algorithm = hash_algorithm
     end
 
+    def update_tags(@tags)
+    end
+
     def to_json(json)
       user_details.merge(permissions: @permissions).to_json(json)
     end
@@ -99,7 +113,7 @@ module AvalancheMQ
         name: @name,
         password_hash: @password.to_s,
         hashing_algorithm: @hash_algorithm,
-        tags: @tags.join(",")
+        tags: @tags.map { |t| t.to_s.downcase }.join(",")
       }
     end
 
@@ -122,8 +136,7 @@ module AvalancheMQ
       cache_key = {vhost, name}
       unless @acl_write_cache.has_key? cache_key
         perm = permissions[vhost][:write]
-        ok = perm != /^$/ && !!perm.match(name)
-        @acl_write_cache[cache_key] = ok
+        @acl_write_cache[cache_key] = perm_match?(perm, name)
       end
       @acl_write_cache[cache_key]
     end
@@ -133,8 +146,7 @@ module AvalancheMQ
       cache_key = {vhost, name}
       unless @acl_read_cache.has_key? cache_key
         perm = permissions[vhost][:read]
-        ok = perm != /^$/ && !!perm.match name
-        @acl_read_cache[cache_key] = ok
+        @acl_read_cache[cache_key] = perm_match?(perm, name)
       end
       @acl_read_cache[cache_key]
     end
@@ -144,8 +156,7 @@ module AvalancheMQ
       cache_key = {vhost, name}
       unless @acl_config_cache.has_key? cache_key
         perm = permissions[vhost][:config]
-        ok = perm != /^$/ && !!perm.match name
-        @acl_config_cache[cache_key] = ok
+        @acl_config_cache[cache_key] = perm_match?(perm, name)
       end
       @acl_config_cache[cache_key]
     end
@@ -154,6 +165,10 @@ module AvalancheMQ
       @acl_config_cache.clear
       @acl_read_cache.clear
       @acl_write_cache.clear
+    end
+
+    private def perm_match?(perm, name)
+      perm != /^$/ && perm != // && !!perm.match name
     end
 
     private def hash_algorithm(hash)
