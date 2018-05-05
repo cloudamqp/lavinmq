@@ -5,6 +5,7 @@ require "./segment_position"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
+require "./shovel_store"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -12,7 +13,7 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
-    getter name, exchanges, queues, log, data_dir, policies
+    getter name, exchanges, queues, log, data_dir, policies, parameters
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
@@ -29,6 +30,8 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p @data_dir
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @shovels = ShovelStore.new
       @segment = last_segment
       @wfile = open_wfile
       load!
@@ -208,6 +211,30 @@ module AvalancheMQ
     def delete_policy(name)
       @policies.delete(name)
       spawn apply_policies
+    end
+
+    def add_parameter(p : Parameter)
+      @parameters.create p
+      case p.component_name
+      when "shovel"
+        @shovels.create(p.parameter_name, p.value)
+      else
+        @log.warn("no action when creating parameter #{p.component_name}")
+      end
+    end
+
+    def delete_parameter(component_name, parameter_name)
+      @parameters.delete({ component_name, parameter_name })
+      case component_name
+      when "shovel"
+        @shovels.delete(parameter_name)
+      else
+        @log.warn("no action when deleting parameter #{component_name}")
+      end
+    end
+
+    def stop_shovels
+      @shovels.each &.stop
     end
 
     def close

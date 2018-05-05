@@ -47,6 +47,7 @@ module AvalancheMQ
       import_exchanges(body, vhosts)
       import_bindings(body, vhosts)
       import_policies(body, vhosts)
+      import_parameters(body, vhosts)
     end
 
     private def import_definitions(body)
@@ -57,7 +58,8 @@ module AvalancheMQ
       import_bindings(body, @amqp_server.vhosts)
       import_permissions(body)
       import_policies(body, @amqp_server.vhosts)
-      import_parameters(body)
+      import_parameters(body, @amqp_server.vhosts)
+      import_global_parameters(body)
     end
 
     private def export_vhost_definitions(name, response)
@@ -82,8 +84,22 @@ module AvalancheMQ
         "bindings": export_bindings(@amqp_server.vhosts),
         "permissions": export_permissions,
         "policies": @amqp_server.vhosts.flat_map(&.policies.values),
-        "parameters": @amqp_server.parameters.values
+        "global-parameters": @amqp_server.parameters.values,
+        "parameters": export_parameters
       }.to_json(response)
+    end
+
+    private def export_parameters
+      @amqp_server.vhosts.flat_map do |vhost|
+        vhost.parameters.values.map do |p|
+          {
+            name: p.parameter_name,
+            component: p.component_name,
+            vhost: vhost.name,
+            value: p.value
+          }
+        end
+      end
     end
 
     private def fetch_vhost?(vhosts, name)
@@ -192,11 +208,21 @@ module AvalancheMQ
       @amqp_server.users.save!
     end
 
-    private def import_parameters(body)
+    private def import_parameters(body, vhosts)
       return unless parameters = body["parameters"]? || nil
       parameters.each do |p|
-        p = Parameter.new(p["component"].as_s, p["name"].as_s, p["value"])
-        @amqp_server.add_parameter(p)
+        param = Parameter.new(p["component"].as_s, p["name"].as_s, p["value"])
+        vhost = p["vhost"].as_s
+        next unless v = fetch_vhost?(vhosts, vhost)
+        v.add_parameter(param)
+      end
+    end
+
+    private def import_global_parameters(body)
+      return unless parameters = body["global-parameters"]? || nil
+      parameters.each do |p|
+        param = Parameter.new(nil, p["name"].as_s, p["value"])
+        @amqp_server.add_parameter(param)
       end
     end
 

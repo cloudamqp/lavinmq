@@ -24,33 +24,6 @@ module AvalancheMQ
         user(context).user_details.to_json(context.response)
         context
       end
-
-      get "/api/policies" do |context, _params|
-        @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
-        context
-      end
-
-      post "/api/parameters" do |context, _params|
-        p = Parameter.from_json context.request.body.not_nil!
-        @amqp_server.add_parameter p
-        context
-      end
-
-      post "/api/policies" do |context, _params|
-        p = Policy.from_json context.request.body.not_nil!
-        vhost = @amqp_server.vhosts[p.vhost]? || nil
-        raise HTTPServer::NotFoundError.new("No vhost named #{p.vhost}") unless vhost
-        vhost.add_policy(p)
-        context
-      end
-
-      delete "/api/policies" do |context, _params|
-        body = parse_body(context)
-        vhost = @amqp_server.vhosts[body["vhost"].as_s]?
-          raise HTTPServer::NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
-        vhost.delete_policy(body["name"].as_s)
-        context
-      end
     end
 
     private def nr_of_consumers

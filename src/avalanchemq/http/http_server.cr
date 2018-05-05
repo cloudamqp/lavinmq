@@ -38,6 +38,7 @@ module AvalancheMQ
         VHostsController.new(@amqp_server).route_handler,
         UsersController.new(@amqp_server).route_handler,
         PermissionsController.new(@amqp_server).route_handler,
+        ParametersController.new(@amqp_server).route_handler,
       ] of HTTP::Handler
       handlers.unshift(HTTP::LogHandler.new) if @log.level == Logger::DEBUG
       @http = HTTP::Server.new(@port, handlers)

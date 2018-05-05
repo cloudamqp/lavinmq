@@ -23,10 +23,12 @@ module AvalancheMQ
       @shovels[name] = shovel
       spawn(name: "Shovel #{name}") { shovel.run }
       shovel
+    rescue KeyError
+      raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
     end
 
     def delete(name)
-      shovel = @shovel.delete name
+      shovel = @shovels.delete name
       shovel.try &.stop
       shovel
     end

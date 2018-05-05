@@ -197,6 +197,7 @@ describe AvalancheMQ::HTTPServer do
         {
           "name": "p1",
           "component": "shovel",
+          "vhost": "/",
           "value": {
             "src-uri": "amqp://guest:guest@localhost",
             "src-queue": "q1",
@@ -208,6 +209,29 @@ describe AvalancheMQ::HTTPServer do
       response = HTTP::Client.post("http://localhost:8080/api/definitions",
                                    headers: test_headers,
                                    body: body)
+      response.status_code.should eq 200
+      s.not_nil!.stop_shovels
+      s.not_nil!.vhosts["/"].parameters.any? { |p| p.parameter_name == "p1" }.should be_true
+    ensure
+      s.try &.close
+      h.try &.close
+    end
+
+    it "imports global parameters" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { s.try &.listen(5672) }
+      spawn { h.try &.listen }
+      Fiber.yield
+      body = %({ "global-parameters": [
+        {
+          "name": "p1",
+          "value": {}
+        }
+      ]})
+      response = HTTP::Client.post("http://localhost:8080/api/definitions",
+                                    headers: test_headers,
+                                    body: body)
       response.status_code.should eq 200
       s.not_nil!.stop_shovels
       s.not_nil!.parameters.any? { |p| p.parameter_name == "p1" }.should be_true
