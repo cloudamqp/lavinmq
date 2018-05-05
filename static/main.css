@@ -6,3 +6,5 @@ body { font-family: Courier, monospace; }
 #menu li { display: inline-block; }
 #table-error { color: red; float: right; }
 label { display: block; margin: 0.5em 0; }
+header { position: relative; }
+#user-info { position: absolute; top: 0; right: 0; margin-right: 15px; }

@@ -14,22 +14,29 @@
       redirectToLogin();
     }
     headers.append('Authorization', auth);
+    headers.append('Content-Type', 'application/json');
     let opts = {
       method: method,
       headers: headers,
       credentials: "include",
       mode : "cors",
-      body : body,
       redirect: "follow"
     };
-    return fetch(request, opts).then(function (response) {
-      if (response.status === 401) {
-        redirectToLogin();
-      } else if (!(response.status >= 200 && response.status < 400)) {
-        console.log(response.body);
-      }
-      return response;
-    });
+    if (body) {
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(request, opts)
+      .then(function (response) {
+        if (response.status === 401) {
+          redirectToLogin();
+        } else if (!(response.status >= 200 && response.status < 400)) {
+          // not ok
+        }
+        return response;
+      })
+      .then(function (response) {
+        return response.json();
+      });
   }
 
   Object.assign(window.avalanchemq, {

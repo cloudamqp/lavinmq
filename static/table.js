@@ -44,19 +44,25 @@
       window.avalanchemq.http.request("GET", url).then(function (response) {
         tableError.textContent = "";
         try {
-          localStorage.setItem(url, response.body);
+          localStorage.setItem(url, JSON.stringify(response));
         } catch (e) {
           console.error("Saving localStorage", e);
         }
-        updateTable(response.body);
-      }).catch(function () {
+        updateTable(response);
+      }).catch(function (e) {
         tableError.textContent = "Error fetching data";
-        console.error(e);
+        console.error(e.message);
       });
     }
 
     function updateTable(raw) {
-      var data = JSON.parse(raw);
+      let data = raw;
+      if (raw instanceof String) {
+        data = JSON.parse(raw);
+      }
+      if (!Array.isArray(data)) {
+        return;
+      }
       data.sort(byColumn);
       document.getElementById("table-count").textContent = data.length;
       var t = document.getElementById("table").tBodies[0];
