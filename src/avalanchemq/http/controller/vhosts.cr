@@ -1,4 +1,4 @@
-
+require "../controller"
 module AvalancheMQ
 
   class VHostsController < Controller

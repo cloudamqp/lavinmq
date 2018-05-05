@@ -1,4 +1,3 @@
-require "../controller"
 require "router"
 module AvalancheMQ
   class StaticController

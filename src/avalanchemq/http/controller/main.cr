@@ -1,4 +1,6 @@
 
+require "../controller"
+
 module AvalancheMQ
 
   class MainController < Controller
@@ -42,23 +44,11 @@ module AvalancheMQ
         context
       end
 
-      post "/api/vhosts" do |context, _params|
-        body = parse_body(context)
-        @amqp_server.vhosts.create(body["name"].as_s)
-        context
-      end
-
       delete "/api/policies" do |context, _params|
         body = parse_body(context)
         vhost = @amqp_server.vhosts[body["vhost"].as_s]?
           raise HTTPServer::NotFoundError.new("No vhost named #{body["vhost"].as_s}") unless vhost
         vhost.delete_policy(body["name"].as_s)
-        context
-      end
-
-      delete "/api/vhosts" do |context, _params|
-        body = parse_body(context)
-        @amqp_server.vhosts.delete(body["name"].as_s)
         context
       end
     end

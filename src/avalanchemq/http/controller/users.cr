@@ -1,4 +1,4 @@
-
+require "../controller"
 module AvalancheMQ
   module UserHelpers
     private def user(context, params, key = "name")
