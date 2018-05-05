@@ -23,11 +23,6 @@ module AvalancheMQ
         context
       end
 
-      get "/api/vhosts" do |context, _params|
-        @amqp_server.vhosts.to_json(context.response)
-        context
-      end
-
       post "/api/parameters" do |context, _params|
         p = Parameter.from_json context.request.body.not_nil!
         @amqp_server.add_parameter p

@@ -94,10 +94,24 @@ module AvalancheMQ
     end
 
     def to_json(json : JSON::Builder)
+      vhost_details.to_json(json)
+    end
+
+    def vhost_details
       {
         name: @name,
         dir: @dir
-      }.to_json(json)
+      }
+    end
+
+    def message_details
+      ready = @queues.values.reduce(0) { |m, q| m += q.message_count }
+      unacked = @queues.values.reduce(0) { |m, q| m += q.unacked_count }
+      {
+        messages: ready + unacked,
+        messages_unacknowledged: unacked,
+        messages_ready: ready
+      }
     end
 
     def declare_queue(name, durable, auto_delete,

@@ -48,7 +48,7 @@ module AvalancheMQ
     end
 
     def to_json(json : JSON::Builder)
-      @vhosts.keys.to_json(json)
+      @vhosts.values.to_json(json)
     end
 
     private def load!
@@ -56,7 +56,9 @@ module AvalancheMQ
       if File.exists? path
         @log.debug "Loading vhosts from file"
         File.open(path) do |f|
-          Array(String).from_json(f) do |name|
+          JSON.parse(f).each do |vhost|
+            next unless vhost.as_h?
+            name = vhost["name"].as_s
             @vhosts[name] = VHost.new(name, @data_dir, @log)
           end
         end

@@ -270,7 +270,7 @@ describe AvalancheMQ::Server do
   end
 
   it "expires messages with message TTL on queue declaration" do
-    s = AvalancheMQ::Server.new("/tmp/spec0", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.try &.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -359,7 +359,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange all" do
-    s = AvalancheMQ::Server.new("/tmp/spec_qhe", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -388,7 +388,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange any" do
-    s = AvalancheMQ::Server.new("/tmp/spec_qhe2", Logger::ERROR)
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|

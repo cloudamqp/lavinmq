@@ -95,6 +95,10 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
+    def unacked_count : UInt32
+      @unacked.size.to_u32
+    end
+
     def close_unused_segments_and_report_used : Set(UInt32)
       s = Set(UInt32).new
       @ready.each { |sp| s << sp.segment }
