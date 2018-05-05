@@ -24,6 +24,23 @@ module AvalancheMQ
         user(context).user_details.to_json(context.response)
         context
       end
+
+      get "/api/aliveness-test/:vhost" do |context, params|
+        with_vhost(context, params) do |vhost|
+          @amqp_server.vhosts[vhost].declare_queue("aliveness-test", false, false)
+          @amqp_server.vhosts[vhost].bind_queue("aliveness-test", "amq.direct", "aliveness-test")
+          msg = Message.new(Time.utc_now.epoch_ms,
+                            "amq.direct",
+                            "aliveness-test",
+                            AMQP::Properties.new,
+                            4_u64,
+                            "test".to_slice)
+          ok = @amqp_server.vhosts[vhost].publish(msg)
+          env = @amqp_server.vhosts[vhost].queues["aliveness-test"].get(true)
+          ok = env && String.new(env.message.body) == "test"
+          { status: ok ? "ok" : "failed" }.to_json(context.response)
+        end
+      end
     end
 
     private def nr_of_consumers

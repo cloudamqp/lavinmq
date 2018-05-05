@@ -61,4 +61,19 @@ describe AvalancheMQ::HTTPServer do
       h.try &.close
     end
   end
+
+  describe "GET /api/aliveness-test/vhost" do
+    it "should run aliveness-test" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      response = HTTP::Client.get("http://localhost:8080/api/aliveness-test/%2f", headers: test_headers)
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body["status"].as_s.should eq "ok"
+    ensure
+      h.try &.close
+    end
+  end
 end

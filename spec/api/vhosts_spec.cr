@@ -67,7 +67,7 @@ describe AvalancheMQ::VHostsController do
       Fiber.yield
       s.vhosts.create("test")
       response = HTTP::Client.delete("http://localhost:8080/api/vhosts/test",
-                                  headers: test_headers)
+                                     headers: test_headers)
       response.status_code.should eq 204
     ensure
       h.try &.close
