@@ -9,26 +9,26 @@ module AvalancheMQ
 
     private def register_routes
       get "/" do |context, _|
-        static(context, "index.html")
+        static(context, File.join(@public_dir, "index.html"))
       end
 
-      %w(queues exchanges connections channels).each do |page|
-        get "/#{page}" do |context, _params|
-          static(context, "#{page}.html")
-        end
-      end
-
-      get "/table.js" do |context, _|
-        static(context, "table.js")
-      end
-
-      get "/main.css" do |context, _|
-        static(context, "main.css")
+      get "/:filename" do |context, params|
+        static(context, file(params["filename"]))
       end
     end
 
-    private def static(context, filename)
-      file_path = File.join(@public_dir, filename)
+    private def file(filename)
+      file_path = File.join(@public_dir, "#{filename}.html")
+      unless File.exists?(file_path)
+        file_path = File.join(@public_dir, filename)
+        unless File.exists?(file_path)
+          raise HTTPServer::NotFoundError.new("#{filename} not found")
+        end
+      end
+      file_path
+    end
+
+    private def static(context, file_path)
       file_stats = File.stat(file_path)
       etag = file_stats.mtime.epoch_ms.to_s
       context.response.content_type = mime_type(file_path)

@@ -1,10 +1,14 @@
 (function () {
+  window.avalanchemq = window.avalanchemq || {};
+
   function renderTable(url, keyColumns, renderRow) {
     var sortKey = "";
     var reverseOrder = false;
     makeHeadersSortable();
     var raw = localStorage.getItem(url);
-    if (raw) updateTable(raw);
+    if (raw) {
+      updateTable(raw);
+    }
     fetchAndUpdate();
     var updateTimer = setInterval(fetchAndUpdate, 5000);
 
@@ -30,32 +34,25 @@
     }
 
     function clearRows(t) {
-      while (t.rows.length) t.deleteRow(-1);
+      while (t.rows.length) {
+        t.deleteRow(-1);
+      }
     }
 
     function fetchAndUpdate() {
       var tableError = document.getElementById("table-error");
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', url);
-      xhr.onload = function () {
+      window.avalanchemq.http.request("GET", url).then(function (response) {
         tableError.textContent = "";
         try {
-          localStorage.setItem(url, this.response);
+          localStorage.setItem(url, response.body);
         } catch (e) {
           console.error("Saving localStorage", e);
         }
-        updateTable(this.response);
-      };
-      xhr.onerror = function (e) {
+        updateTable(response.body);
+      }).catch(function () {
         tableError.textContent = "Error fetching data";
         console.error(e);
-      };
-      xhr.ontimeout = function (e) {
-        tableError.textContent = "Error fetching data";
-        console.error(e);
-      };
-      xhr.timeout = 5000;
-      xhr.send();
+      });
     }
 
     function updateTable(raw) {
@@ -68,7 +65,9 @@
         var foundIndex = findIndex(t.rows, i, item);
         if (foundIndex !== -1) {
           var d = foundIndex - i;
-          while (d--) t.deleteRow(i);
+          while (d--) {
+            t.deleteRow(i);
+          }
           renderRow(t.rows[i], item);
         } else {
           var tr = t.insertRow(i);
@@ -78,17 +77,20 @@
       }
 
       var rowsToDelete = t.rows.length - data.length;
-      while (0 < rowsToDelete--)
+      while (0 < rowsToDelete--) {
         t.deleteRow(t.rows.length - 1);
+      }
     }
 
     function byColumn(a, b) {
       var sortColumns = sortKey === "" ? keyColumns : [sortKey].concat(keyColumns);
       for (var i = 0; i < sortColumns.length; i++) {
-        if (a[sortColumns[i]] > b[sortColumns[i]])
+        if (a[sortColumns[i]] > b[sortColumns[i]]) {
           return 1 * (reverseOrder ? -1 : 1);
-        if (a[sortColumns[i]] < b[sortColumns[i]])
+        }
+        if (a[sortColumns[i]] < b[sortColumns[i]]) {
           return -1 * (reverseOrder ? -1 : 1);
+        }
       }
       return 0;
     }
@@ -121,7 +123,6 @@
     }
   }
 
-  window.avalanchemq = window.avalanchemq || {};
   Object.assign(window.avalanchemq, {
     table: {
       renderCell: renderCell,

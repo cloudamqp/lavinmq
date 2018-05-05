@@ -33,3 +33,33 @@
     </div>
   </body>
 </html>
+<script src="/auth.js"></script>
+<script src="/http.js"></script>
+<script>
+  (function () {
+    let url = "/api/overview";
+    let raw = localStorage.getItem(url);
+    if (raw) {
+      updateView(raw);
+    }
+
+    function fetchAndUpdate() {
+      window.avalanchemq.http.request("GET", "/api/overview").then(function (response) {
+        try {
+          localStorage.setItem(url, response.body);
+        } catch (e) {
+          console.error("Saving localStorage", e);
+        }
+        updateView(response.body);
+      })
+    }
+
+    function updateView(data) {
+      console.log(data);
+    }
+
+    fetchAndUpdate();
+    let updateTimer = setInterval(fetchAndUpdate, 5000);
+  })();
+</script>
+

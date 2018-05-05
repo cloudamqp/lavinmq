@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Login | AvalancheMQ</title>
+  <link href="/main.css" rel="stylesheet">
+</head>
+
+<body>
+  <div class="container">
+    <h1>AvalancheMQ</h1>
+  </div>
+  <script src="/auth.js"></script>
+  <script src="/http.js"></script>
+  <main class="login-container">
+    <div class="box">
+      <div class="box-body">
+        <div class="login-info">
+          <h2 class="host">localhost</h2>
+        </div>
+        <form id="login" action="/">
+          <div class="form-group">
+            <label for="amq-username">Username</label>
+            <input type="text" class="form-control" id="amq-username">
+          </div>
+          <div class="form-group password mb-3">
+            <label for="amq-password">Password</label>
+            <input type="password" class="form-control" id="amq-password">
+          </div>
+          <div class="pt-3">
+            <button type="submit" class="btn btn-primary">Sign in</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      document.querySelector("#login").addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        var request = new XMLHttpRequest();
+        var user = document.querySelector('#amq-username').value;
+        var pass = document.querySelector('#amq-password').value;
+        request.open('GET', '/api/whoami', true, user, pass);
+        request.onload = function () {
+          if (request.status >= 200 && request.status < 400) {
+            avalanchemq.auth.store_cookie({ username: user, password: pass });
+            avalanchemq.auth.set_auth(user + ":" + pass);
+            window.location.assign('/');
+          }
+        }
+        request.send();
+      });
+    </script>
+  </main>
+
+</body>
+</html>
