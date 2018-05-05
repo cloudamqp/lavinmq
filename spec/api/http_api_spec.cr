@@ -48,4 +48,17 @@ describe AvalancheMQ::HTTPServer do
   ensure
     h.try &.close
   end
+
+  describe "GET /api/whoami" do
+    it "should return details of the currently authenticated user" do
+      s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+      h = AvalancheMQ::HTTPServer.new(s, 8080)
+      spawn { h.try &.listen }
+      Fiber.yield
+      response = HTTP::Client.get("http://localhost:8080/api/whoami", headers: test_headers)
+      response.status_code.should eq 200
+    ensure
+      h.try &.close
+    end
+  end
 end

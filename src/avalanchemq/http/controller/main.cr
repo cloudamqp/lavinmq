@@ -18,6 +18,11 @@ module AvalancheMQ
         context
       end
 
+      get "/api/whoami" do |context, params|
+        user(context).user_details.to_json(context.response)
+        context
+      end
+
       get "/api/policies" do |context, _params|
         @amqp_server.vhosts.flat_map { |v| v.policies.values }.to_json(context.response)
         context
