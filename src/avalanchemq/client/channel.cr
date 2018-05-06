@@ -105,14 +105,15 @@ module AvalancheMQ
         delivered = @client.vhost.publish(msg, immediate: @next_publish_immediate)
         unless delivered
           if @next_publish_immediate
-            frame = AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
-                                                  msg.exchange_name, msg.routing_key)
-            deliver(frame, msg)
+            r_frame = AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
+                                              msg.exchange_name, msg.routing_key)
+            deliver(r_frame, msg)
           elsif @next_publish_mandatory
-            frame = AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
-                                                  msg.exchange_name, msg.routing_key)
-            deliver(frame, msg)
+            r_frame = AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
+                                              msg.exchange_name, msg.routing_key)
+            deliver(r_frame, msg)
           end
+          @client.vhost.send_to_alternate_exchange?(msg, @next_publish_immediate)
         end
         if @confirm
           @confirm_count += 1

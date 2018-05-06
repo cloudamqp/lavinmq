@@ -5,8 +5,11 @@ module AvalancheMQ
   abstract class Exchange
     include PolicyTarget
 
-    getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type
+    getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type,
+           alternate_exchange
     def_equals_and_hash @vhost.name, @name
+
+    @alternate_exchange : String?
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
@@ -14,15 +17,21 @@ module AvalancheMQ
       @bindings = Hash(Tuple(String, Hash(String, AMQP::Field)), Set(Queue | Exchange)).new do |h, k|
         h[k] = Set(Queue | Exchange).new
       end
+      handle_arguments
     end
 
     def apply_policy(@policy : Policy)
+      handle_arguments
       @policy.not_nil!.definition.each do |k, v|
         case k
         when "alternate-exchange"
-          # TODO
+          @alternate_exchange = v.as_s?
         end
       end
+    end
+
+    def handle_arguments
+      @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
     end
 
     def to_json(builder : JSON::Builder)

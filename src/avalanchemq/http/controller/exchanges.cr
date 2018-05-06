@@ -136,6 +136,7 @@ module AvalancheMQ
                             content.to_slice)
           @log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
           ok = e.vhost.publish(msg)
+          e.vhost.send_to_alternate_exchange?(msg) unless ok
           { routed: ok }.to_json(context.response)
         end
       end

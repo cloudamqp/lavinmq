@@ -45,6 +45,7 @@ module AvalancheMQ
 
       ok = false
       matches = ex.matches(msg.routing_key, msg.properties.headers)
+      return false if matches.empty?
       if cc = msg.properties.headers.try(&.fetch("CC", nil))
         cc.as(Array(AMQP::Field)).each do |rk|
           matches.concat(ex.matches(rk.as(String), msg.properties.headers))
@@ -57,12 +58,12 @@ module AvalancheMQ
       end
       exchanges = matches.compact_map { |m| m.as? Exchange }
       queues = matches.compact_map { |m| m.as? Queue }
+      return false if immediate && (queues.empty? || queues.any? { |q| !q.immediate_delivery? })
       ok = exchanges.map do |e|
         emsg = msg.dup
         emsg.exchange_name = e.name
         publish(emsg, immediate)
-      end.all?
-      return false if matches.empty?
+      end.any?
 
       pos = @wfile.pos.to_u32
 
@@ -82,10 +83,20 @@ module AvalancheMQ
       @wfile.write_int msg.size
       @wfile.write msg.body
       @wfile.flush
-      return false if immediate && queues.any? { |q| !q.immediate_delivery? }
       flush = msg.properties.delivery_mode == 2_u8
-      return true if queues.all? { |q| q.publish(sp, flush) } && ok
-      return false
+      return queues.any? { |q| q.publish(sp, flush) } || ok
+    end
+
+    def send_to_alternate_exchange?(msg, immediate = false, visited = [] of String)
+      if ae = @exchanges[msg.exchange_name]?.try &.alternate_exchange
+        visited.push(msg.exchange_name)
+        unless visited.includes?(ae)
+          ae_msg = msg.dup
+          ae_msg.exchange_name = ae
+          ok = publish(ae_msg, immediate)
+          send_to_alternate_exchange?(ae_msg, immediate, visited) unless ok
+        end
+      end
     end
 
     private def open_wfile : MessageFile

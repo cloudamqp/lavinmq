@@ -652,4 +652,23 @@ describe AvalancheMQ::Server do
   ensure
     close(s)
   end
+
+  it "supports alternate-exchange" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    listen(s, 5672)
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      args = AMQP::Protocol::Table.new
+      args["x-alternate-exchange"] = "ae"
+      x1 = ch.exchange("x1", "topic", args: args)
+      ae = ch.exchange("ae", "topic")
+      q = ch.queue("")
+      q.bind(ae, "*")
+      x1.publish(AMQP::Message.new("m1"), "rk")
+      msg = q.get(no_ack: true)
+      msg.to_s.should eq("m1")
+    end
+  ensure
+    close(s)
+  end
 end
