@@ -10,8 +10,8 @@
   <div class="container">
     <h1>AvalancheMQ</h1>
   </div>
-  <script src="/auth.js"></script>
-  <script src="/http.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/http.js"></script>
   <main class="login-container">
     <div class="box">
       <div class="box-body">
@@ -37,18 +37,16 @@
     <script type="text/javascript">
       document.querySelector("#login").addEventListener("submit", function (evt) {
         evt.preventDefault();
-        var request = new XMLHttpRequest();
+        var xhr = new XMLHttpRequest();
         var user = document.querySelector('#amq-username').value;
         var pass = document.querySelector('#amq-password').value;
-        request.open('GET', '/api/whoami', true, user, pass);
-        request.onload = function () {
-          if (request.status >= 200 && request.status < 400) {
-            avalanchemq.auth.store_cookie({ username: user, password: pass });
-            avalanchemq.auth.set_auth(user + ":" + pass);
-            window.location.assign('/');
-          }
-        }
-        request.send();
+        avalanchemq.auth.setAuth(user + ":" + pass);
+        avalanchemq.http.request("GET", "/api/whoami").then(function () {
+          avalanchemq.auth.storeCookie({ username: user, password: pass });
+          window.location.assign('/');
+        }).catch(function () {
+          alert("Login failed");
+        });
       });
     </script>
   </main>

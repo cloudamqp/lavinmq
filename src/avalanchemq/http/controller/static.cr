@@ -15,6 +15,10 @@ module AvalancheMQ
       get "/:filename" do |context, params|
         static(context, file(params["filename"]))
       end
+
+      get "/js/:filename" do |context, params|
+        static(context, File.join(@public_dir, "js", params["filename"]))
+      end
     end
 
     private def file(filename)
