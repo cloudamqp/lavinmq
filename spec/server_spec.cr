@@ -3,8 +3,7 @@ require "./spec_helper"
 describe AvalancheMQ::Server do
   it "accepts connections" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
@@ -16,13 +15,12 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("test message")
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can delete queue" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -41,13 +39,12 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("m2")
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can reject message" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -60,13 +57,12 @@ describe AvalancheMQ::Server do
       m1.should eq(nil)
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can reject and requeue message" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -79,13 +75,12 @@ describe AvalancheMQ::Server do
       m1.to_s.should eq("m1")
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "rejects all unacked msgs when disconnecting" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -102,13 +97,12 @@ describe AvalancheMQ::Server do
       m1.to_s.should eq("m1")
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "respects prefetch" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       ch.qos(0, 2, false)
@@ -124,13 +118,12 @@ describe AvalancheMQ::Server do
       msgs.size.should eq(2)
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "respects prefetch and acks" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       ch.qos(0, 1, false)
@@ -149,26 +142,24 @@ describe AvalancheMQ::Server do
       c.should eq(4)
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can delete exchange" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("test_delete_exchange", "topic", durable: true)
       x.delete.should be x
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can auto delete exchange" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acked = nil
@@ -184,13 +175,12 @@ describe AvalancheMQ::Server do
       acked.should be_false
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can purge a queue" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -200,13 +190,12 @@ describe AvalancheMQ::Server do
       q.purge.should eq 4
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "supports publisher confirms" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       acked = false
@@ -227,13 +216,12 @@ describe AvalancheMQ::Server do
       delivery_tag.should eq 2
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "supports mandatory publish flag" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -247,13 +235,12 @@ describe AvalancheMQ::Server do
       reply_text.should eq "No Route"
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "expires messages" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("exp1")
@@ -266,13 +253,12 @@ describe AvalancheMQ::Server do
       msg.to_s.should be ""
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "expires messages with message TTL on queue declaration" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
@@ -289,13 +275,12 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("queue dlx")
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "dead-letter expired messages" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       dlq = ch.queue("dlq2")
@@ -314,13 +299,12 @@ describe AvalancheMQ::Server do
       msgs.first.to_s.should eq("dead letter")
     end
   ensure
-     s.try &.close
+     close(s)
   end
 
   it "handle immediate flag" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -335,13 +319,12 @@ describe AvalancheMQ::Server do
       reply_code.should eq 313
     end
   ensure
-     s.try &.close
+     close(s)
   end
 
   it "can cancel consumers" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
-    spawn { s.try &.listen(5672) }
-    Fiber.yield
+    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -355,7 +338,7 @@ describe AvalancheMQ::Server do
       ch.has_subscriber?(tag).should eq false
     end
   ensure
-     s.try &.close
+     close(s)
   end
 
   it "supports header exchange all" do
@@ -384,7 +367,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "supports header exchange any" do
@@ -411,7 +394,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 2
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "splits frames into max frame sizes" do
@@ -430,7 +413,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "acking an invalid delivery tag should close the channel" do
@@ -448,7 +431,7 @@ describe AvalancheMQ::Server do
       code.should eq 406
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "can bind exchanges to exchanges" do
@@ -469,7 +452,7 @@ describe AvalancheMQ::Server do
       msg.to_s.should eq("test message")
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "supports x-max-length drop-head" do
@@ -495,7 +478,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "supports x-max-length reject-publish" do
@@ -524,7 +507,7 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "disallows creating queues starting with amq." do
@@ -538,7 +521,7 @@ describe AvalancheMQ::Server do
       end
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "disallows deleting exchanges named amq.*" do
@@ -554,7 +537,7 @@ describe AvalancheMQ::Server do
       ch.exchange("amq.topic", "topic", passive: true).should_not be_nil
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "disallows creating new exchanges named amq.*" do
@@ -568,7 +551,7 @@ describe AvalancheMQ::Server do
       end
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "only allow one consumer on when exlusive consumers flag is set" do
@@ -591,7 +574,7 @@ describe AvalancheMQ::Server do
       q.subscribe { }
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "only allow one connection access an exlusive queues" do
@@ -609,7 +592,7 @@ describe AvalancheMQ::Server do
       end
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "it persists msgs between restarts" do
@@ -627,7 +610,7 @@ describe AvalancheMQ::Server do
         x.publish(msg, q.name)
       end
     end
-    s.try &.close
+    close(s)
 
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
     spawn { s.not_nil!.listen(5672) }
@@ -639,7 +622,7 @@ describe AvalancheMQ::Server do
       deleted_msgs.should eq(500)
     end
   ensure
-    s.try &.close
+    close(s)
   end
 
   it "supports max-length" do
@@ -667,6 +650,6 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   ensure
-    s.try &.close
+    close(s)
   end
 end

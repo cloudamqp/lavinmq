@@ -35,7 +35,7 @@ module AvalancheMQ
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
-    def listen(port : Int)
+    def listen(port = 5672)
       @running = true
       s = TCPServer.new("::", port)
       s.sync = true
