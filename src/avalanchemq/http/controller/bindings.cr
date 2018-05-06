@@ -32,7 +32,7 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/bindings" do |context, _params|
-        @amqp_server.vhosts(user(context)).flat_map { |v| bindings(v) }.to_json(context.response)
+        vhosts(user(context)).flat_map { |v| bindings(v) }.to_json(context.response)
         context
       end
 

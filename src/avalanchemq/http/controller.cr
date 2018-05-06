@@ -69,6 +69,19 @@ module AvalancheMQ
       user
     end
 
+    def vhosts(user : User, require_amqp_access = true)
+      @amqp_server.vhosts.select do |v|
+        full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
+        amqp_access = user.permissions.has_key?(v.name)
+        mgmt = user.tags.any? { |t| t.management? || t.policy_maker? }
+        if require_amqp_access
+          next amqp_access && (full_view_vhosts_access || mgmt)
+        else
+          next full_view_vhosts_access || (mgmt && amqp_access)
+        end
+      end
+    end
+
     private def refuse_unless_management(context, user, vhost = nil)
       vhost_access = vhost.nil? || user.permissions.has_key?(vhost)
       unless vhost_access

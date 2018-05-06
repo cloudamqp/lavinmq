@@ -4,7 +4,7 @@ module AvalancheMQ
   class VHostsController < Controller
     private def register_routes
       get "/api/vhosts" do |context, _params|
-        @amqp_server.vhosts(user(context)).map { |v| v.vhost_details.merge(v.message_details) }
+        vhosts(user(context), require_amqp_access: false).map { |v| v.vhost_details.merge(v.message_details) }
           .to_json(context.response)
         context
       end

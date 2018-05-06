@@ -1,8 +1,11 @@
 require "uri"
 require "../controller"
+require "./connections"
 
 module AvalancheMQ
   class ChannelsController < Controller
+    include ConnectionsHelper
+
     private def register_routes
       get "/api/channels" do |context, _params|
         all_channels(user(context)).to_json(context.response)
@@ -31,7 +34,7 @@ module AvalancheMQ
     end
 
     private def all_channels(user)
-      @amqp_server.connections(user).flat_map { |c| c.channels.values }
+      connections(user).flat_map { |c| c.channels.values }
     end
 
     private def with_channel(context, params)

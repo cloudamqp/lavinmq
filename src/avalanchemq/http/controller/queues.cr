@@ -17,7 +17,7 @@ module AvalancheMQ
 
     private def register_routes
       get "/api/queues" do |context, _params|
-        @amqp_server.vhosts(user(context)).flat_map { |v| v.queues.values }.to_json(context.response)
+        vhosts(user(context)).flat_map { |v| v.queues.values }.to_json(context.response)
         context
       end
 

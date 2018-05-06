@@ -13,6 +13,7 @@ describe AvalancheMQ::HTTPServer do
   it "should refuse access if user does not exist" do
     s, h = create_servers
     listen(h)
+    s.users.delete("arnold")
     # arnold:pw
     response = get("http://localhost:8080/api/overview",
                    headers: HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"})

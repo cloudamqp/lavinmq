@@ -33,7 +33,7 @@ module TestHelpers
     { s, h }
   end
 
-  def listen(server, port)
+  def listen(server : (AvalancheMQ::HTTPServer | AvalancheMQ::Server), port : Int)
     spawn { server.listen(port) }
     Fiber.yield
   end

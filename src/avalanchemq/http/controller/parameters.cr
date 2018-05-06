@@ -4,15 +4,19 @@ module AvalancheMQ
   class ParametersController < Controller
     private def register_routes
       get "/api/parameters" do |context, _params|
-        @amqp_server.vhosts(user(context))
+        user = user(context)
+        refuse_unless_policymaker(context, user)
+        vhosts(user)
           .flat_map { |v| v.parameters.values.map { |p| map_parameter(v.name, p) } }
           .to_json(context.response)
         context
       end
 
       get "/api/parameters/:component" do |context, params|
+        user = user(context)
+        refuse_unless_policymaker(context, user)
         component = params["component"]
-        @amqp_server.vhosts(user(context))
+        vhosts(user)
           .flat_map { |v| v.parameters.values.map { |p| map_parameter(v.name, p) } }
           .select { |p| p["component"]  == component }
           .to_json(context.response)
@@ -109,7 +113,7 @@ module AvalancheMQ
       get "/api/policies" do |context, _params|
         user = user(context)
         refuse_unless_policymaker(context, user)
-        @amqp_server.vhosts(user).flat_map { |v| v.policies.values }.to_json(context.response)
+        vhosts(user).flat_map { |v| v.policies.values }.to_json(context.response)
         context
       end
 

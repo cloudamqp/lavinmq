@@ -14,6 +14,17 @@ describe AvalancheMQ::PermissionsController do
     ensure
       close(h)
     end
+
+    it "should refuse non administrators" do
+      s, h = create_servers
+      listen(h)
+      s.try &.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      response = get("http://localhost:8080/api/permissions", headers: hdrs)
+      response.status_code.should eq 401
+    ensure
+      close(h)
+    end
   end
 
   describe "GET /api/permissions/vhost/user" do

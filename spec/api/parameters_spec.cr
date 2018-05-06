@@ -2,18 +2,35 @@ require "../spec_helper"
 
 describe AvalancheMQ::ParametersController do
   describe "GET /api/parameters" do
-    it "should return all vhost scoped parameters" do
+    it "should return all vhost scoped parameters for policymaker" do
       s, h = create_servers
       listen(h)
+      s.try &.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
+      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Type))
       s.vhosts["/"].add_parameter(p)
-      response = get("http://localhost:8080/api/parameters")
+      response = get("http://localhost:8080/api/parameters", headers: hdrs)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
       keys = ["name", "component", "vhost", "value"]
       body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
+      s.try &.users.delete("arnold")
+      close(h)
+    end
+
+    it "should refuse monitoring and management" do
+      s, h = create_servers
+      listen(h)
+      s.try &.users.create("arnold", "pw", [AvalancheMQ::Tag::Management, AvalancheMQ::Tag::Monitoring])
+      s.users.rm_permission("arnold", "/")
+      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      response = get("http://localhost:8080/api/parameters", headers: hdrs)
+      response.status_code.should eq 401
+    ensure
+      s.try &.users.delete("arnold")
       close(h)
     end
   end

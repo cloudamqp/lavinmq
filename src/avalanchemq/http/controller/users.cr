@@ -45,6 +45,7 @@ module AvalancheMQ
       end
 
       get "/api/users/:name" do |context, params|
+        refuse_unless_administrator(context, user(context))
         user(context, params).user_details.to_json(context.response)
         context
       end
