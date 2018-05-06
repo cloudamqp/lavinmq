@@ -19,7 +19,7 @@
 
   function render(data) {
     let table = document.querySelector("#overview");
-    console.log(data);
+    // console.log(data);
     document.querySelector("#version").innerText = data.avalanchemq_version;
     Object.keys(data.object_totals).forEach(function (key) {
       table.querySelector("." + key).innerText = data.object_totals[key];

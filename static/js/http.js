@@ -47,6 +47,9 @@
       redirect: "follow"
     };
     if (body) {
+      if (body instanceof FormData) {
+        body = Array.from(body).map(function (e) { this[e[0]] = e[1]; return this; }.bind({}))[0];
+      }
       opts.body = JSON.stringify(body);
     }
     return fetch(request, opts)
@@ -59,7 +62,9 @@
       return response;
     })
     .then(function (response) {
-      return response.json();
+      return response.json().catch(function () {
+        // not json
+      });
     });
   }
 

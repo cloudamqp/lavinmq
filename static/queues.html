@@ -40,7 +40,7 @@
         </thead>
         <tbody></tbody>
       </table>
-      <form method="post">
+      <form method="put" id="declare">
         <fieldset>
           <legend>Add queue</legend>
           <label>
@@ -81,6 +81,23 @@
         avalanchemq.table.renderCell(tr, 4, item.unacked);
         avalanchemq.table.renderCell(tr, 5, item.ready);
         avalanchemq.table.renderCell(tr, 6, item.consumers);
+      });
+
+      document.querySelector("#declare").addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        let xhr = new XMLHttpRequest();
+        let data = new FormData(this);
+        let vhost = encodeURIComponent(data.get("vhost"));
+        let queue = encodeURIComponent(data.get("name"));
+        let url = "/api/queues/" + vhost + "/" + queue;
+        body = {
+          durable: data.get("durable") == "1",
+          auto_delete: data.get("auto_delete") == "1"
+        }
+        avalanchemq.http.request("PUT", url, body)
+          .catch(function (e) {
+            console.error(e);
+          });
       });
     </script>
   </body>
