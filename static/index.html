@@ -7,7 +7,10 @@
   <body>
     <div class="container">
       <header>
-        <h1>AvalancheMQ</h1>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
         <div id="user-info">
           <span>👤:&nbsp;</span><span id="username"></span>
           <span id="vhost"></span>
@@ -21,14 +24,26 @@
         <li><a href="/exchanges">Exchanges</a></li>
       </ul>
       <h2>Overview</h2>
-      <div id="overview">
-        <div id="totals">
-          <div id="queued-messages">
-          </div>
-          <div id="message-rates">
-          </div>
-        </div>
-      </div>
+      <table id="overview" class="table">
+        <thead>
+          <tr>
+            <th>Connections</th>
+            <th>Channels</th>
+            <th>Consumers</th>
+            <th>Exchanges</th>
+            <th>Queues</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="connections"></td>
+            <td class="channels"></td>
+            <td class="consumers"></td>
+            <td class="exchanges"></td>
+            <td class="queues"></td>
+          </tr>
+        </tbody>
+      </table>
       <form id="definitions" method="post" enctype="multipart/form-data" action="/definitions">
         <fieldset>
           <legend>Upload definitions</legend>
@@ -42,6 +57,7 @@
 <script src="/js/auth.js"></script>
 <script src="/js/http.js"></script>
 <script src="/js/overview.js"></script>
+<script src="/js/table.js"></script>
 <script>
   (function () {
     avalanchemq.overview.start();
