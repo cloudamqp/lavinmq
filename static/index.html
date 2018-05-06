@@ -58,20 +58,5 @@
 <script src="/js/http.js"></script>
 <script src="/js/overview.js"></script>
 <script src="/js/table.js"></script>
-<script>
-  (function () {
-    avalanchemq.overview.start();
-
-    document.querySelector("#definitions").addEventListener("submit", function (evt) {
-      evt.preventDefault();
-      var xhr = new XMLHttpRequest();
-      avalanchemq.http.request("POST", "/definitions", new FormData(this))
-        .then(function () {
-          window.location.assign('/');
-        }).catch(function () {
-          alert("Upload failed");
-        });
-    });
-  })();
-</script>
+<script> avalanchemq.overview.start(); </script>
 

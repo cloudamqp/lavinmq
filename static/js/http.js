@@ -30,6 +30,10 @@
     window.location.assign("/login");
   }
 
+  function formDataToJson(data) {
+    Array.from(data).map(function (e) { this[e[0]] = e[1]; return this; }.bind({}))[0];
+  }
+
   function request(method, path, body) {
     let request = new Request(path);
     let headers = new Headers();
@@ -38,7 +42,11 @@
     }
     var hdr = avalanchemq.auth.header();
     headers.append('Authorization', hdr);
-    headers.append('Content-Type', 'application/json');
+    if (body instanceof FormData) {
+      headers.append('Content-Type', 'multipart/form-data');
+    } else {
+      headers.append('Content-Type', 'application/json');
+    }
     let opts = {
       method: method,
       headers: headers,
@@ -47,9 +55,6 @@
       redirect: "follow"
     };
     if (body) {
-      if (body instanceof FormData) {
-        body = Array.from(body).map(function (e) { this[e[0]] = e[1]; return this; }.bind({}))[0];
-      }
       opts.body = JSON.stringify(body);
     }
     return fetch(request, opts)
