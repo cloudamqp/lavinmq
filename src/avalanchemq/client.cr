@@ -84,7 +84,7 @@ module AvalancheMQ
           socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
                                                    start_ok.class_id,
                                                    start_ok.method_id).to_slice
-          AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+          wait_for_frame(socket, AMQP::Connection::CloseOk)
         end
         socket.close
         return
@@ -103,14 +103,14 @@ module AvalancheMQ
           reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
           socket.write AMQP::Connection::Close.new(403_u16, reply_text,
                                                    open.class_id, open.method_id).to_slice
-          AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+          wait_for_frame(socket, AMQP::Connection::CloseOk)
           socket.close
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
-        socket.write AMQP::Connection::Close.new(402_u16, "INVALID_PATH - vhost not found",
+        socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
                                                  open.class_id, open.method_id).to_slice
-        AMQP::Frame.decode(socket).as(AMQP::Connection::CloseOk)
+        wait_for_frame(socket, AMQP::Connection::CloseOk)
         socket.close
       end
       nil
@@ -510,5 +510,14 @@ module AvalancheMQ
         send(AMQP::HeartbeatFrame.new) || break
       end
     end
+
+    {% for t in AMQP::Frame.all_subclasses %}
+      def self.wait_for_frame(socket, frame_type : {{ t }}.class)
+        loop do
+          frame = AMQP::Frame.decode(socket)
+          return frame.as({{ t }}) if typeof(frame) == frame_type
+        end
+      end
+    {% end %}
   end
 end
