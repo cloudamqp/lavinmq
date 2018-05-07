@@ -40,7 +40,7 @@ module AvalancheMQ
       s = TCPServer.new("::", port)
       s.sync = true
       @listeners << s
-      @log.info "Listening on #{s.local_address}"
+      @log.info { "Listening on #{s.local_address}" }
       loop do
         if socket = s.accept?
           spawn handle_connection(socket)
@@ -61,7 +61,7 @@ module AvalancheMQ
       context = OpenSSL::SSL::Context::Server.new
       context.certificate_chain = cert_path
       context.private_key = key_path
-      @log.info "Listening on #{s.local_address} (TLS)"
+      @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         if client = s.accept?
           begin

@@ -85,7 +85,7 @@ module AvalancheMQ
     private def refuse_unless_management(context, user, vhost = nil)
       vhost_access = vhost.nil? || user.permissions.has_key?(vhost)
       unless vhost_access
-        @log.debug "user=#{user.name} does not have management access on vhost=#{vhost}"
+        @log.debug { "user=#{user.name} does not have management access on vhost=#{vhost}" }
         access_refused(context)
       end
     end
@@ -93,7 +93,7 @@ module AvalancheMQ
     private def refuse_unless_policymaker(context, user, vhost = nil)
       refuse_unless_management(context, user, vhost)
       unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
-        @log.debug "user=#{user.name} does not have policymaker access on vhost=#{vhost}"
+        @log.debug { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
         access_refused(context)
       end
     end
@@ -101,7 +101,7 @@ module AvalancheMQ
     private def refuse_unless_monitoring(context, user)
       refuse_unless_management(context, user)
       unless user.tags.any? { |t| t.administrator? || t.monitoring? }
-        @log.debug "user=#{user.name} does not have monitoring access"
+        @log.debug { "user=#{user.name} does not have monitoring access" }
         access_refused(context)
       end
     end
@@ -110,7 +110,7 @@ module AvalancheMQ
       refuse_unless_policymaker(context, user)
       refuse_unless_monitoring(context, user)
       unless user.tags.any? &.administrator?
-        @log.debug "user=#{user.name} does not have administrator access"
+        @log.debug { "user=#{user.name} does not have administrator access" }
         access_refused(context)
       end
     end

@@ -120,7 +120,7 @@ module AvalancheMQ
     end
 
     protected def delete
-      @vhost.log.info "Deleting exchange: #{@name}"
+      @vhost.log.info { "Deleting exchange: #{@name}" }
       @vhost.apply AMQP::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
     end
 

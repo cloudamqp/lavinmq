@@ -110,7 +110,7 @@ module AvalancheMQ
             sp = SegmentPosition.decode enq
             @ready << sp unless acked.includes? sp
           end
-          @log.info "#{message_count} messages"
+          @log.info { "#{message_count} messages" }
         end
       end
     rescue ex : Errno

@@ -109,7 +109,7 @@ module AvalancheMQ
 
     private def fetch_vhost?(vhosts, name)
       vhost = vhosts[name]? || nil
-      @log.warn "No vhost named #{name}, can't import #{name}" unless vhost
+      @log.warn { "No vhost named #{name}, can't import #{name}" } unless vhost
       vhost
     end
 
