@@ -113,7 +113,6 @@ module AvalancheMQ
                                               msg.exchange_name, msg.routing_key)
             deliver(r_frame, msg)
           end
-          @client.vhost.send_to_alternate_exchange?(msg, @next_publish_immediate)
         end
         if @confirm
           @confirm_count += 1

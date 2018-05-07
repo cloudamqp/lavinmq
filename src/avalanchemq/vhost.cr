@@ -40,6 +40,10 @@ module AvalancheMQ
     end
 
     def publish(msg : Message, immediate = false) : Bool
+      try_publish(msg, immediate) || send_to_alternate_exchange?(msg, immediate)
+    end
+
+    private def try_publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
 
@@ -62,7 +66,7 @@ module AvalancheMQ
       ok = exchanges.map do |e|
         emsg = msg.dup
         emsg.exchange_name = e.name
-        publish(emsg, immediate)
+        publish(emsg, immediate).as Bool
       end.any?
 
       pos = @wfile.pos.to_u32
@@ -87,16 +91,17 @@ module AvalancheMQ
       return queues.any? { |q| q.publish(sp, flush) } || ok
     end
 
-    def send_to_alternate_exchange?(msg, immediate = false, visited = [] of String)
+    private def send_to_alternate_exchange?(msg, immediate = false, visited = [] of String)
       if ae = @exchanges[msg.exchange_name]?.try &.alternate_exchange
         visited.push(msg.exchange_name)
         unless visited.includes?(ae)
           ae_msg = msg.dup
           ae_msg.exchange_name = ae
           ok = publish(ae_msg, immediate)
-          send_to_alternate_exchange?(ae_msg, immediate, visited) unless ok
+          return send_to_alternate_exchange?(ae_msg, immediate, visited) unless ok
         end
       end
+      return false
     end
 
     private def open_wfile : MessageFile
