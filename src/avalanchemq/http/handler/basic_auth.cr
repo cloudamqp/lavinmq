@@ -9,6 +9,9 @@ module AvalancheMQ
     end
 
     def call(context)
+      unless context.request.path.starts_with?("/api/")
+        return call_next(context)
+      end
       auth = context.request.headers.fetch("Authorization", nil)
       if auth && auth.starts_with? "Basic "
         base64 = auth[6..-1]
