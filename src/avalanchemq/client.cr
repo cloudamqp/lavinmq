@@ -40,6 +40,7 @@ module AvalancheMQ
       @client_properties = start_ok.client_properties
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
+      spawn { heartbeat_loop } unless @heartbeat == 0
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -490,13 +491,24 @@ module AvalancheMQ
         @log.info "Disconnected"
         @socket.close
         cleanup
+        return false
       end
+      true
     rescue ex : IO::Error | Errno
       @log.info { "Lost connection, while sending (#{ex})" }
       cleanup
+      false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+    end
+
+    private def heartbeat_loop
+      @log.debug { "Starting heartbeat loop with #{@heartbeat}s interval" }
+      loop do
+        sleep @heartbeat
+        send(AMQP::HeartbeatFrame.new) || break
+      end
     end
   end
 end

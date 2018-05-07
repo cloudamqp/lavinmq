@@ -1,5 +1,19 @@
 require "./spec_helper"
 
+class AMQP::Broker
+  def when_heartbeat(&block)
+    @heartbeat_blk = block
+  end
+
+  def heartbeats_started?
+    @heartbeater_started
+  end
+
+  private def on_heartbeat
+    @heartbeat_blk.try &.call
+  end
+end
+
 describe AvalancheMQ::Server do
   it "accepts connections" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
@@ -667,6 +681,31 @@ describe AvalancheMQ::Server do
       x1.publish(AMQP::Message.new("m1"), "rk")
       msg = q.get(no_ack: true)
       msg.to_s.should eq("m1")
+    end
+  ensure
+    close(s)
+  end
+
+  it "supports heartbeats" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    listen(s, 5672)
+    AMQP::Connection.start(AMQP::Config.new(heartbeat: 1.seconds)) do |conn|
+      hb = false
+      ch = conn.channel
+      ch.broker.when_heartbeat { hb = true }
+      wait_for { hb }
+      hb.should be_true
+      ch.broker.heartbeats_started?.should be_true
+    end
+  ensure
+    close(s)
+  end
+
+  it "supports heartbeats off" do
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    listen(s, 5672)
+    AMQP::Connection.start(AMQP::Config.new(heartbeat: 0.seconds)) do |conn|
+      conn.channel.broker.heartbeats_started?.should be_false
     end
   ensure
     close(s)
