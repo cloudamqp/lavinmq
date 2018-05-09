@@ -46,10 +46,9 @@ module AvalancheMQ
     private def try_publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
-
       ok = false
+
       matches = ex.matches(msg.routing_key, msg.properties.headers)
-      return false if matches.empty?
       if cc = msg.properties.headers.try(&.fetch("CC", nil))
         cc.as(Array(AMQP::Field)).each do |rk|
           matches.concat(ex.matches(rk.as(String), msg.properties.headers))
@@ -60,14 +59,16 @@ module AvalancheMQ
           matches.concat(ex.matches(rk.as(String), msg.properties.headers))
         end
       end
+
+      return false if matches.empty?
       exchanges = matches.compact_map { |m| m.as? Exchange }
       queues = matches.compact_map { |m| m.as? Queue }
-      return false if immediate && (queues.empty? || queues.any? { |q| !q.immediate_delivery? })
       ok = exchanges.map do |e|
         emsg = msg.dup
         emsg.exchange_name = e.name
         publish(emsg, immediate).as Bool
       end.any?
+      return ok if immediate && (queues.empty? || queues.any? { |q| !q.immediate_delivery? })
 
       pos = @wfile.pos.to_u32
 
