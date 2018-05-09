@@ -26,9 +26,9 @@ module AvalancheMQ
           delivery_tag = @channel.next_delivery_tag(queue, sp, @no_ack, self)
           @log.debug { "Sending BasicDeliver" }
           deliver = AMQP::Basic::Deliver.new(@channel.id, @tag,
-                                                 delivery_tag,
-                                                 redelivered,
-                                                 msg.exchange_name, msg.routing_key)
+                                             delivery_tag,
+                                             redelivered,
+                                             msg.exchange_name, msg.routing_key)
           @channel.deliver(deliver, msg)
         end
 
