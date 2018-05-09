@@ -13,7 +13,8 @@ require "./parameter"
 module AvalancheMQ
   class Server
     getter connections, vhosts, users, data_dir, log, parameters
-
+    alias ConfigValue = UInt16
+    property config = Hash(String, ConfigValue).new
     include ParameterTarget
 
     @running = false

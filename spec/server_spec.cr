@@ -703,8 +703,9 @@ describe AvalancheMQ::Server do
 
   it "supports heartbeats off" do
     s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s.config["heartbeat"] = 0_u16
     listen(s, 5672)
-    AMQP::Connection.start(AMQP::Config.new(heartbeat: 0.seconds)) do |conn|
+    AMQP::Connection.start do |conn|
       conn.channel.broker.heartbeats_started?.should be_false
     end
   ensure

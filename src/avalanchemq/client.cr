@@ -89,9 +89,10 @@ module AvalancheMQ
         socket.close
         return
       end
+      heartbeat = server.config.fetch("heartbeat", 60_u16).as(UInt16)
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
                                               frame_max: 131072_u32,
-                                              heartbeat: 0_u16).to_slice
+                                              heartbeat: heartbeat).to_slice
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
