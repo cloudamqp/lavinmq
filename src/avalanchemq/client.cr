@@ -376,6 +376,7 @@ module AvalancheMQ
       cleanup
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect}" }
+      @log.debug { ex.inspect_with_backtrace }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
@@ -457,6 +458,7 @@ module AvalancheMQ
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::MethodFrame
       @log.error { "#{ex.inspect}, when processing frame" }
+      @log.debug { ex.inspect_with_backtrace }
       send AMQP::Channel::Close.new(frame.channel, 541_u16, "INTERNAL_ERROR",
                                     frame.class_id, frame.method_id)
       true
@@ -512,6 +514,7 @@ module AvalancheMQ
       false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect}" }
+      @log.debug { ex.inspect_with_backtrace }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
