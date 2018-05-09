@@ -6,7 +6,8 @@ require "./client/*"
 module AvalancheMQ
   class Client
     getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues,
-           remote_address, name, auth_service
+           remote_address, name, auth_service, server, direct_reply_consumer_tag
+    setter direct_reply_consumer_tag
 
     @log : Logger
     @connected_at : Int64
@@ -18,9 +19,11 @@ module AvalancheMQ
     @socket : TCPSocket | OpenSSL::SSL::Socket
     @remote_address : Socket::IPAddress
     @local_address : Socket::IPAddress
+    @direct_reply_consumer_tag : String?
 
     def initialize(@tcp_socket : TCPSocket,
                    @ssl_client : OpenSSL::SSL::Socket?,
+                   @server : Server,
                    @vhost : VHost,
                    @user : User,
                    tune_ok,
@@ -44,7 +47,7 @@ module AvalancheMQ
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(tcp_socket, ssl_client, vhosts, users, log)
+    def self.start(tcp_socket, ssl_client, server, vhosts, users, log)
       socket = ssl_client.nil? ? tcp_socket : ssl_client
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
@@ -98,7 +101,7 @@ module AvalancheMQ
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
-          return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
+          return self.new(tcp_socket, ssl_client, server, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
@@ -249,6 +252,10 @@ module AvalancheMQ
         end
       elsif frame.passive
         send_not_found(frame)
+      elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to$/
+        unless frame.no_wait
+          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+        end
       elsif frame.queue_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else

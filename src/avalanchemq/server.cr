@@ -12,11 +12,12 @@ require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, log, parameters
+    getter connections, vhosts, users, data_dir, log, parameters, direct_reply_channels
     alias ConfigValue = UInt16
     property config = Hash(String, ConfigValue).new
     include ParameterTarget
 
+    @direct_reply_channels = Hash(String, Client::Channel).new
     @running = false
 
     def initialize(@data_dir : String, log_level)
@@ -129,7 +130,7 @@ module AvalancheMQ
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
       #socket.send_buffer_size = 65536
-      client = Client.start(socket, ssl_client, @vhosts, @users, @log)
+      client = Client.start(socket, ssl_client, self, @vhosts, @users, @log)
       if client
         @connection_events.send({ client, :connected })
         client.on_close do |c|

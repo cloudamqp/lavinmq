@@ -9,6 +9,14 @@ module AvalancheMQ
 
       abstract def to_slice : Bytes
 
+      def method_id
+        0_u16
+      end
+
+      def class_id
+        0_u16
+      end
+
       def wrap(io, body_size : Number? = nil)
         io.write_byte @type.value
         io.write_bytes @channel, ::IO::ByteFormat::NetworkEndian
