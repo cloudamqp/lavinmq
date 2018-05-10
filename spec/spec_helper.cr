@@ -8,6 +8,12 @@ require "uri"
 
 FileUtils.rm_rf("/tmp/spec")
 
+{% if flag?(:debug) %}
+  LOG_LEVEL = Logger::DEBUG
+{% else %}
+  LOG_LEVEL = Logger::ERROR
+{% end %}
+
 module TestHelpers
   def wait_for
     timeout = Time.now + 1.seconds
@@ -27,10 +33,14 @@ module TestHelpers
     req_hdrs
   end
 
-  def create_servers(dir = "/tmp/spec", level = Logger::ERROR)
+  def create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     s = AvalancheMQ::Server.new(dir, level)
     h = AvalancheMQ::HTTPServer.new(s, 8080)
     { s, h }
+  end
+
+  def amqp_server(dir = "/tmp/spec", level = LOG_LEVEL)
+    AvalancheMQ::Server.new(dir, level)
   end
 
   def listen(server : (AvalancheMQ::HTTPServer | AvalancheMQ::Server), port : Int)

@@ -2,7 +2,7 @@ require "./spec_helper"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -19,7 +19,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can delete queue" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -43,7 +43,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can reject message" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -61,7 +61,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can reject and requeue message" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -79,7 +79,7 @@ describe AvalancheMQ::Server do
   end
 
   it "rejects all unacked msgs when disconnecting" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -101,7 +101,7 @@ describe AvalancheMQ::Server do
   end
 
   it "respects prefetch" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -122,7 +122,7 @@ describe AvalancheMQ::Server do
   end
 
   it "respects prefetch and acks" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -146,7 +146,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can delete exchange" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -158,7 +158,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can auto delete exchange" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
@@ -179,7 +179,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can purge a queue" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -194,7 +194,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports publisher confirms" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -220,7 +220,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports mandatory publish flag" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -239,7 +239,7 @@ describe AvalancheMQ::Server do
   end
 
   it "expires messages" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -257,7 +257,7 @@ describe AvalancheMQ::Server do
   end
 
   it "expires messages with message TTL on queue declaration" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -279,7 +279,7 @@ describe AvalancheMQ::Server do
   end
 
   it "dead-letter expired messages" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -303,7 +303,7 @@ describe AvalancheMQ::Server do
   end
 
   it "handle immediate flag" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -323,7 +323,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can cancel consumers" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -342,7 +342,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange all" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -371,7 +371,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange any" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -398,7 +398,7 @@ describe AvalancheMQ::Server do
   end
 
   it "splits frames into max frame sizes" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(port: 5672, frame_max: 4096_u32)) do |conn|
@@ -417,7 +417,7 @@ describe AvalancheMQ::Server do
   end
 
   it "acking an invalid delivery tag should close the channel" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -435,7 +435,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can bind exchanges to exchanges" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -456,7 +456,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length drop-head" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -482,7 +482,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length reject-publish" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -511,7 +511,7 @@ describe AvalancheMQ::Server do
   end
 
   it "disallows creating queues starting with amq." do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -525,7 +525,7 @@ describe AvalancheMQ::Server do
   end
 
   it "disallows deleting exchanges named amq.*" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -541,7 +541,7 @@ describe AvalancheMQ::Server do
   end
 
   it "disallows creating new exchanges named amq.*" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -555,7 +555,7 @@ describe AvalancheMQ::Server do
   end
 
   it "only allow one consumer on when exlusive consumers flag is set" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -578,7 +578,7 @@ describe AvalancheMQ::Server do
   end
 
   it "only allow one connection access an exlusive queues" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -596,7 +596,7 @@ describe AvalancheMQ::Server do
   end
 
   it "it persists msgs between restarts" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -612,7 +612,7 @@ describe AvalancheMQ::Server do
     end
     close(s)
 
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -626,7 +626,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports max-length" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     definitions = JSON::Any.new({ "max-length" => 1_i64 } of String => JSON::Type)
     s.vhosts["/"].add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
     spawn { s.not_nil!.listen(5672) }
@@ -654,7 +654,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports alternate-exchange" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel

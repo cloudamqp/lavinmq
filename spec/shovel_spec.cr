@@ -3,7 +3,7 @@ require "../src/avalanchemq/shovel"
 
 describe AvalancheMQ::Shovel do
   it "can shovel and stop when queue length is met" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -31,7 +31,7 @@ describe AvalancheMQ::Shovel do
   end
 
   it "can shovel large messages" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
@@ -59,7 +59,7 @@ describe AvalancheMQ::Shovel do
   end
 
   it "can shovel forever" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
