@@ -8,7 +8,7 @@ require "uri"
 
 FileUtils.rm_rf("/tmp/spec")
 
-{% if flag?(:debug) %}
+{% if flag?(:verbose) %}
   LOG_LEVEL = Logger::DEBUG
 {% else %}
   LOG_LEVEL = Logger::ERROR
