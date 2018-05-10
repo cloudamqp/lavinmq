@@ -88,15 +88,14 @@ module AvalancheMQ
           socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
                                                    start_ok.class_id,
                                                    start_ok.method_id).to_slice
-          await_connection_closeok(socket)
+          await_connection_closeok(socket, log)
         end
         socket.close
         return
       end
-      heartbeat = server.config.fetch("heartbeat", 60_u16).as(UInt16)
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
                                               frame_max: 131072_u32,
-                                              heartbeat: heartbeat).to_slice
+                                              heartbeat: server.config["heartbeat"]).to_slice
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
@@ -108,14 +107,14 @@ module AvalancheMQ
           reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
           socket.write AMQP::Connection::Close.new(403_u16, reply_text,
                                                    open.class_id, open.method_id).to_slice
-          await_connection_closeok(socket)
+          await_connection_closeok(socket, log)
           socket.close
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
         socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
                                                  open.class_id, open.method_id).to_slice
-        await_connection_closeok(socket)
+        await_connection_closeok(socket, log)
         socket.close
       end
       nil
@@ -471,7 +470,11 @@ module AvalancheMQ
 
     private def with_channel(frame)
       ch = @channels[frame.channel]
-      yield ch if ch.running?
+      if ch.running?
+        yield ch
+      else
+        @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+      end
     end
 
     def close_connection(frame, code, text)
@@ -535,10 +538,11 @@ module AvalancheMQ
       end
     end
 
-    def self.await_connection_closeok(socket)
+    def self.await_connection_closeok(socket, log)
       loop do
         frame = AMQP::Frame.decode(socket)
         break frame if frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
+        log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
       end
     end
   end
