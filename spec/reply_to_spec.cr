@@ -100,5 +100,19 @@ describe AvalancheMQ::Server do
     ensure
       close(s)
     end
+
+    it "should be ok to declare reply-to queue to check if consumer is connected" do
+      s = amqp_server
+      listen(s, 5672)
+      AMQP::Connection.start do |conn|
+        ch = conn.channel
+        queue = AMQP::Queue.new(ch, "amq.direct.reply-to.random", false,
+                                false, false, AMQP::Protocol::Table.new)
+        resp = queue.declare
+        resp[1].should eq 0
+      end
+    ensure
+      close(s)
+    end
   end
 end

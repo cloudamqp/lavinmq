@@ -253,9 +253,10 @@ module AvalancheMQ
         end
       elsif frame.passive
         send_not_found(frame)
-      elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to$/
+      elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
         unless frame.no_wait
-          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+          consumer_count = direct_reply_channel.nil? ? 0_u32 : 1_u32
+          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, consumer_count)
         end
       elsif frame.queue_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
@@ -474,6 +475,12 @@ module AvalancheMQ
         yield ch
       else
         @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+      end
+    end
+
+    def direct_reply_channel
+      if direct_reply_consumer_tag
+        server.direct_reply_channels[direct_reply_consumer_tag]?
       end
     end
 

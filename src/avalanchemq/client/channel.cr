@@ -82,7 +82,7 @@ module AvalancheMQ
 
       def next_msg_headers(frame)
         if direct_reply_request?(frame.properties.reply_to)
-          if @client.direct_reply_consumer_tag
+          if @client.direct_reply_channel
             frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
           else
             @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
