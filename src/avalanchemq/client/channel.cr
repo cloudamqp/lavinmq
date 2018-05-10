@@ -81,6 +81,14 @@ module AvalancheMQ
       end
 
       def next_msg_headers(frame)
+        if direct_reply_request?(frame.properties.reply_to)
+          if @client.direct_reply_consumer_tag
+            frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
+          else
+            @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
+            return
+          end
+        end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
         finish_publish(frame) if frame.body_size.zero?
@@ -103,13 +111,7 @@ module AvalancheMQ
                           @next_msg_props.not_nil!,
                           @next_msg_size.not_nil!,
                           @next_msg_body.not_nil!.to_slice)
-        if direct_reply_request?(msg.properties.reply_to)
-          if @client.direct_reply_consumer_tag
-            msg.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
-          else
-            @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
-          end
-        elsif msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
+        if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
           @client.server.direct_reply_channels[consumer_tag]?.try do |ch|
             deliver = AMQP::Basic::Deliver.new(id, consumer_tag, 1_u64, false,
