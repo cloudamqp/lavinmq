@@ -690,14 +690,6 @@ describe AvalancheMQ::Server do
       q = ch.queue("test", args: args)
       sleep 5.milliseconds
       Fiber.yield
-      sleep 5.milliseconds
-      Fiber.yield
-      sleep 5.milliseconds
-      Fiber.yield
-      sleep 5.milliseconds
-      Fiber.yield
-      sleep 5.milliseconds
-      Fiber.yield
       s.vhosts["/"].queues.has_key?("test").should be_false
     end
   ensure
