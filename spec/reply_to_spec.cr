@@ -114,5 +114,24 @@ describe AvalancheMQ::Server do
     ensure
       close(s)
     end
+
+    it "should return on mandatory publish to a reply routing key" do
+      s = amqp_server
+      listen(s, 5672)
+      AMQP::Connection.start do |conn|
+        ch = conn.channel
+        pmsg = AMQP::Message.new("m1")
+        ch1 = Channel(Tuple(UInt16, String)).new
+        ch.on_return do |code, text|
+          ch1.send({ code, text })
+        end
+        ch.publish(pmsg, "amq.direct", "amq.direct.reply-to.random", mandatory: true)
+        reply_code, reply_text = ch1.receive
+        reply_code.should eq 312
+        reply_text.should eq "No Route"
+      end
+    ensure
+      close(s)
+    end
   end
 end
