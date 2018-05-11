@@ -199,6 +199,7 @@ module AvalancheMQ
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
           end
+          q.last_get_time = Time.utc_now.epoch_ms
         else
           reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'"
           @client.close_channel(frame, 404_u16, reply_code)

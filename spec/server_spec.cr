@@ -679,4 +679,28 @@ describe AvalancheMQ::Server do
   ensure
     close(s)
   end
+
+  it "supports expires" do
+    s = amqp_server
+    listen(s, 5672)
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      args = AMQP::Protocol::Table.new
+      args["x-expires"] = 1
+      q = ch.queue("test", args: args)
+      sleep 5.milliseconds
+      Fiber.yield
+      sleep 5.milliseconds
+      Fiber.yield
+      sleep 5.milliseconds
+      Fiber.yield
+      sleep 5.milliseconds
+      Fiber.yield
+      sleep 5.milliseconds
+      Fiber.yield
+      s.vhosts["/"].queues.has_key?("test").should be_false
+    end
+  ensure
+    close(s)
+  end
 end
