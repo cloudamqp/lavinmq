@@ -12,13 +12,15 @@ require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, log, parameters
-
+    getter connections, vhosts, users, data_dir, log, parameters, direct_reply_channels, config
+    alias ConfigValue = UInt16
     include ParameterTarget
 
+    @direct_reply_channels = Hash(String, Client::Channel).new
     @running = false
+    @config = { "heartbeat" => 60_u16 } of String => ConfigValue
 
-    def initialize(@data_dir : String, log_level)
+    def initialize(@data_dir : String, log_level, config = Hash(String, ConfigValue).new)
       @log = Logger.new(STDOUT)
       @log.level = log_level
       @log.progname = "amqpserver"
@@ -32,6 +34,7 @@ module AvalancheMQ
       @vhosts = VHostStore.new(@data_dir, @log)
       @users = UserStore.new(@data_dir, @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @config.merge!(config)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -128,7 +131,7 @@ module AvalancheMQ
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
       #socket.send_buffer_size = 65536
-      client = Client.start(socket, ssl_client, @vhosts, @users, @log)
+      client = Client.start(socket, ssl_client, self, @vhosts, @users, @log)
       if client
         @connection_events.send({ client, :connected })
         client.on_close do |c|

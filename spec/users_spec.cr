@@ -2,7 +2,7 @@ require "./spec_helper"
 
 describe AvalancheMQ::Server do
   it "rejects invalid password" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     Fiber.yield
     expect_raises(Channel::ClosedError) do
@@ -14,7 +14,7 @@ describe AvalancheMQ::Server do
   end
 
   it "rejects invalid user" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     Fiber.yield
     expect_raises(Channel::ClosedError) do
@@ -27,7 +27,7 @@ describe AvalancheMQ::Server do
   end
 
   it "disallow users who dont have vhost access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.rm_permission("guest", "v1")
@@ -43,7 +43,7 @@ describe AvalancheMQ::Server do
   end
 
   it "allows users with access to vhost" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.listen(5672) }
     s.vhosts.create("v1")
     s.users.create("u1", "p1")
@@ -59,7 +59,7 @@ describe AvalancheMQ::Server do
   end
 
   it "prohibits declaring exchanges if don't have access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
@@ -77,7 +77,7 @@ describe AvalancheMQ::Server do
   end
 
   it "prohibits declaring queues if don't have access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
@@ -95,7 +95,7 @@ describe AvalancheMQ::Server do
   end
 
   it "prohibits publish if user doesn't have access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /.*/, /^$/)
@@ -117,7 +117,7 @@ describe AvalancheMQ::Server do
   end
 
   it "prohibits consuming if user doesn't have access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
@@ -136,7 +136,7 @@ describe AvalancheMQ::Server do
   end
 
   it "prohibits getting from queue if user doesn't have access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
@@ -155,7 +155,7 @@ describe AvalancheMQ::Server do
   end
 
   it "prohibits purging queue if user doesn't have write access" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /^$/, /.*/, /^$/)
@@ -174,7 +174,7 @@ describe AvalancheMQ::Server do
   end
 
   it "allows declaring exchanges passivly even without config perms" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
@@ -191,7 +191,7 @@ describe AvalancheMQ::Server do
   end
 
   it "allows declaring queues passivly even without config perms" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
@@ -213,7 +213,7 @@ describe AvalancheMQ::Server do
   end
 
   it "disallows deleting queues without config perms" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
@@ -237,7 +237,7 @@ describe AvalancheMQ::Server do
   end
 
   it "disallows deleting exchanges without config perms" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
@@ -261,7 +261,7 @@ describe AvalancheMQ::Server do
   end
 
   it "binding queue required write perm on queue" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
@@ -287,7 +287,7 @@ describe AvalancheMQ::Server do
   end
 
   it "binding queue required read perm on exchange" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
@@ -313,7 +313,7 @@ describe AvalancheMQ::Server do
   end
 
   it "unbinding queue required write perm on queue" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /.*/, /.*/)
@@ -340,7 +340,7 @@ describe AvalancheMQ::Server do
   end
 
   it "unbinding queue required read perm on exchange" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR)
+    s = amqp_server
     spawn { s.try &.listen(5672) }
     s.try &.vhosts.create("v1")
     s.try &.users.add_permission("guest", "v1", /.*/, /.*/, /.*/)

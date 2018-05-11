@@ -7,6 +7,7 @@ module AvalancheMQ
     class Channel
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
+      property? running = true
 
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
@@ -14,7 +15,6 @@ module AvalancheMQ
       @next_msg_props : AMQP::Properties?
       @next_msg_body = IO::Memory.new
       @log : Logger
-      @running = true
 
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
@@ -71,7 +71,7 @@ module AvalancheMQ
       def start_publish(frame)
         unless @client.user.can_write?(@client.vhost.name, frame.exchange)
           @client.send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
-          return false
+          return
         end
 
         @next_publish_exchange_name = frame.exchange
@@ -81,6 +81,14 @@ module AvalancheMQ
       end
 
       def next_msg_headers(frame)
+        if direct_reply_request?(frame.properties.reply_to)
+          if @client.direct_reply_channel
+            frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
+          else
+            @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
+            return
+          end
+        end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
         finish_publish(frame) if frame.body_size.zero?
@@ -96,13 +104,23 @@ module AvalancheMQ
       end
 
       private def finish_publish(frame)
+        delivered = false
         msg = Message.new(Time.utc_now.epoch_ms,
                           @next_publish_exchange_name.not_nil!,
                           @next_publish_routing_key.not_nil!,
                           @next_msg_props.not_nil!,
                           @next_msg_size.not_nil!,
                           @next_msg_body.not_nil!.to_slice)
-        delivered = @client.vhost.publish(msg, immediate: @next_publish_immediate)
+        if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
+          consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
+          @client.server.direct_reply_channels[consumer_tag]?.try do |ch|
+            deliver = AMQP::Basic::Deliver.new(id, consumer_tag, 1_u64, false,
+                                               msg.exchange_name, msg.routing_key)
+            ch.deliver(deliver, msg)
+            delivered = true
+          end
+        end
+        delivered ||= @client.vhost.publish(msg, immediate: @next_publish_immediate)
         unless delivered
           if @next_publish_immediate
             r_frame = AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
@@ -122,7 +140,7 @@ module AvalancheMQ
             @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false)
           end
         end
-
+      ensure
         @next_msg_body.not_nil!.clear
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
@@ -133,7 +151,18 @@ module AvalancheMQ
           @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
           return
         end
-        if q = @client.vhost.queues[frame.queue]? || nil
+        if frame.consumer_tag.empty?
+          frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
+        end
+        if direct_reply_request?(frame.queue)
+          unless frame.no_ack
+            @client.send_precondition_failed(frame, "Direct replys must be consumed in no-ack mode")
+            return
+          end
+          @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
+          @client.direct_reply_consumer_tag = frame.consumer_tag
+          @client.server.direct_reply_channels[frame.consumer_tag] = self
+        elsif q = @client.vhost.queues[frame.queue]? || nil
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
             return
@@ -142,17 +171,14 @@ module AvalancheMQ
             @client.send_access_refused(frame, "queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          if frame.consumer_tag.empty?
-            frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
-          end
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
-          unless frame.no_wait
-            @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
-          end
           @consumers.push(c)
           q.add_consumer(c)
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
+        end
+        unless frame.no_wait
+          @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
       end
 
@@ -175,7 +201,7 @@ module AvalancheMQ
           end
         else
           reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'"
-          @client.send AMQP::Channel::Close.new(frame.channel, 404_u16, reply_code, frame.class_id, frame.method_id)
+          @client.close_channel(frame, 404_u16, reply_code)
           close
         end
       end
@@ -306,6 +332,12 @@ module AvalancheMQ
             @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         end
+      end
+
+      DIRECT_REPLY_PREFIX = "amq.direct.reply-to"
+      def direct_reply_request?(str)
+        # no regex for speed
+        str.try { |r| r == "amq.rabbitmq.reply-to" || r == DIRECT_REPLY_PREFIX }
       end
     end
   end
