@@ -1,0 +1,51 @@
+#!/bin/sh
+set -eu
+[ $# -eq 1 ] || (echo "usage: $(basename $0) pkg_revision" && exit 1)
+pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheMQ::VERSION')
+pkg_revision=$1
+name=avalanchemq_$pkg_version-$pkg_revision
+
+shards build --release --production
+
+rm -rf $name
+mkdir -p $name/DEBIAN
+mkdir -p $name/usr/bin
+mkdir -p $name/etc/systemd/system
+mkdir -p $name/etc/avalanchemq
+cp bin/* $name/usr/bin/
+cp extras/avalanchemq.service $name/etc/systemd/system/
+
+cat > $name/DEBIAN/control << EOF
+Package: avalanchemq
+Version: $pkg_version-$pkg_revision
+Homepage: https://github.com/cloudamqp/avalanchemq
+Section: contrib
+Priority: optional
+Architecture: $(dpkg --print-architecture)
+Depends: openssl (>= 1.0.1), systemd
+Maintainer: CloudAMQP <contact@cloudamqp.com>
+Description: AvalancheMQ
+ A message queue server that implements the AMQP 0-9-1 protocol.
+ Aims to be fast (near I/O speed), have very low RAM requirements,
+ handle extreamly long queues and not require any configuration.
+
+EOF
+
+cat > $name/DEBIAN/postinst << EOF
+#!/bin/sh -e
+useradd --system avalanchemq
+systemctl --system daemon-reload
+systemctl enable avalanchemq
+systemctl restart avalanchemq
+EOF
+chmod +x $name/DEBIAN/postinst
+
+cat > $name/DEBIAN/prerm << EOF
+#!/bin/sh -e
+systemctl stop avalanchemq
+systemctl disable avalanchemq
+EOF
+chmod +x $name/DEBIAN/prerm
+
+dpkg-deb --build $name
+rm -r $name

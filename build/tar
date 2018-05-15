@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+[ $# -eq 1 ] || (echo "usage: $(basename $0) pkg_revision" && exit 1)
+pkg_revision=$1
+pkg_platform=$(uname -s | tr "[:upper:]" "[:lower:]")-$(uname -m)
+pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheMQ::VERSION')
+rm -rf avalanchemq
+mkdir avalanchemq
+shards build --release --production
+cp README.md bin/avalanchemq avalanchemq/
+tar zchf avalanchemq-$pkg_version-$pkg_revision.$pkg_platform.tar.gz avalanchemq/
+rm -r avalanchemq
