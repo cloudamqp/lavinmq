@@ -20,11 +20,21 @@ module AvalancheMQ
     @running = false
     @config = { "heartbeat" => 60_u16 } of String => ConfigValue
 
-    def initialize(@data_dir : String, log_level, config = Hash(String, ConfigValue).new)
+    def initialize(@data_dir : String, log_level, log_prefix_systemd_level = false, config = Hash(String, ConfigValue).new)
       @log = Logger.new(STDOUT)
       @log.level = log_level
       @log.progname = "amqpserver"
       @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
+        if log_prefix_systemd_level
+          io << case severity
+          when Logger::Severity::DEBUG then "<7>"
+          when Logger::Severity::INFO then "<6>"
+          when Logger::Severity::WARN then "<4>"
+          when Logger::Severity::ERROR then "<3>"
+          when Logger::Severity::FATAL then "<0>"
+          else
+          end
+        end
         io << progname << ": " << message
       end
       Dir.mkdir_p @data_dir
