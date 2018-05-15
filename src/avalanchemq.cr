@@ -8,18 +8,22 @@ require "ini"
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 
+config = ""
+data_dir = ""
 log_level = Logger::INFO
 port = 5672
 tls_port = 5671
-data_dir = ""
-config = ""
 cert_path = ""
 key_path = ""
+mgmt_port = 15672
+mgmt_tls_port = 15671
+mgmt_cert_path = ""
+mgmt_key_path = ""
 
 p = OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
   parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |d| data_dir = d }
-  parser.on("-c CONF", "--config=CONF", "Path to config file") do |c|
+  parser.on("-c CONF", "--config=CONF", "Config file (INI format)") do |c|
     config = c
   end
   parser.on("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)") do |p|
@@ -34,6 +38,9 @@ p = OptionParser.parse! do |parser|
   parser.on("--key FILE", "Private key for the TLS certificate") do |f|
     key_path = f
   end
+  parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |l|
+    log_level = Logger::Severity.parse(l)
+  end
   parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
@@ -42,15 +49,28 @@ end
 unless config.empty?
   if File.file?(config)
     ini = INI.parse(File.read(config))
-    port = ini["amqp"]["port"].to_i32
-    data_dir = ini["amqp"]["data_dir"]
-    log_level = Logger::DEBUG if ini["amqp"]["debug"]
+    if main = ini["main"]
+      data_dir = main["data_dir"] if main.has_key? "data_dir"
+      log_level = Logger::Severity.parse(main["log_level"]) if main.has_key? "log_level"
+    end
+    if amqp = ini["amqp"]
+      port = amqp["port"].to_i32 if amqp.has_key? "port"
+      tls_port = amqp["tls_port"].to_i32 if amqp.has_key? "tls_port"
+      cert_path = amqp["tls_cert"] if amqp.has_key? "tls_cert"
+      key_path = amqp["tls_key"] if amqp.has_key? "tls_key"
+    end
+    if mgmt = ini["mgmt"]
+      mgmt_port = mgmt["port"].to_i32 if mgmt.has_key? "port"
+      mgmt_tls_port = mgmt["tls_port"].to_i32 if mgmt.has_key? "tls_port"
+      mgmt_cert_path = mgmt["tls_cert"] if mgmt.has_key? "tls_cert"
+      mgmt_key_path = mgmt["tls_key"] if mgmt.has_key? "tls_key"
+    end
   else
     abort "Config could not be found"
   end
 end
 if data_dir.empty?
-  STDERR.puts "Path to data directory is required"
+  STDERR.puts "No data directory specified"
   STDERR.puts p
   exit 2
 end
@@ -70,7 +90,7 @@ if !cert_path.empty? && !key_path.empty?
   end
 end
 
-http_server = AvalancheMQ::HTTPServer.new(amqp_server, 15672)
+http_server = AvalancheMQ::HTTPServer.new(amqp_server, mgmt_port)
 spawn(name: "HTTP listener") do
   http_server.listen
 end
