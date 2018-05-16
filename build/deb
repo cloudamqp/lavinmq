@@ -33,7 +33,8 @@ EOF
 
 cat > $name/DEBIAN/postinst << EOF
 #!/bin/sh -e
-useradd --system avalanchemq
+adduser --system avalanchemq
+install --owner=avalanchemq --group=avalanchemq --mode=750 --directory /var/lib/avalanchemq
 systemctl --system daemon-reload
 systemctl enable avalanchemq
 systemctl restart avalanchemq
