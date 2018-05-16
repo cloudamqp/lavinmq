@@ -14,6 +14,7 @@ mkdir -p $name/etc/systemd/system
 mkdir -p $name/etc/avalanchemq
 cp bin/* $name/usr/bin/
 cp extras/avalanchemq.service $name/etc/systemd/system/
+cp extras/config.ini $name/etc/avalanchemq/avalanchemq.ini
 
 cat > $name/DEBIAN/control << EOF
 Package: avalanchemq

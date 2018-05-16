@@ -1,11 +1,11 @@
 [Unit]
-Description=AvalancheMQ - Very scalable and easily operated message queue server
+Description=AvalancheMQ
 Documentation=https://github.com/cloudamqp/avalanchemq
 Requires=network.target
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/avalanchemq -c /etc/avalanchemq/avalanchemq.conf
+ExecStart=/usr/bin/avalanchemq -c /etc/avalanchemq/avalanchemq.ini
 Restart=on-failure
 User=avalanchemq
 Group=avalanchemq
