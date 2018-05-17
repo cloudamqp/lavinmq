@@ -10,10 +10,10 @@ shards build --release --production
 rm -rf $name
 mkdir -p $name/DEBIAN
 mkdir -p $name/usr/bin
-mkdir -p $name/etc/systemd/system
+mkdir -p $name/lib/systemd/system
 mkdir -p $name/etc/avalanchemq
-cp bin/* $name/usr/bin/
-cp extras/avalanchemq.service $name/etc/systemd/system/
+cp bin/* $name/usr/bin
+cp extras/avalanchemq.service $name/lib/systemd/system
 cp extras/config.ini $name/etc/avalanchemq/avalanchemq.ini
 
 cat > $name/DEBIAN/control << EOF
@@ -28,13 +28,13 @@ Maintainer: CloudAMQP <contact@cloudamqp.com>
 Description: AvalancheMQ
  A message queue server that implements the AMQP 0-9-1 protocol.
  Aims to be fast (near I/O speed), have very low RAM requirements,
- handle extreamly long queues and not require any configuration.
+ handle extreamly long queues and require minimal configuration.
 
 EOF
 
 cat > $name/DEBIAN/postinst << EOF
 #!/bin/sh -e
-adduser --system avalanchemq
+adduser --system --group --home=/var/lib/avalanchemq avalanchemq
 install --owner=avalanchemq --group=avalanchemq --mode=750 --directory /var/lib/avalanchemq
 systemctl --system daemon-reload
 systemctl enable avalanchemq
