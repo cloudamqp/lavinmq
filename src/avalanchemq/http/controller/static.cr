@@ -1,50 +1,53 @@
 require "router"
+require "baked_file_system"
+require "digest/md5"
+
 module AvalancheMQ
   class StaticController
+    class Static
+      extend BakedFileSystem
+      bake_folder "../../../../static"
+    end
+
     include Router
 
-    def initialize(@public_dir : String)
+    def initialize
       register_routes
     end
 
     private def register_routes
       get "/" do |context, _|
-        static(context, File.join(@public_dir, "index.html"))
+        serve(context, "index.html")
+      end
+
+      %w(login connections channels queues exchanges).each do |r|
+        get "/#{r}" do |context, _|
+          serve(context, "#{r}.html")
+        end
       end
 
       get "/:filename" do |context, params|
-        static(context, file(params["filename"]))
+        serve(context, params["filename"])
       end
 
       get "/js/:filename" do |context, params|
-        static(context, File.join(@public_dir, "js", params["filename"]))
+        serve(context, "js/#{params["filename"]}")
       end
     end
 
-    private def file(filename)
-      file_path = File.join(@public_dir, "#{filename}.html")
-      unless File.exists?(file_path)
-        file_path = File.join(@public_dir, filename)
-        unless File.exists?(file_path)
-          raise HTTPServer::NotFoundError.new("#{filename} not found")
-        end
-      end
-      file_path
-    end
+    BUILD_TIME = {{ "#{`date +%s`}" }}
 
-    private def static(context, file_path)
-      file_stats = File.stat(file_path)
-      etag = file_stats.mtime.epoch_ms.to_s
+    private def serve(context, file_path)
+      file = Static.get?(file_path) || raise HTTPServer::NotFoundError.new("#{file_path} not found")
+      etag = Digest::MD5.hexdigest(file_path + BUILD_TIME)
       context.response.content_type = mime_type(file_path)
       if context.request.headers["If-None-Match"]? == etag
         context.response.status_code = 304
       else
-        context.response.headers.add("Cache-Control", "public")
+        context.response.headers.add("Cache-Control", "public,max-age=300")
         context.response.headers.add("ETag", etag)
-        context.response.content_length = file_stats.size
-        File.open(file_path) do |file|
-          IO.copy(file, context.response)
-        end
+        context.response.content_length = file.size
+        IO.copy(file, context.response)
       end
       context
     end

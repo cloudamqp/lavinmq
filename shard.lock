@@ -4,11 +4,15 @@ shards:
     github: cloudamqp/amqp.cr
     commit: 4f6b5f6a125a54e85bd1f5aee33e2fb69f147f62
 
+  baked_file_system:
+    github: schovi/baked_file_system
+    version: 0.9.6
+
   radix:
     github: luislavena/radix
     version: 0.3.8
 
   router:
     github: tbrand/router.cr
-    version: 0.2.2
+    version: 0.2.3
 
