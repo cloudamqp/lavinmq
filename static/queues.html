@@ -69,6 +69,37 @@
     <script src="/js/http.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      function fetchVhosts(cb) {
+        let url = "/api/vhosts";
+        let raw = localStorage.getItem(url);
+        if (raw) {
+          var vhosts = JSON.parse(raw);
+          cb(vhosts);
+        }
+        window.avalanchemq.http.request("GET", url).then(function (vhosts) {
+          try {
+            localStorage.setItem("/api/vhosts", JSON.stringify(vhosts));
+          } catch (e) {
+            console.error("Saving localStorage", e);
+          }
+          cb(vhosts);
+        }).catch(function (e) {
+          console.error(e.message);
+        });
+      }
+
+      function addVhostOptions(vhosts) {
+        let select = document.forms["declare"].elements["vhost"];
+        while (select.options.length) select.remove(0);
+        for (let i = 0; i < vhosts.length; i++) {
+          let opt = document.createElement("option");
+          opt.text = vhosts[i].name;
+          select.add(opt);
+        }
+      }
+
+      fetchVhosts(addVhostOptions);
+
       avalanchemq.table.renderTable("/api/queues", ["vhost", "name"], function (tr, item) {
         var features = "";
         features += item.durable ? " D" : "";
