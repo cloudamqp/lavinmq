@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-[ $# -eq 1 ] || (echo "usage: $(basename $0) pkg_revision" && exit 1)
+[ $# -eq 1 ] || (echo "usage: $(basename $0) pkg_revision"; exit 1)
+which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
 pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheMQ::VERSION')
 pkg_revision=$1
 name=avalanchemq_$pkg_version-$pkg_revision
