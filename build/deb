@@ -4,51 +4,62 @@ set -eu
 which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
 pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheMQ::VERSION')
 pkg_revision=$1
-name=avalanchemq_$pkg_version-$pkg_revision
+root=avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
 
 shards build --release --production
 
-rm -rf $name
-mkdir -p $name/DEBIAN
-mkdir -p $name/usr/bin
-mkdir -p $name/lib/systemd/system
-mkdir -p $name/etc/avalanchemq
-cp bin/* $name/usr/bin
-cp extras/avalanchemq.service $name/lib/systemd/system
-cp extras/config.ini $name/etc/avalanchemq/avalanchemq.ini
+rm -rf $root
+mkdir -p $root/DEBIAN
+mkdir -p $root/usr/bin
+mkdir -p $root/lib/systemd/system
+mkdir -p $root/etc/avalanchemq
+mkdir -p $root/usr/share/doc/avalanchemq
+install -s bin/avalanchemq $root/usr/bin
+install -s bin/avalanchemqctl $root/usr/bin
+cp extras/avalanchemq.service $root/lib/systemd/system
+cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
+cp LICENSE $root/usr/share/doc/avalanchemq/copyright
 
-cat > $name/DEBIAN/control << EOF
+cd $root
+find . -type f -not -path "./DEBIAN/*" | xargs md5sum > DEBIAN/md5sums
+cd - > /dev/null
+
+cat > $root/DEBIAN/conffiles << EOF
+/etc/avalanchemq/avalanchemq.ini
+EOF
+
+cat > $root/DEBIAN/control << EOF
 Package: avalanchemq
 Version: $pkg_version-$pkg_revision
 Homepage: https://github.com/cloudamqp/avalanchemq
-Section: contrib
+Section: net
 Priority: optional
 Architecture: $(dpkg --print-architecture)
-Depends: openssl (>= 1.0.1), systemd
+Depends: openssl (>= 1.0.1), systemd, libc6, adduser
+Installed-Size: $(du -ks $root/usr | cut -f 1)
 Maintainer: CloudAMQP <contact@cloudamqp.com>
-Description: AvalancheMQ
- A message queue server that implements the AMQP 0-9-1 protocol.
- Aims to be fast (near I/O speed), have very low RAM requirements,
- handle extreamly long queues and require minimal configuration.
+Description: message queue server that implements the AMQP 0-9-1 protocol
+ Aims to be very fast, have low RAM requirements,
+ handle extreamly long queues, many connections and
+ require minimal configuration.
 
 EOF
 
-cat > $name/DEBIAN/postinst << EOF
+cat > $root/DEBIAN/postinst << EOF
 #!/bin/sh -e
-adduser --system --group --home=/var/lib/avalanchemq avalanchemq
+adduser --system --group --quiet --no-create-home --home /nonexistent avalanchemq
 install --owner=avalanchemq --group=avalanchemq --mode=750 --directory /var/lib/avalanchemq
-systemctl --system daemon-reload
-systemctl enable avalanchemq
-systemctl restart avalanchemq
+deb-systemd-helper enable avalanchemq.service
+deb-systemd-invoke start avalanchemq.service
 EOF
-chmod +x $name/DEBIAN/postinst
+chmod +x $root/DEBIAN/postinst
 
-cat > $name/DEBIAN/prerm << EOF
+cat > $root/DEBIAN/prerm << EOF
 #!/bin/sh -e
-systemctl stop avalanchemq
-systemctl disable avalanchemq
+deb-systemd-invoke stop avalanchemq.service
+deb-systemd-helper purge avalanchemq.service
 EOF
-chmod +x $name/DEBIAN/prerm
+chmod +x $root/DEBIAN/prerm
 
-dpkg-deb --build $name
-rm -r $name
+fakeroot dpkg-deb --build $root
+rm -r $root
