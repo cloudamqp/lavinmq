@@ -19,6 +19,7 @@ install -s bin/avalanchemqctl $root/usr/bin
 cp extras/avalanchemq.service $root/lib/systemd/system
 cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
 cp LICENSE $root/usr/share/doc/avalanchemq/copyright
+cp README.md $root/usr/share/doc/avalanchemq/README
 
 cd $root
 find . -type f -not -path "./DEBIAN/*" | xargs md5sum > DEBIAN/md5sums
