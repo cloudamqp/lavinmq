@@ -24,4 +24,4 @@ development_dependencies:
 
 crystal: 0.24.2
 
-license: MIT
+license: Apache-2.0
