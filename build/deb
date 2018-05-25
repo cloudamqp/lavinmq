@@ -2,6 +2,8 @@
 set -eu
 [ $# -eq 1 ] || (echo "usage: $(basename $0) pkg_revision"; exit 1)
 which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
+which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
+which help2man > /dev/null || (echo "help2man required"; exit 1)
 pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheMQ::VERSION')
 pkg_revision=$1
 root=avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
@@ -14,6 +16,7 @@ mkdir -p $root/usr/bin
 mkdir -p $root/lib/systemd/system
 mkdir -p $root/etc/avalanchemq
 mkdir -p $root/usr/share/doc/avalanchemq
+mkdir -p $root/usr/share/man/man1
 install -s bin/avalanchemq $root/usr/bin
 install -s bin/avalanchemqctl $root/usr/bin
 cp extras/avalanchemq.service $root/lib/systemd/system
@@ -30,6 +33,10 @@ Files: *
 Copyright: 2018, 84codes AB
 License: Apache-2.0
 EOF
+help2man bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
+help2man bin/avalanchemqctl > $root/usr/share/man/man1/avalanchemqctl.1
+gzip -9 -n $root/usr/share/man/man1/avalanchemq.1
+gzip -9 -n $root/usr/share/man/man1/avalanchemqctl.1
 
 cd $root
 find . -type f -not -path "./DEBIAN/*" | xargs md5sum > DEBIAN/md5sums
