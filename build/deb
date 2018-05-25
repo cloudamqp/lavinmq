@@ -33,8 +33,8 @@ Files: *
 Copyright: 2018, 84codes AB
 License: Apache-2.0
 EOF
-help2man bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
-help2man bin/avalanchemqctl > $root/usr/share/man/man1/avalanchemqctl.1
+help2man -Nn "fast and advanced message queue server" bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
+help2man -Nn "control utility for avalanchemq server" bin/avalanchemqctl > $root/usr/share/man/man1/avalanchemqctl.1
 gzip -9 -n $root/usr/share/man/man1/avalanchemq.1
 gzip -9 -n $root/usr/share/man/man1/avalanchemqctl.1
 
