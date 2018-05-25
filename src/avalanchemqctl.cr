@@ -1,3 +1,4 @@
+require "./avalanchemq/version"
 require "http/client"
 require "json"
 require "option_parser"
@@ -21,6 +22,7 @@ parser.on("-H host", "--host=host", "Specify host. Default: #{options["host"]}")
   options["vhost"] = v
 end
 parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
+parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
 parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 parser.parse!
 

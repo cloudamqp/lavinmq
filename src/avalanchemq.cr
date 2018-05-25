@@ -6,8 +6,6 @@ require "option_parser"
 require "file"
 require "ini"
 
-puts "AvalancheMQ #{AvalancheMQ::VERSION}"
-
 config = ""
 data_dir = ""
 log_level = Logger::INFO
@@ -45,6 +43,7 @@ p = OptionParser.parse! do |parser|
   end
   parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
+  parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
 
@@ -78,6 +77,8 @@ if data_dir.empty?
   STDERR.puts p
   exit 2
 end
+
+puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 
 fd_limit = `ulimit -n`.to_i
 puts "FD limit: #{fd_limit}"
