@@ -51,7 +51,7 @@ Fork, create feature branch, submit pull request.
 
 ## License
 
-The software is licensed under the Apache 2.0 license.
+The software is licensed under the [Apache License 2.0](LICENSE).
 
 Copyright 2018 84codes AB
 
