@@ -18,8 +18,18 @@ install -s bin/avalanchemq $root/usr/bin
 install -s bin/avalanchemqctl $root/usr/bin
 cp extras/avalanchemq.service $root/lib/systemd/system
 cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
-cp LICENSE $root/usr/share/doc/avalanchemq/copyright
+cp NOTICE $root/usr/share/doc/avalanchemq/
 cp README.md $root/usr/share/doc/avalanchemq/README
+cat > $root/usr/share/doc/avalanchemq/copyright << EOF
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: AvalancheMQ
+Upstream-Contact: contact@avalanchemq.com
+Source: https://github.com/avalanchemq/avalanchemq
+
+Files: *
+Copyright: 2018, 84codes AB
+License: Apache-2.0
+EOF
 
 cd $root
 find . -type f -not -path "./DEBIAN/*" | xargs md5sum > DEBIAN/md5sums
