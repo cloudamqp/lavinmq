@@ -9,7 +9,7 @@ options = {
 
 parser = OptionParser.new
 banner = parser.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
-parser.on("-a data", "--add=data", "Create entity(queue, policy, etc.), data is json") do |a|
+parser.on("-a data", "--add=data", "Create entity (queue, policy, etc.), data is json") do |a|
   options["add"] = a
 end
 parser.on("-r name", "--remove=name", "Remove entity(queue, policy, etc.)") do |r|
