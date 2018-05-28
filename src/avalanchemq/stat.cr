@@ -5,7 +5,7 @@ module AvalancheMQ
     def initialize(@total = 0, @frequency = 1)
       @sample = @total
       @rate = 0
-      spawn calc_rate
+      spawn calc_rate, name: "CalcRate"
     end
 
     def increase

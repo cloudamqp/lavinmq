@@ -44,7 +44,7 @@ module AvalancheMQ
       @client_properties = start_ok.client_properties
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
-      spawn { heartbeat_loop } unless @heartbeat == 0
+      spawn heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -538,6 +538,7 @@ module AvalancheMQ
     end
 
     private def heartbeat_loop
+      return if @heartbeat == 0
       @log.debug { "Starting heartbeat loop with #{@heartbeat}s interval" }
       loop do
         sleep @heartbeat

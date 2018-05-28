@@ -77,7 +77,7 @@ module AvalancheMQ
         @wfile.close
         @wfile = open_wfile
         pos = 0_u32
-        spawn gc_segments!
+        spawn gc_segments!, name: "GC Segments #{@name}"
       end
 
       sp = SegmentPosition.new(@segment, pos)
@@ -222,12 +222,12 @@ module AvalancheMQ
 
     def add_policy(p : Policy)
       @policies.create(p)
-      spawn apply_policies
+      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
     end
 
     def delete_policy(name)
       @policies.delete(name)
-      spawn apply_policies
+      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
     end
 
     def add_parameter(p : Parameter)
