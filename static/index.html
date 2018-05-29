@@ -44,7 +44,7 @@
           </tr>
         </tbody>
       </table>
-      <form id="definitions" method="post" enctype="multipart/form-data" action="/definitions">
+      <form id="definitions" method="post" enctype="multipart/form-data" action="/api/definitions/upload">
         <fieldset>
           <legend>Upload definitions</legend>
           <input id="file" name="file" type="file" accept=".json" required />
@@ -58,5 +58,15 @@
 <script src="/js/http.js"></script>
 <script src="/js/overview.js"></script>
 <script src="/js/table.js"></script>
-<script> avalanchemq.overview.start(); </script>
+<script>
+  avalanchemq.overview.start();
+  document.querySelector("#definitions").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    avalanchemq.http.request("POST", "/api/definitions/upload", new FormData(this)).then(function () {
+      window.location.assign('/');
+    }).catch(function () {
+      alert("Upload failed");
+    });
+  });
+</script>
 

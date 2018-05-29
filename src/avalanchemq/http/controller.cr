@@ -63,7 +63,7 @@ module AvalancheMQ
         user = @amqp_server.users[username]?
       end
       unless user
-        @log.warn "Authorized user not in user store"
+        @log.warn "Authorized user=#{context.authenticated_username?} not in user store"
         access_refused(context)
       end
       user

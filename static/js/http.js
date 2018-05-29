@@ -35,29 +35,27 @@
   }
 
   function request(method, path, body) {
-    let request = new Request(path);
     let headers = new Headers();
     if (!avalanchemq.auth && window.location.pathname !== "/login") {
       redirectToLogin();
     }
     var hdr = avalanchemq.auth.header();
     headers.append('Authorization', hdr);
-    if (body instanceof FormData) {
-      headers.append('Content-Type', 'multipart/form-data');
-    } else {
-      headers.append('Content-Type', 'application/json');
-    }
     let opts = {
       method: method,
       headers: headers,
       credentials: "include",
-      mode : "cors",
+      mode: "cors",
       redirect: "follow"
     };
-    if (body) {
+    if (body instanceof FormData) {
+      headers.delete('Content-Type'); // browser will set to multipart with boundary
+      opts.body = body;
+    } else if (body) {
+      headers.append('Content-Type', 'application/json');
       opts.body = JSON.stringify(body);
     }
-    return fetch(request, opts)
+    return fetch(path, opts)
     .then(function (response) {
       if (response.status === 401) {
         redirectToLogin();

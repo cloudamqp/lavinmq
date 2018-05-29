@@ -17,7 +17,7 @@ module AvalancheMQ
         context
       end
 
-      post "/definitions" do |context, _params|
+      post "/api/definitions/upload" do |context, _params|
         refuse_unless_administrator(context, user(context))
         HTTP::FormData.parse(context.request) do |part|
           case part.name

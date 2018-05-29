@@ -8,7 +8,14 @@
   let updateTimer = null;
 
   if (raw) {
-    render(JSON.parse(raw));
+    try {
+      let data = JSON.parse(raw);
+      if (data) {
+        render(data);
+      }
+    } catch(e) {
+      console.log("Error parsing data from localStorage");
+    }
   }
 
   function update() {
@@ -19,7 +26,6 @@
 
   function render(data) {
     let table = document.querySelector("#overview");
-    // console.log(data);
     document.querySelector("#version").innerText = data.avalanchemq_version;
     Object.keys(data.object_totals).forEach(function (key) {
       table.querySelector("." + key).innerText = data.object_totals[key];

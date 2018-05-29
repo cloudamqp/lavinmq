@@ -38,8 +38,14 @@ module AvalancheMQ
     BUILD_TIME = {{ "#{`date +%s`}" }}
 
     private def serve(context, file_path)
-      file = Static.get?(file_path) || raise HTTPServer::NotFoundError.new("#{file_path} not found")
-      etag = Digest::MD5.hexdigest(file_path + BUILD_TIME)
+      file = nil
+      etag = nil
+      {% if flag?(:release) %}
+        file = Static.get?(file_path) || raise HTTPServer::NotFoundError.new("#{file_path} not found")
+        etag = Digest::MD5.hexdigest(file_path + BUILD_TIME)
+      {% else %}
+        file, etag = static(context, file(file_path))
+      {% end %}
       context.response.content_type = mime_type(file_path)
       if context.request.headers["If-None-Match"]? == etag
         context.response.status_code = 304
@@ -63,6 +69,24 @@ module AvalancheMQ
       when ".gif"  then "image/gif"
       else              "application/octet-stream"
       end
+    end
+
+    private def file(filename)
+      public_dir = File.join(__DIR__, "..", "..", "..", "..", "static")
+      file_path = File.join(public_dir, "#{filename}.html")
+      unless File.exists?(file_path)
+        file_path = File.join(public_dir, filename)
+        unless File.exists?(file_path)
+          raise HTTPServer::NotFoundError.new("#{filename} not found")
+        end
+      end
+      file_path
+    end
+
+    private def static(context, file_path)
+      file_stats = File.stat(file_path)
+      etag = file_stats.mtime.epoch_ms.to_s
+      { File.open(file_path), etag }
     end
   end
 end
