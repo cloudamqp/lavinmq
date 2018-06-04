@@ -1,12 +1,13 @@
 require "socket"
 require "logger"
+require "openssl"
 require "./message"
 require "./client/*"
 
 module AvalancheMQ
   class Client
     getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues,
-           remote_address, name, auth_service, server, direct_reply_consumer_tag
+      remote_address, name, auth_service, server, direct_reply_consumer_tag
     setter direct_reply_consumer_tag
 
     @log : Logger
@@ -85,17 +86,17 @@ module AvalancheMQ
         props = start_ok.client_properties
         capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
         if capabilities && capabilities["authentication_failure_close"].try &.as(Bool)
-          socket.write AMQP::Connection::Close.new(403_u16, "ACCESS_REFUSED",
-                                                   start_ok.class_id,
-                                                   start_ok.method_id).to_slice
+          socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
+            start_ok.class_id,
+            start_ok.method_id).to_slice
           await_connection_closeok(socket, log)
         end
         socket.close
         return
       end
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
-                                              frame_max: 131072_u32,
-                                              heartbeat: server.config["heartbeat"]).to_slice
+        frame_max: 131072_u32,
+        heartbeat: server.config["heartbeat"]).to_slice
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
@@ -104,16 +105,16 @@ module AvalancheMQ
           return self.new(tcp_socket, ssl_client, server, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
-          reply_text = "ACCESS_REFUSED - '#{username}' doesn't have access to '#{vhost.name}'"
-          socket.write AMQP::Connection::Close.new(403_u16, reply_text,
-                                                   open.class_id, open.method_id).to_slice
+          reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
+          socket.write AMQP::Connection::Close.new(530_u16, reply_text,
+            open.class_id, open.method_id).to_slice
           await_connection_closeok(socket, log)
           socket.close
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
         socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
-                                                 open.class_id, open.method_id).to_slice
+          open.class_id, open.method_id).to_slice
         await_connection_closeok(socket, log)
         socket.close
       end
@@ -150,23 +151,23 @@ module AvalancheMQ
 
     def to_json(json : JSON::Builder)
       {
-        channels: @channels.size,
-        connected_at: @connected_at,
-        type: "network",
-        channel_max: @max_channels,
-        timeout: @heartbeat,
+        channels:          @channels.size,
+        connected_at:      @connected_at,
+        type:              "network",
+        channel_max:       @max_channels,
+        timeout:           @heartbeat,
         client_properties: @client_properties,
-        vhost: @vhost.name,
-        user: @user.name,
-        protocol: "AMQP 0-9-1",
-        auth_mechanism: @auth_mechanism,
-        host: @local_address.address,
-        port: @local_address.port,
-        peer_host: @remote_address.address,
-        peer_port: @remote_address.port,
-        name: @name,
-        ssl: @socket.is_a?(OpenSSL::SSL::Socket),
-        state: @socket.closed? ? "closed" : "running"
+        vhost:             @vhost.name,
+        user:              @user.name,
+        protocol:          "AMQP 0-9-1",
+        auth_mechanism:    @auth_mechanism,
+        host:              @local_address.address,
+        port:              @local_address.port,
+        peer_host:         @remote_address.address,
+        peer_port:         @remote_address.port,
+        name:              @name,
+        ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
+        state:             @socket.closed? ? "closed" : "running",
       }.to_json(json)
     end
 
@@ -246,7 +247,7 @@ module AvalancheMQ
         elsif frame.passive || q.match?(frame)
           unless frame.no_wait
             send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
-                                            q.message_count, q.consumer_count)
+              q.message_count, q.consumer_count)
           end
         else
           send_precondition_failed(frame, "Existing queue declared with other arguments")
@@ -376,7 +377,7 @@ module AvalancheMQ
       if ex.channel > 0
         close_channel(ex, 540_u16, "Not implemented")
       else
-       close_connection(ex, 540_u16, "Not implemented")
+        close_connection(ex, 540_u16, "Not implemented")
       end
     rescue ex : AMQP::FrameDecodeError
       @log.info "Lost connection, while reading (#{ex.cause})"
@@ -492,7 +493,7 @@ module AvalancheMQ
 
     def close_channel(frame, code, text)
       send AMQP::Channel::Close.new(frame.channel, code, text,
-                                    frame.class_id, frame.method_id)
+        frame.class_id, frame.method_id)
       @channels[frame.channel].running = false
     end
 
@@ -513,12 +514,12 @@ module AvalancheMQ
     end
 
     def write(bytes : Bytes)
-      @log.debug { "Send #{bytes.inspect}"}
+      @log.debug { "Send #{bytes.inspect}" }
       @socket.write bytes
     end
 
     def send(frame : AMQP::Frame)
-      @log.debug { "Send #{frame.inspect}"}
+      @log.debug { "Send #{frame.inspect}" }
       @socket.write frame.to_slice
       case frame
       when AMQP::Connection::CloseOk
