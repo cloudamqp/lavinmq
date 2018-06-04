@@ -673,9 +673,25 @@ describe AvalancheMQ::Server do
   end
 
   it "supports heartbeats" do
-    s = AvalancheMQ::Server.new("/tmp/spec", Logger::ERROR, { "heartbeat" => 1_u16 })
+    s = AvalancheMQ::Server.new("/tmp/spec", LOG_LEVEL, config: { "heartbeat" => 1_u16 })
     listen(s, 5672)
     s.config["heartbeat"].should eq 1
+  ensure
+    close(s)
+  end
+
+  it "supports expires" do
+    s = amqp_server
+    listen(s, 5672)
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      args = AMQP::Protocol::Table.new
+      args["x-expires"] = 1
+      q = ch.queue("test", args: args)
+      sleep 5.milliseconds
+      Fiber.yield
+      s.vhosts["/"].queues.has_key?("test").should be_false
+    end
   ensure
     close(s)
   end
