@@ -7,9 +7,11 @@ require "./policy"
 module AvalancheMQ
   class Queue
     include PolicyTarget
+
     class QueueFile < File
       include AMQP::IO
     end
+
     alias ArgumentNumber = UInt16 | Int32 | Int64
 
     @durable = false
@@ -22,7 +24,6 @@ module AvalancheMQ
     @overflow : String?
     @closed = false
     @exclusive_consumer = false
-    @expire_fiber : Fiber?
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost
     def_equals_and_hash @vhost.name, @name
@@ -44,6 +45,7 @@ module AvalancheMQ
       end
       @last_get_time = Time.now.epoch_ms # reset when redecalred
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+      schedule_expiration_of_queue(@last_get_time)
     end
 
     def self.generate_name
@@ -62,12 +64,10 @@ module AvalancheMQ
           @max_length = v.as_i64
         when "message-ttl"
           @message_ttl = v.as_i64
-          @expire_fiber ||= spawn expire_loop
         when "overflow"
           @overflow = v.as_s
         when "expires"
           @expires = v.as_i64
-          @expire_fiber ||= spawn expire_loop
         when "dead-letter-exchange"
           @dlx = v.as_s
         when "dead-letter-routing-key"
@@ -86,7 +86,6 @@ module AvalancheMQ
       max_length = @arguments["x-max-length"]?
       @max_length = max_length if max_length.is_a? ArgumentNumber
       @overflow = @arguments.fetch("x-overflow", "drop-head").try &.to_s
-      @expire_fiber = spawn expire_loop if @expire_fiber.nil? && (@expires || @message_ttl)
     end
 
     def immediate_delivery?
@@ -123,23 +122,6 @@ module AvalancheMQ
       s
     end
 
-    private def expire_loop
-      @log.debug { "Starting expire loop" }
-      loop do
-        break if @message_available.closed? || @consumer_available.closed?
-        t = if @expires && @message_ttl
-              Math.min(@expires.not_nil!, @message_ttl.not_nil!)
-            else
-              @expires.nil? ? @message_ttl.not_nil! : @expires.not_nil!
-            end
-        sleep t.milliseconds
-        @message_available.send nil unless @message_available.full?
-        @consumer_available.send nil unless @consumer_available.full?
-        Fiber.yield
-      end
-      @log.debug { "Exiting expire loop" }
-    end
-
     private def deliver_loop
       i = 0
       loop do
@@ -166,11 +148,7 @@ module AvalancheMQ
         else
           @log.debug "No consumer available"
           now = Time.now.epoch_ms
-          if expire?(now)
-            @log.debug "Expired"
-            delete
-            break
-          end
+          schedule_expiration_of_queue(now)
           schedule_expiration_of_next_msg(now)
           @log.debug "Waiting for consumer"
           @consumer_available.receive
@@ -189,6 +167,8 @@ module AvalancheMQ
       end
       @log.info "Closing"
       @closed = true
+      @message_available.close
+      @consumer_available.close
       loop do
         c = @consumers.shift? || break
         c.cancel
@@ -202,8 +182,6 @@ module AvalancheMQ
 
     protected def delete
       @log.info "Deleting"
-      @message_available.close
-      @consumer_available.close
       @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
     end
 
@@ -218,7 +196,7 @@ module AvalancheMQ
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? "closed" : "running",
-        effective_policy_definition: @policy
+        effective_policy_definition: @policy,
       }.to_json(json)
     end
 
@@ -259,7 +237,7 @@ module AvalancheMQ
         expire_at = meta.timestamp + exp_ms
         expire_in = expire_at - now
         spawn(expire_later(expire_in, meta, sp),
-              name: "expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+          name: "expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
       else
         @log.debug { "No message to expire" }
       end
@@ -299,12 +277,12 @@ module AvalancheMQ
         xdeaths.delete(xd)
         count = xd ? xd["count"].as(Int32) : 0
         death = Hash(String, AMQP::Field){
-          "exchange" => meta.exchange_name,
-          "queue" => @name,
-          "routing_keys" => [ meta.routing_key.as(AMQP::Field) ],
-          "reason" => reason.to_s,
-          "count" => count + 1,
-          "time" => Time.utc_now,
+          "exchange"     => meta.exchange_name,
+          "queue"        => @name,
+          "routing_keys" => [meta.routing_key.as(AMQP::Field)],
+          "reason"       => reason.to_s,
+          "count"        => count + 1,
+          "time"         => Time.utc_now,
         }
         death["original-expiration"] = meta.properties.expiration if meta.properties.expiration
         xdeaths.unshift death
@@ -313,6 +291,17 @@ module AvalancheMQ
         @vhost.publish msg
       end
       ack(sp, true)
+    end
+
+    private def schedule_expiration_of_queue(now)
+      return unless @expires && @consumers.empty?
+      spawn do
+        sleep @expires.not_nil!.milliseconds
+        next unless @consumers.empty?
+        next schedule_expiration_of_queue(@last_get_time) if @last_get_time > now
+        @log.debug "Expired"
+        delete
+      end
     end
 
     def get(no_ack : Bool) : Envelope | Nil
@@ -411,13 +400,6 @@ module AvalancheMQ
       @durable == durable &&
         @auto_delete == auto_delete &&
         @arguments == arguments
-    end
-
-    private def expire?(now)
-      if @expires && @consumers.empty?
-        return (now - @last_get_time) > @expires.not_nil!
-      end
-      false
     end
 
     def in_use?
