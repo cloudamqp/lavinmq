@@ -171,8 +171,8 @@ describe AvalancheMQ::Server do
       q.bind(x)
       q.unbind(x)
       x.publish(AMQP::Message.new("m1"), q.name)
-      wait_for { acked == false }
-      acked.should be_false
+      wait_for { acked == true }
+      acked.should be_true
     end
   ensure
     close(s)
@@ -227,7 +227,7 @@ describe AvalancheMQ::Server do
       pmsg = AMQP::Message.new("m1")
       ch1 = Channel(Tuple(UInt16, String)).new
       ch.on_return do |code, text|
-        ch1.send({ code, text })
+        ch1.send({code, text})
       end
       ch.publish(pmsg, "amq.direct", "none", mandatory: true)
       reply_code, reply_text = ch1.receive
@@ -246,7 +246,7 @@ describe AvalancheMQ::Server do
       q = ch.queue("exp1")
       x = ch.exchange("", "direct", passive: true)
       msg = AMQP::Message.new("expired",
-                              AMQP::Protocol::Properties.new(expiration: "0"))
+        AMQP::Protocol::Properties.new(expiration: "0"))
       x.publish msg, q.name
       sleep 0.01
       msg = q.get(no_ack: true)
@@ -299,7 +299,7 @@ describe AvalancheMQ::Server do
       msgs.first.to_s.should eq("dead letter")
     end
   ensure
-     close(s)
+    close(s)
   end
 
   it "handle immediate flag" do
@@ -319,7 +319,7 @@ describe AvalancheMQ::Server do
       reply_code.should eq 313
     end
   ensure
-     close(s)
+    close(s)
   end
 
   it "can cancel consumers" do
@@ -338,7 +338,7 @@ describe AvalancheMQ::Server do
       ch.has_subscriber?(tag).should eq false
     end
   ensure
-     close(s)
+    close(s)
   end
 
   it "supports header exchange all" do
@@ -424,7 +424,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       cch = Channel(Tuple(UInt16, String)).new
       ch.on_close do |code, text|
-        cch.send({ code, text })
+        cch.send({code, text})
       end
       ch.ack(999_u64)
       code, text = cch.receive
@@ -502,8 +502,8 @@ describe AvalancheMQ::Server do
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
-      acks.should eq 1
-      nacks.should eq 1
+      acks.should eq 2
+      nacks.should eq 0
       msgs.size.should eq 1
     end
   ensure
@@ -627,7 +627,7 @@ describe AvalancheMQ::Server do
 
   it "supports max-length" do
     s = amqp_server
-    definitions = JSON::Any.new({ "max-length" => 1_i64 } of String => JSON::Type)
+    definitions = JSON::Any.new({"max-length" => 1_i64} of String => JSON::Type)
     s.vhosts["/"].add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
     spawn { s.not_nil!.listen(5672) }
     Fiber.yield
@@ -673,7 +673,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports heartbeats" do
-    s = AvalancheMQ::Server.new("/tmp/spec", LOG_LEVEL, config: { "heartbeat" => 1_u16 })
+    s = AvalancheMQ::Server.new("/tmp/spec", LOG_LEVEL, config: {"heartbeat" => 1_u16})
     listen(s, 5672)
     s.config["heartbeat"].should eq 1
   ensure

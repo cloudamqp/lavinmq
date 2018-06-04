@@ -34,22 +34,22 @@ module AvalancheMQ
 
       def details
         {
-          number: @id,
-          name: @name,
-          vhost: @client.vhost.name,
-          user: @client.user.name,
-          consumer_count: @consumers.size,
-          prefetch_count: @prefetch_count,
-          global_prefetch_count: @global_prefetch ? @prefetch_count : 0,
-          confirm: @confirm,
-          transactional: false,
+          number:                  @id,
+          name:                    @name,
+          vhost:                   @client.vhost.name,
+          user:                    @client.user.name,
+          consumer_count:          @consumers.size,
+          prefetch_count:          @prefetch_count,
+          global_prefetch_count:   @global_prefetch ? @prefetch_count : 0,
+          confirm:                 @confirm,
+          transactional:           false,
           messages_unacknowledged: @map.size,
-          connection_details: {
+          connection_details:      {
             peer_host: @client.remote_address.address,
             peer_port: @client.remote_address.port,
-            name: @client.name
+            name:      @client.name,
           },
-          state: @running ? "running" : "closed"
+          state: @running ? "running" : "closed",
         }
       end
 
@@ -106,16 +106,16 @@ module AvalancheMQ
       private def finish_publish(frame)
         delivered = false
         msg = Message.new(Time.utc_now.epoch_ms,
-                          @next_publish_exchange_name.not_nil!,
-                          @next_publish_routing_key.not_nil!,
-                          @next_msg_props.not_nil!,
-                          @next_msg_size.not_nil!,
-                          @next_msg_body.not_nil!.to_slice)
+          @next_publish_exchange_name.not_nil!,
+          @next_publish_routing_key.not_nil!,
+          @next_msg_props.not_nil!,
+          @next_msg_size.not_nil!,
+          @next_msg_body.not_nil!.to_slice)
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
           @client.server.direct_reply_channels[consumer_tag]?.try do |ch|
             deliver = AMQP::Basic::Deliver.new(id, consumer_tag, 1_u64, false,
-                                               msg.exchange_name, msg.routing_key)
+              msg.exchange_name, msg.routing_key)
             ch.deliver(deliver, msg)
             delivered = true
           end
@@ -124,22 +124,21 @@ module AvalancheMQ
         unless delivered
           if @next_publish_immediate
             r_frame = AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
-                                              msg.exchange_name, msg.routing_key)
+              msg.exchange_name, msg.routing_key)
             deliver(r_frame, msg)
           elsif @next_publish_mandatory
             r_frame = AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
-                                              msg.exchange_name, msg.routing_key)
+              msg.exchange_name, msg.routing_key)
             deliver(r_frame, msg)
           end
         end
         if @confirm
           @confirm_count += 1
-          if delivered
-            @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
-          else
-            @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false)
-          end
+          @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
         end
+      rescue e : Exception
+        @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false)
+        raise e
       ensure
         @next_msg_body.not_nil!.clear
         @next_publish_exchange_name = @next_publish_routing_key = nil
@@ -193,8 +192,8 @@ module AvalancheMQ
           elsif env = q.get(frame.no_ack)
             delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
             get_ok = AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
-                                            false, env.message.exchange_name,
-                                            env.message.routing_key, q.message_count)
+              false, env.message.exchange_name,
+              env.message.routing_key, q.message_count)
             deliver(get_ok, env.message)
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
@@ -242,8 +241,8 @@ module AvalancheMQ
       def basic_ack(frame)
         if qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }.
-              each_value do |queue, sp, consumer|
+            @map.select { |k, _| k < frame.delivery_tag }
+                .each_value do |queue, sp, consumer|
               consumer.ack(sp) if consumer
               queue.ack(sp, flush: false)
             end
@@ -278,8 +277,8 @@ module AvalancheMQ
           @map.clear
         elsif qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }.
-              each_value do |queue, sp, consumer|
+            @map.select { |k, _| k < frame.delivery_tag }
+                .each_value do |queue, sp, consumer|
               consumer.reject(sp) if consumer
               queue.reject(sp, frame.requeue)
             end
@@ -315,7 +314,7 @@ module AvalancheMQ
 
       def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         @delivery_tag += 1
-        @map[@delivery_tag] = { queue, sp, consumer } unless no_ack
+        @map[@delivery_tag] = {queue, sp, consumer} unless no_ack
         @delivery_tag
       end
 
@@ -327,8 +326,8 @@ module AvalancheMQ
             @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
-          #text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
-          #@client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
+          # text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
+          # @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
           unless frame.no_wait
             @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
@@ -336,6 +335,7 @@ module AvalancheMQ
       end
 
       DIRECT_REPLY_PREFIX = "amq.direct.reply-to"
+
       def direct_reply_request?(str)
         # no regex for speed
         str.try { |r| r == "amq.rabbitmq.reply-to" || r == DIRECT_REPLY_PREFIX }
