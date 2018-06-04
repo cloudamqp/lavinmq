@@ -47,7 +47,7 @@ module AvalancheMQ
 
     private def import_vhost_definitions(name, body)
       unescaped_name = URI.unescape(name)
-      vhosts = { unescaped_name => @amqp_server.vhosts[unescaped_name] }
+      vhosts = {unescaped_name => @amqp_server.vhosts[unescaped_name]}
       import_queues(body, vhosts)
       import_exchanges(body, vhosts)
       import_bindings(body, vhosts)
@@ -69,28 +69,28 @@ module AvalancheMQ
 
     private def export_vhost_definitions(name, response)
       unescaped_name = URI.unescape(name)
-      vhosts = { unescaped_name => @amqp_server.vhosts[unescaped_name] }
+      vhosts = {unescaped_name => @amqp_server.vhosts[unescaped_name]}
       {
         "avalanchemq_version": AvalancheMQ::VERSION,
-        "exchanges": export_exchanges(vhosts),
-        "queues": export_queues(vhosts),
-        "bindings": export_bindings(vhosts),
-        "policies": vhosts.values.flat_map(&.policies.values)
+        "exchanges":           export_exchanges(vhosts),
+        "queues":              export_queues(vhosts),
+        "bindings":            export_bindings(vhosts),
+        "policies":            vhosts.values.flat_map(&.policies.values),
       }.to_json(response)
     end
 
     private def export_definitions(response)
       {
         "avalanchemq_version": AvalancheMQ::VERSION,
-        "users": @amqp_server.users,
-        "vhosts": @amqp_server.vhosts.map { |v| { name: v.name }},
-        "queues": export_queues(@amqp_server.vhosts),
-        "exchanges": export_exchanges(@amqp_server.vhosts),
-        "bindings": export_bindings(@amqp_server.vhosts),
-        "permissions": export_permissions,
-        "policies": @amqp_server.vhosts.flat_map(&.policies.values),
-        "global-parameters": @amqp_server.parameters.values,
-        "parameters": export_parameters
+        "users":               @amqp_server.users,
+        "vhosts":              @amqp_server.vhosts.map { |v| {name: v.name} },
+        "queues":              export_queues(@amqp_server.vhosts),
+        "exchanges":           export_exchanges(@amqp_server.vhosts),
+        "bindings":            export_bindings(@amqp_server.vhosts),
+        "permissions":         export_permissions,
+        "policies":            @amqp_server.vhosts.flat_map(&.policies.values),
+        "global-parameters":   @amqp_server.parameters.values,
+        "parameters":          export_parameters,
       }.to_json(response)
     end
 
@@ -98,10 +98,10 @@ module AvalancheMQ
       @amqp_server.vhosts.flat_map do |vhost|
         vhost.parameters.values.map do |p|
           {
-            name: p.parameter_name,
+            name:      p.parameter_name,
             component: p.component_name,
-            vhost: vhost.name,
-            value: p.value
+            vhost:     vhost.name,
+            value:     p.value,
           }
         end
       end
@@ -190,10 +190,11 @@ module AvalancheMQ
         write = p["write"].as_s
         @amqp_server.users[user].permissions[vhost] = {
           config: Regex.new(configure),
-          read: Regex.new(read),
-          write: Regex.new(write)
+          read:   Regex.new(read),
+          write:  Regex.new(write),
         }
       end
+      @amqp_server.users.save!
     end
 
     private def import_users(body)
@@ -203,10 +204,10 @@ module AvalancheMQ
         pass_hash = u["password_hash"].as_s
         hash_algo =
           case u["hashing_algorithm"]?.try(&.as_s) || nil
-          when /sha512$/ then "SHA512"
-          when /sha256$/ then "SHA256"
+          when /sha512$/   then "SHA512"
+          when /sha256$/   then "SHA256"
           when /^bcrypt$/i then "Bcrypt"
-          else "MD5"
+          else                  "MD5"
           end
         tags = u["tags"]?.try(&.as_s).to_s.split(",").map { |t| Tag.parse?(t) }.compact
         @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
@@ -239,8 +240,8 @@ module AvalancheMQ
         vhost = p["vhost"].as_s
         next unless v = fetch_vhost?(vhosts, vhost)
         p = Policy.new(name, vhost, Regex.new(p["pattern"].as_s),
-                       Policy::Target.parse(p["apply-to"].as_s), p["definition"],
-                       p["priority"].as_i.to_i8)
+          Policy::Target.parse(p["apply-to"].as_s), p["definition"],
+          p["priority"].as_i.to_i8)
         v.add_policy(p)
       end
     end
@@ -249,11 +250,11 @@ module AvalancheMQ
       vhosts.values.flat_map do |v|
         v.queues.values.map do |q|
           {
-            "name": q.name,
-            "vhost": q.vhost.name,
-            "durable": q.durable,
+            "name":        q.name,
+            "vhost":       q.vhost.name,
+            "durable":     q.durable,
             "auto_delete": q.auto_delete,
-            "arguments": q.arguments
+            "arguments":   q.arguments,
           }
         end
       end
@@ -263,13 +264,13 @@ module AvalancheMQ
       vhosts.values.flat_map do |v|
         v.exchanges.values.reject(&.internal).map do |e|
           {
-            "name": e.name,
-            "vhost": e.vhost.name,
-            "type": e.type,
-            "durable": e.durable,
+            "name":        e.name,
+            "vhost":       e.vhost.name,
+            "type":        e.type,
+            "durable":     e.durable,
             "auto_delete": e.auto_delete,
-            "internal": e.internal,
-            "arguments": e.arguments
+            "internal":    e.internal,
+            "arguments":   e.arguments,
           }
         end
       end
@@ -287,11 +288,11 @@ module AvalancheMQ
       @amqp_server.users.flat_map do |u|
         u.permissions.map do |vhost, permissions|
           {
-            "user": u.name,
-            "vhost": vhost,
+            "user":      u.name,
+            "vhost":     vhost,
             "configure": permissions[:config],
-            "read": permissions[:read],
-            "write": permissions[:write]
+            "read":      permissions[:read],
+            "write":     permissions[:write],
           }
         end
       end
