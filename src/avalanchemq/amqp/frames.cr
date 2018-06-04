@@ -4,6 +4,7 @@ module AvalancheMQ
   module AMQP
     abstract struct Frame
       getter type, channel
+
       def initialize(@type : Type, @channel : UInt16)
       end
 
@@ -63,11 +64,11 @@ module AvalancheMQ
         end
         body = payload[0, size]
         case type
-        when Type::Method then MethodFrame.decode(channel, body)
-        when Type::Header then HeaderFrame.decode(channel, body)
-        when Type::Body then BodyFrame.new(channel, body)
+        when Type::Method    then MethodFrame.decode(channel, body)
+        when Type::Header    then HeaderFrame.decode(channel, body)
+        when Type::Body      then BodyFrame.new(channel, body)
         when Type::Heartbeat then HeartbeatFrame.decode
-        else raise NotImplemented.new 0_u16, 0_u16, 0_u16
+        else                      raise NotImplemented.new 0_u16, 0_u16, 0_u16
         end
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
@@ -160,6 +161,7 @@ module AvalancheMQ
 
     abstract struct Connection < MethodFrame
       CLASS_ID = 10_u16
+
       def class_id
         CLASS_ID
       end
@@ -179,12 +181,13 @@ module AvalancheMQ
         when 41_u16 then OpenOk.decode(body)
         when 50_u16 then Close.decode(body)
         when 51_u16 then CloseOk.decode(body)
-        else raise NotImplemented.new(channel, CLASS_ID, method_id)
+        else             raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
       struct Start < Connection
         METHOD_ID = 10_u16
+
         def method_id
           METHOD_ID
         end
@@ -202,21 +205,22 @@ module AvalancheMQ
         end
 
         getter server_properties
+
         def initialize(@version_major = 0_u8, @version_minor = 9_u8,
                        @server_properties = {
-          "product" => "AvalancheMQ",
-          "version" => VERSION,
-          "platform" => "",
-          "capabilities" => {
-            "publisher_confirms" => true,
-            "exchange_exchange_bindings" => true,
-            "basic.nack" => true,
-            "per_consumer_qos" => true,
-            "authentication_failure_close" => true,
-            "consumer_cancel_notify" => true,
-          } of String => Field,
-        } of String => Field,
-        @mechanisms = "PLAIN", @locales = "en_US")
+                         "product"      => "AvalancheMQ",
+                         "version"      => VERSION,
+                         "platform"     => "",
+                         "capabilities" => {
+                           "publisher_confirms"           => true,
+                           "exchange_exchange_bindings"   => true,
+                           "basic.nack"                   => true,
+                           "per_consumer_qos"             => true,
+                           "authentication_failure_close" => true,
+                           "consumer_cancel_notify"       => true,
+                         } of String => Field,
+                       } of String => Field,
+                       @mechanisms = "PLAIN", @locales = "en_US")
           super()
         end
 
@@ -234,6 +238,7 @@ module AvalancheMQ
         getter client_properties, mechanism, response, locale
 
         METHOD_ID = 11_u16
+
         def method_id
           METHOD_ID
         end
@@ -266,6 +271,7 @@ module AvalancheMQ
       struct Tune < Connection
         getter channel_max, frame_max, heartbeat
         METHOD_ID = 30_u16
+
         def method_id
           METHOD_ID
         end
@@ -293,6 +299,7 @@ module AvalancheMQ
       struct TuneOk < Connection
         getter channel_max, frame_max, heartbeat
         METHOD_ID = 31_u16
+
         def method_id
           METHOD_ID
         end
@@ -320,6 +327,7 @@ module AvalancheMQ
       struct Open < Connection
         getter vhost, reserved1, reserved2
         METHOD_ID = 40_u16
+
         def method_id
           METHOD_ID
         end
@@ -349,6 +357,7 @@ module AvalancheMQ
         getter reserved1
 
         METHOD_ID = 41_u16
+
         def method_id
           METHOD_ID
         end
@@ -371,6 +380,7 @@ module AvalancheMQ
 
       struct Close < Connection
         METHOD_ID = 50_u16
+
         def method_id
           METHOD_ID
         end
@@ -399,6 +409,7 @@ module AvalancheMQ
 
       struct CloseOk < Connection
         METHOD_ID = 51_u16
+
         def method_id
           METHOD_ID
         end
@@ -415,6 +426,7 @@ module AvalancheMQ
 
     abstract struct Channel < MethodFrame
       CLASS_ID = 20_u16
+
       def class_id
         CLASS_ID
       end
@@ -424,16 +436,17 @@ module AvalancheMQ
         case method_id
         when 10_u16 then Open.decode(channel, body)
         when 11_u16 then OpenOk.decode(channel, body)
-          #when 20_u16 then Flow.decode(channel, body)
-          #when 21_u16 then FlowOk.decode(channel, body)
+          # when 20_u16 then Flow.decode(channel, body)
+          # when 21_u16 then FlowOk.decode(channel, body)
         when 40_u16 then Close.decode(channel, body)
         when 41_u16 then CloseOk.decode(channel, body)
-        else raise NotImplemented.new(channel, CLASS_ID, method_id)
+        else             raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
       struct Open < Channel
         METHOD_ID = 10_u16
+
         def method_id
           METHOD_ID
         end
@@ -458,6 +471,7 @@ module AvalancheMQ
 
       struct OpenOk < Channel
         METHOD_ID = 11_u16
+
         def method_id
           METHOD_ID
         end
@@ -469,7 +483,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new(4 + @reserved1.bytesize)
+          io = AMQP::MemoryIO.new(1 + @reserved1.bytesize)
           io.write_long_string @reserved1
           super(io.to_slice)
         end
@@ -482,6 +496,7 @@ module AvalancheMQ
 
       struct Close < Channel
         METHOD_ID = 40_u16
+
         def method_id
           METHOD_ID
         end
@@ -512,6 +527,7 @@ module AvalancheMQ
 
       struct CloseOk < Channel
         METHOD_ID = 41_u16
+
         def method_id
           METHOD_ID
         end
@@ -528,6 +544,7 @@ module AvalancheMQ
 
     abstract struct Exchange < MethodFrame
       CLASS_ID = 40_u16
+
       def class_id
         CLASS_ID
       end
@@ -543,12 +560,13 @@ module AvalancheMQ
         when 31_u16 then BindOk.decode(channel, body)
         when 40_u16 then Unbind.decode(channel, body)
         when 51_u16 then UnbindOk.decode(channel, body)
-        else raise NotImplemented.new(channel, CLASS_ID, method_id)
+        else             raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
       struct Declare < Exchange
         METHOD_ID = 10_u16
+
         def method_id
           METHOD_ID
         end
@@ -593,6 +611,7 @@ module AvalancheMQ
 
       struct DeclareOk < Exchange
         METHOD_ID = 11_u16
+
         def method_id
           METHOD_ID
         end
@@ -608,11 +627,13 @@ module AvalancheMQ
 
       struct Delete < Exchange
         METHOD_ID = 20_u16
+
         def method_id
           METHOD_ID
         end
 
         getter reserved1, exchange_name, if_unused, no_wait
+
         def initialize(channel : UInt16, @reserved1 : UInt16, @exchange_name : String,
                        @if_unused : Bool, @no_wait : Bool)
           super(channel)
@@ -641,6 +662,7 @@ module AvalancheMQ
 
       struct DeleteOk < Exchange
         METHOD_ID = 21_u16
+
         def method_id
           METHOD_ID
         end
@@ -656,6 +678,7 @@ module AvalancheMQ
 
       struct Bind < Exchange
         METHOD_ID = 30_u16
+
         def method_id
           METHOD_ID
         end
@@ -693,6 +716,7 @@ module AvalancheMQ
 
       struct BindOk < Exchange
         METHOD_ID = 31_u16
+
         def method_id
           METHOD_ID
         end
@@ -708,6 +732,7 @@ module AvalancheMQ
 
       struct Unbind < Exchange
         METHOD_ID = 40_u16
+
         def method_id
           METHOD_ID
         end
@@ -745,6 +770,7 @@ module AvalancheMQ
 
       struct UnbindOk < Exchange
         METHOD_ID = 51_u16
+
         def method_id
           METHOD_ID
         end
@@ -761,6 +787,7 @@ module AvalancheMQ
 
     abstract struct Queue < MethodFrame
       CLASS_ID = 50_u16
+
       def class_id
         CLASS_ID
       end
@@ -778,12 +805,13 @@ module AvalancheMQ
         when 41_u16 then DeleteOk.decode(channel, body)
         when 50_u16 then Unbind.decode(channel, body)
         when 51_u16 then UnbindOk.decode(channel, body)
-        else raise NotImplemented.new(channel, CLASS_ID, method_id)
+        else             raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
       struct Declare < Queue
         METHOD_ID = 10_u16
+
         def method_id
           METHOD_ID
         end
@@ -827,6 +855,7 @@ module AvalancheMQ
 
       struct DeclareOk < Queue
         METHOD_ID = 11_u16
+
         def method_id
           METHOD_ID
         end
@@ -855,6 +884,7 @@ module AvalancheMQ
 
       struct Bind < Queue
         METHOD_ID = 20_u16
+
         def method_id
           METHOD_ID
         end
@@ -892,6 +922,7 @@ module AvalancheMQ
 
       struct BindOk < Queue
         METHOD_ID = 21_u16
+
         def method_id
           METHOD_ID
         end
@@ -907,6 +938,7 @@ module AvalancheMQ
 
       struct Delete < Queue
         METHOD_ID = 40_u16
+
         def method_id
           METHOD_ID
         end
@@ -943,6 +975,7 @@ module AvalancheMQ
 
       struct DeleteOk < Queue
         METHOD_ID = 41_u16
+
         def method_id
           METHOD_ID
         end
@@ -964,6 +997,7 @@ module AvalancheMQ
 
       struct Unbind < Queue
         METHOD_ID = 50_u16
+
         def method_id
           METHOD_ID
         end
@@ -998,6 +1032,7 @@ module AvalancheMQ
 
       struct UnbindOk < Queue
         METHOD_ID = 51_u16
+
         def method_id
           METHOD_ID
         end
@@ -1013,6 +1048,7 @@ module AvalancheMQ
 
       struct Purge < Queue
         METHOD_ID = 30_u16
+
         def method_id
           METHOD_ID
         end
@@ -1042,6 +1078,7 @@ module AvalancheMQ
 
       struct PurgeOk < Queue
         METHOD_ID = 31_u16
+
         def method_id
           METHOD_ID
         end
@@ -1064,6 +1101,7 @@ module AvalancheMQ
 
     abstract struct Basic < MethodFrame
       CLASS_ID = 60_u16
+
       def class_id
         CLASS_ID
       end
@@ -1071,32 +1109,34 @@ module AvalancheMQ
       def self.decode(channel, body)
         method_id = body.read_uint16
         case method_id
-        when 10_u16 then Qos.decode(channel, body)
-        when 11_u16 then QosOk.decode(channel, body)
-        when 20_u16 then Consume.decode(channel, body)
-        when 21_u16 then ConsumeOk.decode(channel, body)
-        when 30_u16 then Cancel.decode(channel, body)
-        when 31_u16 then CancelOk.decode(channel, body)
-        when 40_u16 then Publish.decode(channel, body)
-        when 50_u16 then Return.decode(channel, body)
-        when 60_u16 then Deliver.decode(channel, body)
-        when 70_u16 then Get.decode(channel, body)
-        when 71_u16 then GetOk.decode(channel, body)
-        when 72_u16 then GetEmpty.decode(channel, body)
-        when 80_u16 then Ack.decode(channel, body)
-        when 90_u16 then Reject.decode(channel, body)
+        when  10_u16 then Qos.decode(channel, body)
+        when  11_u16 then QosOk.decode(channel, body)
+        when  20_u16 then Consume.decode(channel, body)
+        when  21_u16 then ConsumeOk.decode(channel, body)
+        when  30_u16 then Cancel.decode(channel, body)
+        when  31_u16 then CancelOk.decode(channel, body)
+        when  40_u16 then Publish.decode(channel, body)
+        when  50_u16 then Return.decode(channel, body)
+        when  60_u16 then Deliver.decode(channel, body)
+        when  70_u16 then Get.decode(channel, body)
+        when  71_u16 then GetOk.decode(channel, body)
+        when  72_u16 then GetEmpty.decode(channel, body)
+        when  80_u16 then Ack.decode(channel, body)
+        when  90_u16 then Reject.decode(channel, body)
         when 120_u16 then Nack.decode(channel, body)
-        else raise NotImplemented.new(channel, CLASS_ID, method_id)
+        else              raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
       struct Publish < Basic
         METHOD_ID = 40_u16
+
         def method_id
           METHOD_ID
         end
 
         getter exchange, routing_key, mandatory, immediate
+
         def initialize(channel, @reserved1 : UInt16, @exchange : String,
                        @routing_key : String, @mandatory : Bool, @immediate : Bool)
           super(channel)
@@ -1130,6 +1170,7 @@ module AvalancheMQ
 
       struct Deliver < Basic
         METHOD_ID = 60_u16
+
         def method_id
           METHOD_ID
         end
@@ -1175,11 +1216,13 @@ module AvalancheMQ
 
       struct Get < Basic
         METHOD_ID = 70_u16
+
         def method_id
           METHOD_ID
         end
 
         getter queue, no_ack
+
         def initialize(channel, @reserved1 : UInt16, @queue : String, @no_ack : Bool)
           super(channel)
         end
@@ -1198,6 +1241,7 @@ module AvalancheMQ
 
       struct GetOk < Basic
         METHOD_ID = 71_u16
+
         def method_id
           METHOD_ID
         end
@@ -1225,6 +1269,7 @@ module AvalancheMQ
 
       struct GetEmpty < Basic
         METHOD_ID = 72_u16
+
         def method_id
           METHOD_ID
         end
@@ -1247,11 +1292,13 @@ module AvalancheMQ
 
       struct Ack < Basic
         METHOD_ID = 80_u16
+
         def method_id
           METHOD_ID
         end
 
         getter :delivery_tag, :multiple
+
         def initialize(channel, @delivery_tag : UInt64, @multiple : Bool)
           super(channel)
         end
@@ -1272,11 +1319,13 @@ module AvalancheMQ
 
       struct Reject < Basic
         METHOD_ID = 90_u16
+
         def method_id
           METHOD_ID
         end
 
         getter :delivery_tag, :requeue
+
         def initialize(channel, @delivery_tag : UInt64, @requeue : Bool)
           super(channel)
         end
@@ -1294,11 +1343,13 @@ module AvalancheMQ
 
       struct Nack < Basic
         METHOD_ID = 120_u16
+
         def method_id
           METHOD_ID
         end
 
         getter :delivery_tag, :multiple, :requeue
+
         def initialize(channel, @delivery_tag : UInt64, @multiple : Bool, @requeue : Bool)
           super(channel)
         end
@@ -1322,11 +1373,13 @@ module AvalancheMQ
 
       struct Qos < Basic
         METHOD_ID = 10_u16
+
         def method_id
           METHOD_ID
         end
 
         getter prefetch_size, prefetch_count, global
+
         def initialize(channel, @prefetch_size : UInt32, @prefetch_count : UInt16, @global : Bool)
           super(channel)
         end
@@ -1349,6 +1402,7 @@ module AvalancheMQ
 
       struct QosOk < Basic
         METHOD_ID = 11_u16
+
         def method_id
           METHOD_ID
         end
@@ -1364,11 +1418,13 @@ module AvalancheMQ
 
       struct Consume < Basic
         METHOD_ID = 20_u16
+
         def method_id
           METHOD_ID
         end
 
         property queue, consumer_tag, no_local, no_ack, exclusive, no_wait, arguments
+
         def initialize(channel, @reserved1 : UInt16, @queue : String, @consumer_tag : String,
                        @no_local : Bool, @no_ack : Bool, @exclusive : Bool, @no_wait : Bool,
                        @arguments : Hash(String, Field))
@@ -1406,11 +1462,13 @@ module AvalancheMQ
 
       struct ConsumeOk < Basic
         METHOD_ID = 21_u16
+
         def method_id
           METHOD_ID
         end
 
         getter consumer_tag
+
         def initialize(channel, @consumer_tag : String)
           super(channel)
         end
@@ -1428,6 +1486,7 @@ module AvalancheMQ
 
       struct Return < Basic
         METHOD_ID = 50_u16
+
         def method_id
           METHOD_ID
         end
@@ -1457,6 +1516,7 @@ module AvalancheMQ
 
       struct Cancel < Basic
         METHOD_ID = 30_u16
+
         def method_id
           METHOD_ID
         end
@@ -1483,6 +1543,7 @@ module AvalancheMQ
 
       struct CancelOk < Basic
         METHOD_ID = 31_u16
+
         def method_id
           METHOD_ID
         end
@@ -1508,6 +1569,7 @@ module AvalancheMQ
 
     struct HeaderFrame < Frame
       getter body_size, properties
+
       def initialize(channel : UInt16, @class_id : UInt16, @weight : UInt16,
                      @body_size : UInt64, @properties : Properties)
         super(Type::Header, channel)
@@ -1544,7 +1606,7 @@ module AvalancheMQ
     struct BodyFrame < Frame
       getter body
 
-      def initialize(@channel : UInt16,  @body : Bytes)
+      def initialize(@channel : UInt16, @body : Bytes)
         @type = Type::Body
       end
 
@@ -1557,11 +1619,11 @@ module AvalancheMQ
           io.write @body
         end
       end
-
     end
 
     abstract struct Confirm < MethodFrame
       CLASS_ID = 85_u16
+
       def class_id
         CLASS_ID
       end
@@ -1571,12 +1633,13 @@ module AvalancheMQ
         case method_id
         when 10_u16 then Select.decode(channel, body)
         when 11_u16 then SelectOk.decode(channel, body)
-        else raise NotImplemented.new(channel, CLASS_ID, method_id)
+        else             raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
 
       struct Select < Confirm
         METHOD_ID = 10_u16
+
         def method_id
           METHOD_ID
         end
@@ -1598,6 +1661,7 @@ module AvalancheMQ
 
       struct SelectOk < Confirm
         METHOD_ID = 11_u16
+
         def method_id
           METHOD_ID
         end
@@ -1614,6 +1678,7 @@ module AvalancheMQ
 
     abstract struct Tx < MethodFrame
       CLASS_ID = 90_u16
+
       def class_id
         CLASS_ID
       end
