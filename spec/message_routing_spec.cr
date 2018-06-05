@@ -51,6 +51,14 @@ describe AvalancheMQ::TopicExchange do
     x.bind(q5, "d.#")
     x.matches("d.a.d").should eq(Set{q5})
   end
+
+  it "should match multiple bindings" do
+    q6 = AvalancheMQ::Queue.new(vhost, "q6")
+    q7 = AvalancheMQ::Queue.new(vhost, "q7")
+    x.bind(q6, "rk")
+    x.bind(q7, "rk")
+    x.matches("rk").should eq(Set{q6, q7})
+  end
 end
 
 describe AvalancheMQ::HeadersExchange do
@@ -60,15 +68,14 @@ describe AvalancheMQ::HeadersExchange do
   x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
   hdrs_all = {
     "x-match" => "all",
-    "org" => "84codes",
-    "user" => "test"
+    "org"     => "84codes",
+    "user"    => "test",
   } of String => AvalancheMQ::AMQP::Field
   hdrs_any = {
     "x-match" => "any",
-    "org" => "84codes",
-    "user" => "test"
+    "org"     => "84codes",
+    "user"    => "test",
   } of String => AvalancheMQ::AMQP::Field
-
 
   describe "match all" do
     it "should match if same args" do
@@ -111,10 +118,10 @@ describe AvalancheMQ::HeadersExchange do
   it "should handle multiple bindings" do
     q10 = AvalancheMQ::Queue.new(vhost, "q10")
     hx = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
-    hdrs1 = { "x-match" => "any", "org" => "84codes",
-              "user" => "test"} of String => AvalancheMQ::AMQP::Field
-    hdrs2 = { "x-match" => "all", "org" => "google",
-              "user" => "test"} of String => AvalancheMQ::AMQP::Field
+    hdrs1 = {"x-match" => "any", "org" => "84codes",
+             "user" => "test"} of String => AvalancheMQ::AMQP::Field
+    hdrs2 = {"x-match" => "all", "org" => "google",
+             "user" => "test"} of String => AvalancheMQ::AMQP::Field
 
     hx.bind(q10, "", hdrs1)
     hx.bind(q10, "", hdrs2)
@@ -126,15 +133,15 @@ describe AvalancheMQ::HeadersExchange do
 
   it "should handle all Field types" do
     q11 = AvalancheMQ::Queue.new(vhost, "q11")
-    hsh = { "k" => "v"} of String => AvalancheMQ::AMQP::Field
+    hsh = {"k" => "v"} of String => AvalancheMQ::AMQP::Field
     arrf = [1] of AvalancheMQ::AMQP::Field
     arru = [1_u8] of AvalancheMQ::AMQP::Field
-    hdrs = { "Nil" => nil, "Bool" => true, "UInt8" => 1_u8, "UInt16" => 1_u16, "UInt32" => 1_u32,
-             "Int16" => 1_u16, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
-             "Float64" => 1_f64, "String" => "String", "Array(Field)" => arrf,
-             "Array(UInt8)" => arru, "Time" => Time.now, "Hash(String, Field)" => hsh,
-             "x-match" => "all"
-           } of String => AvalancheMQ::AMQP::Field
+    hdrs = {"Nil" => nil, "Bool" => true, "UInt8" => 1_u8, "UInt16" => 1_u16, "UInt32" => 1_u32,
+            "Int16" => 1_u16, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
+            "Float64" => 1_f64, "String" => "String", "Array(Field)" => arrf,
+            "Array(UInt8)" => arru, "Time" => Time.now, "Hash(String, Field)" => hsh,
+            "x-match" => "all",
+    } of String => AvalancheMQ::AMQP::Field
     x.bind(q11, "", hdrs)
     x.matches("", hdrs).should eq Set{q11}
   end
@@ -142,8 +149,8 @@ describe AvalancheMQ::HeadersExchange do
   it "should handle unbind" do
     q12 = AvalancheMQ::Queue.new(vhost, "q12")
     hx = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
-    hdrs1 = { "x-match" => "any", "org" => "84codes",
-              "user" => "test"} of String => AvalancheMQ::AMQP::Field
+    hdrs1 = {"x-match" => "any", "org" => "84codes",
+             "user" => "test"} of String => AvalancheMQ::AMQP::Field
     hx.bind(q12, "", hdrs1)
     hx.unbind(q12, "", hdrs1)
     hx.matches("", hdrs1).size.should eq 0

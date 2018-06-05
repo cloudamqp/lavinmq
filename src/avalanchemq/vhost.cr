@@ -13,6 +13,7 @@ module AvalancheMQ
     class MessageFile < File
       include AMQP::IO
     end
+
     getter name, exchanges, queues, log, data_dir, policies, parameters
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
@@ -89,7 +90,7 @@ module AvalancheMQ
       @wfile.write msg.body
       @wfile.flush
       flush = msg.properties.delivery_mode == 2_u8
-      return queues.any? { |q| q.publish(sp, flush) } || ok
+      return queues.map { |q| q.publish(sp, flush) }.any? || ok
     end
 
     private def send_to_alternate_exchange?(msg, immediate = false, visited = [] of String)
@@ -120,7 +121,7 @@ module AvalancheMQ
     def vhost_details
       {
         name: @name,
-        dir: @dir
+        dir:  @dir,
       }
     end
 
@@ -128,16 +129,16 @@ module AvalancheMQ
       ready = @queues.values.reduce(0) { |m, q| m += q.message_count }
       unacked = @queues.values.reduce(0) { |m, q| m += q.unacked_count }
       {
-        messages: ready + unacked,
+        messages:                ready + unacked,
         messages_unacknowledged: unacked,
-        messages_ready: ready
+        messages_ready:          ready,
       }
     end
 
     def declare_queue(name, durable, auto_delete,
                       arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
-                                     auto_delete, false, arguments)
+        auto_delete, false, arguments)
     end
 
     def delete_queue(name)
@@ -147,7 +148,7 @@ module AvalancheMQ
     def declare_exchange(name, type, durable, auto_delete, internal = false,
                          arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-                                        auto_delete, internal, false, arguments)
+        auto_delete, internal, false, arguments)
     end
 
     def delete_exchange(name)
@@ -156,12 +157,12 @@ module AvalancheMQ
 
     def bind_queue(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Queue::Bind.new(0_u16, 0_u16, destination, source,
-                                  routing_key, false, arguments)
+        routing_key, false, arguments)
     end
 
     def bind_exchange(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
       apply AMQP::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-                                     routing_key, false, arguments)
+        routing_key, false, arguments)
     end
 
     def apply(f, loading = false)
@@ -241,7 +242,7 @@ module AvalancheMQ
     end
 
     def delete_parameter(component_name, parameter_name)
-      @parameters.delete({ component_name, parameter_name })
+      @parameters.delete({component_name, parameter_name})
       case component_name
       when "shovel"
         @shovels.delete(parameter_name)
@@ -317,8 +318,8 @@ module AvalancheMQ
           next unless e.durable
           next if e.auto_delete
           f = AMQP::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
-                                          false, e.durable, e.auto_delete, e.internal,
-                                          false, e.arguments)
+            false, e.durable, e.auto_delete, e.internal,
+            false, e.arguments)
           f.encode(io)
           e.bindings.each do |bt, destinations|
             destinations.each do |d|
@@ -338,7 +339,7 @@ module AvalancheMQ
           next unless q.durable
           next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
           f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
-                                       q.auto_delete, false, q.arguments)
+            q.auto_delete, false, q.arguments)
           f.encode(io)
         end
       end

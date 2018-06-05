@@ -695,4 +695,24 @@ describe AvalancheMQ::Server do
   ensure
     close(s)
   end
+
+  it "should deliver to all matching queues" do
+    s = amqp_server
+    listen(s, 5672)
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q1 = ch.queue("q699")
+      q2 = ch.queue("q700")
+      x1 = ch.exchange("x1", "topic")
+      q1.bind(x1, "rk")
+      q2.bind(x1, "rk")
+      x1.publish(AMQP::Message.new("m1"), "rk")
+      msg_q1 = q1.get(no_ack: true)
+      msg_q2 = q2.get(no_ack: true)
+      msg_q1.to_s.should eq("m1")
+      msg_q2.to_s.should eq("m1")
+    end
+  ensure
+    close(s)
+  end
 end

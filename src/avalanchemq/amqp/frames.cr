@@ -1385,7 +1385,7 @@ module AvalancheMQ
         end
 
         def to_slice
-          io = AMQP::MemoryIO.new
+          io = AMQP::MemoryIO.new(4 + 2 + 1)
           io.write_int @prefetch_size
           io.write_int @prefetch_count
           io.write_bool @global
