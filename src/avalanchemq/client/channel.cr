@@ -114,7 +114,7 @@ module AvalancheMQ
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
           @client.server.direct_reply_channels[consumer_tag]?.try do |ch|
-            deliver = AMQP::Basic::Deliver.new(id, consumer_tag, 1_u64, false,
+            deliver = AMQP::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
               msg.exchange_name, msg.routing_key)
             ch.deliver(deliver, msg)
             delivered = true
