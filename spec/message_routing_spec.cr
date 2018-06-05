@@ -55,9 +55,17 @@ describe AvalancheMQ::TopicExchange do
   it "should match multiple bindings" do
     q6 = AvalancheMQ::Queue.new(vhost, "q6")
     q7 = AvalancheMQ::Queue.new(vhost, "q7")
-    x.bind(q6, "rk")
-    x.bind(q7, "rk")
-    x.matches("rk").should eq(Set{q6, q7})
+    ex = AvalancheMQ::TopicExchange.new(vhost, "t55", false, false, true)
+    ex.bind(q6, "rk")
+    ex.bind(q7, "rk")
+    ex.matches("rk").should eq(Set{q6, q7})
+  end
+
+  it "should not get index out of bound when matching routing keys" do
+    q8 = AvalancheMQ::Queue.new(vhost, "q63")
+    ex = AvalancheMQ::TopicExchange.new(vhost, "t63", false, false, true)
+    ex.bind(q8, "rk63.rk63")
+    ex.matches("rk63").should eq(Set(AvalancheMQ::Queue).new)
   end
 end
 

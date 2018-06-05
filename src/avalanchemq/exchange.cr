@@ -6,7 +6,7 @@ module AvalancheMQ
     include PolicyTarget
 
     getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type,
-           alternate_exchange
+      alternate_exchange
     def_equals_and_hash @vhost.name, @name
 
     @alternate_exchange : String?
@@ -38,7 +38,7 @@ module AvalancheMQ
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        policy: @policy
+        policy: @policy,
       }.to_json(builder)
     end
 
@@ -94,13 +94,13 @@ module AvalancheMQ
 
     def binding_details(key, destination)
       {
-        source: name,
-        vhost: vhost.name,
-        destination: destination.name,
+        source:           name,
+        vhost:            vhost.name,
+        destination:      destination.name,
         destination_type: destination.is_a?(Queue) ? "queue" : "exchange",
-        routing_key: key[0],
-        arguments: key[1],
-        properties_key: Exchange.hash_key(key)
+        routing_key:      key[0],
+        arguments:        key[1],
+        properties_key:   Exchange.hash_key(key),
       }
     end
 
@@ -189,8 +189,12 @@ module AvalancheMQ
       s = Set(Queue | Exchange).new
       @bindings.each do |bt, q|
         ok = false
-        bk_parts = bt[0].split(".")
+        bk_parts = bt[0].split(".") # rk
         bk_parts.each_with_index do |part, i|
+          if i > rk_parts.size - 1
+            ok = false
+            break
+          end
           if part == "#"
             ok = true
             break
