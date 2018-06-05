@@ -1,4 +1,5 @@
 require "../controller"
+
 module AvalancheMQ
   module UserHelpers
     private def user(context, params, key = "name")
@@ -22,7 +23,7 @@ module AvalancheMQ
       get "/api/users/without-permissions" do |context, _params|
         refuse_unless_administrator(context, user(context))
         @amqp_server.users.select { |u| u.permissions.empty? }
-          .map(&.user_details).to_json(context.response)
+                          .map(&.user_details).to_json(context.response)
         context
       end
 
@@ -74,7 +75,7 @@ module AvalancheMQ
           else
             bad_request(context, "Field 'password_hash' or 'password' is required when creating new user")
           end
-          context.response.status_code = 201
+          context.response.status_code = 204
         end
         context
       rescue ex : User::InvalidPasswordHash

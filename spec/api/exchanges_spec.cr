@@ -80,7 +80,7 @@ describe AvalancheMQ::ExchangesController do
       })
       s.vhosts["/"].delete_exchange("spechange")
       response = put("http://localhost:8080/api/exchanges/%2f/spechange", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       response = get("http://localhost:8080/api/exchanges/%2f/spechange")
       response.status_code.should eq 200
     ensure
@@ -110,7 +110,7 @@ describe AvalancheMQ::ExchangesController do
       })
       s.vhosts["/"].delete_exchange("spechange")
       response = put("http://localhost:8080/api/exchanges/%2f/spechange", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       body = %({
         "type": "topic",
         "durable": false,

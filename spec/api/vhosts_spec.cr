@@ -105,7 +105,7 @@ describe AvalancheMQ::VHostsController do
       s, h = create_servers
       listen(h)
       response = put("http://localhost:8080/api/vhosts/test")
-      response.status_code.should eq 201
+      response.status_code.should eq 204
     ensure
       close(h)
     end

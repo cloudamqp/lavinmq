@@ -3,7 +3,6 @@ require "../controller"
 require "../resource_helper"
 
 module AvalancheMQ
-
   module ExchangeHelpers
     private def exchange(context, params, vhost, key = "name")
       name = params[key]
@@ -12,6 +11,7 @@ module AvalancheMQ
       e
     end
   end
+
   class ExchangesController < Controller
     include ResourceHelper
     include ExchangeHelpers
@@ -64,8 +64,8 @@ module AvalancheMQ
             bad_request(context, "Not allowed to use the amq. prefix")
           else
             @amqp_server.vhosts[vhost]
-              .declare_exchange(name, type, durable, auto_delete, internal, arguments)
-            context.response.status_code = 201
+                        .declare_exchange(name, type, durable, auto_delete, internal, arguments)
+            context.response.status_code = 204
           end
         end
       end
@@ -129,14 +129,14 @@ module AvalancheMQ
           end
           size = content.bytesize.to_u64
           msg = Message.new(Time.utc_now.epoch_ms,
-                            e.name,
-                            routing_key,
-                            AMQP::Properties.from_json(properties),
-                            size,
-                            content.to_slice)
+            e.name,
+            routing_key,
+            AMQP::Properties.from_json(properties),
+            size,
+            content.to_slice)
           @log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
           ok = e.vhost.publish(msg)
-          { routed: ok }.to_json(context.response)
+          {routed: ok}.to_json(context.response)
         end
       end
     end

@@ -11,6 +11,7 @@ module AvalancheMQ
       q
     end
   end
+
   class QueuesController < Controller
     include ResourceHelper
     include QueueHelpers
@@ -63,8 +64,8 @@ module AvalancheMQ
             bad_request(context, "Not allowed to use the amq. prefix")
           else
             @amqp_server.vhosts[vhost]
-              .declare_queue(name, durable, auto_delete, arguments)
-            context.response.status_code = 201
+                        .declare_queue(name, durable, auto_delete, arguments)
+            context.response.status_code = 204
           end
         end
       end
@@ -153,14 +154,14 @@ module AvalancheMQ
               bad_request(context, "Unknown encoding #{encoding}")
             end
             {
-              "payload_bytes": env.message.size,
-              "redelivered": redelivered,
-              "exchange": env.message.exchange_name,
-              "routing_key": env.message.routing_key,
-              "message_count": count,
-              "properties": env.message.properties,
-              "payload": content,
-              "payload_encoding": payload_encoding
+              "payload_bytes":    env.message.size,
+              "redelivered":      redelivered,
+              "exchange":         env.message.exchange_name,
+              "routing_key":      env.message.routing_key,
+              "message_count":    count,
+              "properties":       env.message.properties,
+              "payload":          content,
+              "payload_encoding": payload_encoding,
             }
           end
           res.to_json(context.response)

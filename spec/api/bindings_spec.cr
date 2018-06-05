@@ -72,7 +72,7 @@ describe AvalancheMQ::BindingsController do
         "arguments": {}
       })
       response = post("http://localhost:8080/api/bindings/%2f/e/be1/q/q1", body: body)
-      response.status_code.should eq 200
+      response.status_code.should eq 201
       response.headers["Location"].should match /api\/bindings\/%2f\/e\/be1\/q\/q1\/.*/
     ensure
       close(h)

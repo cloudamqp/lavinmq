@@ -10,9 +10,9 @@ describe AvalancheMQ::QueuesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-      keys = ["name", "durable" , "exclusive", "auto_delete" , "arguments", "consumers" , "vhost",
-       "messages", "ready", "unacked", "policy", "exclusive_consumer_tag", "state",
-       "effective_policy_definition"]
+      keys = ["name", "durable", "exclusive", "auto_delete", "arguments", "consumers", "vhost",
+              "messages", "ready", "unacked", "policy", "exclusive_consumer_tag", "state",
+              "effective_policy_definition"]
       body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
@@ -83,7 +83,7 @@ describe AvalancheMQ::QueuesController do
       })
       s.vhosts["/"].delete_queue("putqueue")
       response = put("http://localhost:8080/api/queues/%2f/putqueue", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       response = get("http://localhost:8080/api/queues/%2f/putqueue")
       response.status_code.should eq 200
     ensure
@@ -95,7 +95,7 @@ describe AvalancheMQ::QueuesController do
       listen(h)
       s.vhosts["/"].delete_queue("okq")
       response = put("http://localhost:8080/api/queues/%2f/okq", body: %({}))
-      response.status_code.should eq 201
+      response.status_code.should eq 204
     ensure
       close(h)
     end
@@ -108,7 +108,7 @@ describe AvalancheMQ::QueuesController do
       })
       s.vhosts["/"].delete_queue("q1")
       response = put("http://localhost:8080/api/queues/%2f/q1", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       body = %({
         "durable": false
       })

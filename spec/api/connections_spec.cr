@@ -136,7 +136,7 @@ describe AvalancheMQ::ConnectionsController do
         name = URI.escape(body[0]["name"].as_s)
         response = delete("http://localhost:8080/api/connections/#{name}")
       ensure
-        response.try &.status_code.should eq 200
+        response.try &.status_code.should eq 204
       end
     ensure
       close(h, s)

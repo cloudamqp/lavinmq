@@ -2,7 +2,6 @@ require "uri"
 require "../controller"
 
 module AvalancheMQ
-
   module ConnectionsHelper
     private def connections(user : User)
       @amqp_server.connections.select { |c| can_access_connection?(c, user) }
@@ -12,6 +11,7 @@ module AvalancheMQ
       c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
     end
   end
+
   class ConnectionsController < Controller
     include ConnectionsHelper
 
@@ -35,7 +35,10 @@ module AvalancheMQ
       end
 
       delete "/api/connections/:name" do |context, params|
-        with_connection(context, params) { |c| c.close }
+        with_connection(context, params) do |c|
+          c.close
+          context.response.status_code = 204
+        end
       end
 
       get "/api/connections/:name/channels" do |context, params|

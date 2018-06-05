@@ -1,11 +1,11 @@
 require "../controller"
-module AvalancheMQ
 
+module AvalancheMQ
   class VHostsController < Controller
     private def register_routes
       get "/api/vhosts" do |context, _params|
         vhosts(user(context), require_amqp_access: false).map { |v| v.vhost_details.merge(v.message_details) }
-          .to_json(context.response)
+                                                         .to_json(context.response)
         context
       end
 
@@ -14,14 +14,14 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           v = @amqp_server.vhosts[vhost]
           v.vhost_details.merge(v.message_details)
-            .to_json(context.response)
+                         .to_json(context.response)
         end
       end
 
       put "/api/vhosts/:name" do |context, params|
         refuse_unless_administrator(context, user(context))
         @amqp_server.vhosts.create(params["name"])
-        context.response.status_code = 201
+        context.response.status_code = 204
         context
       end
 

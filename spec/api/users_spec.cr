@@ -78,7 +78,7 @@ describe AvalancheMQ::UsersController do
         "password": "test"
       })
       response = put("http://localhost:8080/api/users/alan", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       u = s.users["alan"]
       ok = u.not_nil!.password == "test"
       ok.should be_true
@@ -94,7 +94,7 @@ describe AvalancheMQ::UsersController do
         "password_hash": "kI3GCqW5JLMJa4iX1lo7X4D6XbYqlLgxIs30+P6tENUV2POR"
       })
       response = put("http://localhost:8080/api/users/alan", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       u = s.users["alan"]
       ok = u.not_nil!.password == "test12"
       ok.should be_true
@@ -110,7 +110,7 @@ describe AvalancheMQ::UsersController do
         "password_hash": ""
       })
       response = put("http://localhost:8080/api/users/alan", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
       hrds = HTTP::Headers{"Authorization" => "Basic YWxhbjo="} # alan:
       response = get("http://localhost:8080/api/users/alan", headers: hrds)
       response.status_code.should eq 401

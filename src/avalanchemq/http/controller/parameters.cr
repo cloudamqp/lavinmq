@@ -18,7 +18,7 @@ module AvalancheMQ
         component = params["component"]
         vhosts(user)
           .flat_map { |v| v.parameters.values.map { |p| map_parameter(v.name, p) } }
-          .select { |p| p["component"]  == component }
+          .select { |p| p["component"] == component }
           .to_json(context.response)
         context
       end
@@ -28,9 +28,9 @@ module AvalancheMQ
           refuse_unless_policymaker(context, user(context), vhost)
           component = params["component"]
           @amqp_server.vhosts[vhost].parameters.values
-            .select { |p| p.component_name  == component }
-            .map { |p| map_parameter(vhost, p) }
-            .to_json(context.response)
+                                               .select { |p| p.component_name == component }
+                                               .map { |p| map_parameter(vhost, p) }
+                                               .to_json(context.response)
         end
       end
 
@@ -39,7 +39,7 @@ module AvalancheMQ
           refuse_unless_policymaker(context, user(context), vhost)
           component = params["component"]
           name = params["name"]
-          param = param(context, @amqp_server.vhosts[vhost].parameters, { component, name })
+          param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
           map_parameter(vhost, param).to_json(context.response)
         end
       end
@@ -56,7 +56,7 @@ module AvalancheMQ
           end
           p = Parameter.new(component, name, value)
           p = @amqp_server.vhosts[vhost].add_parameter(p)
-          context.response.status_code = 201
+          context.response.status_code = 204
         end
       end
 
@@ -65,7 +65,7 @@ module AvalancheMQ
           refuse_unless_policymaker(context, user(context), vhost)
           component = params["component"]
           name = params["name"]
-          param = param(context, @amqp_server.vhosts[vhost].parameters, { component, name })
+          param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
           @amqp_server.vhosts[vhost].delete_parameter(component, name)
           context.response.status_code = 204
         end
@@ -74,8 +74,8 @@ module AvalancheMQ
       get "/api/global-parameters" do |context, _params|
         refuse_unless_administrator(context, user(context))
         @amqp_server.parameters.values
-          .map { |p| map_parameter(nil, p) }
-          .to_json(context.response)
+                               .map { |p| map_parameter(nil, p) }
+                               .to_json(context.response)
         context
       end
 
@@ -97,14 +97,14 @@ module AvalancheMQ
         end
         p = Parameter.new(nil, name, value)
         @amqp_server.add_parameter(p)
-        context.response.status_code = 201
+        context.response.status_code = 204
         context
       end
 
       delete "/api/global-parameters/:name" do |context, params|
         refuse_unless_policymaker(context, user(context))
         name = params["name"]
-        param = param(context, @amqp_server.parameters, { nil, name })
+        param = param(context, @amqp_server.parameters, {nil, name})
         @amqp_server.delete_parameter(nil, name)
         context.response.status_code = 204
         context
@@ -147,8 +147,8 @@ module AvalancheMQ
             bad_request(context, "Fields 'pattern' and 'definition' are required")
           end
           @amqp_server.vhosts[vhost]
-            .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
-          context.response.status_code = 201
+                      .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
+          context.response.status_code = 204
         end
       end
 
@@ -165,10 +165,10 @@ module AvalancheMQ
 
     private def map_parameter(vhost, p)
       {
-        "name" => p.parameter_name,
+        "name"      => p.parameter_name,
         "component" => p.component_name,
-        "vhost" => vhost,
-        "value" => p.value
+        "vhost"     => vhost,
+        "value"     => p.value,
       }.compact
     end
 

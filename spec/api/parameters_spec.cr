@@ -87,7 +87,7 @@ describe AvalancheMQ::ParametersController do
         "value": {}
       })
       response = put("http://localhost:8080/api/parameters/test/%2f/name", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
     ensure
       close(h)
     end
@@ -123,7 +123,7 @@ describe AvalancheMQ::ParametersController do
     end
   end
 
-   describe "GET /api/global-parameters/name" do
+  describe "GET /api/global-parameters/name" do
     it "should return parameter" do
       s, h = create_servers
       listen(h)
@@ -145,7 +145,7 @@ describe AvalancheMQ::ParametersController do
         "value": {}
       })
       response = put("http://localhost:8080/api/global-parameters/name", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
     ensure
       close(h)
     end
@@ -169,8 +169,9 @@ describe AvalancheMQ::ParametersController do
       s, h = create_servers
       listen(h)
       definitions = JSON::Any.new({
-        "max-length" => 10_i64,
-        "alternate-exchange" => "dead-letters" } of String => JSON::Type)
+        "max-length"         => 10_i64,
+        "alternate-exchange" => "dead-letters",
+      } of String => JSON::Type)
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
       response = get("http://localhost:8080/api/policies")
       response.status_code.should eq 200
@@ -188,8 +189,9 @@ describe AvalancheMQ::ParametersController do
       s, h = create_servers
       listen(h)
       definitions = JSON::Any.new({
-        "max-length" => 10_i64,
-        "alternate-exchange" => "dead-letters" } of String => JSON::Type)
+        "max-length"         => 10_i64,
+        "alternate-exchange" => "dead-letters",
+      } of String => JSON::Type)
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
       response = get("http://localhost:8080/api/policies/%2f")
       response.status_code.should eq 200
@@ -205,8 +207,9 @@ describe AvalancheMQ::ParametersController do
       s, h = create_servers
       listen(h)
       definitions = JSON::Any.new({
-        "max-length" => 10_i64,
-        "alternate-exchange" => "dead-letters" } of String => JSON::Type)
+        "max-length"         => 10_i64,
+        "alternate-exchange" => "dead-letters",
+      } of String => JSON::Type)
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
       response = get("http://localhost:8080/api/policies/%2f/test")
       response.status_code.should eq 200
@@ -214,7 +217,6 @@ describe AvalancheMQ::ParametersController do
       close(h)
     end
   end
-
 
   describe "PUT /api/policies/vhost/name" do
     it "should create policy" do
@@ -228,7 +230,7 @@ describe AvalancheMQ::ParametersController do
         "pattern": ".*"
       })
       response = put("http://localhost:8080/api/policies/%2f/name", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
     ensure
       close(h)
     end
@@ -239,8 +241,9 @@ describe AvalancheMQ::ParametersController do
       s, h = create_servers
       listen(h)
       definitions = JSON::Any.new({
-        "max-length" => 10_i64,
-        "alternate-exchange" => "dead-letters" } of String => JSON::Type)
+        "max-length"         => 10_i64,
+        "alternate-exchange" => "dead-letters",
+      } of String => JSON::Type)
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
       response = delete("http://localhost:8080/api/policies/%2f/test")
       response.status_code.should eq 204

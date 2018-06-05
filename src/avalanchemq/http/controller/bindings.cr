@@ -49,8 +49,8 @@ module AvalancheMQ
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
           e.bindings.select { |k, v| v.includes?(q) }
-            .map { |k, _| e.binding_details(k, q) }
-            .to_json(context.response)
+                    .map { |k, _| e.binding_details(k, q) }
+                    .to_json(context.response)
         end
       end
 
@@ -74,6 +74,7 @@ module AvalancheMQ
           e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
           props = Exchange.hash_key({routing_key, arguments})
           context.response.headers["Location"] = context.request.path + "/" + props
+          context.response.status_code = 201
         end
       end
 
@@ -111,8 +112,8 @@ module AvalancheMQ
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
           source.bindings.select { |k, v| v.includes?(destination) }
-            .map { |k, _| source.binding_details(k, destination) }
-            .to_json(context.response)
+                         .map { |k, _| source.binding_details(k, destination) }
+                         .to_json(context.response)
         end
       end
 

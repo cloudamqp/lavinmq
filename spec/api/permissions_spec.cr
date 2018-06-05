@@ -51,7 +51,7 @@ describe AvalancheMQ::PermissionsController do
         "write": ".*"
       })
       response = put("http://localhost:8080/api/permissions/test/guest", body: body)
-      response.status_code.should eq 201
+      response.status_code.should eq 204
     ensure
       close(h)
     end
