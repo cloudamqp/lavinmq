@@ -128,9 +128,18 @@
 
   function renderCell(tr, column, value) {
     let cell = tr.cells[column] || tr.insertCell(-1);
-    let text = value === undefined ? "" : value.toString();
-    if (cell.textContent !== text) {
-      cell.textContent = text;
+    if (value instanceof Element) {
+      if (!value.isEqualNode(cell.firstChild)) {
+        while (cell.lastChild) {
+          cell.removeChild(cell.lastChild);
+        }
+        cell.appendChild(value);
+      }
+    } else {
+      let text = value === undefined ? "" : value.toString();
+      if (cell.textContent !== text) {
+        cell.textContent = text;
+      }
     }
     return cell;
   }

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Queues | AvalancheMQ</title>
+    <title>User | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
   </head>
   <body>
@@ -27,43 +27,41 @@
       </ul>
       <div id="table-error"></div>
       <h2>
-        Queues
+        Permissions
         <small id="table-count"></small>
       </h2>
       <table id="table" class="table">
         <thead>
           <tr>
-            <th data-sort-key="name">Name</th>
-            <th data-sort-key="vhost">VHost</th>
-            <th>Features</th>
-            <th data-sort-key="messages">Messages</th>
-            <th data-sort-key="unacked">Unacked</th>
-            <th data-sort-key="ready">Ready</th>
-            <th data-sort-key="consumers">Consumers</th>
+            <th>Virtual host</th>
+            <th>Configure regexp</th>
+            <th>Write regexp</th>
+            <th>Read regexp</th>
+            <th></th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
-      <form method="put" id="declare">
+      <form method="put" id="setPermission">
         <fieldset>
-          <legend>Add queue</legend>
+          <legend>Set permission</legend>
           <label>
             Virtual host
             <select name="vhost" required></select>
           </label>
           <label>
-            Name
-            <input type="text" name="name" required>
+            Configure regexp
+            <input type="text" name="configure" required value=".*">
           </label>
           <label>
-            Durable
-            <input type="checkbox" name="durable" value="1">
+            Write regexp
+            <input type="text" name="write" required value=".*">
           </label>
           <label>
-            Auto-delete
-            <input type="checkbox" name="auto_delete" value="1">
+            Read regexp
+            <input type="text" name="read" required value=".*">
           </label>
-          <button type="submit">Add queue</button>
+          <button type="submit">Set permission</button>
         </fieldset>
       </form>
     </div>
@@ -73,8 +71,18 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      const user = new URLSearchParams(window.location.search).get("name")
+      document.title = user + " | AvalancheMQ"
+      const url = "/api/users/" + encodeURIComponent(user) + "/permissions"
+      avalanchemq.table.renderTable(url, [], 0, (tr, item) => {
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, item.configure)
+        avalanchemq.table.renderCell(tr, 2, item.write)
+        avalanchemq.table.renderCell(tr, 3, item.read)
+      })
+
       function addVhostOptions(vhosts) {
-        let select = document.forms["declare"].elements["vhost"];
+        let select = document.forms["setPermission"].elements["vhost"];
         while (select.options.length) select.remove(0);
         for (let i = 0; i < vhosts.length; i++) {
           let opt = document.createElement("option");
@@ -85,33 +93,21 @@
 
       avalanchemq.vhosts.fetch(addVhostOptions);
 
-      avalanchemq.table.renderTable("/api/queues", ["vhost", "name"], 5000, function (tr, item) {
-        var features = "";
-        features += item.durable ? " D" : "";
-        features += item.auto_delete ? " AD" : "";
-        features += item.exclusive ? " E" : "";
-        avalanchemq.table.renderCell(tr, 0, item.name);
-        avalanchemq.table.renderCell(tr, 1, item.vhost);
-        avalanchemq.table.renderCell(tr, 2, features);
-        avalanchemq.table.renderCell(tr, 3, item.messages);
-        avalanchemq.table.renderCell(tr, 4, item.unacked);
-        avalanchemq.table.renderCell(tr, 5, item.ready);
-        avalanchemq.table.renderCell(tr, 6, item.consumers);
-      });
-
-      document.querySelector("#declare").addEventListener("submit", function (evt) {
+      document.querySelector("#setPermission").addEventListener("submit", function (evt) {
         evt.preventDefault();
-        let data = new FormData(this);
-        let vhost = encodeURIComponent(data.get("vhost"));
-        let queue = encodeURIComponent(data.get("name"));
-        let url = "/api/queues/" + vhost + "/" + queue;
+        let data = new FormData(this)
+        let username = encodeURIComponent(user)
+        let vhost = encodeURIComponent(data.get("vhost"))
+        let url = "/api/permissions/" + vhost + "/" + username
         body = {
-          durable: data.get("durable") == "1",
-          auto_delete: data.get("auto_delete") == "1"
+          configure: data.get("configure"),
+          write: data.get("write"),
+          read: data.get("read")
         }
         avalanchemq.http.request("PUT", url, body)
+          .then(() => window.location.reload())
           .catch(e => console.error.apply(console, e))
-      });
+      })
     </script>
   </body>
 </html>

@@ -72,7 +72,10 @@
         avalanchemq.table.renderTable("/api/users", ["name", "tags"], 0, (tr, item) => {
           let hasPassword = item.password_hash.length ? "●" : "";
           let vhosts = permissions.filter(p => p.user == item.name).map(p => p.vhost).join(", ")
-          avalanchemq.table.renderCell(tr, 0, item.name)
+          let userLink = document.createElement("a")
+          userLink.href = "/user?name=" + item.name
+          userLink.textContent = item.name
+          avalanchemq.table.renderCell(tr, 0, userLink)
           avalanchemq.table.renderCell(tr, 1, item.tags)
           avalanchemq.table.renderCell(tr, 2, vhosts)
           avalanchemq.table.renderCell(tr, 3, hasPassword)
@@ -90,8 +93,8 @@
           tags: data.get("tags")
         }
         avalanchemq.http.request("PUT", url, body)
-          .then(window.location.reload)
-          .catch(function (e) { console.error(e) })
+          .then(() => window.location.reload())
+          .catch(e => console.error.apply(console, e))
       })
 
       document.querySelector("#tags").onclick = e => {

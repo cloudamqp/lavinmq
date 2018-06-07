@@ -1,4 +1,3 @@
-
 (function () {
   window.avalanchemq = window.avalanchemq || {};
 

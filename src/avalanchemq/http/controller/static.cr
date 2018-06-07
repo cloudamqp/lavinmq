@@ -20,7 +20,7 @@ module AvalancheMQ
         serve(context, "index.html")
       end
 
-      %w(login connections channels queues exchanges users).each do |r|
+      %w(login connections channels queues exchanges users user).each do |r|
         get "/#{r}" do |context, _|
           serve(context, "#{r}.html")
         end

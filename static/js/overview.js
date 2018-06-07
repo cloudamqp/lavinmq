@@ -14,7 +14,9 @@
         render(data);
       }
     } catch(e) {
+      localStorage.removeItem(url);
       console.log("Error parsing data from localStorage");
+      console.error(e);
     }
   }
 
@@ -25,11 +27,13 @@
   }
 
   function render(data) {
-    let table = document.querySelector("#overview");
     document.querySelector("#version").innerText = data.avalanchemq_version;
-    Object.keys(data.object_totals).forEach(function (key) {
-      table.querySelector("." + key).innerText = data.object_totals[key];
-    });
+    let table = document.querySelector("#overview");
+    if (table) {
+      Object.keys(data.object_totals).forEach(function (key) {
+        table.querySelector("." + key).innerText = data.object_totals[key];
+      });
+    }
   }
 
   function start() {

@@ -52,19 +52,20 @@
       opts.body = JSON.stringify(body);
     }
     return fetch(path, opts)
-    .then(function (response) {
-      if (response.status === 401) {
-        redirectToLogin();
-      } else if (!(response.status >= 200 && response.status < 400)) {
-        // not ok
-      }
-      return response;
-    })
-    .then(function (response) {
-      return response.json().catch(function () {
-        // not json
+      .then(function (response) {
+        if (response.status === 401) {
+          redirectToLogin();
+        } else if (!(response.status >= 200 && response.status < 400)) {
+          // not ok
+        }
+        return response;
+      })
+      .then(function (response) {
+        return response.json().catch(function (e) {
+          // not json
+          return e;
+        });
       });
-    });
   }
 
   testLoggedIn();
