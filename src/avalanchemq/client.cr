@@ -447,7 +447,7 @@ module AvalancheMQ
       when AMQP::Basic::Qos
         with_channel frame, &.basic_qos(frame)
       when AMQP::HeartbeatFrame
-        send AMQP::HeartbeatFrame.new
+        #send AMQP::HeartbeatFrame.new
       else
         raise AMQP::NotImplemented.new(frame)
       end
