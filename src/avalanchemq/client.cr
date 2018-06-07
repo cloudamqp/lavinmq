@@ -134,6 +134,7 @@ module AvalancheMQ
     end
 
     def cleanup
+      @running = false
       @log.debug "Yielding before cleaning up"
       Fiber.yield
       @log.debug "Cleaning up"
