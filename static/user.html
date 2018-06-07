@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <title>User | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
   </head>
   <body>
     <div class="container">
@@ -25,6 +26,10 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
       </ul>
+      <h2>
+        User:
+        <small id="user"></small>
+      </h2>
       <div id="table-error"></div>
       <h2>
         Permissions
@@ -73,6 +78,7 @@
     <script>
       const user = new URLSearchParams(window.location.search).get("name")
       document.title = user + " | AvalancheMQ"
+      document.querySelector("#user").textContent = user
       const url = "/api/users/" + encodeURIComponent(user) + "/permissions"
       avalanchemq.table.renderTable(url, [], 0, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)

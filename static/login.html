@@ -1,55 +1,53 @@
 <!DOCTYPE html>
-<html>
-
-<head>
-  <title>Login | AvalancheMQ</title>
-  <link href="/main.css" rel="stylesheet">
-</head>
-
-<body>
-  <div class="container">
-    <h1>AvalancheMQ</h1>
-  </div>
-  <script src="/js/auth.js"></script>
-  <script src="/js/http.js"></script>
-  <main class="login-container">
-    <div class="box">
-      <div class="box-body">
-        <div class="login-info">
-          <h2 class="host">localhost</h2>
-        </div>
-        <form id="login" action="/">
-          <div class="form-group">
-            <label for="amq-username">Username</label>
-            <input type="text" class="form-control" id="amq-username">
-          </div>
-          <div class="form-group password mb-3">
-            <label for="amq-password">Password</label>
-            <input type="password" class="form-control" id="amq-password">
-          </div>
-          <div class="pt-3">
-            <button type="submit" class="btn btn-primary">Sign in</button>
-          </div>
-        </form>
-      </div>
+<html lang="en">
+  <head>
+    <title>Login | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+  </head>
+  <body>
+    <div class="container">
+      <h1>AvalancheMQ</h1>
     </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <main class="login-container">
+      <div class="box">
+        <div class="box-body">
+          <div class="login-info">
+            <h2 class="host">localhost</h2>
+          </div>
+          <form id="login" action="/">
+            <div class="form-group">
+              <label for="amq-username">Username</label>
+              <input type="text" class="form-control" id="amq-username">
+            </div>
+            <div class="form-group password mb-3">
+              <label for="amq-password">Password</label>
+              <input type="password" class="form-control" id="amq-password">
+            </div>
+            <div class="pt-3">
+              <button type="submit" class="btn btn-primary">Sign in</button>
+            </div>
+          </form>
+        </div>
+      </div>
 
-    <script type="text/javascript">
-      document.querySelector("#login").addEventListener("submit", function (evt) {
-        evt.preventDefault();
-        var xhr = new XMLHttpRequest();
-        var user = document.querySelector('#amq-username').value;
-        var pass = document.querySelector('#amq-password').value;
-        avalanchemq.auth.setAuth(user + ":" + pass);
-        avalanchemq.http.request("GET", "/api/whoami").then(function () {
-          avalanchemq.auth.storeCookie({ username: user, password: pass });
-          window.location.assign('/');
-        }).catch(function () {
-          alert("Login failed");
+      <script type="text/javascript">
+        document.querySelector("#login").addEventListener("submit", function (evt) {
+          evt.preventDefault();
+          var xhr = new XMLHttpRequest();
+          var user = document.querySelector('#amq-username').value;
+          var pass = document.querySelector('#amq-password').value;
+          avalanchemq.auth.setAuth(user + ":" + pass);
+          avalanchemq.http.request("GET", "/api/whoami").then(function () {
+            avalanchemq.auth.storeCookie({ username: user, password: pass });
+            window.location.assign('/');
+          }).catch(function () {
+            alert("Login failed");
+          });
         });
-      });
-    </script>
-  </main>
-
-</body>
+      </script>
+    </main>
+  </body>
 </html>
