@@ -89,9 +89,10 @@ module AvalancheMQ
           socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
             start_ok.class_id,
             start_ok.method_id).to_slice
-          await_connection_closeok(socket, log)
+          close_on_ok(socket, log)
+        else
+          socket.close
         end
-        socket.close
         return
       end
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
@@ -108,15 +109,13 @@ module AvalancheMQ
           reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
           socket.write AMQP::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id).to_slice
-          await_connection_closeok(socket, log)
-          socket.close
+          close_on_ok(socket, log)
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
         socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id).to_slice
-        await_connection_closeok(socket, log)
-        socket.close
+        close_on_ok(socket, log)
       end
       nil
     rescue ex : AMQP::FrameDecodeError
@@ -544,16 +543,18 @@ module AvalancheMQ
       @log.debug { "Starting heartbeat loop with #{@heartbeat}s interval" }
       loop do
         sleep @heartbeat
+        break unless @running
         send(AMQP::HeartbeatFrame.new) || break
       end
     end
 
-    def self.await_connection_closeok(socket, log)
+    def self.close_on_ok(socket, log)
       loop do
         frame = AMQP::Frame.decode(socket)
         break frame if frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
         log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
       end
+      socket.close
     end
   end
 end
