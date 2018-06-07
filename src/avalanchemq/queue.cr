@@ -23,6 +23,7 @@ module AvalancheMQ
     @dlrk : String?
     @overflow : String?
     @closed = false
+    @deleted = false
     @exclusive_consumer = false
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost
@@ -181,8 +182,10 @@ module AvalancheMQ
     end
 
     protected def delete
+      return if @deleted
       @log.info "Deleting"
       @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
+      @deleted = true
     end
 
     def to_json(json : JSON::Builder)

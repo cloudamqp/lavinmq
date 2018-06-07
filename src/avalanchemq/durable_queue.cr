@@ -44,9 +44,12 @@ module AvalancheMQ
     end
 
     def delete
-      super
-      Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
-      Dir.rmdir @index_dir
+      if super
+        Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
+        Dir.rmdir @index_dir
+      end
+    rescue Errno
+      @log.debug { "Queue already deleted" }
     end
 
     def publish(sp : SegmentPosition, persistent = false)
