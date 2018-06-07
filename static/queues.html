@@ -7,7 +7,10 @@
   <body>
     <div class="container">
       <header>
-        <h1>AvalancheMQ</h1>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
         <div id="user-info">
           <span>👤:&nbsp;</span>
           <span id="username"></span>
@@ -65,6 +68,7 @@
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
       function fetchVhosts(cb) {
