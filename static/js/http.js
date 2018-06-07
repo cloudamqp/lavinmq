@@ -11,7 +11,7 @@
       window.location.assign("/");
     }
     if (location.pathname !== "/login") {
-      request("GET", "/api/whoami").then(function (response) {
+      request("GET", "/api/whoami").then(function () {
         avalanchemq.auth.setUsername();
       }).catch(function () {
         // not logged in
@@ -28,10 +28,6 @@
 
   function redirectToLogin() {
     window.location.assign("/login");
-  }
-
-  function formDataToJson(data) {
-    Array.from(data).map(function (e) { this[e[0]] = e[1]; return this; }.bind({}))[0];
   }
 
   function request(method, path, body) {

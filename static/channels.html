@@ -23,6 +23,7 @@
         <li><a href="/channels">Channels</a></li>
         <li><a href="/queues">Queues</a></li>
         <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
       </ul>
       <div id="table-error"></div>
       <h2>
@@ -49,7 +50,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable("/api/channels", ["name"], function (tr, item) {
+      avalanchemq.table.renderTable("/api/channels", ["name"], 5000, function (tr, item) {
         var mode = "";
         mode += item.confirm ? " C" : "";
         avalanchemq.table.renderCell(tr, 0, item.name);

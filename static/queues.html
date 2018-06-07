@@ -23,6 +23,7 @@
         <li><a href="/channels">Channels</a></li>
         <li><a href="/queues">Queues</a></li>
         <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
       </ul>
       <div id="table-error"></div>
       <h2>
@@ -102,7 +103,7 @@
 
       fetchVhosts(addVhostOptions);
 
-      avalanchemq.table.renderTable("/api/queues", ["vhost", "name"], function (tr, item) {
+      avalanchemq.table.renderTable("/api/queues", ["vhost", "name"], 5000, function (tr, item) {
         var features = "";
         features += item.durable ? " D" : "";
         features += item.auto_delete ? " AD" : "";
@@ -118,7 +119,6 @@
 
       document.querySelector("#declare").addEventListener("submit", function (evt) {
         evt.preventDefault();
-        let xhr = new XMLHttpRequest();
         let data = new FormData(this);
         let vhost = encodeURIComponent(data.get("vhost"));
         let queue = encodeURIComponent(data.get("name"));

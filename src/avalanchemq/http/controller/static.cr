@@ -20,7 +20,7 @@ module AvalancheMQ
         serve(context, "index.html")
       end
 
-      %w(login connections channels queues exchanges).each do |r|
+      %w(login connections channels queues exchanges users).each do |r|
         get "/#{r}" do |context, _|
           serve(context, "#{r}.html")
         end
@@ -86,7 +86,7 @@ module AvalancheMQ
     private def static(context, file_path)
       file_stats = File.stat(file_path)
       etag = file_stats.mtime.epoch_ms.to_s
-      { File.open(file_path), etag }
+      {File.open(file_path), etag}
     end
   end
 end

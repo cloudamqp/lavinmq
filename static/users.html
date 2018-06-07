@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Users | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
+        <div id="user-info">
+          <span>👤:&nbsp;</span>
+          <span id="username"></span>
+          <span id="vhost"></span>
+        </div>
+      </header>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
+      </ul>
+      <div id="table-error"></div>
+      <h2>
+        Users
+        <small id="table-count"></small>
+      </h2>
+      <table id="table" class="table">
+        <thead>
+          <tr>
+            <th data-sort-key="name">Name</th>
+            <th data-sort-key="tags">Tags</th>
+            <th>Can access virtual hosts</th>
+            <th>Has password</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <form method="put" id="createUser">
+        <fieldset>
+          <legend>Add user</legend>
+          <label>
+            Username
+            <input type="text" name="username" required>
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" required>
+          </label>
+          <label>
+            Tags
+            <input type="text" name="tags">
+          </label>
+          <div id="tags">
+            <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
+          </div>
+          <button type="submit">Add user</button>
+        </fieldset>
+      </form>
+    </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      window.avalanchemq.http.request("GET", "/api/permissions").then(permissions => {
+        avalanchemq.table.renderTable("/api/users", ["name", "tags"], 0, (tr, item) => {
+          let hasPassword = item.password_hash.length ? "●" : "";
+          let vhosts = permissions.filter(p => p.user == item.name).map(p => p.vhost).join(", ")
+          avalanchemq.table.renderCell(tr, 0, item.name)
+          avalanchemq.table.renderCell(tr, 1, item.tags)
+          avalanchemq.table.renderCell(tr, 2, vhosts)
+          avalanchemq.table.renderCell(tr, 3, hasPassword)
+            .classList.add("center")
+        })
+      })
+
+      document.querySelector("#createUser").addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        let data = new FormData(this)
+        let username = encodeURIComponent(data.get("username"))
+        let url = "/api/users/" + username
+        body = {
+          password: data.get("password"),
+          tags: data.get("tags")
+        }
+        avalanchemq.http.request("PUT", url, body)
+          .then(window.location.reload)
+          .catch(function (e) { console.error(e) })
+      })
+
+      document.querySelector("#tags").onclick = e => {
+        document.querySelector("[name=tags]").value = e.target.getAttribute("data-tag")
+      }
+    </script>
+  </body>
+</html>
