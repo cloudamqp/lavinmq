@@ -2,7 +2,7 @@
   window.avalanchemq = window.avalanchemq || {};
   let avalanchemq = window.avalanchemq;
 
-  function renderTable(url, keyColumns, interval, renderRow) {
+  function renderTable(id, url, keyColumns, interval, renderRow) {
     let sortKey = "";
     let reverseOrder = false;
     let raw = localStorage.getItem(url);
@@ -18,7 +18,7 @@
     }
 
     function makeHeadersSortable() {
-      document.querySelectorAll("#table th[data-sort-key]").forEach(function (cell) {
+      document.querySelectorAll("#" + id + " th[data-sort-key]").forEach(function (cell) {
         cell.addEventListener("click", function (e) {
           // let column = e.target.cellIndex;
           // let newSortColumn = e.target.textContent.toLowerCase();
@@ -30,7 +30,7 @@
             reverseOrder = false;
           }
           clearInterval(updateTimer);
-          let t = document.getElementById("table").tBodies[0];
+          let t = document.getElementById(id).tBodies[0];
           clearRows(t);
           let raw = localStorage.getItem(url);
           updateTable(raw);
@@ -45,7 +45,7 @@
     }
 
     function fetchAndUpdate() {
-      let tableError = document.getElementById("table-error");
+      let tableError = document.getElementById(id + "-error");
       return avalanchemq.http.request("GET", url).then(function (response) {
         tableError.textContent = "";
         try {
@@ -69,8 +69,8 @@
         return;
       }
       data.sort(byColumn);
-      document.getElementById("table-count").textContent = data.length;
-      let t = document.getElementById("table").tBodies[0];
+      document.getElementById(id + "-count").textContent = data.length;
+      let t = document.getElementById(id).tBodies[0];
       for (let i = 0; i < data.length; i++) {
         let item = data[i];
         let foundIndex = findIndex(t.rows, i, item);

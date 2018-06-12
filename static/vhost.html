@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>User | AvalancheMQ</title>
+    <title>Virtual host | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
   </head>
@@ -28,18 +28,25 @@
         <li><a href="/vhosts">Virtual Hosts</a></li>
       </ul>
       <h2>
-        User:
-        <small id="user"></small>
+        Virtual host:
+        <small id="vhost2"></small>
       </h2>
-      <table>
-        <tr>
-          <th>Tags</th>
-          <td id="tags"></td>
-        </tr>
-        <tr>
-          <th>Has password</th>
-          <td id="hasPassword"></td>
-        </tr>
+      <h2>
+        Message stats
+      </h2>
+      <table id="msg-table" class="table">
+        <thead>
+          <tr>
+            <th>Ready</th>
+            <th>Unacked</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <td id="ready"></td>
+          <td id="unacked"></td>
+          <td id="total"></td>
+        </tbody>
       </table>
       <div id="table-error"></div>
       <h2>
@@ -49,7 +56,7 @@
       <table id="table" class="table">
         <thead>
           <tr>
-            <th>Virtual host</th>
+            <th>User</th>
             <th>Configure regexp</th>
             <th>Write regexp</th>
             <th>Read regexp</th>
@@ -62,8 +69,8 @@
         <fieldset>
           <legend>Set permission</legend>
           <label>
-            Virtual host
-            <select name="vhost" required></select>
+            User
+            <select name="user" required></select>
           </label>
           <label>
             Configure regexp
@@ -80,26 +87,9 @@
           <button type="submit">Set permission</button>
         </fieldset>
       </form>
-      <form method="put" id="updateUser">
+      <form method="delete" id="deleteVhost">
         <fieldset>
-          <legend>Update user</legend>
-          <label>
-            Password
-            <input type="password" name="password" required>
-          </label>
-          <label>
-            Tags
-            <input type="text" name="tags">
-          </label>
-          <div id="dataTags">
-            <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
-          </div>
-          <button type="submit">Update user</button>
-        </fieldset>
-      </form>
-      <form method="delete" id="deleteUser">
-        <fieldset>
-          <legend>Delete user</legend>
+          <legend>Delete vhost</legend>
           <button type="submit">Delete</button>
         </fieldset>
       </form>
@@ -107,59 +97,57 @@
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/overview.js"></script>
-    <script src="/js/vhosts.js"></script>
+    <script src="/js/users.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const user = new URLSearchParams(window.location.search).get("name")
-      document.title = user + " | AvalancheMQ"
-      document.querySelector("#user").textContent = user
-      const urlEncodedUsername = encodeURIComponent(user)
+      const vhost = new URLSearchParams(window.location.search).get("name")
+      document.title = vhost + " | AvalancheMQ"
+      document.querySelector("#vhost2").textContent = vhost
+      const urlEncodedVhost = encodeURIComponent(vhost)
 
-      const userUrl = "/api/users/" + urlEncodedUsername
-      avalanchemq.http.request("GET", userUrl)
-        .then(item => {
-          const hasPassword = item.password_hash.length ? "●" : ""
-          document.getElementById("tags").textContent = item.tags
-          document.getElementById("hasPassword").textContent = hasPassword
-        })
-        .catch(e => console.error.apply(console, e))
+      const vhostUrl = "/api/vhosts/" + urlEncodedVhost
+      avalanchemq.http.request("GET", vhostUrl).then(item => {
+        document.getElementById("ready").textContent = item.messages_ready
+        document.getElementById("unacked").textContent = item.messages_unacknowledged
+        document.getElementById("total").textContent = item.messages
+      })
 
-      const permissionsUrl = "/api/users/" + urlEncodedUsername + "/permissions"
+      const permissionsUrl = "/api/vhosts/" + urlEncodedVhost + "/permissions"
       avalanchemq.table.renderTable("table", permissionsUrl, [], 0, (tr, item) => {
         let btn = document.createElement("button")
         btn.innerHTML = "Clear"
         btn.onclick = function (evt) {
-          let username = encodeURIComponent(item.user)
-          let vhost = encodeURIComponent(item.vhost)
-          let url = "/api/permissions/" + vhost + "/" + username
+          let url = "/api/permissions/" + urlEncodedVhost + "/" + encodeURIComponent(item.user)
           avalanchemq.http.request("DELETE", url)
             .then(() => window.location.reload())
             .catch(e => console.error.apply(console, e))
         }
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        let userLink = document.createElement("a")
+        userLink.href = "/user?name=" + encodeURIComponent(item.user)
+        userLink.textContent = item.user
+        avalanchemq.table.renderCell(tr, 0, userLink)
         avalanchemq.table.renderCell(tr, 1, item.configure)
         avalanchemq.table.renderCell(tr, 2, item.write)
         avalanchemq.table.renderCell(tr, 3, item.read)
         avalanchemq.table.renderCell(tr, 4, btn)
       })
 
-      function addVhostOptions(vhosts) {
-        let select = document.forms["setPermission"].elements["vhost"]
+      function addUserOptions(users) {
+        let select = document.forms["setPermission"].elements["user"]
         while (select.options.length) select.remove(0)
-        for (let i = 0; i < vhosts.length; i++) {
+        for (let i = 0; i < users.length; i++) {
           let opt = document.createElement("option")
-          opt.text = vhosts[i].name
+          opt.text = users[i].name
           select.add(opt)
         }
       }
 
-      avalanchemq.vhosts.fetch(addVhostOptions);
+      avalanchemq.users.fetch(addUserOptions);
 
       document.querySelector("#setPermission").addEventListener("submit", function (evt) {
         evt.preventDefault();
         let data = new FormData(this)
-        let vhost = encodeURIComponent(data.get("vhost"))
-        let url = "/api/permissions/" + vhost + "/" + urlEncodedUsername
+        let url = "/api/permissions/" + urlEncodedVhost + "/" + encodeURIComponent(data.get("user"))
         body = {
           configure: data.get("configure"),
           write: data.get("write"),
@@ -170,28 +158,11 @@
           .catch(e => console.error.apply(console, e))
       })
 
-      document.querySelector("#updateUser").addEventListener("submit", function (evt) {
+      document.querySelector("#deleteVhost").addEventListener("submit", function (evt) {
         evt.preventDefault();
-        let data = new FormData(this)
-        let url = "/api/users/" + urlEncodedUsername
-        body = {
-          password: data.get("password"),
-          tags: data.get("tags")
-        }
-        avalanchemq.http.request("PUT", url, body)
-          .then(() => window.location.reload())
-          .catch(e => console.error.apply(console, e))
-      })
-
-      document.querySelector("#dataTags").onclick = e => {
-        document.querySelector("[name=tags]").value = e.target.getAttribute("data-tag")
-      }
-
-      document.querySelector("#deleteUser").addEventListener("submit", function (evt) {
-        evt.preventDefault();
-        let url = "/api/users/" + urlEncodedUsername
+        let url = "/api/vhosts/" + urlEncodedVhost
         avalanchemq.http.request("DELETE", url)
-          .then(() => window.location = "/users")
+          .then(() => window.location = "/vhosts")
           .catch(e => console.error.apply(console, e))
       })
     </script>

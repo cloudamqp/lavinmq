@@ -22,6 +22,11 @@
 
   function update() {
     avalanchemq.http.request("GET", url).then(function (response) {
+      try {
+        localStorage.setItem("/api/overview", JSON.stringify(response));
+      } catch (e) {
+        console.error("Saving localStorage", e);
+      }
       render(response);
     });
   }

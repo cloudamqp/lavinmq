@@ -49,7 +49,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable("/api/exchanges", ["vhost", "name"], 5000, function (tr, item) {
+      avalanchemq.table.renderTable("table", "/api/exchanges", ["vhost", "name"], 5000, function (tr, item) {
         var features = "";
         features += item.durable ? " D" : "";
         features += item.auto_delete ? " AD" : "";

@@ -64,10 +64,23 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable("/api/vhosts", ["name", "ready", "unacked", "total"], 0, (tr, item) => {
+      avalanchemq.table.renderTable("table", "/api/vhosts", ["name", "ready", "unacked", "total"], 5000, (tr, item) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = "/api/vhosts/" + urlEncodedVhost + "/permissions"
-        avalanchemq.http.request("GET", permissionsUrl).then(permissions => {
+        const permissionsPromise = new Promise(function(resolve, reject) {
+          const raw = localStorage.getItem(permissionsUrl)
+
+          if (raw) {
+            resolve(JSON.parse(raw))
+          } else {
+            avalanchemq.http.request("GET", permissionsUrl).then(permissions => {
+              localStorage.setItem(permissionsUrl, JSON.stringify(permissions))
+              resolve(permissions)
+            }).catch(e => reject(e))
+          }
+        })
+
+        permissionsPromise.then(permissions => {
           const userList = permissions.filter(p => p.vhost == item.name).map(p => p.user).join(", ")
           const vhostLink = document.createElement("a")
           vhostLink.href = "/vhost?name=" + urlEncodedVhost
