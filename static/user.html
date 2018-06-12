@@ -30,6 +30,16 @@
         User:
         <small id="user"></small>
       </h2>
+      <table>
+        <tr>
+          <th>Tags</th>
+          <td id="tags"></td>
+        </tr>
+        <tr>
+          <th>Has password</th>
+          <td id="hasPassword"></td>
+        </tr>
+      </table>
       <div id="table-error"></div>
       <h2>
         Permissions
@@ -80,7 +90,7 @@
             Tags
             <input type="text" name="tags">
           </label>
-          <div id="tags">
+          <div id="dataTags">
             <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
           </div>
           <button type="submit">Update user</button>
@@ -102,8 +112,19 @@
       const user = new URLSearchParams(window.location.search).get("name")
       document.title = user + " | AvalancheMQ"
       document.querySelector("#user").textContent = user
-      const url = "/api/users/" + encodeURIComponent(user) + "/permissions"
-      avalanchemq.table.renderTable(url, [], 0, (tr, item) => {
+      const urlEncodedUsername = encodeURIComponent(user)
+
+      const userUrl = "/api/users/" + urlEncodedUsername
+      avalanchemq.http.request("GET", userUrl)
+        .then(item => {
+          const hasPassword = item.password_hash.length ? "●" : ""
+          document.getElementById("tags").textContent = item.tags
+          document.getElementById("hasPassword").textContent = hasPassword
+        })
+        .catch(e => console.error.apply(console, e))
+
+      const permissionsUrl = "/api/users/" + urlEncodedUsername + "/permissions"
+      avalanchemq.table.renderTable(permissionsUrl, [], 0, (tr, item) => {
         let btn = document.createElement("button")
         btn.innerHTML = "Clear"
         btn.onclick = function (evt) {
@@ -136,9 +157,8 @@
       document.querySelector("#setPermission").addEventListener("submit", function (evt) {
         evt.preventDefault();
         let data = new FormData(this)
-        let username = encodeURIComponent(user)
         let vhost = encodeURIComponent(data.get("vhost"))
-        let url = "/api/permissions/" + vhost + "/" + username
+        let url = "/api/permissions/" + vhost + "/" + urlEncodedUsername
         body = {
           configure: data.get("configure"),
           write: data.get("write"),
@@ -152,8 +172,7 @@
       document.querySelector("#updateUser").addEventListener("submit", function (evt) {
         evt.preventDefault();
         let data = new FormData(this)
-        let username = encodeURIComponent(user)
-        let url = "/api/users/" + username
+        let url = "/api/users/" + urlEncodedUsername
         body = {
           password: data.get("password"),
           tags: data.get("tags")
@@ -163,14 +182,13 @@
           .catch(e => console.error.apply(console, e))
       })
 
-      document.querySelector("#tags").onclick = e => {
+      document.querySelector("#dataTags").onclick = e => {
         document.querySelector("[name=tags]").value = e.target.getAttribute("data-tag")
       }
 
       document.querySelector("#deleteUser").addEventListener("submit", function (evt) {
         evt.preventDefault();
-        let username = encodeURIComponent(user)
-        let url = "/api/users/" + username
+        let url = "/api/users/" + urlEncodedUsername
         avalanchemq.http.request("DELETE", url)
           .then(() => window.location = "/users")
           .catch(e => console.error.apply(console, e))
