@@ -25,6 +25,7 @@
         <li><a href="/queues">Queues</a></li>
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
+        <li><a href="/vhosts">Virtual Hosts</a></li>
       </ul>
       <div id="table-error"></div>
       <h2>
@@ -69,7 +70,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      window.avalanchemq.http.request("GET", "/api/permissions").then(permissions => {
+      avalanchemq.http.request("GET", "/api/permissions").then(permissions => {
         avalanchemq.table.renderTable("/api/users", ["name", "tags"], 0, (tr, item) => {
           let hasPassword = item.password_hash.length ? "●" : "";
           let vhosts = permissions.filter(p => p.user == item.name).map(p => p.vhost).join(", ")

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Virtual Hosts | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
+        <div id="user-info">
+          <span>👤:&nbsp;</span>
+          <span id="username"></span>
+          <span id="vhost"></span>
+        </div>
+      </header>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
+        <li><a href="/vhosts">Virtual Hosts</a></li>
+      </ul>
+      <div id="table-error"></div>
+      <h2>
+        Virtual Hosts
+        <small id="table-count"></small>
+      </h2>
+      <table id="table" class="table">
+        <thead>
+          <tr>
+            <td colspan="2">Overview</td>
+            <td colspan="3">Messages</td>
+          </tr>
+          <tr>
+            <th data-sort-key="name">Name</th>
+            <th>Users</th>
+            <th data-sort-key="ready">Ready</th>
+            <th data-sort-key="unacked">Unacked</th>
+            <th data-sort-key="total">Total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <form method="put" id="createVhost">
+        <fieldset>
+          <legend>Add virtual host</legend>
+          <label>
+            Name
+            <input type="text" name="name" required>
+          </label>
+          <button type="submit">Add virtual host</button>
+        </fieldset>
+      </form>
+    </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      avalanchemq.table.renderTable("/api/vhosts", ["name", "ready", "unacked", "total"], 0, (tr, item) => {
+        const urlEncodedVhost = encodeURIComponent(item.name)
+        const permissionsUrl = "/api/vhosts/" + urlEncodedVhost + "/permissions"
+        avalanchemq.http.request("GET", permissionsUrl).then(permissions => {
+          const userList = permissions.filter(p => p.vhost == item.name).map(p => p.user).join(", ")
+          const vhostLink = document.createElement("a")
+          vhostLink.href = "/vhost?name=" + urlEncodedVhost
+          vhostLink.textContent = item.name
+          avalanchemq.table.renderCell(tr, 0, vhostLink)
+          avalanchemq.table.renderCell(tr, 1, userList)
+          avalanchemq.table.renderCell(tr, 2, item.messages_ready)
+          avalanchemq.table.renderCell(tr, 3, item.messages_unacknowledged)
+          avalanchemq.table.renderCell(tr, 4, item.messages)
+        })
+      })
+
+      document.querySelector("#createVhost").addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        let data = new FormData(this)
+        let name = encodeURIComponent(data.get("name"))
+        let url = "/api/vhosts/" + name
+        avalanchemq.http.request("PUT", url)
+          .then(() => window.location.reload())
+          .catch(e => console.error.apply(console, e))
+      })
+    </script>
+  </body>
+</html>
