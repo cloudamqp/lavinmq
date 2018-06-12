@@ -69,6 +69,29 @@
           <button type="submit">Set permission</button>
         </fieldset>
       </form>
+      <form method="put" id="updateUser">
+        <fieldset>
+          <legend>Update user</legend>
+          <label>
+            Password
+            <input type="password" name="password" required>
+          </label>
+          <label>
+            Tags
+            <input type="text" name="tags">
+          </label>
+          <div id="tags">
+            <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
+          </div>
+          <button type="submit">Update user</button>
+        </fieldset>
+      </form>
+      <form method="delete" id="deleteUser">
+        <fieldset>
+          <legend>Delete user</legend>
+          <button type="submit">Delete</button>
+        </fieldset>
+      </form>
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
@@ -81,19 +104,30 @@
       document.querySelector("#user").textContent = user
       const url = "/api/users/" + encodeURIComponent(user) + "/permissions"
       avalanchemq.table.renderTable(url, [], 0, (tr, item) => {
+        let btn = document.createElement("button")
+        btn.innerHTML = "Clear"
+        btn.onclick = function (evt) {
+          let username = encodeURIComponent(item.user)
+          let vhost = encodeURIComponent(item.vhost)
+          let url = "/api/permissions/" + vhost + "/" + username
+          avalanchemq.http.request("DELETE", url)
+            .then(() => window.location.reload())
+            .catch(e => console.error.apply(console, e))
+        }
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.configure)
         avalanchemq.table.renderCell(tr, 2, item.write)
         avalanchemq.table.renderCell(tr, 3, item.read)
+        avalanchemq.table.renderCell(tr, 4, btn)
       })
 
       function addVhostOptions(vhosts) {
-        let select = document.forms["setPermission"].elements["vhost"];
-        while (select.options.length) select.remove(0);
+        let select = document.forms["setPermission"].elements["vhost"]
+        while (select.options.length) select.remove(0)
         for (let i = 0; i < vhosts.length; i++) {
-          let opt = document.createElement("option");
-          opt.text = vhosts[i].name;
-          select.add(opt);
+          let opt = document.createElement("option")
+          opt.text = vhosts[i].name
+          select.add(opt)
         }
       }
 
@@ -112,6 +146,33 @@
         }
         avalanchemq.http.request("PUT", url, body)
           .then(() => window.location.reload())
+          .catch(e => console.error.apply(console, e))
+      })
+
+      document.querySelector("#updateUser").addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        let data = new FormData(this)
+        let username = encodeURIComponent(user)
+        let url = "/api/users/" + username
+        body = {
+          password: data.get("password"),
+          tags: data.get("tags")
+        }
+        avalanchemq.http.request("PUT", url, body)
+          .then(() => window.location.reload())
+          .catch(e => console.error.apply(console, e))
+      })
+
+      document.querySelector("#tags").onclick = e => {
+        document.querySelector("[name=tags]").value = e.target.getAttribute("data-tag")
+      }
+
+      document.querySelector("#deleteUser").addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        let username = encodeURIComponent(user)
+        let url = "/api/users/" + username
+        avalanchemq.http.request("DELETE", url)
+          .then(() => window.location = "/users")
           .catch(e => console.error.apply(console, e))
       })
     </script>
