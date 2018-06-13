@@ -1,11 +1,10 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
-  let avalanchemq = window.avalanchemq
 
   function renderTable (id, url, keyColumns, interval, renderRow) {
+    const raw = localStorage.getItem(url)
     let sortKey = ''
     let reverseOrder = false
-    let raw = localStorage.getItem(url)
     let updateTimer = null
 
     makeHeadersSortable()
@@ -22,7 +21,7 @@
         cell.addEventListener('click', function (e) {
           // let column = e.target.cellIndex;
           // let newSortColumn = e.target.textContent.toLowerCase();
-          let newSortKey = e.target.getAttribute('data-sort-key')
+          const newSortKey = e.target.getAttribute('data-sort-key')
           if (newSortKey === sortKey) {
             reverseOrder = !reverseOrder
           } else {
@@ -30,9 +29,9 @@
             reverseOrder = false
           }
           clearInterval(updateTimer)
-          let t = document.getElementById(id).tBodies[0]
+          const t = document.getElementById(id).tBodies[0]
           clearRows(t)
-          let raw = localStorage.getItem(url)
+          const raw = localStorage.getItem(url)
           updateTable(raw)
         })
       })
@@ -45,7 +44,7 @@
     }
 
     function fetchAndUpdate () {
-      let tableError = document.getElementById(id + '-error')
+      const tableError = document.getElementById(id + '-error')
       return avalanchemq.http.request('GET', url).then(function (response) {
         tableError.textContent = ''
         try {
@@ -70,10 +69,10 @@
       }
       data.sort(byColumn)
       document.getElementById(id + '-count').textContent = data.length
-      let t = document.getElementById(id).tBodies[0]
+      const t = document.getElementById(id).tBodies[0]
       for (let i = 0; i < data.length; i++) {
-        let item = data[i]
-        let foundIndex = findIndex(t.rows, i, item)
+        const item = data[i]
+        const foundIndex = findIndex(t.rows, i, item)
         if (foundIndex !== -1) {
           let d = foundIndex - i
           while (d--) {
@@ -81,7 +80,7 @@
           }
           renderRow(t.rows[i], item)
         } else {
-          let tr = t.insertRow(i)
+          const tr = t.insertRow(i)
           setKeyAttributes(tr, item)
           renderRow(tr, item)
         }
@@ -94,7 +93,7 @@
     }
 
     function byColumn (a, b) {
-      let sortColumns = sortKey === '' ? keyColumns : [sortKey].concat(keyColumns)
+      const sortColumns = sortKey === '' ? keyColumns : [sortKey].concat(keyColumns)
       for (let i = 0; i < sortColumns.length; i++) {
         if (a[sortColumns[i]] > b[sortColumns[i]]) {
           return 1 * (reverseOrder ? -1 : 1)
@@ -127,7 +126,7 @@
   }
 
   function renderCell (tr, column, value) {
-    let cell = tr.cells[column] || tr.insertCell(-1)
+    const cell = tr.cells[column] || tr.insertCell(-1)
     if (value instanceof Element) {
       if (!value.isEqualNode(cell.firstChild)) {
         while (cell.lastChild) {
@@ -136,7 +135,7 @@
         cell.appendChild(value)
       }
     } else {
-      let text = value === undefined ? '' : value.toString()
+      const text = value === undefined ? '' : value.toString()
       if (cell.textContent !== text) {
         cell.textContent = text
       }
@@ -145,7 +144,7 @@
   }
 
   function renderHtmlCell (tr, column, innerHTML) {
-    let cell = tr.cells[column] || tr.insertCell(-1)
+    const cell = tr.cells[column] || tr.insertCell(-1)
     if (cell.innerHTML !== innerHTML) {
       cell.innerHTML = innerHTML
     }

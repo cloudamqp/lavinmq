@@ -1,10 +1,9 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
-  let avalanchemq = window.avalanchemq
 
   function fetch (cb) {
-    let url = '/api/vhosts'
-    let raw = localStorage.getItem(url)
+    const url = '/api/vhosts'
+    const raw = localStorage.getItem(url)
     if (raw) {
       var vhosts = JSON.parse(raw)
       cb(vhosts)

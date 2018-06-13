@@ -1,15 +1,14 @@
 
 (function () {
   window.avalanchemq = window.avalanchemq || {}
-  let avalanchemq = window.avalanchemq
 
-  let url = '/api/overview'
-  let raw = localStorage.getItem(url)
+  const url = '/api/overview'
+  const raw = localStorage.getItem(url)
   let updateTimer = null
 
   if (raw) {
     try {
-      let data = JSON.parse(raw)
+      const data = JSON.parse(raw)
       if (data) {
         render(data)
       }
@@ -33,7 +32,7 @@
 
   function render (data) {
     document.querySelector('#version').innerText = data.avalanchemq_version
-    let table = document.querySelector('#overview')
+    const table = document.querySelector('#overview')
     if (table) {
       Object.keys(data.object_totals).forEach(function (key) {
         table.querySelector('.' + key).innerText = data.object_totals[key]

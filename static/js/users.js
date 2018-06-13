@@ -1,10 +1,9 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
-  let avalanchemq = window.avalanchemq
 
   function fetch (cb) {
-    let url = '/api/users'
-    let raw = localStorage.getItem(url)
+    const url = '/api/users'
+    const raw = localStorage.getItem(url)
     if (raw) {
       var users = JSON.parse(raw)
       cb(users)

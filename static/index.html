@@ -65,7 +65,8 @@
   avalanchemq.overview.start()
   document.querySelector('#definitions').addEventListener('submit', function (evt) {
     evt.preventDefault()
-    avalanchemq.http.request('POST', '/api/definitions/upload', new FormData(this)).then(function () {
+    const body = new FormData(this)
+    avalanchemq.http.request('POST', '/api/definitions/upload', { body }).then(function () {
       window.location.assign('/')
     }).catch(function () {
       alert('Upload failed')

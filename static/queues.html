@@ -76,7 +76,7 @@
     <script src="/js/table.js"></script>
     <script>
       function addVhostOptions (vhosts) {
-        let select = document.forms['declare'].elements['vhost']
+        const select = document.forms['declare'].elements['vhost']
         while (select.options.length) {
           select.remove(0)
         }
@@ -113,7 +113,7 @@
           durable: data.get('durable') === '1',
           auto_delete: data.get('auto_delete') === '1'
         }
-        avalanchemq.http.request('PUT', url, body)
+        avalanchemq.http.request('PUT', url, { body })
           .catch(e => console.error.apply(console, e))
       })
     </script>

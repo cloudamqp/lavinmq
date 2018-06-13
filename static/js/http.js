@@ -1,6 +1,5 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
-  let avalanchemq = window.avalanchemq
 
   function testLoggedIn () {
     const hash = location.hash

@@ -94,7 +94,7 @@
           password: data.get('password'),
           tags: data.get('tags')
         }
-        avalanchemq.http.request('PUT', url, body)
+        avalanchemq.http.request('PUT', url, { body })
           .then(() => window.location.reload())
           .catch(e => console.error.apply(console, e))
       })

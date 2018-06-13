@@ -114,15 +114,15 @@
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
       avalanchemq.table.renderTable('table', permissionsUrl, [], 0, (tr, item) => {
-        let btn = document.createElement('button')
+        const btn = document.createElement('button')
         btn.innerHTML = 'Clear'
         btn.onclick = function (evt) {
-          let url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
+          const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
           avalanchemq.http.request('DELETE', url)
             .then(() => window.location.reload())
             .catch(e => console.error.apply(console, e))
         }
-        let userLink = document.createElement('a')
+        const userLink = document.createElement('a')
         userLink.href = '/user?name=' + encodeURIComponent(item.user)
         userLink.textContent = item.user
         avalanchemq.table.renderCell(tr, 0, userLink)
@@ -133,10 +133,10 @@
       })
 
       function addUserOptions (users) {
-        let select = document.forms['setPermission'].elements['user']
+        const select = document.forms['setPermission'].elements['user']
         while (select.options.length) select.remove(0)
         for (let i = 0; i < users.length; i++) {
-          let opt = document.createElement('option')
+          const opt = document.createElement('option')
           opt.text = users[i].name
           select.add(opt)
         }
@@ -153,7 +153,7 @@
           write: data.get('write'),
           read: data.get('read')
         }
-        avalanchemq.http.request('PUT', url, body)
+        avalanchemq.http.request('PUT', url, { body })
           .then(() => window.location.reload())
           .catch(e => console.error.apply(console, e))
       })
