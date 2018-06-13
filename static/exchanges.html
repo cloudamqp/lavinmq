@@ -49,7 +49,8 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable('table', '/api/exchanges', ['vhost', 'name'], 5000, function (tr, item) {
+      const tableOptions = { url: '/api/exchanges', sortBy: ['vhost', 'name'], interval: 5000 }
+      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let features = ''
         features += item.durable ? ' D' : ''
         features += item.auto_delete ? ' AD' : ''

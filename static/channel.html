@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Channel | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
+        <div id="user-info">
+          <span>👤:&nbsp;</span>
+          <span id="username"></span>
+          <span id="vhost"></span>
+        </div>
+      </header>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
+        <li><a href="/vhosts">Virtual Hosts</a></li>
+      </ul>
+      <h2>
+        Channel:
+        <small id="channel"></small>
+      </h2>
+      <table>
+        <tr>
+          <th>Connection</th>
+          <td id="ch-connection"></td>
+          <th>State</th>
+          <td id="ch-state"></td>
+          <th>Messages unacknowledged</th>
+          <td id="ch-unacked"></td>
+        </tr>
+        <tr>
+          <th>Username</th>
+          <td id="ch-username"></td>
+          <th>Prefetch count</th>
+          <td id="ch-prefetch"></td>
+        </tr>
+        <tr>
+          <th>Mode</th>
+          <td id="ch-mode"></td>
+          <th>Global prefetch count</th>
+          <td id="ch-global-prefetch"></td>
+        </tr>
+      </table>
+      <div id="table-error"></div>
+      <h3>
+        Consumers
+        <small id="table-count"></small>
+      </h3>
+      <table id="table" class="table">
+        <thead>
+          <tr>
+            <th>Consumer tag</th>
+            <th>Queue</th>
+            <th>Ack required</th>
+            <th>Exclusive</th>
+            <th>Prefetch count</th>
+            <th>Arguments</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/dom.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      const urlEncodedChannel = new URLSearchParams(window.location.search).get('name')
+      const channel = decodeURIComponent(urlEncodedChannel)
+      document.title = channel + ' | AvalancheMQ'
+
+      const consumersTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, function (tr, item) {
+        avalanchemq.table.renderCell(tr, 0, item.consumer_tag)
+        const queueLink = document.createElement('a')
+        queueLink.href = '/queues?name=' + encodeURIComponent(item.queue.name)
+        queueLink.textContent = item.queue.name
+        const ack = item.ack_required ? '●' : ''
+        const exclusive = item.exclusive ? '●' : ''
+        avalanchemq.table.renderCell(tr, 1, queueLink)
+        avalanchemq.table.renderCell(tr, 2, ack)
+        avalanchemq.table.renderCell(tr, 3, exclusive)
+        avalanchemq.table.renderCell(tr, 4, item.prefetch_count)
+        avalanchemq.table.renderHtmlCell(tr, 5, '<pre>' + item.arguments + '</pre>')
+      })
+
+      const channelUrl = '/api/channels/' + urlEncodedChannel
+      function updateChannel (all) {
+        avalanchemq.http.request('GET', channelUrl).then(item => {
+          const stateEl = document.getElementById('ch-state')
+          if (item.state !== stateEl.textContent) {
+            stateEl.textContent = item.state
+          }
+          document.getElementById('ch-unacked').textContent = item.messages_unacknowledged
+          consumersTable.updateTable(item.consumer_details)
+          if (all) {
+            document.querySelector('#channel').textContent = channel + ' in virtual host ' + item.vhost
+            document.getElementById('ch-username').textContent = item.user
+            const connectionLink = document.createElement('a')
+            connectionLink.href = '/connection?name=' + encodeURIComponent(item.connection_details.name)
+            connectionLink.textContent = item.connection_details.name
+            avalanchemq.dom.setChild('#ch-connection', connectionLink)
+            document.getElementById('ch-prefetch').textContent = item.prefetch_count
+            let mode = ''
+            mode += item.confirm ? ' C' : ''
+            document.getElementById('ch-mode').textContent = mode
+            document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
+          }
+        }).catch(e => console.error.apply(console, e))
+      }
+      updateChannel(true)
+      setInterval(updateChannel, 5000)
+    </script>
+  </body>
+</html>

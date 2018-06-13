@@ -52,16 +52,21 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable('table', '/api/channels', ['name'], 5000, function (tr, item) {
+      const tableOptions = { url: '/api/channels', sortBy: ['name'], interval: 5000 }
+      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let mode = ''
         mode += item.confirm ? ' C' : ''
-        avalanchemq.table.renderCell(tr, 0, item.name)
+        const channelLink = document.createElement('a')
+        const urlEncodedChannel = encodeURIComponent(item.name)
+        channelLink.textContent = item.name
+        channelLink.href = '/channel?name=' + urlEncodedChannel
+        avalanchemq.table.renderCell(tr, 0, channelLink)
         avalanchemq.table.renderCell(tr, 1, item.vhost)
-        avalanchemq.table.renderCell(tr, 2, item.username)
+        avalanchemq.table.renderCell(tr, 2, item.user)
         avalanchemq.table.renderCell(tr, 3, mode)
         avalanchemq.table.renderCell(tr, 4, item.consumer_count)
         avalanchemq.table.renderCell(tr, 5, item.prefetch_count)
-        avalanchemq.table.renderCell(tr, 6, item.messages_unacked)
+        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged)
       })
     </script>
   </body>

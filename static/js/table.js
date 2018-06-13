@@ -1,19 +1,25 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
-  function renderTable (id, url, keyColumns, interval, renderRow) {
-    const raw = localStorage.getItem(url)
+  function renderTable (id, options = {}, renderRow) {
     let sortKey = ''
     let reverseOrder = false
     let updateTimer = null
+    const url = options.url
+    const keyColumns = options.sortBy
+    const interval = options.interval
 
     makeHeadersSortable()
-    if (raw) {
-      updateTable(raw)
-    }
-    fetchAndUpdate()
-    if (interval) {
-      updateTimer = setInterval(fetchAndUpdate, interval)
+
+    if (url) {
+      const raw = localStorage.getItem(url)
+      if (raw) {
+        updateTable(raw)
+      }
+      fetchAndUpdate()
+      if (interval) {
+        updateTimer = setInterval(fetchAndUpdate, interval)
+      }
     }
 
     function makeHeadersSortable () {
@@ -123,6 +129,7 @@
         tr.setAttribute('data-' + key, item[key])
       })
     }
+    return { updateTable }
   }
 
   function renderCell (tr, column, value) {

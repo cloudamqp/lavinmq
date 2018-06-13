@@ -102,6 +102,7 @@
       </form>
     </div>
     <script src="/js/auth.js"></script>
+    <script src="/js/dom.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
@@ -134,10 +135,7 @@
               const infoLink = document.createElement('a')
               infoLink.textContent = cp.information
               infoLink.href = cp.information
-              while (infoEl.lastChild) {
-                infoEl.removeChild(infoEl.lastChild)
-              }
-              infoEl.appendChild(infoLink)
+              avalanchemq.dom.setChild(infoEl, infoLink)
             } else {
               infoEl.textContent = cp.information
             }
@@ -147,16 +145,21 @@
       updateConnection(true)
       setInterval(updateConnection, 5000)
       const channelsUrl = connectionUrl + '/channels'
-      avalanchemq.table.renderTable('table', channelsUrl, ['name'], 5000, function (tr, item) {
+      const tableOptions = { url: channelsUrl, sortBy: ['name'], interval: 5000 }
+      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let mode = ''
         mode += item.confirm ? ' C' : ''
-        avalanchemq.table.renderCell(tr, 0, item.name)
+        const channelLink = document.createElement('a')
+        const urlEncodedChannel = encodeURIComponent(item.name)
+        channelLink.textContent = item.name
+        channelLink.href = '/channel?name=' + urlEncodedChannel
+        avalanchemq.table.renderCell(tr, 0, channelLink)
         avalanchemq.table.renderCell(tr, 1, item.vhost)
         avalanchemq.table.renderCell(tr, 2, item.username)
         avalanchemq.table.renderCell(tr, 3, mode)
         avalanchemq.table.renderCell(tr, 4, item.consumer_count)
         avalanchemq.table.renderCell(tr, 5, item.prefetch_count)
-        avalanchemq.table.renderCell(tr, 6, item.messages_unacked)
+        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged)
       })
 
       document.querySelector('#closeConnection').addEventListener('submit', function (evt) {

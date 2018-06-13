@@ -71,7 +71,8 @@
     <script src="/js/table.js"></script>
     <script>
       avalanchemq.http.request('GET', '/api/permissions').then(permissions => {
-        avalanchemq.table.renderTable('table', '/api/users', ['name'], 0, (tr, item) => {
+        const tableOptions = { url: '/api/users', sortBy: ['name'], interval: 0 }
+        avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
           const hasPassword = item.password_hash.length ? '●' : ''
           const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
           const userLink = document.createElement('a')

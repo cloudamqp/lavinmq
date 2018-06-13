@@ -89,7 +89,8 @@
 
       avalanchemq.vhosts.fetch(addVhostOptions)
 
-      avalanchemq.table.renderTable('table', '/api/queues', ['vhost', 'name'], 5000, function (tr, item) {
+      const tableOptions = { url: '/api/queues', sortBy: ['vhost', 'name'], interval: 5000 }
+      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         var features = ''
         features += item.durable ? ' D' : ''
         features += item.auto_delete ? ' AD' : ''

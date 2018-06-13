@@ -113,7 +113,8 @@
       })
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
-      avalanchemq.table.renderTable('table', permissionsUrl, [], 0, (tr, item) => {
+      const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
+      avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
         btn.innerHTML = 'Clear'
         btn.onclick = function (evt) {

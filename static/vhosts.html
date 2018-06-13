@@ -64,7 +64,8 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable('table', '/api/vhosts', ['name'], 5000, (tr, item) => {
+      const tableOptions = { url: '/api/vhosts', sortBy: ['name'], interval: 5000 }
+      avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
