@@ -162,7 +162,10 @@
       document.querySelector('#closeConnection').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/connections/' + urlEncodedConnection
-        avalanchemq.http.request('DELETE', url)
+        const headers = new Headers({
+          'X-Reason': document.querySelector('[name=reason]').value
+        })
+        avalanchemq.http.request('DELETE', url, { headers })
           .then(() => { window.location = '/connections' })
           .catch(e => console.error.apply(console, e))
       })

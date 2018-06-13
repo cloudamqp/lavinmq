@@ -127,9 +127,9 @@ module AvalancheMQ
       nil
     end
 
-    def close
+    def close(reason = "Broker shutdown")
       @log.debug "Gracefully closing"
-      send AMQP::Connection::Close.new(320_u16, "Broker shutdown", 0_u16, 0_u16)
+      send AMQP::Connection::Close.new(320_u16, reason.not_nil!, 0_u16, 0_u16)
       @running = false
     end
 
@@ -448,7 +448,7 @@ module AvalancheMQ
       when AMQP::Basic::Qos
         with_channel frame, &.basic_qos(frame)
       when AMQP::HeartbeatFrame
-        #send AMQP::HeartbeatFrame.new
+        # send AMQP::HeartbeatFrame.new
       else
         raise AMQP::NotImplemented.new(frame)
       end

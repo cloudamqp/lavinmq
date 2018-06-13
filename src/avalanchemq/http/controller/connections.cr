@@ -36,7 +36,7 @@ module AvalancheMQ
 
       delete "/api/connections/:name" do |context, params|
         with_connection(context, params) do |c|
-          c.close
+          c.close(context.request.headers["X-Reason"]?)
           context.response.status_code = 204
         end
       end
