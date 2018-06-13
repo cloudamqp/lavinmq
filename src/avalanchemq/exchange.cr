@@ -104,7 +104,7 @@ module AvalancheMQ
       }
     end
 
-    def unbind(destination : Queue | Exchange, properties_key : String)
+    def unbind_prop(destination : Queue | Exchange, properties_key : String)
       key = parse_key(properties_key)
       unbind(destination, key[0], key[1]) if key
     end
@@ -126,7 +126,7 @@ module AvalancheMQ
 
     abstract def type : String
     abstract def bind(destination : Queue | Exchange, routing_key : String,
-                      headers : Hash(String, AMQP::Field)?) : Nil
+                      headers : Hash(String, AMQP::Field)?) : {String, Hash(String, AMQP::Field)}
     abstract def unbind(destination : Queue | Exchange, routing_key : String,
                         headers : Hash(String, AMQP::Field)?) : Nil
     abstract def matches(routing_key : String, headers : Hash(String, AMQP::Field)?) : Set(Queue | Exchange)
@@ -138,7 +138,9 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, Hash(String, AMQP::Field).new}] << destination
+      key = {routing_key, Hash(String, AMQP::Field).new}
+      @bindings[key] << destination
+      key
     end
 
     def unbind(destination, routing_key, headers = nil)
@@ -157,7 +159,9 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      @bindings[{"", Hash(String, AMQP::Field).new}] << destination
+      key = {"", Hash(String, AMQP::Field).new}
+      @bindings[key] << destination
+      key
     end
 
     def unbind(destination, routing_key, headers = nil)
@@ -176,7 +180,9 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, Hash(String, AMQP::Field).new}] << destination
+      key = {routing_key, Hash(String, AMQP::Field).new}
+      @bindings[key] << destination
+      key
     end
 
     def unbind(destination, routing_key, headers = nil)
@@ -227,7 +233,9 @@ module AvalancheMQ
       unless (args.has_key?("x-match") && args.size >= 2) || args.size == 1
         raise ArgumentError.new("Arguments required")
       end
-      @bindings[{"", args}] << destination
+      key = {"", args}
+      @bindings[key] << destination
+      key
     end
 
     def unbind(destination, routing_key, headers)

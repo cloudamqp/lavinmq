@@ -71,8 +71,8 @@ module AvalancheMQ
           unless routing_key && arguments
             bad_request(context, "Fields 'routing_key' and 'arguments' are required")
           end
-          e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-          props = Exchange.hash_key({routing_key, arguments})
+          key = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
+          props = Exchange.hash_key(key.not_nil!)
           context.response.headers["Location"] = context.request.path + "/" + props
           context.response.status_code = 201
         end
@@ -101,7 +101,7 @@ module AvalancheMQ
             access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
           end
           props = params["props"]
-          e.unbind(q, props)
+          e.unbind_prop(q, props)
           context.response.status_code = 204
         end
       end
@@ -134,8 +134,8 @@ module AvalancheMQ
           unless routing_key && arguments
             bad_request(context, "Fields 'routing_key' and 'arguments' are required")
           end
-          source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-          props = Exchange.hash_key({routing_key, arguments})
+          key = source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
+          props = Exchange.hash_key(key.not_nil!)
           context.response.headers["Location"] = context.request.path + "/" + props
           context.response.status_code = 201
         end
@@ -164,7 +164,7 @@ module AvalancheMQ
             access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
           end
           props = params["props"]
-          source.unbind(destination, props)
+          source.unbind_prop(destination, props)
           context.response.status_code = 204
         end
       end
