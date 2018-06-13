@@ -33,9 +33,11 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           refuse_unless_management(context, user(context), vhost)
           name = params["name"]
-          e = @amqp_server.vhosts[vhost].queues[name]?
-          not_found(context, "Exchange #{name} does not exist") unless e
-          e.to_json(context.response)
+          q = @amqp_server.vhosts[vhost].queues[name]?
+          not_found(context, "Queue #{name} does not exist") unless q
+          q.details.merge({
+            consumer_details: q.consumers.to_a,
+          }).to_json(context.response)
         end
       end
 

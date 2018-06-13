@@ -26,7 +26,7 @@ module AvalancheMQ
     @deleted = false
     @exclusive_consumer = false
     property last_get_time : Int64
-    getter name, durable, exclusive, auto_delete, arguments, policy, vhost
+    getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers
     def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
@@ -188,7 +188,7 @@ module AvalancheMQ
       @deleted = true
     end
 
-    def to_json(json : JSON::Builder)
+    def details
       {
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
@@ -200,7 +200,11 @@ module AvalancheMQ
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? "closed" : "running",
         effective_policy_definition: @policy,
-      }.to_json(json)
+      }
+    end
+
+    def to_json(json : JSON::Builder)
+      details.to_json(json)
     end
 
     def publish(sp : SegmentPosition, flush = false)
