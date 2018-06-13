@@ -38,10 +38,12 @@
             <th data-sort-key="name">Name</th>
             <th data-sort-key="vhost">VHost</th>
             <th>Features</th>
-            <th data-sort-key="messages">Messages</th>
-            <th data-sort-key="unacked">Unacked</th>
-            <th data-sort-key="ready">Ready</th>
+            <th data-sort-key="policy">Policy</th>
             <th data-sort-key="consumers">Consumers</th>
+            <th data-sort-key="state">State</th>
+            <th data-sort-key="ready">Ready</th>
+            <th data-sort-key="unacked">Unacked</th>
+            <th data-sort-key="messages">Total</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -91,17 +93,22 @@
 
       const tableOptions = { url: '/api/queues', sortBy: ['vhost', 'name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
-        var features = ''
+        let features = ''
         features += item.durable ? ' D' : ''
         features += item.auto_delete ? ' AD' : ''
         features += item.exclusive ? ' E' : ''
-        avalanchemq.table.renderCell(tr, 0, item.name)
-        avalanchemq.table.renderCell(tr, 1, item.vhost)
+        const queueLink = document.createElement('a')
+        queueLink.href = '/queue?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
+        queueLink.textContent = item.name
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, queueLink)
         avalanchemq.table.renderCell(tr, 2, features)
-        avalanchemq.table.renderCell(tr, 3, item.messages)
-        avalanchemq.table.renderCell(tr, 4, item.unacked)
-        avalanchemq.table.renderCell(tr, 5, item.ready)
-        avalanchemq.table.renderCell(tr, 6, item.consumers)
+        avalanchemq.table.renderCell(tr, 3, item.policy || '')
+        avalanchemq.table.renderCell(tr, 4, item.consumers)
+        avalanchemq.table.renderCell(tr, 5, item.state)
+        avalanchemq.table.renderCell(tr, 6, item.ready)
+        avalanchemq.table.renderCell(tr, 7, item.unacked)
+        avalanchemq.table.renderCell(tr, 8, item.messages)
       })
 
       document.querySelector('#declare').addEventListener('submit', function (evt) {
