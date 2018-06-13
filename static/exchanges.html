@@ -49,16 +49,16 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable("table", "/api/exchanges", ["vhost", "name"], 5000, function (tr, item) {
-        var features = "";
-        features += item.durable ? " D" : "";
-        features += item.auto_delete ? " AD" : "";
-        features += item.internal ? " I" : "";
-        avalanchemq.table.renderCell(tr, 0, item.name);
-        avalanchemq.table.renderCell(tr, 1, item.vhost);
-        avalanchemq.table.renderCell(tr, 2, features);
-        avalanchemq.table.renderCell(tr, 3, item.type);
-      });
+      avalanchemq.table.renderTable('table', '/api/exchanges', ['vhost', 'name'], 5000, function (tr, item) {
+        let features = ''
+        features += item.durable ? ' D' : ''
+        features += item.auto_delete ? ' AD' : ''
+        features += item.internal ? ' I' : ''
+        avalanchemq.table.renderCell(tr, 0, item.name)
+        avalanchemq.table.renderCell(tr, 1, item.vhost)
+        avalanchemq.table.renderCell(tr, 2, features)
+        avalanchemq.table.renderCell(tr, 3, item.type)
+      })
     </script>
   </body>
 </html>

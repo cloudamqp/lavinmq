@@ -100,30 +100,30 @@
     <script src="/js/users.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const vhost = new URLSearchParams(window.location.search).get("name")
-      document.title = vhost + " | AvalancheMQ"
-      document.querySelector("#vhost2").textContent = vhost
-      const urlEncodedVhost = encodeURIComponent(vhost)
+      const urlEncodedVhost = new URLSearchParams(window.location.search).get('name')
+      const vhost = decodeURIComponent(urlEncodedVhost)
+      document.title = vhost + ' | AvalancheMQ'
+      document.querySelector('#vhost2').textContent = vhost
 
-      const vhostUrl = "/api/vhosts/" + urlEncodedVhost
-      avalanchemq.http.request("GET", vhostUrl).then(item => {
-        document.getElementById("ready").textContent = item.messages_ready
-        document.getElementById("unacked").textContent = item.messages_unacknowledged
-        document.getElementById("total").textContent = item.messages
+      const vhostUrl = '/api/vhosts/' + urlEncodedVhost
+      avalanchemq.http.request('GET', vhostUrl).then(item => {
+        document.getElementById('ready').textContent = item.messages_ready
+        document.getElementById('unacked').textContent = item.messages_unacknowledged
+        document.getElementById('total').textContent = item.messages
       })
 
-      const permissionsUrl = "/api/vhosts/" + urlEncodedVhost + "/permissions"
-      avalanchemq.table.renderTable("table", permissionsUrl, [], 0, (tr, item) => {
-        let btn = document.createElement("button")
-        btn.innerHTML = "Clear"
+      const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
+      avalanchemq.table.renderTable('table', permissionsUrl, [], 0, (tr, item) => {
+        let btn = document.createElement('button')
+        btn.innerHTML = 'Clear'
         btn.onclick = function (evt) {
-          let url = "/api/permissions/" + urlEncodedVhost + "/" + encodeURIComponent(item.user)
-          avalanchemq.http.request("DELETE", url)
+          let url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
+          avalanchemq.http.request('DELETE', url)
             .then(() => window.location.reload())
             .catch(e => console.error.apply(console, e))
         }
-        let userLink = document.createElement("a")
-        userLink.href = "/user?name=" + encodeURIComponent(item.user)
+        let userLink = document.createElement('a')
+        userLink.href = '/user?name=' + encodeURIComponent(item.user)
         userLink.textContent = item.user
         avalanchemq.table.renderCell(tr, 0, userLink)
         avalanchemq.table.renderCell(tr, 1, item.configure)
@@ -132,37 +132,37 @@
         avalanchemq.table.renderCell(tr, 4, btn)
       })
 
-      function addUserOptions(users) {
-        let select = document.forms["setPermission"].elements["user"]
+      function addUserOptions (users) {
+        let select = document.forms['setPermission'].elements['user']
         while (select.options.length) select.remove(0)
         for (let i = 0; i < users.length; i++) {
-          let opt = document.createElement("option")
+          let opt = document.createElement('option')
           opt.text = users[i].name
           select.add(opt)
         }
       }
 
-      avalanchemq.users.fetch(addUserOptions);
+      avalanchemq.users.fetch(addUserOptions)
 
-      document.querySelector("#setPermission").addEventListener("submit", function (evt) {
-        evt.preventDefault();
-        let data = new FormData(this)
-        let url = "/api/permissions/" + urlEncodedVhost + "/" + encodeURIComponent(data.get("user"))
-        body = {
-          configure: data.get("configure"),
-          write: data.get("write"),
-          read: data.get("read")
+      document.querySelector('#setPermission').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(data.get('user'))
+        const body = {
+          configure: data.get('configure'),
+          write: data.get('write'),
+          read: data.get('read')
         }
-        avalanchemq.http.request("PUT", url, body)
+        avalanchemq.http.request('PUT', url, body)
           .then(() => window.location.reload())
           .catch(e => console.error.apply(console, e))
       })
 
-      document.querySelector("#deleteVhost").addEventListener("submit", function (evt) {
-        evt.preventDefault();
-        let url = "/api/vhosts/" + urlEncodedVhost
-        avalanchemq.http.request("DELETE", url)
-          .then(() => window.location = "/vhosts")
+      document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/vhosts/' + urlEncodedVhost
+        avalanchemq.http.request('DELETE', url)
+          .then(() => { window.location = '/vhosts' })
           .catch(e => console.error.apply(console, e))
       })
     </script>

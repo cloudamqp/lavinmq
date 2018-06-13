@@ -35,11 +35,16 @@
       <table id="table" class="table">
         <thead>
           <tr>
-            <th data-sort-key="vhost">VHost</th>
+            <th data-sort-key="vhost">Virtual host</th>
             <th data-sort-key="name">Name</th>
-            <th data-sort-key="username">Username</th>
-            <th data-sort-key="tls">TLS</th>
+            <th data-sort-key="user">Username</th>
+            <th data-sort-key="state">State</th>
+            <th data-sort-key="ssl">TLS</th>
             <th data-sort-key="channels">Channels</th>
+            <th data-sort-key="channel_max">Channel max</th>
+            <th data-sort-key="auth_mechanism">Auth mechanism</th>
+            <th>Client</th>
+            <th data-sort-key="connected_at">Connected at</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -50,13 +55,22 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.table.renderTable("table", "/api/connections", ["name"], 5000, function (tr, item) {
-        avalanchemq.table.renderCell(tr, 0, item.vhost);
-        avalanchemq.table.renderCell(tr, 1, item.name);
-        avalanchemq.table.renderCell(tr, 2, item.user);
-        avalanchemq.table.renderCell(tr, 3, item.ssl ? "🔒" : "");
-        avalanchemq.table.renderCell(tr, 4, item.channels);
-      });
+      avalanchemq.table.renderTable('table', '/api/connections', ['name'], 5000, function (tr, item) {
+        const client = item.client_properties.product + ' / ' + item.client_properties.platform
+        const connectionLink = document.createElement('a')
+        connectionLink.href = '/connection?name=' + encodeURIComponent(item.name)
+        connectionLink.textContent = item.name
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, connectionLink)
+        avalanchemq.table.renderCell(tr, 2, item.user)
+        avalanchemq.table.renderCell(tr, 3, item.state)
+        avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '')
+        avalanchemq.table.renderCell(tr, 5, item.channels)
+        avalanchemq.table.renderCell(tr, 6, item.channel_max)
+        avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
+        avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + item.client_properties.version + '</small>')
+        avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at))
+      })
     </script>
   </body>
 </html>

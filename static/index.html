@@ -62,14 +62,14 @@
 <script src="/js/overview.js"></script>
 <script src="/js/table.js"></script>
 <script>
-  avalanchemq.overview.start();
-  document.querySelector("#definitions").addEventListener("submit", function (evt) {
-    evt.preventDefault();
-    avalanchemq.http.request("POST", "/api/definitions/upload", new FormData(this)).then(function () {
-      window.location.assign('/');
+  avalanchemq.overview.start()
+  document.querySelector('#definitions').addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    avalanchemq.http.request('POST', '/api/definitions/upload', new FormData(this)).then(function () {
+      window.location.assign('/')
     }).catch(function () {
-      alert("Upload failed");
-    });
-  });
+      alert('Upload failed')
+    })
+})
 </script>
 

@@ -70,37 +70,37 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      avalanchemq.http.request("GET", "/api/permissions").then(permissions => {
-        avalanchemq.table.renderTable("table", "/api/users", ["name", "tags"], 0, (tr, item) => {
-          let hasPassword = item.password_hash.length ? "●" : "";
-          let vhosts = permissions.filter(p => p.user == item.name).map(p => p.vhost).join(", ")
-          let userLink = document.createElement("a")
-          userLink.href = "/user?name=" + encodeURIComponent(item.name)
+      avalanchemq.http.request('GET', '/api/permissions').then(permissions => {
+        avalanchemq.table.renderTable('table', '/api/users', ['name'], 0, (tr, item) => {
+          const hasPassword = item.password_hash.length ? '●' : ''
+          const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
+          const userLink = document.createElement('a')
+          userLink.href = '/user?name=' + encodeURIComponent(item.name)
           userLink.textContent = item.name
           avalanchemq.table.renderCell(tr, 0, userLink)
           avalanchemq.table.renderCell(tr, 1, item.tags)
           avalanchemq.table.renderCell(tr, 2, vhosts)
           avalanchemq.table.renderCell(tr, 3, hasPassword)
-            .classList.add("center")
+            .classList.add('center')
         })
       })
 
-      document.querySelector("#createUser").addEventListener("submit", function (evt) {
-        evt.preventDefault();
-        let data = new FormData(this)
-        let username = encodeURIComponent(data.get("username"))
-        let url = "/api/users/" + username
-        body = {
-          password: data.get("password"),
-          tags: data.get("tags")
+      document.querySelector('#createUser').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const username = encodeURIComponent(data.get('username'))
+        const url = '/api/users/' + username
+        const body = {
+          password: data.get('password'),
+          tags: data.get('tags')
         }
-        avalanchemq.http.request("PUT", url, body)
+        avalanchemq.http.request('PUT', url, body)
           .then(() => window.location.reload())
           .catch(e => console.error.apply(console, e))
       })
 
-      document.querySelector("#tags").onclick = e => {
-        document.querySelector("[name=tags]").value = e.target.getAttribute("data-tag")
+      document.querySelector('#tags').onclick = e => {
+        document.querySelector('[name=tags]').value = e.target.getAttribute('data-tag')
       }
     </script>
   </body>

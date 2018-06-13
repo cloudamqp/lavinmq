@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Connection | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
+        <div id="user-info">
+          <span>👤:&nbsp;</span>
+          <span id="username"></span>
+          <span id="vhost"></span>
+        </div>
+      </header>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
+        <li><a href="/vhosts">Virtual Hosts</a></li>
+      </ul>
+      <h2>
+        Connection:
+        <small id="connection"></small>
+      </h2>
+      <table>
+        <tr>
+          <th>Username</th>
+          <td id="conn-username"></td>
+          <th>State</th>
+          <td id="state"></td>
+        </tr>
+        <tr>
+          <th>Connected at</th>
+          <td id="connected_at"></td>
+          <th>Heartbeat</th>
+          <td id="heartbeat"></td>
+        </tr>
+        <tr>
+          <th>Authentication</th>
+          <td id="authentication"></td>
+          <th>Channel max</th>
+          <td id="channel_max"></td>
+        </tr>
+      </table>
+      <div id="table-error"></div>
+      <h3>
+        Channels
+        <small id="table-count"></small>
+      </h3>
+      <table id="table" class="table">
+        <thead>
+          <tr>
+            <th data-sort-key="name">Name</th>
+            <th data-sort-key="vhost">Virtual Host</th>
+            <th data-sort-key="username">Username</th>
+            <th>Mode</th>
+            <th data-sort-key="consumer_count">Consumers</th>
+            <th data-sort-key="prefetch_count">Prefetch limit</th>
+            <th data-sort-key="messages_unacked">Unacked messages</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <h3>Client properties</h3>
+      <table>
+        <tr>
+          <th>Capabilities</th>
+          <td><pre id="cp-capabilities"></pre></td>
+        </tr>
+        <tr>
+          <th>Product</th>
+          <td id="cp-product"></td>
+        </tr>
+        <tr>
+          <th>Platform</th>
+          <td id="cp-platform"></td>
+        </tr>
+        <tr>
+          <th>Version</th>
+          <td id="cp-version"></td>
+        </tr>
+        <tr>
+          <th>Information</th>
+          <td id="cp-information"></td>
+        </tr>
+      </table>
+      <form method="delete" id="closeConnection">
+        <fieldset>
+          <legend>Close connection</legend>
+          <input type="text" name="reason" value="Closed via Web management">
+          <button type="submit">Close</button>
+        </fieldset>
+      </form>
+    </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      const urlEncodedConnection = new URLSearchParams(window.location.search).get('name')
+      const connection = decodeURIComponent(urlEncodedConnection)
+      document.title = connection + ' | AvalancheMQ'
+      document.querySelector('#connection').textContent = connection
+
+      const connectionUrl = '/api/connections/' + urlEncodedConnection
+      function updateConnection (all) {
+        avalanchemq.http.request('GET', connectionUrl).then(item => {
+          const stateEl = document.getElementById('state')
+          if (item.state !== stateEl.textContent) {
+            stateEl.textContent = item.state
+          }
+          if (all) {
+            document.getElementById('conn-username').textContent = item.user
+            document.getElementById('connected_at').textContent = new Date(item.connected_at)
+            document.getElementById('heartbeat').textContent = item.timeout + 's'
+            document.getElementById('authentication').textContent = item.auth_mechanism
+            document.getElementById('channel_max').textContent = item.channel_max
+            const cp = item.client_properties
+            document.getElementById('cp-capabilities').textContent = JSON.stringify(cp.capabilities, undefined, 2).replace(/["{},]/g, '')
+            document.getElementById('cp-product').textContent = cp.product
+            document.getElementById('cp-platform').textContent = cp.platform
+            document.getElementById('cp-version').textContent = cp.version
+            const infoEl = document.getElementById('cp-information')
+            if (cp.information.startsWith('http')) {
+              const infoLink = document.createElement('a')
+              infoLink.textContent = cp.information
+              infoLink.href = cp.information
+              while (infoEl.lastChild) {
+                infoEl.removeChild(infoEl.lastChild)
+              }
+              infoEl.appendChild(infoLink)
+            } else {
+              infoEl.textContent = cp.information
+            }
+          }
+        }).catch(e => console.error.apply(console, e))
+      }
+      updateConnection(true)
+      setInterval(updateConnection, 5000)
+      const channelsUrl = connectionUrl + '/channels'
+      avalanchemq.table.renderTable('table', channelsUrl, ['name'], 5000, function (tr, item) {
+        let mode = ''
+        mode += item.confirm ? ' C' : ''
+        avalanchemq.table.renderCell(tr, 0, item.name)
+        avalanchemq.table.renderCell(tr, 1, item.vhost)
+        avalanchemq.table.renderCell(tr, 2, item.username)
+        avalanchemq.table.renderCell(tr, 3, mode)
+        avalanchemq.table.renderCell(tr, 4, item.consumer_count)
+        avalanchemq.table.renderCell(tr, 5, item.prefetch_count)
+        avalanchemq.table.renderCell(tr, 6, item.messages_unacked)
+      })
+
+      document.querySelector('#closeConnection').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/connections/' + urlEncodedConnection
+        avalanchemq.http.request('DELETE', url)
+          .then(() => { window.location = '/connections' })
+          .catch(e => console.error.apply(console, e))
+      })
+    </script>
+  </body>
+</html>

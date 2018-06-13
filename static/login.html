@@ -34,19 +34,18 @@
       </div>
 
       <script type="text/javascript">
-        document.querySelector("#login").addEventListener("submit", function (evt) {
-          evt.preventDefault();
-          var xhr = new XMLHttpRequest();
-          var user = document.querySelector('#amq-username').value;
-          var pass = document.querySelector('#amq-password').value;
-          avalanchemq.auth.setAuth(user + ":" + pass);
-          avalanchemq.http.request("GET", "/api/whoami").then(function () {
-            avalanchemq.auth.storeCookie({ username: user, password: pass });
-            window.location.assign('/');
+        document.querySelector('#login').addEventListener('submit', function (evt) {
+          evt.preventDefault()
+          const user = document.querySelector('#amq-username').value
+          const pass = document.querySelector('#amq-password').value
+          avalanchemq.auth.setAuth(user + ':' + pass)
+          avalanchemq.http.request('GET', '/api/whoami').then(function () {
+            avalanchemq.auth.storeCookie({ username: user, password: pass })
+            window.location.assign('/')
           }).catch(function () {
-            alert("Login failed");
-          });
-        });
+            alert('Login failed')
+          })
+        })
       </script>
     </main>
   </body>

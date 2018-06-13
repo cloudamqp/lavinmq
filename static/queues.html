@@ -75,45 +75,47 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      function addVhostOptions(vhosts) {
-        let select = document.forms["declare"].elements["vhost"];
-        while (select.options.length) select.remove(0);
+      function addVhostOptions (vhosts) {
+        let select = document.forms['declare'].elements['vhost']
+        while (select.options.length) {
+          select.remove(0)
+        }
         for (let i = 0; i < vhosts.length; i++) {
-          let opt = document.createElement("option");
-          opt.text = vhosts[i].name;
-          select.add(opt);
+          const opt = document.createElement('option')
+          opt.text = vhosts[i].name
+          select.add(opt)
         }
       }
 
-      avalanchemq.vhosts.fetch(addVhostOptions);
+      avalanchemq.vhosts.fetch(addVhostOptions)
 
-      avalanchemq.table.renderTable("table", "/api/queues", ["vhost", "name"], 5000, function (tr, item) {
-        var features = "";
-        features += item.durable ? " D" : "";
-        features += item.auto_delete ? " AD" : "";
-        features += item.exclusive ? " E" : "";
-        avalanchemq.table.renderCell(tr, 0, item.name);
-        avalanchemq.table.renderCell(tr, 1, item.vhost);
-        avalanchemq.table.renderCell(tr, 2, features);
-        avalanchemq.table.renderCell(tr, 3, item.messages);
-        avalanchemq.table.renderCell(tr, 4, item.unacked);
-        avalanchemq.table.renderCell(tr, 5, item.ready);
-        avalanchemq.table.renderCell(tr, 6, item.consumers);
-      });
+      avalanchemq.table.renderTable('table', '/api/queues', ['vhost', 'name'], 5000, function (tr, item) {
+        var features = ''
+        features += item.durable ? ' D' : ''
+        features += item.auto_delete ? ' AD' : ''
+        features += item.exclusive ? ' E' : ''
+        avalanchemq.table.renderCell(tr, 0, item.name)
+        avalanchemq.table.renderCell(tr, 1, item.vhost)
+        avalanchemq.table.renderCell(tr, 2, features)
+        avalanchemq.table.renderCell(tr, 3, item.messages)
+        avalanchemq.table.renderCell(tr, 4, item.unacked)
+        avalanchemq.table.renderCell(tr, 5, item.ready)
+        avalanchemq.table.renderCell(tr, 6, item.consumers)
+      })
 
-      document.querySelector("#declare").addEventListener("submit", function (evt) {
-        evt.preventDefault();
-        let data = new FormData(this);
-        let vhost = encodeURIComponent(data.get("vhost"));
-        let queue = encodeURIComponent(data.get("name"));
-        let url = "/api/queues/" + vhost + "/" + queue;
-        body = {
-          durable: data.get("durable") == "1",
-          auto_delete: data.get("auto_delete") == "1"
+      document.querySelector('#declare').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const vhost = encodeURIComponent(data.get('vhost'))
+        const queue = encodeURIComponent(data.get('name'))
+        const url = '/api/queues/' + vhost + '/' + queue
+        const body = {
+          durable: data.get('durable') === '1',
+          auto_delete: data.get('auto_delete') === '1'
         }
-        avalanchemq.http.request("PUT", url, body)
+        avalanchemq.http.request('PUT', url, body)
           .catch(e => console.error.apply(console, e))
-      });
+      })
     </script>
   </body>
 </html>
