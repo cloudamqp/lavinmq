@@ -6,6 +6,7 @@ module AvalancheMQ
   module ExchangeHelpers
     private def exchange(context, params, vhost, key = "name")
       name = params[key]
+      name = "" if name == "amq.default"
       e = @amqp_server.vhosts[vhost].exchanges[name]?
       not_found(context, "Exchange #{name} does not exist") unless e
       e
