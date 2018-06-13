@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Queue | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
+        <div id="user-info">
+          <span>👤:&nbsp;</span>
+          <span id="username"></span>
+          <span id="vhost"></span>
+        </div>
+      </header>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
+        <li><a href="/vhosts">Virtual Hosts</a></li>
+      </ul>
+      <h2>
+        Queue:
+        <small id="queue"></small>
+      </h2>
+      <table>
+        <tr>
+          <th>Features</th>
+          <td><pre id="q-features"></pre></td>
+          <th>State</th>
+          <td id="q-state"></td>
+          <th>Messages</th>
+          <td>
+            <table>
+              <tr>
+                <th>Total</th>
+                <th>Ready</th>
+                <th>Unacked</th>
+              </tr>
+              <tr>
+                <td id="q-total"></td>
+                <td id="q-ready"></td>
+                <td id="q-unacked"></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <th>Policy</th>
+          <td id="q-policy"></td>
+          <th>Consumers</th>
+          <td id="q-consumers"></td>
+        </tr>
+      </table>
+      <div id="table-error"></div>
+      <h3>
+        Consumers
+        <small id="table-count"></small>
+      </h3>
+      <table id="table" class="table">
+        <thead>
+          <tr>
+            <th>Channel</th>
+            <th>Consumer tag</th>
+            <th>Ack required</th>
+            <th>Exclusive</th>
+            <th>Prefetch count</th>
+            <th>Arguments</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/dom.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      const urlEncodedQueue = new URLSearchParams(window.location.search).get('name')
+      const urlEncodedVhost = new URLSearchParams(window.location.search).get('vhost')
+      const queue = decodeURIComponent(urlEncodedQueue)
+      document.title = queue + ' | AvalancheMQ'
+
+      const consumersTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, function (tr, item) {
+        const channelLink = document.createElement('a')
+        channelLink.href = '/channel?name=' + encodeURIComponent(item.channel_details.name)
+        channelLink.textContent = item.channel_details.name
+        const ack = item.ack_required ? '●' : ''
+        const exclusive = item.exclusive ? '●' : ''
+        avalanchemq.table.renderCell(tr, 0, channelLink)
+        avalanchemq.table.renderCell(tr, 1, item.consumer_tag)
+        avalanchemq.table.renderCell(tr, 2, ack)
+        avalanchemq.table.renderCell(tr, 3, exclusive)
+        avalanchemq.table.renderCell(tr, 4, item.prefetch_count)
+        avalanchemq.table.renderHtmlCell(tr, 5, '<pre>' + item.arguments + '</pre>')
+      })
+
+      const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
+      function updateQueue (all) {
+        avalanchemq.http.request('GET', queueUrl).then(item => {
+          document.getElementById('q-state').textContent = item.state
+          document.getElementById('q-unacked').textContent = item.unacked
+          document.getElementById('q-total').textContent = item.messages
+          document.getElementById('q-ready').textContent = item.ready
+          document.getElementById('q-consumers').textContent = item.consumers
+          consumersTable.updateTable(item.consumer_details)
+          if (all) {
+            let features = ''
+            features += item.durable ? ' D' : ''
+            features += item.auto_delete ? ' AD' : ''
+            features += item.exclusive ? ' E' : ''
+            document.getElementById('q-features').textContent = features
+            document.querySelector('#queue').textContent = queue + ' in virtual host ' + item.vhost
+            if (item.policy) {
+              const policyLink = document.createElement('a')
+              policyLink.href = '/policy?name=' + encodeURIComponent(item.policy)
+              policyLink.textContent = item.policy
+              avalanchemq.dom.setChild('#q-policy', policyLink)
+            }
+          }
+        }).catch(e => console.error.apply(console, e))
+      }
+      updateQueue(true)
+      setInterval(updateQueue, 5000)
+    </script>
+  </body>
+</html>
