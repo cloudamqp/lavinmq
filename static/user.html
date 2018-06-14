@@ -110,8 +110,8 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const urlEncodedUsername = new URLSearchParams(window.location.search).get('name')
-      const user = decodeURIComponent(urlEncodedUsername)
+      const user = new URLSearchParams(window.location.search).get('name')
+      const urlEncodedUsername = encodeURIComponent(user)
       document.title = user + ' | AvalancheMQ'
       document.querySelector('#user').textContent = user
 
@@ -129,7 +129,7 @@
       avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
         btn.innerHTML = 'Clear'
-        btn.onclick = function (evt) {
+        btn.onclick = function () {
           const username = encodeURIComponent(item.user)
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/permissions/' + vhost + '/' + username

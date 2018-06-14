@@ -78,8 +78,8 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const urlEncodedChannel = new URLSearchParams(window.location.search).get('name')
-      const channel = decodeURIComponent(urlEncodedChannel)
+      const channel = new URLSearchParams(window.location.search).get('name')
+      const urlEncodedChannel = encodeURIComponent(channel)
       let vhost = null
       document.title = channel + ' | AvalancheMQ'
 

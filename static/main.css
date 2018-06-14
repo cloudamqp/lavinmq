@@ -10,3 +10,4 @@ header { position: relative; }
 #user-info { position: absolute; top: 0; right: 0; margin-right: 15px; }
 .center { text-align: center; }
 a[data-tag] { cursor: pointer; }
+.hide { display: none; }

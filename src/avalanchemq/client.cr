@@ -129,7 +129,7 @@ module AvalancheMQ
 
     def close(reason = "Broker shutdown")
       @log.debug "Gracefully closing"
-      send AMQP::Connection::Close.new(320_u16, reason.not_nil!, 0_u16, 0_u16)
+      send AMQP::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
       @running = false
     end
 

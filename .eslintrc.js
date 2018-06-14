@@ -1,5 +1,5 @@
 module.exports = {
-    "extends": "standard",
+    "extends": "eslint:recommended",
     "plugins": [
         "html"
     ],
@@ -10,6 +10,6 @@ module.exports = {
         "avalanchemq": true
     },
     "rules": {
-        "indent": ["error", 2]
+        "no-console": "off"
     }
 };

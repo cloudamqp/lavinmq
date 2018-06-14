@@ -100,8 +100,8 @@
     <script src="/js/users.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const urlEncodedVhost = new URLSearchParams(window.location.search).get('name')
-      const vhost = decodeURIComponent(urlEncodedVhost)
+      const vhost = new URLSearchParams(window.location.search).get('name')
+      const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = vhost + ' | AvalancheMQ'
       document.querySelector('#vhost2').textContent = vhost
 
@@ -117,7 +117,7 @@
       avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
         btn.innerHTML = 'Clear'
-        btn.onclick = function (evt) {
+        btn.onclick = function () {
           const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
           avalanchemq.http.request('DELETE', url)
             .then(() => window.location.reload())

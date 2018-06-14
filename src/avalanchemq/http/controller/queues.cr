@@ -139,7 +139,8 @@ module AvalancheMQ
           msgs ||= [] of Envelope
           count = q.message_count
           res = msgs.compact.map do |env|
-            payload = String.new(env.message.body)
+            io = IO::Memory.new(env.message.body)
+            payload = (truncate.nil? ? io.gets_to_end : io.gets(truncate)).to_s
             case encoding
             when "auto"
               if payload.valid_encoding?
@@ -164,6 +165,7 @@ module AvalancheMQ
               "properties":       env.message.properties,
               "payload":          content,
               "payload_encoding": payload_encoding,
+              "peek":             ack_mode == "peek",
             }
           end
           res.to_json(context.response)

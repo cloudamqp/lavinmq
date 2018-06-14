@@ -112,7 +112,7 @@
           <button type="submit">Bind</button>
         </fieldset>
       </form>
-       <form method="post" id="publishMessage">
+      <form method="post" id="publishMessage">
         <fieldset>
           <legend>Publish message</legend>
           <p>
@@ -140,6 +140,67 @@
           <button type="submit">Publish message</button>
         </fieldset>
       </form>
+      <form method="post" id="getMessages">
+        <fieldset>
+          <legend>Get messages</legend>
+          <label>
+            Mode
+            <select name="mode">
+              <option value="peek">Peek</option>
+              <option value="ack_requeue_true">Ack and requeue</option>
+              <option value="ack_requeue_false">Ack</option>
+              <option value="reject_requeue_true">Reject and requeue</option>
+              <option value="reject_requeue_false">Reject</option>
+
+            </select>
+          </label>
+          <label>
+            Encoding
+            <select name="encoding">
+              <option value="auto">Auto string/base64</option>
+              <option value="base64">Base64</option>
+            </select>
+          </label>
+          <label>
+            Messages
+            <input type="number" name="messages" value=1>
+          </label>
+          <button type="submit">Get message(s)</button>
+        </fieldset>
+      </form>
+      <div id="message-template" class="hide">
+        <span>Message <span class="message-number"></span></span>
+        <hr>
+        <span>The server reported <span class="messages-remaining"></span> messages remaining.</span>
+        <table>
+          <tr>
+            <th>Exchange</th>
+            <td class="message-exchange"></td>
+          </tr>
+          <tr>
+            <th>Routing key</th>
+            <td class="message-routing-key"></td>
+          </tr>
+          <tr>
+            <th>Mode</th>
+            <td class="message-mode"></td>
+          </tr>
+          <tr>
+            <th>Properties</th>
+            <td><pre class="message-properties"></pre></td>
+          </tr>
+          <tr>
+            <th>
+              Payload
+              <div><small><span class="message-size"></span> bytes</small></div>
+              <div><small>Encoding: <span class="message-encoding"></span></small></div>
+            </th>
+            <td class="message-payload"></td>
+          </tr>
+        </table>
+      </div>
+      <div id="messages">
+      </div>
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/dom.js"></script>
@@ -147,9 +208,10 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const urlEncodedQueue = new URLSearchParams(window.location.search).get('name')
-      const urlEncodedVhost = new URLSearchParams(window.location.search).get('vhost')
-      const queue = decodeURIComponent(urlEncodedQueue)
+      const queue = new URLSearchParams(window.location.search).get('name')
+      const vhost = new URLSearchParams(window.location.search).get('vhost')
+      const urlEncodedQueue = encodeURIComponent(queue)
+      const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = queue + ' | AvalancheMQ'
 
       const consumersTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, function (tr, item) {
@@ -203,7 +265,7 @@
         } else {
           const btn = document.createElement('button')
           btn.innerHTML = 'Unbind'
-          btn.onclick = function (evt) {
+          btn.onclick = function () {
             const e = encodeURIComponent(item.source)
             const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + item.properties_key
             avalanchemq.http.request('DELETE', url)
@@ -251,20 +313,53 @@
         evt.preventDefault()
         const data = new FormData(this)
         const url = '/api/exchanges/' + urlEncodedVhost + '/amq.default/publish'
-        const headers = parseJSON(data.get('headers'))
         const properties = parseJSON(data.get('properties'))
+        properties.delivery_mode = parseInt(data.get('delivery_mode'))
+        properties.headers = parseJSON(data.get('headers'))
         const body = {
-          delivery_mode: data.get('delivery_mode'),
-          vhost: decodeURIComponent(urlEncodedVhost),
           payload: data.get('payload'),
           payload_encoding: 'string',
           routing_key: queue,
-          headers,
           properties
         }
         avalanchemq.http.request('POST', url, { body })
           .then(() => window.location.reload())
           .catch(e => console.error.apply(console, e))
+      })
+
+      document.querySelector('#getMessages').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/get'
+        const body = {
+          count: parseInt(data.get('messages')),
+          ack_mode: data.get('mode'),
+          encoding: data.get('encoding'),
+          truncate: 50000
+        }
+        avalanchemq.http.request('POST', url, { body })
+          .then(messages => {
+            const messagesContainer = document.getElementById('messages')
+            avalanchemq.dom.removeChildren(messagesContainer)
+            const template = document.getElementById('message-template')
+            for (let i = 0; i < messages.length; i++) {
+              const message = messages[i]
+              const msgNode = template.cloneNode(true)
+              msgNode.querySelector('.message-number').textContent = i + 1
+              msgNode.querySelector('.messages-remaining').textContent = message.message_count
+              const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange;
+              msgNode.querySelector('.message-exchange').textContent = exchange
+              msgNode.querySelector('.message-routing-key').textContent = message.routing_key
+              const mode = message.peek ? 'peek' : (message.redelivered ? 'redelivered' : 'get');
+              msgNode.querySelector('.message-mode').textContent = mode
+              msgNode.querySelector('.message-properties').textContent = avalanchemq.dom.jsonToText(message.properties)
+              msgNode.querySelector('.message-size').textContent = message.payload_bytes
+              msgNode.querySelector('.message-encoding').textContent = message.payload_encoding
+              msgNode.querySelector('.message-payload').textContent = JSON.stringify(message.payload)
+              msgNode.classList.remove('hide')
+              messagesContainer.appendChild(msgNode)
+            }
+          }).catch(e => console.error(e))
       })
     </script>
   </body>
