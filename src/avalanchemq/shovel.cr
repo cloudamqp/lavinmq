@@ -30,6 +30,7 @@ module AvalancheMQ
         sub.on_body_frame do |b|
           pub.send_body_frame(b)
         end
+        sub.on_done { @vhost.delete_parameter("shovel", @name) }
         @pub = pub
         @sub = sub
         spawn(name: "Shovel publish #{@destination.uri.host} read_loop") { pub.read_loop }
@@ -209,6 +210,10 @@ module AvalancheMQ
         @on_body_frame = blk
       end
 
+      def on_done(&blk)
+        @on_done = blk
+      end
+
       def consume_loop
         queue, message_count = declare_queue
         consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
@@ -241,6 +246,7 @@ module AvalancheMQ
                  message_count <= message_counter
                 @socket.write AMQP::Connection::Close.new(200_u16,
                   "Shovel done", 0_u16, 0_u16).to_slice
+                @on_done.try &.call
               end
             end
           when AMQP::Channel::Close

@@ -79,6 +79,8 @@ module AvalancheMQ
           Array(User).from_json(f) do |user|
             @users[user.name] = user
           end
+        rescue JSON::ParseException
+          @log.warn("#{path} is not vaild json")
         end
       else
         tags = [Tag::Administrator]

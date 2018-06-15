@@ -14,7 +14,7 @@ module AvalancheMQ
       include AMQP::IO
     end
 
-    getter name, exchanges, queues, log, data_dir, policies, parameters, log
+    getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32

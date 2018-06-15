@@ -61,6 +61,8 @@ module AvalancheMQ
             name = vhost["name"].as_s
             @vhosts[name] = VHost.new(name, @data_dir, @log)
           end
+        rescue JSON::ParseException
+          @log.warn("#{path} is not vaild json")
         end
       else
         @log.debug "Loading default vhosts"

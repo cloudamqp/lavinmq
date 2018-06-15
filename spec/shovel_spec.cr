@@ -29,6 +29,7 @@ describe AvalancheMQ::Shovel do
       shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
       shovel.run
       q2.get(no_ack: true).to_s.should eq "shovel me"
+      s.not_nil!.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
   ensure
     close(s)

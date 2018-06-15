@@ -13,6 +13,10 @@ module AvalancheMQ
       @shovels.values.each { |e| yield e }
     end
 
+    def empty?
+      @shovels.empty?
+    end
+
     def create(name, config)
       delete_after_str = config["delete-after"]?.try &.as_s.delete("-")
       delete_after = if delete_after_str

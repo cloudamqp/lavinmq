@@ -79,6 +79,8 @@ module AvalancheMQ
       if File.exists?(file)
         File.open(file, "r") do |f|
           Array(T).from_json(f).each { |p| create(p, save: false) }
+        rescue JSON::ParseException
+          @log.warn("#{@file_name} is not vaild json")
         end
       end
       @log.debug("#{@parameters.size} items loaded from #{@file_name}")
