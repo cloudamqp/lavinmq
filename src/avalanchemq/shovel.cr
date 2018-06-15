@@ -27,6 +27,7 @@ module AvalancheMQ
         end
         @pub = pub
         @sub = sub
+        spawn(name: "Shovel publish #{@destination.uri.host} read_loop") { pub.read_loop }
         sub.consume_loop
         break
       rescue ex
@@ -139,6 +140,7 @@ module AvalancheMQ
       end
 
       def send_basic_publish(frame)
+        return if @closed
         exchange = @destination.exchange.not_nil!
         routing_key = @destination.exchange_key || frame.routing_key
         @socket.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
@@ -151,6 +153,32 @@ module AvalancheMQ
 
       def send_body_frame(frame)
         @socket.write frame.to_slice
+      end
+
+      def read_loop
+        loop do
+          frame = AMQP::Frame.decode(@socket)
+          case frame
+          when AMQP::Channel::Close
+            @closed = true
+            puts "Server unexpectedly sent #{frame}"
+            @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
+            @socket.write AMQP::Connection::Close.new(320_u16,
+                                                      "shovel can't continue",
+                                                      0_u16, 0_u16).to_slice
+          when AMQP::Connection::Close
+            @closed = true
+            puts "Server unexpectedly closed the shovel connection #{frame}"
+            @socket.write AMQP::Connection::CloseOk.new.to_slice
+            @socket.close
+            break
+          when AMQP::Connection::CloseOk
+            @closed = true
+            @socket.close
+            break
+          else raise "Unexpected frame #{frame}"
+          end
+        end
       end
     end
 
