@@ -244,7 +244,7 @@ module AvalancheMQ
         expire_at = meta.timestamp + exp_ms
         expire_in = expire_at - now
         spawn(expire_later(expire_in, meta, sp),
-          name: "expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+          name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
       else
         @log.debug { "No message to expire" }
       end
@@ -302,7 +302,7 @@ module AvalancheMQ
 
     private def schedule_expiration_of_queue(now)
       return unless @expires && @consumers.empty?
-      spawn do
+      spawn(name: "Queue#schedule_expiration_of_queue #{@vhost.name}/#{@name}") do
         sleep @expires.not_nil!.milliseconds
         next unless @consumers.empty?
         next schedule_expiration_of_queue(@last_get_time) if @last_get_time > now
