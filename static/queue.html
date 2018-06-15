@@ -210,6 +210,18 @@
           </label>
         </fieldset>
       </form>
+      <form method="delete" id="purgeQueue">
+        <fieldset>
+          <legend>Purge queue</legend>
+          <button type="submit">Purge</button>
+        </fieldset>
+      </form>
+      <form method="delete" id="deleteQueue">
+        <fieldset>
+          <legend>Delete queue</legend>
+          <button type="submit">Delete</button>
+        </fieldset>
+      </form>
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/dom.js"></script>
@@ -376,6 +388,21 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => { window.location == '/queues' })
+          .catch(e => console.error(e))
+      })
+
+      document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
+        avalanchemq.http.request('DELETE', url)
+          .catch(e => console.error(e))
+      })
+
+      document.querySelector('#deleteQueue').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
+        avalanchemq.http.request('DELETE', url)
+          .then(() => { window.location = '/queues' })
           .catch(e => console.error(e))
       })
     </script>
