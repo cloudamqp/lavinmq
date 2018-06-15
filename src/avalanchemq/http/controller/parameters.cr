@@ -15,7 +15,7 @@ module AvalancheMQ
       get "/api/parameters/:component" do |context, params|
         user = user(context)
         refuse_unless_policymaker(context, user)
-        component = params["component"]
+        component = URI.unescape(params["component"])
         vhosts(user)
           .flat_map { |v| v.parameters.values.map { |p| map_parameter(v.name, p) } }
           .select { |p| p["component"] == component }
@@ -26,7 +26,7 @@ module AvalancheMQ
       get "/api/parameters/:component/:vhost" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          component = params["component"]
+          component = URI.unescape(params["component"])
           @amqp_server.vhosts[vhost].parameters.values
                                                .select { |p| p.component_name == component }
                                                .map { |p| map_parameter(vhost, p) }
@@ -37,8 +37,8 @@ module AvalancheMQ
       get "/api/parameters/:component/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          component = params["component"]
-          name = params["name"]
+          component = URI.unescape(params["component"])
+          name = URI.unescape(params["name"])
           param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
           map_parameter(vhost, param).to_json(context.response)
         end
@@ -47,8 +47,8 @@ module AvalancheMQ
       put "/api/parameters/:component/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          component = params["component"]
-          name = params["name"]
+          component = URI.unescape(params["component"])
+          name = URI.unescape(params["name"])
           body = parse_body(context)
           value = body["value"]?
           unless value
@@ -63,8 +63,8 @@ module AvalancheMQ
       delete "/api/parameters/:component/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          component = params["component"]
-          name = params["name"]
+          component = URI.unescape(params["component"])
+          name = URI.unescape(params["name"])
           param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
           @amqp_server.vhosts[vhost].delete_parameter(component, name)
           context.response.status_code = 204
@@ -81,7 +81,7 @@ module AvalancheMQ
 
       get "/api/global-parameters/:name" do |context, params|
         refuse_unless_administrator(context, user(context))
-        name = params["name"]
+        name = URI.unescape(params["name"])
         param = param(context, @amqp_server.parameters, Tuple.new(nil, name))
         map_parameter(nil, param).to_json(context.response)
         context
@@ -89,7 +89,7 @@ module AvalancheMQ
 
       put "/api/global-parameters/:name" do |context, params|
         refuse_unless_administrator(context, user(context))
-        name = params["name"]
+        name = URI.unescape(params["name"])
         body = parse_body(context)
         value = body["value"]?
         unless value
@@ -103,7 +103,7 @@ module AvalancheMQ
 
       delete "/api/global-parameters/:name" do |context, params|
         refuse_unless_policymaker(context, user(context))
-        name = params["name"]
+        name = URI.unescape(params["name"])
         param = param(context, @amqp_server.parameters, {nil, name})
         @amqp_server.delete_parameter(nil, name)
         context.response.status_code = 204
@@ -127,7 +127,7 @@ module AvalancheMQ
       get "/api/policies/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          name = params["name"]
+          name = URI.unescape(params["name"])
           p = policy(context, name, vhost)
           p.to_json(context.response)
         end
@@ -136,7 +136,7 @@ module AvalancheMQ
       put "/api/policies/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          name = params["name"]
+          name = URI.unescape(params["name"])
           body = parse_body(context)
           pattern = body["pattern"]?.try &.as_s?
           definition = body["definition"]?
@@ -155,7 +155,7 @@ module AvalancheMQ
       delete "/api/policies/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
-          name = params["name"]
+          name = URI.unescape(params["name"])
           policy = policy(context, name, vhost)
           @amqp_server.vhosts[vhost].delete_policy(name)
           context.response.status_code = 204

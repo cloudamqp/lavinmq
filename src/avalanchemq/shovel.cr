@@ -143,7 +143,7 @@ module AvalancheMQ
 
       def close
         @closed = true
-        @socket.write AMQP::Connection::Close.new(200_u16, "shovel stopped", 0_u16, 0_u16).to_slice
+        @socket.write AMQP::Connection::Close.new(200_u16, "Shovel stopped", 0_u16, 0_u16).to_slice
       end
     end
 
