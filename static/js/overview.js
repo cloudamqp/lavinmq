@@ -4,11 +4,12 @@
 
   const url = '/api/overview'
   const raw = localStorage.getItem(url)
+  let data = null
   let updateTimer = null
 
   if (raw) {
     try {
-      const data = JSON.parse(raw)
+      data = JSON.parse(raw)
       if (data) {
         render(data)
       }
@@ -21,6 +22,7 @@
 
   function update () {
     avalanchemq.http.request('GET', url).then(function (response) {
+      data = response
       try {
         localStorage.setItem('/api/overview', JSON.stringify(response))
       } catch (e) {
@@ -53,7 +55,7 @@
 
   Object.assign(window.avalanchemq, {
     overview: {
-      update, start, stop, render
+      update, start, stop, render, data
     }
   })
 })()

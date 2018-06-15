@@ -67,6 +67,10 @@
             Auto-delete
             <input type="checkbox" name="auto_delete" value="1">
           </label>
+          <label>
+            Arguments
+            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+          </label>
           <button type="submit">Add queue</button>
         </fieldset>
       </form>
@@ -77,19 +81,7 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      function addVhostOptions (vhosts) {
-        const select = document.forms['declare'].elements['vhost']
-        while (select.options.length) {
-          select.remove(0)
-        }
-        for (let i = 0; i < vhosts.length; i++) {
-          const opt = document.createElement('option')
-          opt.text = vhosts[i].name
-          select.add(opt)
-        }
-      }
-
-      avalanchemq.vhosts.fetch(addVhostOptions)
+      avalanchemq.vhosts.addVhostOptions('declare')
 
       const tableOptions = { url: '/api/queues', sortBy: ['vhost', 'name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
@@ -119,7 +111,8 @@
         const url = '/api/queues/' + vhost + '/' + queue
         const body = {
           durable: data.get('durable') === '1',
-          auto_delete: data.get('auto_delete') === '1'
+          auto_delete: data.get('auto_delete') === '1',
+          arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
         }
         avalanchemq.http.request('PUT', url, { body })
           .catch(e => console.error(e))

@@ -107,7 +107,7 @@
           </label>
           <label>
             Arguments
-            <textarea name="arguments"></textarea>
+            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
           <button type="submit">Bind</button>
         </fieldset>
@@ -127,11 +127,11 @@
           </label>
           <label>
             Headers
-            <textarea name="headers"></textarea>
+            <textarea name="headers" placeholder='{ "key": value }'></textarea>
           </label>
           <label>
             Properties
-            <textarea name="properties"></textarea>
+            <textarea name="properties" placeholder='{ "key": value }'></textarea>
           </label>
           <label>
             Payload
@@ -289,27 +289,12 @@
         }
       })
 
-      function parseJSON (data) {
-        try {
-          if (data.length) {
-            return JSON.parse(data)
-          }
-          return {}
-        } catch (e) {
-          if (e instanceof SyntaxError) {
-            alert('Input must be JSON')
-          } else {
-            throw e
-          }
-        }
-      }
-
       document.querySelector('#addBinding').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const data = new FormData(this)
         const e = encodeURIComponent(data.get('source'))
         const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue
-        const args = parseJSON(data.get('arguments'))
+        const args = avalanchemq.dom.parseJSON(data.get('arguments'))
         const body = {
           routing_key: data.get('routing_key'),
           arguments: args
@@ -323,9 +308,9 @@
         evt.preventDefault()
         const data = new FormData(this)
         const url = '/api/exchanges/' + urlEncodedVhost + '/amq.default/publish'
-        const properties = parseJSON(data.get('properties'))
+        const properties = avalanchemq.dom.parseJSON(data.get('properties'))
         properties.delivery_mode = parseInt(data.get('delivery_mode'))
-        properties.headers = parseJSON(data.get('headers'))
+        properties.headers = avalanchemq.dom.parseJSON(data.get('headers'))
         const body = {
           payload: data.get('payload'),
           payload_encoding: 'string',

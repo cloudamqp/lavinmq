@@ -28,6 +28,21 @@
     })
   }
 
+  function parseJSON (data) {
+    try {
+      if (data.length) {
+        return JSON.parse(data)
+      }
+      return {}
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        alert('Input must be JSON')
+      } else {
+        throw e
+      }
+    }
+  }
+
   function elements (selector) {
     let els = null
     if (selector instanceof Node) {
@@ -51,7 +66,8 @@
       setChild,
       removeNodes,
       jsonToText,
-      removeChildren
+      removeChildren,
+      parseJSON
     }
   })
 })()

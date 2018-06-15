@@ -20,9 +20,23 @@
     })
   }
 
+  function addVhostOptions (formId) {
+    fetch(vhosts => {
+      const select = document.forms[formId].elements['vhost']
+      while (select.options.length) {
+        select.remove(0)
+      }
+      for (let i = 0; i < vhosts.length; i++) {
+        const opt = document.createElement('option')
+        opt.text = vhosts[i].name
+        select.add(opt)
+      }
+    })
+  }
+
   Object.assign(window.avalanchemq, {
     vhosts: {
-      fetch
+      fetch, addVhostOptions
     }
   })
 })()

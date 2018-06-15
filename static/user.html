@@ -144,17 +144,7 @@
         avalanchemq.table.renderCell(tr, 4, btn)
       })
 
-      function addVhostOptions (vhosts) {
-        const select = document.forms['setPermission'].elements['vhost']
-        while (select.options.length) select.remove(0)
-        for (let i = 0; i < vhosts.length; i++) {
-          const opt = document.createElement('option')
-          opt.text = vhosts[i].name
-          select.add(opt)
-        }
-      }
-
-      avalanchemq.vhosts.fetch(addVhostOptions)
+      avalanchemq.vhosts.addVhostOptions('setPermission')
 
       document.querySelector('#setPermission').addEventListener('submit', function (evt) {
         evt.preventDefault()

@@ -43,12 +43,61 @@
         </thead>
         <tbody></tbody>
       </table>
+      <form method="put" id="addExchange">
+        <fieldset>
+          <legend>Add exchange</legend>
+          <label>
+            Virtual host
+            <select name="vhost" required></select>
+          </label>
+          <label>
+            Name
+            <input type="text" name="name" required>
+          </label>
+          <label>
+            Type
+            <select name="type" required></select>
+          </label>
+          <label>
+            Durable
+            <input type="checkbox" name="durable" value="1">
+          </label>
+          <label>
+            Auto-delete
+            <input type="checkbox" name="auto_delete" value="1">
+          </label>
+          <label>
+            Internal
+            <input type="checkbox" name="internal" value="1">
+          </label>
+          <label>
+            Arguments
+            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+          </label>
+          <button type="submit">Add exchange</button>
+        </fieldset>
+      </form>
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/dom.js"></script>
     <script src="/js/overview.js"></script>
+    <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      avalanchemq.vhosts.addVhostOptions('addExchange')
+
+      const exchangeTypes = avalanchemq.overview.data.exchange_types
+      const select = document.forms['addExchange'].elements['type']
+      while (select.options.length) {
+        select.remove(0)
+      }
+      for (let i = 0; i < exchangeTypes.length; i++) {
+        const opt = document.createElement('option')
+        opt.text = exchangeTypes[i].name
+        select.add(opt)
+      }
+
       const tableOptions = { url: '/api/exchanges', sortBy: ['vhost', 'name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let features = ''
@@ -59,6 +108,22 @@
         avalanchemq.table.renderCell(tr, 1, item.vhost)
         avalanchemq.table.renderCell(tr, 2, features)
         avalanchemq.table.renderCell(tr, 3, item.type)
+      })
+
+      document.querySelector('#addExchange').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const vhost = encodeURIComponent(data.get('vhost'))
+        const exchange = encodeURIComponent(data.get('name'))
+        const url = '/api/queues/' + vhost + '/' + exchange
+        const body = {
+          durable: data.get('durable') === '1',
+          auto_delete: data.get('auto_delete') === '1',
+          internal: data.get('internal') === '1',
+          arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
+        }
+        avalanchemq.http.request('PUT', url, { body })
+          .catch(e => console.error(e))
       })
     </script>
   </body>
