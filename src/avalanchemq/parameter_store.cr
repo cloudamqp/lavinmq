@@ -70,7 +70,7 @@ module AvalancheMQ
     def save!
       @log.debug "Saving #{@file_name}"
       tmpfile = File.join(@data_dir, "#{@file_name}.tmp")
-      File.open(tmpfile, "w") { |f| self.to_json(f) }
+      File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
       File.rename tmpfile, File.join(@data_dir, @file_name)
     end
 

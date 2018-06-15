@@ -45,7 +45,7 @@ module AvalancheMQ
     end
 
     def add_permission(user, vhost, config, read, write)
-      perm = { config: config, read: read, write: write }
+      perm = {config: config, read: read, write: write}
       @users[user].permissions[vhost] = perm
       @users[user].invalidate_acl_caches
       save!
@@ -97,7 +97,7 @@ module AvalancheMQ
     def save!
       @log.debug "Saving users to file"
       tmpfile = File.join(@data_dir, "users.json.tmp")
-      File.open(tmpfile, "w") { |f| self.to_json(f) }
+      File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
       File.rename tmpfile, File.join(@data_dir, "users.json")
     end
   end
