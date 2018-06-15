@@ -5,6 +5,7 @@ require "../src/avalanchemq/http/http_server"
 require "http/client"
 require "amqp"
 require "uri"
+require "specreporter-spec"
 
 FileUtils.rm_rf("/tmp/spec")
 
@@ -13,6 +14,18 @@ FileUtils.rm_rf("/tmp/spec")
 {% else %}
   LOG_LEVEL = Logger::ERROR
 {% end %}
+
+Spec.override_default_formatter(
+  Spec::SpecReporterFormatter.new # indent_string: "    ",        # Indent string. Default "  "
+  # width: ENV["COLUMNS"].to_i-2, # Terminal width. Default 78
+  # ^-- You may need to run "eval `resize`" in term to get COLUMNS variable
+  # elapsed_width: 8,     # Number of decimals for "elapsed" time. Default 3
+  # status_width: 10,     # Width of the status field. Default 5
+  # trim_exceptions: false,     # Hide callstack from exceptions? Default true
+  # skip_errors_report: false,  # Skip default backtraces. Default true
+  # skip_slowest_report: false, # Skip default "slowest" report. Default true
+  # skip_failed_report: false,  # Skip default failed reports summary. Default true
+)
 
 module TestHelpers
   def wait_for
