@@ -8,7 +8,7 @@ describe AvalancheMQ::Shovel do
 
   it "can shovel and stop when queue length is met" do
     s = amqp_server
-    spawn { s.listen(5672) }
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -30,12 +30,13 @@ describe AvalancheMQ::Shovel do
       shovel.run
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
-    s.close
+  ensure
+    close(s)
   end
 
   it "can shovel large messages" do
     s = amqp_server
-    spawn { s.listen(5672) }
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -58,12 +59,13 @@ describe AvalancheMQ::Shovel do
       shovel.run
       q2.get(no_ack: true).to_s.bytesize.should eq 10_000
     end
-    s.close
+  ensure
+    close(s)
   end
 
   it "can shovel forever" do
     s = amqp_server
-    spawn { s.listen(5672) }
+    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -93,6 +95,7 @@ describe AvalancheMQ::Shovel do
       shovel.stop
       Fiber.yield
     end
-    s.close
+  ensure
+    close(s)
   end
 end

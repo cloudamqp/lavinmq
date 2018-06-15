@@ -44,8 +44,8 @@ module AvalancheMQ
 
     def stop
       @stopped = true
-      @sub.try &.close
       @pub.try &.close
+      @sub.try &.close
     end
 
     enum DeleteAfter
@@ -142,11 +142,7 @@ module AvalancheMQ
 
       def close
         @closed = true
-        @socket.write AMQP::Connection::Close.new(200_u16,
-          "shovel stopped",
-          0_u16, 0_u16).to_slice
-        # AMQP::Frame.decode(@socket).as(AMQP::Connection::CloseOk)
-        @socket.close
+        @socket.write AMQP::Connection::Close.new(200_u16, "shovel stopped", 0_u16, 0_u16).to_slice
       end
     end
 
@@ -177,14 +173,11 @@ module AvalancheMQ
           case frame
           when AMQP::Channel::Close
             @closed = true
-            @log.warn { "Server unexpectedly sent #{frame}" }
             @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
             @socket.write AMQP::Connection::Close.new(320_u16,
-              "shovel can't continue",
-              0_u16, 0_u16).to_slice
+              "Shovel can't continue", 0_u16, 0_u16).to_slice
           when AMQP::Connection::Close
             @closed = true
-            @log.warn { "Server unexpectedly closed the shovel connection #{frame}" }
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             @socket.close
             break
@@ -251,12 +244,10 @@ module AvalancheMQ
               end
             end
           when AMQP::Channel::Close
-            @log.warn "Server unexpectedly sent #{frame}"
             @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
             @socket.write AMQP::Connection::Close.new(320_u16,
               "Shovel can't continue", 0_u16, 0_u16).to_slice
           when AMQP::Connection::Close
-            @log.warn "Server unexpectedly closed the shovel connection #{frame}"
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             @socket.close
             break

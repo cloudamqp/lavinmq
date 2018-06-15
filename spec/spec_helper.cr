@@ -16,7 +16,7 @@ FileUtils.rm_rf("/tmp/spec")
 {% end %}
 
 Spec.override_default_formatter(
-  Spec::SpecReporterFormatter.new # indent_string: "    ",        # Indent string. Default "  "
+  # indent_string: "    ",        # Indent string. Default "  "
   # width: ENV["COLUMNS"].to_i-2, # Terminal width. Default 78
   # ^-- You may need to run "eval `resize`" in term to get COLUMNS variable
   # elapsed_width: 8,     # Number of decimals for "elapsed" time. Default 3
@@ -25,6 +25,7 @@ Spec.override_default_formatter(
   # skip_errors_report: false,  # Skip default backtraces. Default true
   # skip_slowest_report: false, # Skip default "slowest" report. Default true
   # skip_failed_report: false,  # Skip default failed reports summary. Default true
+  Spec::SpecReporterFormatter.new(width: 100)
 )
 
 module TestHelpers

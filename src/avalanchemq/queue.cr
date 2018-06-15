@@ -371,6 +371,7 @@ module AvalancheMQ
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
+      return if @closed
       @consumers.push consumer
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
