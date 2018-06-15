@@ -121,7 +121,7 @@
           const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
           avalanchemq.http.request('DELETE', url)
             .then(() => window.location.reload())
-            .catch(e => console.error.apply(console, e))
+            .catch(e => console.error(e))
         }
         const userLink = document.createElement('a')
         userLink.href = '/user?name=' + encodeURIComponent(item.user)
@@ -156,7 +156,7 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => window.location.reload())
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
 
       document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
@@ -164,7 +164,7 @@
         const url = '/api/vhosts/' + urlEncodedVhost
         avalanchemq.http.request('DELETE', url)
           .then(() => { window.location = '/vhosts' })
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
     </script>
   </body>

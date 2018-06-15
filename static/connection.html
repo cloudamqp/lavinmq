@@ -140,7 +140,7 @@
               infoEl.textContent = cp.information
             }
           }
-        }).catch(e => console.error.apply(console, e))
+        }).catch(e => console.error(e))
       }
       updateConnection(true)
       setInterval(updateConnection, 5000)
@@ -170,7 +170,7 @@
         })
         avalanchemq.http.request('DELETE', url, { headers })
           .then(() => { window.location = '/connections' })
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
     </script>
   </body>

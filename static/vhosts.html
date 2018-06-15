@@ -101,7 +101,7 @@
         const url = '/api/vhosts/' + name
         avalanchemq.http.request('PUT', url)
           .then(() => window.location.reload())
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
     </script>
   </body>

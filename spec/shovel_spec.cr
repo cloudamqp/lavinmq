@@ -2,6 +2,10 @@ require "./spec_helper"
 require "../src/avalanchemq/shovel"
 
 describe AvalancheMQ::Shovel do
+  log = Logger.new(STDOUT)
+  log.level = LOG_LEVEL
+  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+
   it "can shovel and stop when queue length is met" do
     s = amqp_server
     spawn { s.listen(5672) }
@@ -13,7 +17,7 @@ describe AvalancheMQ::Shovel do
       q2 = ch.queue("q2")
       pmsg = AMQP::Message.new("shovel me")
       x.publish pmsg, "q1"
-
+      puts "published"
       source = AvalancheMQ::Shovel::Source.new(
         "amqp://guest:guest@localhost",
         "q1",
@@ -23,7 +27,8 @@ describe AvalancheMQ::Shovel do
         "amqp://guest:guest@localhost",
         "q2"
       )
-      shovel = AvalancheMQ::Shovel.new(source, dest)
+      shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+      puts "shovel created"
       shovel.run
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
@@ -51,7 +56,7 @@ describe AvalancheMQ::Shovel do
         "amqp://guest:guest@localhost",
         "q2"
       )
-      shovel = AvalancheMQ::Shovel.new(source, dest)
+      shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
       shovel.run
       q2.get(no_ack: true).to_s.bytesize.should eq 10_000
     end
@@ -76,7 +81,7 @@ describe AvalancheMQ::Shovel do
         "amqp://guest:guest@localhost",
         "q2"
       )
-      shovel = AvalancheMQ::Shovel.new(source, dest)
+      shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
       spawn { shovel.run }
       Fiber.yield
       pmsg = AMQP::Message.new("shovel me")

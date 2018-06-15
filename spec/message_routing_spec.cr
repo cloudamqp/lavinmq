@@ -71,7 +71,7 @@ end
 
 describe AvalancheMQ::HeadersExchange do
   log = Logger.new(STDOUT)
-  # log.level = Logger::DEBUG
+  log.level = LOG_LEVEL
   vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
   x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
   hdrs_all = {

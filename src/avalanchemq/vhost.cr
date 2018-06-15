@@ -14,12 +14,13 @@ module AvalancheMQ
       include AMQP::IO
     end
 
-    getter name, exchanges, queues, log, data_dir, policies, parameters
+    getter name, exchanges, queues, log, data_dir, policies, parameters, log
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
     @wfile : MessageFile
     @log : Logger
+    @shovels : ShovelStore?
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger)
       @log = server_log.dup
@@ -32,9 +33,9 @@ module AvalancheMQ
       Dir.mkdir_p @data_dir
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
-      @shovels = ShovelStore.new
       @segment = last_segment
       @wfile = open_wfile
+      @shovels = ShovelStore.new(self)
       load!
       compact!
       spawn save!, name: "VHost#save!"
@@ -233,29 +234,25 @@ module AvalancheMQ
 
     def add_parameter(p : Parameter)
       @parameters.create p
-      case p.component_name
-      when "shovel"
-        @shovels.create(p.parameter_name, p.value)
-      else
-        @log.warn("no action when creating parameter #{p.component_name}")
-      end
+      apply_parameters(p)
     end
 
     def delete_parameter(component_name, parameter_name)
       @parameters.delete({component_name, parameter_name})
       case component_name
       when "shovel"
-        @shovels.delete(parameter_name)
+        @shovels.not_nil!.delete(parameter_name)
       else
-        @log.warn("no action when deleting parameter #{component_name}")
+        @log.warn("No action when deleting parameter #{component_name}")
       end
     end
 
     def stop_shovels
-      @shovels.each &.stop
+      @shovels.not_nil!.each &.stop
     end
 
     def close
+      stop_shovels
       @queues.each_value &.close
       @save.close
     end
@@ -280,8 +277,21 @@ module AvalancheMQ
       end
     end
 
+    private def apply_parameters(parameter : Parameter? = nil)
+      @parameters.apply(parameter) do |p|
+        case p.component_name
+        when "shovel"
+          @shovels.not_nil!.create(p.parameter_name, p.value)
+        else
+          @log.warn("No action when applying parameter #{p.component_name}")
+        end
+      end
+    end
+
     private def load!
       load_definitions!
+      apply_policies
+      apply_parameters
     end
 
     private def load_definitions!

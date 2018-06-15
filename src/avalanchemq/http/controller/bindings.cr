@@ -83,7 +83,7 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
-          props = params["props"]
+          props = URI.unescape(params["props"])
           binding = binding_for_props(context, e, q, props)
           e.binding_details(binding[0], q).to_json(context.response)
         end
@@ -100,7 +100,7 @@ module AvalancheMQ
           elsif !user.can_write?(vhost, q.name)
             access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
           end
-          props = params["props"]
+          props = URI.unescape(params["props"])
           e.unbind_prop(q, props)
           context.response.status_code = 204
         end
@@ -146,7 +146,7 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
-          props = params["props"]
+          props = URI.unescape(params["props"])
           binding = binding_for_props(context, source, destination, props)
           source.binding_details(binding[0], destination).to_json(context.response)
         end
@@ -163,7 +163,7 @@ module AvalancheMQ
           elsif !user.can_write?(vhost, destination.name)
             access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
           end
-          props = params["props"]
+          props = URI.unescape(params["props"])
           source.unbind_prop(destination, props)
           context.response.status_code = 204
         end

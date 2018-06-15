@@ -120,7 +120,7 @@
             document.getElementById('ch-mode').textContent = mode
             document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
           }
-        }).catch(e => console.error.apply(console, e))
+        }).catch(e => console.error(e))
       }
       updateChannel(true)
       setInterval(updateChannel, 5000)

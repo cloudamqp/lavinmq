@@ -1,6 +1,7 @@
 require "uri"
 require "socket"
 require "openssl"
+require "logger"
 require "./amqp"
 
 module AvalancheMQ
@@ -8,14 +9,18 @@ module AvalancheMQ
     @pub : Publisher?
     @sub : Consumer?
     @stopped = false
+    @log : Logger
 
-    def initialize(@source : Source, @destination : Destination)
+    def initialize(@source : Source, @destination : Destination, @name : String, @vhost : VHost)
+      @log = @vhost.log.dup
+      @log.progname += " shovel=#{@name}"
     end
 
     def run
       loop do
-        pub = Publisher.new(@destination)
-        sub = Consumer.new(@source)
+        break if @stopped
+        pub = Publisher.new(@destination, @log)
+        sub = Consumer.new(@source, @log)
         sub.on_basic_deliver do |d|
           pub.send_basic_publish(d)
         end
@@ -32,7 +37,7 @@ module AvalancheMQ
         break
       rescue ex
         break if @stopped
-        puts "Shovel failure: #{ex.inspect}"
+        @log.warn "Shovel failure: #{ex.inspect}"
         sleep 3
       end
     end
@@ -49,11 +54,11 @@ module AvalancheMQ
     end
 
     struct Source
-      getter uri, queue, exchange, exchange_key, delete_after
+      getter uri, queue, exchange, exchange_key, delete_after, prefetch
 
       def initialize(raw_uri : String, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DeleteAfter::Never)
+                     @delete_after = DeleteAfter::Never, @prefetch = 1000_u16)
         @uri = URI.parse(raw_uri)
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
@@ -79,7 +84,9 @@ module AvalancheMQ
 
     class Connection
       @socket : TCPSocket | OpenSSL::SSL::Socket::Client
-      def initialize(@uri : URI)
+      @closed = false
+
+      def initialize(@uri : URI, @log : Logger)
         host = @uri.host || "localhost"
         tls = @uri.scheme == "amqps"
         socket = TCPSocket.new(host, @uri.port || tls ? 5671 : 5672)
@@ -93,8 +100,7 @@ module AvalancheMQ
         socket.recv_buffer_size = 131072
         @socket =
           if tls
-            OpenSSL::SSL::Socket::Client.new(socket, sync_close: true,
-                                             hostname: host)
+            OpenSSL::SSL::Socket::Client.new(socket, sync_close: true, hostname: host)
           else
             socket
           end
@@ -107,17 +113,26 @@ module AvalancheMQ
         start = AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
 
         props = {} of String => AMQP::Field
-        response = "\u0000#{@uri.user}\u0000#{@uri.password}"
+        user = URI.unescape(@uri.user || "guest")
+        password = URI.unescape(@uri.password || "guest")
+        response = "\u0000#{user}\u0000#{password}"
         start_ok = AMQP::Connection::StartOk.new(props, "PLAIN", response, "")
         @socket.write start_ok.to_slice
         tune = AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
         @socket.write AMQP::Connection::TuneOk.new(channel_max: 1_u16,
-                                                   frame_max: 4096_u32,
-                                                   heartbeat: 0_u16).to_slice
+          frame_max: 4096_u32,
+          heartbeat: 0_u16).to_slice
         path = @uri.path || ""
-        vhost = path.size > 1 ? path[1..-1] : "/"
+        vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
         @socket.write AMQP::Connection::Open.new(vhost).to_slice
-        AMQP::Frame.decode(@socket).as(AMQP::Connection::OpenOk)
+        frame = AMQP::Frame.decode(@socket)
+        case frame
+        when AMQP::Connection::Close
+          @socket.write AMQP::Connection::CloseOk.new.to_slice
+          @socket.close
+        else
+          frame.as(AMQP::Connection::OpenOk)
+        end
       end
 
       def open_channel
@@ -126,17 +141,18 @@ module AvalancheMQ
       end
 
       def close
+        @closed = true
         @socket.write AMQP::Connection::Close.new(200_u16,
-                                                  "shovel stopped",
-                                                  0_u16, 0_u16).to_slice
-        #AMQP::Frame.decode(@socket).as(AMQP::Connection::CloseOk)
+          "shovel stopped",
+          0_u16, 0_u16).to_slice
+        # AMQP::Frame.decode(@socket).as(AMQP::Connection::CloseOk)
         @socket.close
       end
     end
 
     class Publisher < Connection
-      def initialize(@destination : Destination)
-        super(@destination.uri)
+      def initialize(@destination : Destination, @log : Logger)
+        super(@destination.uri, @log)
       end
 
       def send_basic_publish(frame)
@@ -144,7 +160,7 @@ module AvalancheMQ
         exchange = @destination.exchange.not_nil!
         routing_key = @destination.exchange_key || frame.routing_key
         @socket.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
-                                               false, false).to_slice
+          false, false).to_slice
       end
 
       def send_header_frame(frame)
@@ -183,8 +199,8 @@ module AvalancheMQ
     end
 
     class Consumer < Connection
-      def initialize(@source : Source)
-        super(@source.uri)
+      def initialize(@source : Source, @log : Logger)
+        super(@source.uri, @log)
         set_prefetch
       end
 
@@ -203,14 +219,15 @@ module AvalancheMQ
       def consume_loop
         queue, message_count = declare_queue
         consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
-                                           false, false, false, true,
-                                           {} of String => AMQP::Field)
+          false, false, false, true,
+          {} of String => AMQP::Field)
         @socket.write consume.to_slice
         message_counter = 0_u32
         body_size = 0_u64
         body_bytes = 0_u64
         delivery_tag = 0_u64
         loop do
+          break if @closed
           frame = AMQP::Frame.decode(@socket)
           case frame
           when AMQP::Basic::Deliver
@@ -229,20 +246,18 @@ module AvalancheMQ
 
               message_counter += 1
               if @source.delete_after == DeleteAfter::QueueLength &&
-                  message_count <= message_counter
+                 message_count <= message_counter
                 @socket.write AMQP::Connection::Close.new(200_u16,
-                                                          "shovel done",
-                                                          0_u16, 0_u16).to_slice
+                  "Shovel done", 0_u16, 0_u16).to_slice
               end
             end
           when AMQP::Channel::Close
-            puts "Server unexpectedly sent #{frame}"
+            @log.warn "Server unexpectedly sent #{frame}"
             @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
             @socket.write AMQP::Connection::Close.new(320_u16,
-                                                      "shovel can't continue",
-                                                      0_u16, 0_u16).to_slice
+              "Shovel can't continue", 0_u16, 0_u16).to_slice
           when AMQP::Connection::Close
-            puts "Server unexpectedly closed the shovel connection #{frame}"
+            @log.warn "Server unexpectedly closed the shovel connection #{frame}"
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             @socket.close
             break
@@ -253,27 +268,29 @@ module AvalancheMQ
             raise "Unexpected frame #{frame}"
           end
         end
+      rescue ex : Errno | IO::Error | AMQP::FrameDecodeError
+        @log.error { ex.inspect }
       end
 
       def set_prefetch
-        @socket.write AMQP::Basic::Qos.new(1_u16, 0_u32, 1000_u16, false).to_slice
+        @socket.write AMQP::Basic::Qos.new(1_u16, 0_u32, @source.prefetch, false).to_slice
         AMQP::Frame.decode(@socket).as(AMQP::Basic::QosOk)
       end
 
       def declare_queue
         queue_name = @source.queue || ""
         @socket.write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
-                                               false, true, true, false,
-                                               {} of String => AMQP::Field).to_slice
+          false, true, true, false,
+          {} of String => AMQP::Field).to_slice
         declare_ok = AMQP::Frame.decode(@socket).as(AMQP::Queue::DeclareOk)
         if @source.exchange
           @socket.write AMQP::Queue::Bind.new(1_u16, 0_u16, declare_ok.queue_name,
-                                              @source.exchange.not_nil!,
-                                              @source.exchange_key || "",
-                                              true,
-                                              {} of String => AMQP::Field).to_slice
+            @source.exchange.not_nil!,
+            @source.exchange_key || "",
+            true,
+            {} of String => AMQP::Field).to_slice
         end
-        { declare_ok.queue_name, declare_ok.message_count }
+        {declare_ok.queue_name, declare_ok.message_count}
       end
 
       def ack(delivery_tag)

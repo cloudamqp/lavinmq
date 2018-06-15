@@ -97,7 +97,7 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => window.location.reload())
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
 
       document.querySelector('#tags').onclick = e => {

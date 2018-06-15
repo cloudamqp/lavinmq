@@ -11,7 +11,7 @@ module AvalancheMQ
     end
 
     def each
-      @parameters.values.each { |e| yield e }
+      @parameters.values.compact.each { |e| yield e }
     end
 
     def [](id)
@@ -48,6 +48,14 @@ module AvalancheMQ
       if parameter = @parameters.delete id
         save!
         parameter
+      end
+    end
+
+    def apply(parameter : Parameter? = nil)
+      if parameter.nil?
+        each { |p| yield p }
+      else
+        yield parameter
       end
     end
 

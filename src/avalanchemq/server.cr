@@ -18,7 +18,7 @@ module AvalancheMQ
 
     @direct_reply_channels = Hash(String, Client::Channel).new
     @running = false
-    @config = { "heartbeat" => 60_u16 } of String => ConfigValue
+    @config = {"heartbeat" => 60_u16} of String => ConfigValue
 
     def initialize(@data_dir : String, log_level, log_prefix_systemd_level = false, config = Hash(String, ConfigValue).new)
       @log = Logger.new(STDOUT)
@@ -28,8 +28,8 @@ module AvalancheMQ
         if log_prefix_systemd_level
           io << case severity
           when Logger::Severity::DEBUG then "<7>"
-          when Logger::Severity::INFO then "<6>"
-          when Logger::Severity::WARN then "<4>"
+          when Logger::Severity::INFO  then "<6>"
+          when Logger::Severity::WARN  then "<4>"
           when Logger::Severity::ERROR then "<3>"
           when Logger::Severity::FATAL then "<0>"
           else
@@ -44,6 +44,7 @@ module AvalancheMQ
       @vhosts = VHostStore.new(@data_dir, @log)
       @users = UserStore.new(@data_dir, @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      apply_parameter
       @config.merge!(config)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
@@ -110,12 +111,12 @@ module AvalancheMQ
 
     def add_parameter(p : Parameter)
       @parameters.create p
-      @log.warn("no action when creating parameter #{p.component_name}")
+      apply_parameter(p)
     end
 
     def delete_parameter(component_name, parameter_name)
-      @parameters.delete({ component_name, parameter_name })
-      @log.warn("no action when deleting parameter #{component_name}")
+      @parameters.delete({component_name, parameter_name})
+      @log.warn("No action when deleting parameter #{component_name}")
     end
 
     def listeners
@@ -123,13 +124,19 @@ module AvalancheMQ
         addr = l.local_address
         {
           "ip_address": addr.address,
-          "port": addr.port
+          "port":       addr.port,
         }
       end
     end
 
     def stop_shovels
       @vhosts.each { |v| v.stop_shovels }
+    end
+
+    private def apply_parameter(parameter : Parameter? = nil)
+      @parameters.apply(parameter) do |p|
+        @log.warn("No action when applying parameter #{p.component_name}")
+      end
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
@@ -140,12 +147,12 @@ module AvalancheMQ
       socket.tcp_nodelay = true
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
-      #socket.send_buffer_size = 65536
+      # socket.send_buffer_size = 65536
       client = Client.start(socket, ssl_client, self, @vhosts, @users, @log)
       if client
-        @connection_events.send({ client, :connected })
+        @connection_events.send({client, :connected})
         client.on_close do |c|
-          @connection_events.send({ c, :disconnected })
+          @connection_events.send({c, :disconnected})
         end
       else
         ssl_client.close if ssl_client

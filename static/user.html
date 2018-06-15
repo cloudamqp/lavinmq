@@ -122,7 +122,7 @@
           document.getElementById('tags').textContent = item.tags
           document.getElementById('hasPassword').textContent = hasPassword
         })
-        .catch(e => console.error.apply(console, e))
+        .catch(e => console.error(e))
 
       const permissionsUrl = '/api/users/' + urlEncodedUsername + '/permissions'
       const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
@@ -135,7 +135,7 @@
           const url = '/api/permissions/' + vhost + '/' + username
           avalanchemq.http.request('DELETE', url)
             .then(() => window.location.reload())
-            .catch(e => console.error.apply(console, e))
+            .catch(e => console.error(e))
         }
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.configure)
@@ -168,7 +168,7 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => window.location.reload())
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
 
       document.querySelector('#updateUser').addEventListener('submit', function (evt) {
@@ -181,7 +181,7 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => window.location.reload())
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
 
       document.querySelector('#dataTags').onclick = e => {
@@ -193,7 +193,7 @@
         const url = '/api/users/' + urlEncodedUsername
         avalanchemq.http.request('DELETE', url)
           .then(() => { window.location = '/users' })
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
     </script>
   </body>

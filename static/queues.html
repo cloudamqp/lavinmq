@@ -122,7 +122,7 @@
           auto_delete: data.get('auto_delete') === '1'
         }
         avalanchemq.http.request('PUT', url, { body })
-          .catch(e => console.error.apply(console, e))
+          .catch(e => console.error(e))
       })
     </script>
   </body>

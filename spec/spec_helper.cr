@@ -27,7 +27,7 @@ module TestHelpers
   end
 
   def test_headers(headers = nil)
-    req_hdrs = HTTP::Headers{"Content-Type" => "application/json",
+    req_hdrs = HTTP::Headers{"Content-Type"  => "application/json",
                              "Authorization" => "Basic Z3Vlc3Q6Z3Vlc3Q="} # guest:guest
     req_hdrs.merge!(headers) if headers
     req_hdrs
@@ -36,7 +36,7 @@ module TestHelpers
   def create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     s = AvalancheMQ::Server.new(dir, level)
     h = AvalancheMQ::HTTPServer.new(s, 8080)
-    { s, h }
+    {s, h}
   end
 
   def amqp_server(dir = "/tmp/spec", level = LOG_LEVEL)
@@ -77,4 +77,5 @@ module TestHelpers
     HTTP::Client.delete(url, headers: test_headers(headers), body: body)
   end
 end
+
 extend TestHelpers
