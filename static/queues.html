@@ -95,7 +95,13 @@
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, queueLink)
         avalanchemq.table.renderCell(tr, 2, features)
-        avalanchemq.table.renderCell(tr, 3, item.policy || '')
+        let policyLink = ''
+        if (item.policy) {
+          policyLink = document.createElement('a')
+          policyLink.href = '/policy?name=' + encodeURIComponent(item.policy)
+          policyLink.textContent = item.policy
+        }
+        avalanchemq.table.renderCell(tr, 3, policyLink)
         avalanchemq.table.renderCell(tr, 4, item.consumers)
         avalanchemq.table.renderCell(tr, 5, item.state)
         avalanchemq.table.renderCell(tr, 6, item.ready)

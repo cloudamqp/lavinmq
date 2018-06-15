@@ -35,10 +35,11 @@
       <table id="table" class="table">
         <thead>
           <tr>
+            <th data-sort-key="vhost">Virtual host</th>
             <th data-sort-key="name">Name</th>
-            <th data-sort-key="vhost">VHost</th>
-            <th>Features</th>
             <th data-sort-key="type">Type</th>
+            <th>Features</th>
+            <th data-sort-key="policy">Policy</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -104,10 +105,20 @@
         features += item.durable ? ' D' : ''
         features += item.auto_delete ? ' AD' : ''
         features += item.internal ? ' I' : ''
-        avalanchemq.table.renderCell(tr, 0, item.name)
-        avalanchemq.table.renderCell(tr, 1, item.vhost)
-        avalanchemq.table.renderCell(tr, 2, features)
-        avalanchemq.table.renderCell(tr, 3, item.type)
+        const exchangeLink = document.createElement('a')
+        exchangeLink.href = '/exchange?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
+        exchangeLink.textContent = item.name
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, exchangeLink)
+        avalanchemq.table.renderCell(tr, 2, item.type)
+        avalanchemq.table.renderCell(tr, 3, features)
+        let policyLink = ''
+        if (item.policy) {
+          policyLink = document.createElement('a')
+          policyLink.href = '/policy?name=' + encodeURIComponent(item.policy)
+          policyLink.textContent = item.policy
+        }
+        avalanchemq.table.renderCell(tr, 4, policyLink)
       })
 
       document.querySelector('#addExchange').addEventListener('submit', function (evt) {
@@ -115,11 +126,12 @@
         const data = new FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
         const exchange = encodeURIComponent(data.get('name'))
-        const url = '/api/queues/' + vhost + '/' + exchange
+        const url = '/api/exchanges/' + vhost + '/' + exchange
         const body = {
           durable: data.get('durable') === '1',
           auto_delete: data.get('auto_delete') === '1',
           internal: data.get('internal') === '1',
+          type: data.get('type'),
           arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
         }
         avalanchemq.http.request('PUT', url, { body })

@@ -38,7 +38,7 @@ module AvalancheMQ
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        policy: @policy,
+        policy: @policy.try &.name, effective_policy_definition: @policy,
       }.to_json(builder)
     end
 

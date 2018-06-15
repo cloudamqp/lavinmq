@@ -61,7 +61,7 @@
         updateTable(response)
       }).catch(function (e) {
         tableError.textContent = 'Error fetching data'
-        console.error(e.message)
+        console.error(e)
       })
     }
 
