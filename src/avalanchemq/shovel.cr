@@ -177,14 +177,14 @@ module AvalancheMQ
           case frame
           when AMQP::Channel::Close
             @closed = true
-            puts "Server unexpectedly sent #{frame}"
+            @log.warn { "Server unexpectedly sent #{frame}" }
             @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
             @socket.write AMQP::Connection::Close.new(320_u16,
-                                                      "shovel can't continue",
-                                                      0_u16, 0_u16).to_slice
+              "shovel can't continue",
+              0_u16, 0_u16).to_slice
           when AMQP::Connection::Close
             @closed = true
-            puts "Server unexpectedly closed the shovel connection #{frame}"
+            @log.warn { "Server unexpectedly closed the shovel connection #{frame}" }
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             @socket.close
             break
@@ -227,7 +227,6 @@ module AvalancheMQ
         body_bytes = 0_u64
         delivery_tag = 0_u64
         loop do
-          break if @closed
           frame = AMQP::Frame.decode(@socket)
           case frame
           when AMQP::Basic::Deliver

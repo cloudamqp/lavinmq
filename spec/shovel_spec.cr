@@ -17,7 +17,6 @@ describe AvalancheMQ::Shovel do
       q2 = ch.queue("q2")
       pmsg = AMQP::Message.new("shovel me")
       x.publish pmsg, "q1"
-      puts "published"
       source = AvalancheMQ::Shovel::Source.new(
         "amqp://guest:guest@localhost",
         "q1",
@@ -28,7 +27,6 @@ describe AvalancheMQ::Shovel do
         "q2"
       )
       shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-      puts "shovel created"
       shovel.run
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
