@@ -5,7 +5,7 @@ require "../resource_helper"
 module AvalancheMQ
   module QueueHelpers
     private def queue(context, params, vhost, key = "name")
-      name = params[key]
+      name = URI.unescape(params[key])
       q = @amqp_server.vhosts[vhost].queues[name]?
       not_found(context, "Queue #{name} does not exist") unless q
       q

@@ -3,7 +3,7 @@ require "../controller"
 module AvalancheMQ
   module UserHelpers
     private def user(context, params, key = "name")
-      name = params[key]
+      name = URI.unescape(params[key])
       u = @amqp_server.users[name]?
       not_found(context, "User #{name} does not exist") unless u
       u
