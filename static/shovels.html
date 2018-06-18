@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Shovels | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>
+          AvalancheMQ
+          <small id="version"></small>
+        </h1>
+        <div id="user-info">
+          <span>👤:&nbsp;</span>
+          <span id="username"></span>
+          <span id="vhost"></span>
+        </div>
+      </header>
+      <ul id="menu">
+        <li><a href="/">Overview</a></li>
+        <li><a href="/connections">Connections</a></li>
+        <li><a href="/channels">Channels</a></li>
+        <li><a href="/queues">Queues</a></li>
+        <li><a href="/exchanges">Exchanges</a></li>
+        <li><a href="/users">Users</a></li>
+        <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
+      </ul>
+      <div id="table-error"></div>
+      <h2>
+        Virtual Hosts
+        <small id="table-count"></small>
+      </h2>
+      <table id="table" class="table">
+        <thead>
+          <tr>
+            <td>Virtual host</td>
+            <td data-sort-key="name">Name</td>
+            <td colspan="3">Source</td>
+            <td colspan="2">Destination</td>
+            <td>Delete after</td>
+          </tr>
+          <tr>
+            <th></th>
+            <th></th>
+            <th>Uri</th>
+            <th>Endpoint</th>
+            <th>Prefetch</th>
+            <th>Uri</th>
+            <th>Endpoint</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <form method="put" id="createShovel">
+        <fieldset>
+          <legend>Add a new shovel</legend>
+          <label>
+            Virtual host
+            <select name="vhost" required></select>
+          </label>
+          <label>
+            Name
+            <input type="text" name="name" required>
+          </label>
+          <fieldset>
+            <legend>Source</legend>
+            <label>
+              URI
+              <input type="text" name="src-uri" required value="amqp://">
+            </label>
+            <label>
+              Type
+              <select name="src-type" required>
+                <option value="queue">Queue</option>
+                <option value="exchange">Exchange</option>
+              </select>
+            </label>
+            <label>
+              Endpoint
+              <input type="text" name="src-endpoint" required>
+            </label>
+            <label id="srcRoutingKey" class="hide">
+              Routing key
+              <input type="text" name="src-exchange-key">
+            </label>
+            <label>
+              Prefetch
+              <input type="number" name="src-prefetch-count" value="1000">
+            </label>
+            <label>
+              Auto delete
+              <select name="src-delete-after" required>
+                <option value="never">Never</option>
+                <option value="queue-length">Queue Length</option>
+              </select>
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Destination</legend>
+            <label>
+              URI
+              <input type="text" name="dest-uri" required value="amqp://">
+            </label>
+            <label>
+              Type
+              <select name="dest-type" required>
+                <option value="queue">Queue</option>
+                <option value="exchange">Exchange</option>
+              </select>
+            </label>
+            <label>
+              Endpoint
+              <input type="text" name="dest-endpoint" required>
+            </label>
+          </fieldset>
+          <button type="submit">Add shovel</button>
+        </fieldset>
+      </form>
+    </div>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/vhosts.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      avalanchemq.vhosts.addVhostOptions('createShovel')
+
+      const tableOptions = { url: '/api/parameters/shovel', sortBy: ['name'], interval: 5000 }
+      const shovelsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+        const urlEncodedShovel = encodeURIComponent(item.name)
+        const shovelLink = document.createElement('a')
+        shovelLink.href = '/vhost?name=' + urlEncodedShovel
+        shovelLink.textContent = item.name
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, shovelLink)
+        avalanchemq.table.renderCell(tr, 2, item.value['src-uri'])
+        let srcEndpoint = ''
+        let srcEndpointType = ''
+        if (item.value['src-queue']) {
+          srcEndpoint = item.value['src-queue']
+          srcEndpointType = 'queue'
+        } else {
+          srcEndpoint = item.value['src-exchange']
+          srcEndpointType = 'exchange'
+        }
+        avalanchemq.table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
+        avalanchemq.table.renderCell(tr, 4, item.value['src-prefetch-count'])
+        avalanchemq.table.renderCell(tr, 5, item.value['dest-uri'])
+        let destEndpoint = ''
+        let destEndpointType = ''
+        if (item.value['dest-queue']) {
+          destEndpoint = item.value['dest-queue']
+          destEndpointType = 'queue'
+        } else {
+          destEndpoint = item.value['dest-exchange']
+          destEndpointType = 'exchange'
+        }
+        avalanchemq.table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')
+        avalanchemq.table.renderCell(tr, 7, item.value['src-delete-after'])
+      })
+
+      document.querySelector('[name=src-type]').addEventListener('change', function () {
+        document.getElementById('srcRoutingKey').classList.toggle('hide', this.value === 'queue')
+      })
+
+      document.querySelector('#createShovel').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const name = encodeURIComponent(data.get('name'))
+        const vhost = encodeURIComponent(data.get('vhost'))
+        const url = '/api/parameters/shovel/' + vhost + '/' + name
+        const body = {
+          value: {
+            'src-uri': data.get('src-uri'),
+            'dest-uri': data.get('dest-uri'),
+            'src-prefetch-count': parseInt(data.get('src-prefetch-count')),
+            'src-delete-after': data.get('src-delete-after')
+          }
+        }
+        if (data.get('src-type') == 'queue') {
+          body.value['src-queue'] = data.get('src-endpoint')
+        } else {
+          body.value['src-exchange'] = data.get('src-endpoint')
+          body.value['src-exchange-key'] = data.get('src-exchange-key')
+        }
+        if (data.get('dest-type') == 'queue') {
+          body.value['dest-queue'] = data.get('dest-endpoint')
+        } else {
+          body.value['dest-exchange'] = data.get('dest-endpoint')
+        }
+        avalanchemq.http.request('PUT', url, { body })
+          .then(() => {
+            shovelsTable.updateTable()
+            evt.target.reset()
+          }).catch(e => console.error(e))
+      })
+    </script>
+  </body>
+</html>
