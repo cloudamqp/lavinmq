@@ -102,7 +102,7 @@
         const url = '/api/vhosts/' + name
         avalanchemq.http.request('PUT', url)
           .then(() => {
-            vhostTable.updateTable()
+            vhostTable.fetchAndUpdate()
             evt.target.reset()
           }).catch(e => console.error(e))
       })

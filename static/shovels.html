@@ -30,7 +30,7 @@
       </ul>
       <div id="table-error"></div>
       <h2>
-        Virtual Hosts
+        Shovels
         <small id="table-count"></small>
       </h2>
       <table id="table" class="table">
@@ -194,7 +194,7 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {
-            shovelsTable.updateTable()
+            shovelsTable.fetchAndUpdate()
             evt.target.reset()
           }).catch(e => console.error(e))
       })
