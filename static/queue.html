@@ -240,8 +240,8 @@
         const channelLink = document.createElement('a')
         channelLink.href = '/channel?name=' + encodeURIComponent(item.channel_details.name)
         channelLink.textContent = item.channel_details.name
-        const ack = item.ack_required ? '●' : ''
-        const exclusive = item.exclusive ? '●' : ''
+        const ack = item.ack_required ? '●' : '○'
+        const exclusive = item.exclusive ? '●' : '○'
         avalanchemq.table.renderCell(tr, 0, channelLink)
         avalanchemq.table.renderCell(tr, 1, item.consumer_tag)
         avalanchemq.table.renderCell(tr, 2, ack)

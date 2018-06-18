@@ -89,8 +89,8 @@
         const queueLink = document.createElement('a')
         queueLink.href = '/queue?name=' + encodeURIComponent(item.queue.name) + '&vhost=' + encodeURIComponent(vhost)
         queueLink.textContent = item.queue.name
-        const ack = item.ack_required ? '●' : ''
-        const exclusive = item.exclusive ? '●' : ''
+        const ack = item.ack_required ? '●' : '○'
+        const exclusive = item.exclusive ? '●' : '○'
         avalanchemq.table.renderCell(tr, 1, queueLink)
         avalanchemq.table.renderCell(tr, 2, ack)
         avalanchemq.table.renderCell(tr, 3, exclusive)
