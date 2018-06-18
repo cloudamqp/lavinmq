@@ -52,10 +52,16 @@ module AvalancheMQ
     end
 
     def apply(parameter : Parameter? = nil)
-      if parameter.nil?
-        each { |p| yield p }
-      else
-        yield parameter
+      itr = if parameter.nil?
+              @parameters.values.compact.each
+            else
+              [parameter].each
+            end
+      itr.each do |p|
+        yield p
+      rescue ex : Exception
+        @log.error { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
+        delete(p.name)
       end
     end
 

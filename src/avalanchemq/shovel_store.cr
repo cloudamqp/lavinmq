@@ -18,13 +18,13 @@ module AvalancheMQ
     end
 
     def create(name, config)
-      delete_after_str = config["delete-after"]?.try &.as_s.delete("-")
+      delete_after_str = config["src-delete-after"]?.try &.as_s.delete("-")
       delete_after = if delete_after_str
                        Shovel::DeleteAfter.parse(delete_after_str)
                      else
                        Shovel::DeleteAfter::Never
                      end
-      prefetch = config["prefetch"]?.try { |p| p.as_i.to_u16 } || 1000_u16
+      prefetch = config["src-prefetch-count"]?.try { |p| p.as_i.to_u16 } || 1000_u16
       src = Shovel::Source.new(config["src-uri"].as_s,
         config["src-queue"]?.try &.as_s?,
         config["src-exchange"]?.try &.as_s?,

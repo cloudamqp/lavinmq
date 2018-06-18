@@ -1,3 +1,5 @@
+require "http/server/handler"
+
 module AvalancheMQ
   class ApiErrorHandler
     include HTTP::Handler
@@ -13,17 +15,17 @@ module AvalancheMQ
       context.response.print ex.message
     rescue ex : HTTPServer::NotFoundError
       not_found(context, ex.message)
-    rescue ex : JSON::Error | HTTPServer::ExpectedBodyError
+    rescue ex : JSON::Error | HTTPServer::ExpectedBodyError | ArgumentError
       @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex.inspect}"
       context.response.status_code = 400
-      { error: "bad_request", reason: "#{ex.message}" }.to_json(context.response)
+      {error: "bad_request", reason: "#{ex.message}"}.to_json(context.response)
     rescue ex : Controller::HaltRequest
       @log.debug { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
       context.response.close
     rescue ex : Exception
       @log.error "method=#{context.request.method} path=#{context.request.path} status=500\n#{ex.inspect_with_backtrace}"
       context.response.status_code = 500
-      { error: "internal_server_error", reason: "Internal Server Error" }.to_json(context.response)
+      {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response)
     end
 
     def not_found(context, message = nil)
