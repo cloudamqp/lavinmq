@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <h2>
         Exchange:
@@ -152,7 +153,7 @@
       updateExchange()
 
       const tableOptions = { url: exchangeUrl + '/bindings/destination', sortBy: [], interval: 5000 }
-      avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
+      const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
         if (item.source === '') {
           const td = avalanchemq.table.renderCell(tr, 0, '(Default exchange binding)')
           td.setAttribute('colspan', 5)
@@ -164,7 +165,9 @@
             const p = encodeURIComponent(item.properties_key)
             const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/e/' + urlEncodedExchange + '/' + p
             avalanchemq.http.request('DELETE', url)
-              .then(() => console.log('binding removed'))
+              .then(() => {
+                avalanchemq.dom.removeNodes(tr)
+              })
               .catch(e => console.error(e))
           }
           avalanchemq.table.renderCell(tr, 0, item.destination_type)
@@ -187,7 +190,10 @@
           arguments: args
         }
         avalanchemq.http.request('POST', url, { body })
-          .then(() => console.log('binding added'))
+          .then(() => {
+            bindingsTable.fetchAndUpdate()
+            evt.target.reset()
+          })
           .catch(e => console.error(e))
       })
 

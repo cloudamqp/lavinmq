@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <h2>
         Virtual host:
@@ -96,6 +97,7 @@
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/dom.js"></script>
     <script src="/js/overview.js"></script>
     <script src="/js/users.js"></script>
     <script src="/js/table.js"></script>
@@ -114,13 +116,13 @@
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
       const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
-      avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+      const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
         btn.innerHTML = 'Clear'
         btn.onclick = function () {
           const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
           avalanchemq.http.request('DELETE', url)
-            .then(() => window.location.reload())
+            .then(() => { avalanchemq.dom.removeNodes(tr) })
             .catch(e => console.error(e))
         }
         const userLink = document.createElement('a')
@@ -155,7 +157,10 @@
           read: data.get('read')
         }
         avalanchemq.http.request('PUT', url, { body })
-          .then(() => window.location.reload())
+          .then(() => {
+            permissionsTable.fetchAndUpdate()
+            evt.target.reset()
+          })
           .catch(e => console.error(e))
       })
 

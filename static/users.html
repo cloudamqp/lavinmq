@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <div id="table-error"></div>
       <h2>
@@ -70,9 +71,10 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      let usersTable = null
       avalanchemq.http.request('GET', '/api/permissions').then(permissions => {
         const tableOptions = { url: '/api/users', sortBy: ['name'], interval: 0 }
-        avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+        usersTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
           const hasPassword = item.password_hash.length ? '●' : ''
           const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
           const userLink = document.createElement('a')
@@ -96,7 +98,10 @@
           tags: data.get('tags')
         }
         avalanchemq.http.request('PUT', url, { body })
-          .then(() => window.location.reload())
+          .then(() => {
+            usersTable.fetchAndUpdate()
+            evt.target.reset()
+          })
           .catch(e => console.error(e))
       })
 

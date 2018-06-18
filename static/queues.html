@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <div id="table-error"></div>
       <h2>
@@ -84,7 +85,7 @@
       avalanchemq.vhosts.addVhostOptions('declare')
 
       const tableOptions = { url: '/api/queues', sortBy: ['vhost', 'name'], interval: 5000 }
-      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
+      const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let features = ''
         features += item.durable ? ' D' : ''
         features += item.auto_delete ? ' AD' : ''
@@ -121,7 +122,10 @@
           arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
         }
         avalanchemq.http.request('PUT', url, { body })
-          .catch(e => console.error(e))
+          .then(() => {
+            queuesTable.fetchAndUpdate()
+            evt.target.reset()
+          }).catch(e => console.error(e))
       })
     </script>
   </body>

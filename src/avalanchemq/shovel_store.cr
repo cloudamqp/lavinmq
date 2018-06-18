@@ -25,6 +25,7 @@ module AvalancheMQ
                        Shovel::DeleteAfter::Never
                      end
       prefetch = config["prefetch"]?.try { |p| p.as_i.to_u16 } || 1000_u16
+      ack_mode
       src = Shovel::Source.new(config["src-uri"].as_s,
         config["src-queue"]?.try &.as_s?,
         config["src-exchange"]?.try &.as_s?,

@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <h2>
         User:
@@ -107,6 +108,7 @@
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/overview.js"></script>
+    <script src="/js/dom.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
@@ -115,18 +117,21 @@
       document.title = user + ' | AvalancheMQ'
       document.querySelector('#user').textContent = user
 
-      const userUrl = '/api/users/' + urlEncodedUsername
-      avalanchemq.http.request('GET', userUrl)
-        .then(item => {
-          const hasPassword = item.password_hash.length ? '●' : ''
-          document.getElementById('tags').textContent = item.tags
-          document.getElementById('hasPassword').textContent = hasPassword
-        })
-        .catch(e => console.error(e))
+      function updateUser () {
+        const userUrl = '/api/users/' + urlEncodedUsername
+        avalanchemq.http.request('GET', userUrl)
+          .then(item => {
+            const hasPassword = item.password_hash.length ? '●' : ''
+            document.getElementById('tags').textContent = item.tags
+            document.getElementById('hasPassword').textContent = hasPassword
+          })
+          .catch(e => console.error(e))
+      }
+      updateUser()
 
       const permissionsUrl = '/api/users/' + urlEncodedUsername + '/permissions'
       const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
-      avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+      const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
         btn.innerHTML = 'Clear'
         btn.onclick = function () {
@@ -134,8 +139,9 @@
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/permissions/' + vhost + '/' + username
           avalanchemq.http.request('DELETE', url)
-            .then(() => window.location.reload())
-            .catch(e => console.error(e))
+            .then(() => {
+              avalanchemq.dom.removeNodes(tr)
+            }).catch(e => console.error(e))
         }
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.configure)
@@ -157,8 +163,10 @@
           read: data.get('read')
         }
         avalanchemq.http.request('PUT', url, { body })
-          .then(() => window.location.reload())
-          .catch(e => console.error(e))
+          .then(() => {
+            permissionsTable.fetchAndUpdate()
+            evt.target.reset()
+          }).catch(e => console.error(e))
       })
 
       document.querySelector('#updateUser').addEventListener('submit', function (evt) {
@@ -170,7 +178,10 @@
           tags: data.get('tags')
         }
         avalanchemq.http.request('PUT', url, { body })
-          .then(() => window.location.reload())
+          .then(() => {
+            updateUser()
+            evt.target.reset()
+          })
           .catch(e => console.error(e))
       })
 

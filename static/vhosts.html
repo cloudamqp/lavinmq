@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <div id="table-error"></div>
       <h2>
@@ -65,7 +66,7 @@
     <script src="/js/table.js"></script>
     <script>
       const tableOptions = { url: '/api/vhosts', sortBy: ['name'], interval: 5000 }
-      avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+      const vhostTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
@@ -100,8 +101,10 @@
         const name = encodeURIComponent(data.get('name'))
         const url = '/api/vhosts/' + name
         avalanchemq.http.request('PUT', url)
-          .then(() => window.location.reload())
-          .catch(e => console.error(e))
+          .then(() => {
+            vhostTable.updateTable()
+            evt.target.reset()
+          }).catch(e => console.error(e))
       })
     </script>
   </body>

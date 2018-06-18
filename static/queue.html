@@ -26,6 +26,7 @@
         <li><a href="/exchanges">Exchanges</a></li>
         <li><a href="/users">Users</a></li>
         <li><a href="/vhosts">Virtual Hosts</a></li>
+        <li><a href="/shovels">Shovels</a></li>
       </ul>
       <h2>
         Queue:
@@ -279,7 +280,7 @@
       setInterval(updateQueue, 5000)
 
       const tableOptions = { url: queueUrl + '/bindings', sortBy: [], interval: 5000 }
-      avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
+      const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
         if (item.source === '') {
           const td = avalanchemq.table.renderCell(tr, 0, '(Default exchange binding)')
           td.setAttribute('colspan', 4)
@@ -312,8 +313,9 @@
           arguments: args
         }
         avalanchemq.http.request('POST', url, { body })
-          .then(() => console.log('binding added'))
-          .catch(e => console.error(e))
+          .then(() => {
+            bindingsTable.fetchAndUpdate()
+          }).catch(e => console.error(e))
       })
 
       document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -330,8 +332,9 @@
           properties
         }
         avalanchemq.http.request('POST', url, { body })
-          .then(() => console.log('message published'))
-          .catch(e => console.error(e))
+          .then(() => {
+            updateQueue(false)
+          }).catch(e => console.error(e))
       })
 
       document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -346,6 +349,7 @@
         }
         avalanchemq.http.request('POST', url, { body })
           .then(messages => {
+            updateQueue(false)
             const messagesContainer = document.getElementById('messages')
             avalanchemq.dom.removeChildren(messagesContainer)
             const template = document.getElementById('message-template')

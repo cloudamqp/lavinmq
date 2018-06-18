@@ -129,7 +129,7 @@
         tr.setAttribute('data-' + key, item[key])
       })
     }
-    return { updateTable }
+    return { updateTable, fetchAndUpdate }
   }
 
   function renderCell (tr, column, value) {
