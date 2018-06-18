@@ -4,7 +4,6 @@ require "./password"
 require "./regex_to_json"
 
 module AvalancheMQ
-
   enum Tag
     Administrator
     Monitoring
@@ -15,8 +14,10 @@ module AvalancheMQ
       to_s.downcase.to_json(json)
     end
   end
+
   class User
     getter name, password, permissions, hash_algorithm, tags
+    setter tags
 
     @name : String
     @hash_algorithm : String
@@ -40,11 +41,11 @@ module AvalancheMQ
             pull.read_object do |key|
               case key
               when "config" then config = Regex.from_json(pull)
-              when "read" then read = Regex.from_json(pull)
-              when "write" then write = Regex.from_json(pull)
+              when "read"   then read = Regex.from_json(pull)
+              when "write"  then write = Regex.from_json(pull)
               end
             end
-            @permissions[vhost] = { config: config, read: read, write: write }
+            @permissions[vhost] = {config: config, read: read, write: write}
           end
         when "tags"
           @tags = pull.read_string.split(",").map { |t| Tag.parse?(t) }.compact
@@ -56,52 +57,56 @@ module AvalancheMQ
       @password =
         case hash
         when /^\$2a\$/ then Crypto::Bcrypt::Password.new(hash)
-        when /^\$1\$/ then MD5Password.new(hash)
-        when /^\$5\$/ then SHA256Password.new(hash)
-        when /^\$6\$/ then SHA512Password.new(hash)
-        when /^$/ then nil
-        else raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
+        when /^\$1\$/  then MD5Password.new(hash)
+        when /^\$5\$/  then SHA256Password.new(hash)
+        when /^\$6\$/  then SHA512Password.new(hash)
+        when /^$/      then nil
+        else                raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
         end
       @hash_algorithm = hash_algorithm(hash)
     end
 
-    def self.create(name : String, password : String, hash_algo : String, tags : Array(Tag))
-      password =
-        case hash_algo
-        when "MD5" then MD5Password.create(password)
-        when "SHA256" then SHA256Password.create(password)
-        when "SHA512" then SHA512Password.create(password)
-        when "Bcrypt" then Crypto::Bcrypt::Password.create(password, cost: 4)
-        else raise UnknownHashAlgoritm.new(hash_algo)
-        end
-      self.new(name, password, tags)
+    def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))
+      pwd = hash_password(password, hash_algorithm)
+      self.new(name, pwd, tags)
+    end
+
+    def self.hash_password(password, hash_algorithm)
+      case hash_algorithm
+      when "MD5"    then MD5Password.create(password)
+      when "SHA256" then SHA256Password.create(password)
+      when "SHA512" then SHA512Password.create(password)
+      when "Bcrypt" then Crypto::Bcrypt::Password.create(password, cost: 4)
+      else               raise UnknownHashAlgoritm.new(hash_algorithm)
+      end
     end
 
     def initialize(@name, password_hash, @hash_algorithm, @tags)
-      update_password(password_hash, @hash_algorithm)
+      update_password_hash(password_hash, @hash_algorithm)
     end
 
     def initialize(@name, @password, @tags)
       @hash_algorithm = hash_algorithm(@password.to_s)
     end
 
-    def update_password(password_hash, hash_algorithm)
+    def update_password_hash(password_hash, hash_algorithm)
       if password_hash.empty?
         @password = nil
         return
       end
       @password =
         case hash_algorithm
-        when "MD5" then MD5Password.new(password_hash)
+        when "MD5"    then MD5Password.new(password_hash)
         when "SHA256" then SHA256Password.new(password_hash)
         when "SHA512" then SHA512Password.new(password_hash)
         when "Bcrypt" then Crypto::Bcrypt::Password.new(password_hash)
-        else raise UnknownHashAlgoritm.new(hash_algorithm)
+        else               raise UnknownHashAlgoritm.new(hash_algorithm)
         end
       @hash_algorithm = hash_algorithm
     end
 
-    def update_tags(@tags)
+    def update_password(password, @hash_algorithm = "Bcrypt")
+      @password = User.hash_password(password, hash_algorithm)
     end
 
     def to_json(json)
@@ -110,10 +115,10 @@ module AvalancheMQ
 
     def user_details
       {
-        name: @name,
-        password_hash: @password.to_s,
+        name:              @name,
+        password_hash:     @password.to_s,
         hashing_algorithm: @hash_algorithm,
-        tags: @tags.map { |t| t.to_s.downcase }.join(",")
+        tags:              @tags.map { |t| t.to_s.downcase }.join(","),
       }
     end
 
@@ -123,15 +128,16 @@ module AvalancheMQ
 
     def permissions_details(vhost, p)
       {
-        user: @name,
-        vhost: vhost,
+        user:      @name,
+        vhost:     vhost,
         configure: p[:config],
-        read: p[:read],
-        write: p[:write]
+        read:      p[:read],
+        write:     p[:write],
       }
     end
 
     @acl_write_cache = Hash({String, String}, Bool).new
+
     def can_write?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_write_cache.has_key? cache_key
@@ -142,6 +148,7 @@ module AvalancheMQ
     end
 
     @acl_read_cache = Hash({String, String}, Bool).new
+
     def can_read?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_read_cache.has_key? cache_key
@@ -152,6 +159,7 @@ module AvalancheMQ
     end
 
     @acl_config_cache = Hash({String, String}, Bool).new
+
     def can_config?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_config_cache.has_key? cache_key
@@ -174,11 +182,11 @@ module AvalancheMQ
     private def hash_algorithm(hash)
       case hash
       when /^\$2a\$/ then "Bcrypt"
-      when /^\$1\$/ then "MD5"
-      when /^\$5\$/ then "SHA256"
-      when /^\$6\$/ then "SHA512"
-      when /^$/ then ""
-      else raise UnknownHashAlgoritm.new
+      when /^\$1\$/  then "MD5"
+      when /^\$5\$/  then "SHA256"
+      when /^\$6\$/  then "SHA512"
+      when /^$/      then ""
+      else                raise UnknownHashAlgoritm.new
       end
     end
 

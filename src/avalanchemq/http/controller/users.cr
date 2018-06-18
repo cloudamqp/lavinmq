@@ -62,11 +62,13 @@ module AvalancheMQ
         hashing_alogrithm = body["hashing_alogrithm"]?.try &.as_s? || "SHA256"
         if u
           if password_hash
-            u.update_password(password_hash, hashing_alogrithm)
+            u.update_password_hash(password_hash, hashing_alogrithm)
+          elsif password
+            u.update_password(password)
           else
-            bad_request(context, "Field 'password_hash' is required when updating existing user")
+            bad_request(context, "Field  'password_hash' or 'password' is required when updating existing user")
           end
-          u.update_tags(tags) if body["tags"]?
+          u.tags = tags if body["tags"]?
         else
           if password_hash
             @amqp_server.users.add(name, password_hash, hashing_alogrithm, tags)
