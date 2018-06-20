@@ -28,6 +28,7 @@ describe AvalancheMQ::Shovel do
       )
       shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
       shovel.run
+      wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.should eq "shovel me"
       s.not_nil!.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
@@ -58,6 +59,7 @@ describe AvalancheMQ::Shovel do
       )
       shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
       shovel.run
+      wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.bytesize.should eq 10_000
     end
   ensure

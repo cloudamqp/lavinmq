@@ -38,7 +38,6 @@ module AvalancheMQ
       shovel = Shovel.new(src, dest, name, @vhost)
       @shovels[name] = shovel
       spawn(name: "Shovel '#{name}'") { shovel.run }
-      @vhost.log.info { "Shovel '#{name}' created" }
       shovel
     rescue KeyError
       raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
