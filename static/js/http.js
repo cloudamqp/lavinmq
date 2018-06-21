@@ -55,8 +55,8 @@
       .then(function (response) {
         if (response.status === 401) {
           redirectToLogin()
-        } else if (!(response.status >= 200 && response.status < 400)) {
-          // not ok
+        } else if (!response.ok) {
+          throw Error(response.statusText)
         }
         return response
       })

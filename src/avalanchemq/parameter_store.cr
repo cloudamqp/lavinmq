@@ -62,6 +62,7 @@ module AvalancheMQ
       rescue ex : Exception
         @log.error { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
         delete(p.name)
+        raise ex unless parameter.nil?
       end
     end
 

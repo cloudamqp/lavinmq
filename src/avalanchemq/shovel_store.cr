@@ -18,13 +18,12 @@ module AvalancheMQ
     end
 
     def create(name, config)
-      delete_after_str = config["src-delete-after"]?.try &.as_s.delete("-")
-      delete_after = if delete_after_str
-                       Shovel::DeleteAfter.parse(delete_after_str)
-                     else
-                       Shovel::DeleteAfter::Never
-                     end
-      prefetch = config["src-prefetch-count"]?.try { |p| p.as_i.to_u16 } || 1000_u16
+      delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
+      delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFUALT_DELETE_AFTER
+      ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
+      ack_mode = Shovel::AckMode.parse?(ack_mode_str) || Shovel::DEFAULT_ACK_MODE
+      reconnect_delay = config["reconnect-delay"]?.try &.as_i || Shovel::DEFUALT_RECONNECT_DELAY
+      prefetch = config["src-prefetch-count"]?.try { |p| p.as_i.to_u16 } || Shovel::DEFAULT_PREFETCH
       src = Shovel::Source.new(config["src-uri"].as_s,
         config["src-queue"]?.try &.as_s?,
         config["src-exchange"]?.try &.as_s?,
@@ -35,7 +34,7 @@ module AvalancheMQ
         config["dest-queue"]?.try &.as_s?,
         config["dest-exchange"]?.try &.as_s?,
         config["dest-exchange-key"]?.try &.as_s?)
-      shovel = Shovel.new(src, dest, name, @vhost)
+      shovel = Shovel.new(src, dest, name, @vhost, ack_mode, reconnect_delay)
       @shovels[name] = shovel
       spawn(name: "Shovel '#{name}'") { shovel.run }
       shovel

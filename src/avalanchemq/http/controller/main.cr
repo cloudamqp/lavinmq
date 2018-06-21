@@ -40,6 +40,21 @@ module AvalancheMQ
           {status: ok ? "ok" : "failed"}.to_json(context.response)
         end
       end
+
+      get "/api/shovels" do |context, params|
+        shovels = [] of Hash(String, String)
+        vhosts(user(context)).each do |vhost|
+          vhost.shovels.not_nil!.each do |shovel|
+            shovels << {
+              "name"  => shovel.name,
+              "vhost" => vhost.name,
+              "state" => shovel.state,
+            }
+          end
+        end
+        shovels.to_json(context.response)
+        context
+      end
     end
 
     private def nr_of_consumers

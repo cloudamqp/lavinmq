@@ -40,7 +40,11 @@
             <td data-sort-key="name">Name</td>
             <td colspan="3">Source</td>
             <td colspan="2">Destination</td>
+            <td>Reconnect delay</td>
+            <td>Ack mode</td>
             <td>Delete after</td>
+            <td>State</td>
+            <td></td>
           </tr>
           <tr>
             <th></th>
@@ -50,6 +54,10 @@
             <th>Prefetch</th>
             <th>Uri</th>
             <th>Endpoint</th>
+            <th></th>
+            <th></th>
+            <th></th>
+            <th></th>
             <th></th>
           </tr>
         </thead>
@@ -95,7 +103,7 @@
               Auto delete
               <select name="src-delete-after" required>
                 <option value="never">Never</option>
-                <option value="queue-length">Queue Length</option>
+                <option value="queue-length">Queue length</option>
               </select>
             </label>
           </fieldset>
@@ -117,26 +125,34 @@
               <input type="text" name="dest-endpoint" required>
             </label>
           </fieldset>
+          <label>
+            Reconnect delay
+            <input type="number" name="reconnect-delay" value="5">
+          </label>
+          <label>
+            Ack mode
+            <select name="ack-mode" required>
+              <option value="on-confirm" selected>On confirm</option>
+              <option value="on-publish">On publish</option>
+              <option value="no-ack">No ack</option>
+            </select>
+          </label>
           <button type="submit">Add shovel</button>
         </fieldset>
       </form>
     </div>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/dom.js"></script>
     <script src="/js/overview.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
       avalanchemq.vhosts.addVhostOptions('createShovel')
 
-      const tableOptions = { url: '/api/parameters/shovel', sortBy: ['name'], interval: 5000 }
-      const shovelsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
-        const urlEncodedShovel = encodeURIComponent(item.name)
-        const shovelLink = document.createElement('a')
-        shovelLink.href = '/vhost?name=' + urlEncodedShovel
-        shovelLink.textContent = item.name
+      const shovelsTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, shovelLink)
+        avalanchemq.table.renderCell(tr, 1, item.name)
         avalanchemq.table.renderCell(tr, 2, item.value['src-uri'])
         let srcEndpoint = ''
         let srcEndpointType = ''
@@ -160,8 +176,40 @@
           destEndpointType = 'exchange'
         }
         avalanchemq.table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')
-        avalanchemq.table.renderCell(tr, 7, item.value['src-delete-after'])
+        avalanchemq.table.renderCell(tr, 7, item.value['reconnect-delay'])
+        avalanchemq.table.renderCell(tr, 8, item.value['ack-mode'])
+        avalanchemq.table.renderCell(tr, 9, item.value['src-delete-after'])
+        avalanchemq.table.renderCell(tr, 10, item.state)
+        const btn = document.createElement('button')
+        btn.innerHTML = 'Delete'
+        btn.onclick = function () {
+          const name = encodeURIComponent(item.name)
+          const vhost = encodeURIComponent(item.vhost)
+          const url = '/api/parameters/shovel/' + vhost + '/' + name
+          avalanchemq.http.request('DELETE', url)
+            .then(() => {
+              avalanchemq.dom.removeNodes(tr)
+            }).catch(e => console.error(e))
+        }
+        avalanchemq.table.renderCell(tr, 11, btn)
       })
+
+      function updateShovelsTable() {
+        const p1 = avalanchemq.http.request('GET', '/api/parameters/shovel')
+        const p2 = avalanchemq.http.request('GET', '/api/shovels')
+
+        Promise.all([p1, p2]).then(values => {
+          const items = values[0]
+          const status = values[1]
+          const shovels = items.map(item => {
+            item.state = status.find(s => s.name == item.name && s.vhost == item.vhost).state
+            return item
+          })
+          shovelsTable.updateTable(shovels)
+        })
+      }
+      updateShovelsTable()
+      setInterval(updateShovelsTable, 5000)
 
       document.querySelector('[name=src-type]').addEventListener('change', function () {
         document.getElementById('srcRoutingKey').classList.toggle('hide', this.value === 'queue')
@@ -178,8 +226,9 @@
             'src-uri': data.get('src-uri'),
             'dest-uri': data.get('dest-uri'),
             'src-prefetch-count': parseInt(data.get('src-prefetch-count')),
-            'src-delete-after': data.get('src-delete-after')
-          }
+            'src-delete-after': data.get('src-delete-after'),
+            'reconnect-delay': parseInt(data.get('reconnect-delay')),
+            'ack-mode': data.get('ack-mode')          }
         }
         if (data.get('src-type') == 'queue') {
           body.value['src-queue'] = data.get('src-endpoint')
@@ -194,7 +243,7 @@
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {
-            shovelsTable.fetchAndUpdate()
+            updateShovelsTable()
             evt.target.reset()
           }).catch(e => console.error(e))
       })

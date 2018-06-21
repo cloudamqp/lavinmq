@@ -232,7 +232,13 @@ module AvalancheMQ
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
     end
 
+    SHOVEL = "shovel"
+
     def add_parameter(p : Parameter)
+      case p.component_name
+      when SHOVEL
+        p.value = Shovel.merge_defaults(p.value)
+      end
       @parameters.create p
       apply_parameters(p)
     end
@@ -240,10 +246,10 @@ module AvalancheMQ
     def delete_parameter(component_name, parameter_name)
       @parameters.delete({component_name, parameter_name})
       case component_name
-      when "shovel"
+      when SHOVEL
         @shovels.not_nil!.delete(parameter_name)
       else
-        @log.warn("No action when deleting parameter #{component_name}")
+        @log.warn { "No action when deleting parameter #{component_name}" }
       end
     end
 
@@ -280,10 +286,10 @@ module AvalancheMQ
     private def apply_parameters(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
         case p.component_name
-        when "shovel"
+        when SHOVEL
           @shovels.not_nil!.create(p.parameter_name, p.value)
         else
-          @log.warn("No action when applying parameter #{p.component_name}")
+          @log.warn { "No action when applying parameter #{p.component_name}" }
         end
       end
     end

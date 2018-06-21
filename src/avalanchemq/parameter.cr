@@ -12,6 +12,7 @@ module AvalancheMQ
   class Parameter
     def_equals_and_hash @name
     getter component_name, parameter_name, value
+    setter value
 
     JSON.mapping(
       component_name: {key: "component", setter: false, type: String?},
