@@ -101,4 +101,35 @@ describe AvalancheMQ::Shovel do
   ensure
     close(s)
   end
+
+  it "can shovel with ack mode on-publish" do
+    s = amqp_server
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      x = ch.exchange("", "direct", passive: true)
+      q1 = ch.queue("q1")
+      q2 = ch.queue("q2")
+      pmsg = AMQP::Message.new("shovel me")
+      x.publish pmsg, "q1"
+      source = AvalancheMQ::Shovel::Source.new(
+        "amqp://guest:guest@localhost",
+        "q1",
+        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
+
+      )
+      dest = AvalancheMQ::Shovel::Destination.new(
+        "amqp://guest:guest@localhost",
+        "q2"
+      )
+      shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
+        ack_mode: AvalancheMQ::Shovel::AckMode::OnPublish)
+      shovel.run
+      wait_for { shovel.stopped? }
+      q2.get(no_ack: true).to_s.should eq "shovel me"
+    end
+  ensure
+    close(s)
+  end
 end
