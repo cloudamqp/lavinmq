@@ -231,6 +231,7 @@ module AvalancheMQ
       private def channel_read_loop
         spawn(name: "Shovel publisher #{@destination.uri.host}#channel_read_loop") do
           loop do
+            Fiber.yield if @in.empty?
             frame = @in.receive
             case frame
             when AMQP::Basic::Deliver
@@ -331,6 +332,7 @@ module AvalancheMQ
       private def channel_read_loop
         spawn(name: "Shovel publisher #{@source.uri.host}#channel_read_loop") do
           loop do
+            Fiber.yield if @in.empty?
             frame = @in.receive
             case frame
             when AMQP::Basic::Ack
