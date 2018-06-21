@@ -11,47 +11,70 @@ module AvalancheMQ
     @stopped = false
     @log : Logger
 
-    def initialize(@source : Source, @destination : Destination, @name : String, @vhost : VHost)
+    def initialize(@source : Source, @destination : Destination, @name : String, @vhost : VHost,
+                   @ack_mode = AckMode::OnConfirm, @reconnect_delay = 1)
       @log = @vhost.log.dup
       @log.progname += " shovel=#{@name}"
+      @channel_a = Channel::Buffered(AMQP::Frame).new(@source.prefetch.to_i32)
+      @channel_b = Channel::Buffered(AMQP::Frame).new(@source.prefetch.to_i32)
     end
 
     def run
-      loop do
-        break if @stopped
-        pub = Publisher.new(@destination, @log)
-        sub = Consumer.new(@source, @log)
-        sub.on_basic_deliver do |d|
-          pub.send_basic_publish(d)
+      spawn(name: "Shovel consumer #{@source.uri.host}") do
+        loop do
+          break if @channel_a.closed?
+          sub = Consumer.new(@source, @channel_b, @channel_a, @ack_mode, @log)
+          sub.on_done { delete }
+          sub.start
+        rescue ex
+          break if @channel_a.closed?
+          @log.warn "Shovel consumer failure: #{ex.inspect}"
+          sub.try &.force_close
+          sleep @reconnect_delay
         end
-        sub.on_header_frame do |h|
-          pub.send_header_frame(h)
-        end
-        sub.on_body_frame do |b|
-          pub.send_body_frame(b)
-        end
-        sub.on_done { @vhost.delete_parameter("shovel", @name) }
-        @pub = pub
-        @sub = sub
-        spawn(name: "Shovel publish #{@destination.uri.host} read_loop") { pub.read_loop }
-        sub.consume_loop
-        break
-      rescue ex
-        break if @stopped
-        @log.warn "Shovel failure: #{ex.inspect}"
-        sleep 3
+        @log.debug { "Consumer stopped" }
       end
+      spawn(name: "Shovel publisher #{@destination.uri.host}") do
+        loop do
+          break if @channel_b.closed?
+          pub = Publisher.new(@destination, @channel_a, @channel_b, @ack_mode, @log)
+          pub.start
+        rescue ex
+          break if @channel_b.closed?
+          @log.warn "Shovel publisher failure: #{ex.inspect}"
+          pub.try &.force_close
+          sleep @reconnect_delay
+        end
+        @log.debug { "Publisher stopped" }
+      end
+      @log.info { "Shovel '#{@name}' started" }
+      Fiber.yield
     end
 
+    # Should not trigger reconnect, but a graceful close
     def stop
-      @stopped = true
-      @pub.try &.close
-      @sub.try &.close
+      @channel_a.close
+      @channel_b.close
+    end
+
+    def delete
+      stop
+      @vhost.delete_parameter("shovel", @name)
+    end
+
+    def stopped?
+      @channel_a.closed? || @channel_b.closed?
     end
 
     enum DeleteAfter
       Never
       QueueLength
+    end
+
+    enum AckMode
+      OnConfirm
+      OnPublish
+      NoAck
     end
 
     struct Source
@@ -85,7 +108,6 @@ module AvalancheMQ
 
     class Connection
       @socket : TCPSocket | OpenSSL::SSL::Socket::Client
-      @closed = false
 
       def initialize(@uri : URI, @log : Logger)
         host = @uri.host || "localhost"
@@ -126,14 +148,7 @@ module AvalancheMQ
         path = @uri.path || ""
         vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
         @socket.write AMQP::Connection::Open.new(vhost).to_slice
-        frame = AMQP::Frame.decode(@socket)
-        case frame
-        when AMQP::Connection::Close
-          @socket.write AMQP::Connection::CloseOk.new.to_slice
-          @socket.close
-        else
-          frame.as(AMQP::Connection::OpenOk)
-        end
+        AMQP::Frame.decode(@socket).as(AMQP::Connection::OpenOk)
       end
 
       def open_channel
@@ -141,139 +156,212 @@ module AvalancheMQ
         AMQP::Frame.decode(@socket).as(AMQP::Channel::OpenOk)
       end
 
-      def close
-        @closed = true
-        @socket.write AMQP::Connection::Close.new(200_u16, "Shovel stopped", 0_u16, 0_u16).to_slice
-      end
-    end
-
-    class Publisher < Connection
-      def initialize(@destination : Destination, @log : Logger)
-        super(@destination.uri, @log)
-      end
-
-      def send_basic_publish(frame)
-        return if @closed
-        exchange = @destination.exchange.not_nil!
-        routing_key = @destination.exchange_key || frame.routing_key
-        @socket.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
-          false, false).to_slice
-      end
-
-      def send_header_frame(frame)
-        @socket.write frame.to_slice
-      end
-
-      def send_body_frame(frame)
-        @socket.write frame.to_slice
-      end
-
-      def read_loop
-        loop do
-          frame = AMQP::Frame.decode(@socket)
-          case frame
-          when AMQP::Channel::Close
-            @closed = true
-            @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
-            @socket.write AMQP::Connection::Close.new(320_u16,
-              "Shovel can't continue", 0_u16, 0_u16).to_slice
-          when AMQP::Connection::Close
-            @closed = true
-            @socket.write AMQP::Connection::CloseOk.new.to_slice
-            @socket.close
-            break
-          when AMQP::Connection::CloseOk
-            @closed = true
-            @socket.close
-            break
-          else raise "Unexpected frame #{frame}"
-          end
+      class UnexpectedFrame < Exception
+        def initialize(@frame : AMQP::Frame)
+          super(@frame.class.name)
         end
       end
     end
 
+    class Publisher < Connection
+      def initialize(@destination : Destination, @in : Channel::Buffered(AMQP::Frame),
+                     @out : Channel::Buffered(AMQP::Frame), @ack_mode : AckMode, log : Logger)
+        @log = log.dup
+        @log.progname += " publisher"
+        @message_count = 0_u64
+        @delivery_tags = Hash(UInt64, UInt64).new
+        super(@destination.uri, @log)
+        set_confirm if @ack_mode == AckMode::OnConfirm
+      end
+
+      def start
+        channel_read_loop
+        amqp_read_loop
+      end
+
+      private def send_basic_publish(frame)
+        exchange = @destination.exchange.not_nil!
+        routing_key = @destination.exchange_key || frame.routing_key
+        mandatory = @ack_mode == AckMode::OnConfirm
+        @socket.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
+          mandatory, false).to_slice
+        if mandatory
+          @message_count += 1
+          @delivery_tags[@message_count] = frame.delivery_tag
+        else
+          ack(frame.delivery_tag)
+        end
+      end
+
+      private def amqp_read_loop
+        loop do
+          Fiber.yield if @out.full?
+          frame = AMQP::Frame.decode(@socket)
+          @log.debug { "Read #{frame.inspect}" }
+          case frame
+          when AMQP::Basic::Nack
+            next unless @ack_mode == AckMode::OnConfirm
+            if frame.multiple
+              with_multiple(frame.delivery_tag) { |t| reject(t) }
+            else
+              reject(@delivery_tags[frame.delivery_tag])
+            end
+          when AMQP::Basic::Return
+            reject(@message_count) if @ack_mode == AckMode::OnConfirm
+          when AMQP::Basic::Ack
+            next unless @ack_mode == AckMode::OnConfirm
+            if frame.multiple
+              with_multiple(frame.delivery_tag) { |t| ack(t) }
+            else
+              ack(@delivery_tags[frame.delivery_tag])
+            end
+          when AMQP::Connection::CloseOk
+            @socket.close
+            break
+          else
+            @log.warn { "Unexpected frame #{frame}" }
+          end
+        rescue Channel::ClosedError
+          force_close
+        end
+      ensure
+         @socket.close
+      end
+
+      private def channel_read_loop
+        spawn(name: "Shovel publisher #{@destination.uri.host}#channel_read_loop") do
+          loop do
+            frame = @in.receive
+            case frame
+            when AMQP::Basic::Deliver
+              send_basic_publish(frame)
+            when AMQP::HeaderFrame
+              @socket.write frame.to_slice
+            when AMQP::BodyFrame
+              @socket.write frame.to_slice
+            else
+              @log.warn { "Unexpected frame #{frame}" }
+            end
+          rescue Channel::ClosedError
+            @log.debug { "#channel_read_loop closed" }
+            break
+          end
+        end
+      end
+
+      private def set_confirm
+        @socket.write AMQP::Confirm::Select.new(1_u16, false).to_slice
+        AMQP::Frame.decode(@socket).as(AMQP::Confirm::SelectOk)
+      end
+
+      private def with_multiple(delivery_tag)
+        @delivery_tags.delete_if do |m, t|
+          next false unless m <= delivery_tag
+          yield t
+          true
+        end
+      end
+
+      private def ack(delivery_tag)
+        @out.send AMQP::Basic::Ack.new(1_u16, delivery_tag, false)
+      end
+
+      private def reject(delivery_tag)
+        @out.send AMQP::Basic::Reject.new(1_u16, delivery_tag, false)
+      end
+
+      def force_close
+        return if @socket.closed?
+        @socket.write AMQP::Connection::Close.new(320_u16,
+          "Shovel stopped", 0_u16, 0_u16).to_slice
+      end
+    end
+
     class Consumer < Connection
-      def initialize(@source : Source, @log : Logger)
+      def initialize(@source : Source, @in : Channel::Buffered(AMQP::Frame),
+                     @out : Channel::Buffered(AMQP::Frame), @ack_mode : AckMode, log : Logger)
+        @log = log.dup
+        @log.progname += " consumer"
+        @message_counter = 0_u32
+        @message_count = 0_u32
         super(@source.uri, @log)
         set_prefetch
-      end
-
-      def on_basic_deliver(&blk : AMQP::Basic::Deliver -> Nil)
-        @on_basic_deliver = blk
-      end
-
-      def on_header_frame(&blk : AMQP::HeaderFrame -> Nil)
-        @on_header_frame = blk
-      end
-
-      def on_body_frame(&blk : AMQP::BodyFrame -> Nil)
-        @on_body_frame = blk
       end
 
       def on_done(&blk)
         @on_done = blk
       end
 
-      def consume_loop
-        queue, message_count = declare_queue
+      def start
+        channel_read_loop
+        consume_loop
+      end
+
+      private def consume_loop
+        queue, @message_count = declare_queue
+        no_ack = @ack_mode == AckMode::NoAck
         consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
-          false, false, false, true,
+          false, no_ack, false, true,
           {} of String => AMQP::Field)
         @socket.write consume.to_slice
-        message_counter = 0_u32
-        body_size = 0_u64
-        body_bytes = 0_u64
-        delivery_tag = 0_u64
         loop do
+          Fiber.yield if @out.full?
           frame = AMQP::Frame.decode(@socket)
+          @log.debug { "Read #{frame.inspect}" }
           case frame
-          when AMQP::Basic::Deliver
-            @on_basic_deliver.try &.call(frame)
-            delivery_tag = frame.delivery_tag
           when AMQP::HeaderFrame
-            @on_header_frame.try &.call(frame)
-            body_size = frame.body_size
-            ack(delivery_tag) if body_size.zero?
+            @out.send(frame)
+          when AMQP::Basic::Deliver
+            @out.send(frame)
           when AMQP::BodyFrame
-            @on_body_frame.try &.call(frame)
-            body_bytes += frame.body.bytesize
-            if body_bytes == body_size
-              ack(delivery_tag)
-              body_bytes = 0_u64
-
-              message_counter += 1
-              if @source.delete_after == DeleteAfter::QueueLength &&
-                 message_count <= message_counter
-                @socket.write AMQP::Connection::Close.new(200_u16,
-                  "Shovel done", 0_u16, 0_u16).to_slice
-                @on_done.try &.call
-              end
-            end
-          when AMQP::Channel::Close
-            @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
-            @socket.write AMQP::Connection::Close.new(320_u16,
-              "Shovel can't continue", 0_u16, 0_u16).to_slice
-          when AMQP::Connection::Close
-            @socket.write AMQP::Connection::CloseOk.new.to_slice
-            @socket.close
-            break
+            @out.send(frame)
           when AMQP::Connection::CloseOk
             @socket.close
             break
           else
-            raise "Unexpected frame #{frame}"
+            raise UnexpectedFrame.new(frame)
           end
+        rescue Channel::ClosedError
+          force_close
         end
-      rescue ex : Errno | IO::Error | AMQP::FrameDecodeError
-        @log.error { ex.inspect }
+      ensure
+         @socket.close
       end
 
-      def set_prefetch
+      private def channel_read_loop
+        spawn(name: "Shovel publisher #{@source.uri.host}#channel_read_loop") do
+          loop do
+            frame = @in.receive
+            case frame
+            when AMQP::Basic::Ack
+              @socket.write frame.to_slice
+              @message_counter += 1
+              if @source.delete_after == DeleteAfter::QueueLength &&
+                @message_count <= @message_counter
+                @socket.write AMQP::Connection::Close.new(200_u16,
+                  "Shovel done", 0_u16, 0_u16).to_slice
+                @on_done.try &.call
+              end
+            when AMQP::Basic::Nack
+              @socket.write frame.to_slice
+            when AMQP::Basic::Return
+              @socket.write frame.to_slice
+            else
+              @log.warn { "Unexpected frame #{frame}" }
+            end
+          rescue Channel::ClosedError
+            @log.debug { "#channel_read_loop closed" }
+            break
+          end
+        end
+      end
+
+      private def set_prefetch
         @socket.write AMQP::Basic::Qos.new(1_u16, 0_u32, @source.prefetch, false).to_slice
         AMQP::Frame.decode(@socket).as(AMQP::Basic::QosOk)
       end
 
-      def declare_queue
+      private def declare_queue
         queue_name = @source.queue || ""
         @socket.write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
           false, true, true, false,
@@ -289,9 +377,10 @@ module AvalancheMQ
         {declare_ok.queue_name, declare_ok.message_count}
       end
 
-      def ack(delivery_tag)
-        ack = AMQP::Basic::Ack.new(1_u16, delivery_tag, false).to_slice
-        @socket.write ack.to_slice
+      def force_close
+        return if @socket.closed?
+        @socket.write AMQP::Connection::Close.new(320_u16,
+          "Shovel stopped", 0_u16, 0_u16).to_slice
       end
     end
   end

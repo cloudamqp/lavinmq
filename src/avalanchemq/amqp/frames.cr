@@ -1480,7 +1480,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
+          self.new(channel, io.read_short_string)
         end
       end
 
@@ -1510,7 +1510,11 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
+          reply_code = io.read_uint16
+          reply_text = io.read_short_string
+          exchange_name = io.read_short_string
+          routing_key = io.read_short_string
+          self.new(channel, reply_code, reply_text, exchange_name, routing_key)
         end
       end
 
@@ -1655,7 +1659,9 @@ module AvalancheMQ
         end
 
         def to_slice
-          raise NotImplemented.new(@channel, class_id, method_id)
+          io = MemoryIO.new(1)
+          io.write_bool(@no_wait)
+          super(io.to_slice)
         end
       end
 
@@ -1671,7 +1677,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          raise NotImplemented.new(channel, CLASS_ID, METHOD_ID)
+          self.new(channel)
         end
       end
     end

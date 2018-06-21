@@ -137,7 +137,7 @@ module AvalancheMQ
           @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
         end
       rescue e : Exception
-        @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false)
+        @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false) if @confirm
         raise e
       ensure
         @next_msg_body.not_nil!.clear

@@ -29,8 +29,8 @@ Spec.override_default_formatter(
 )
 
 module TestHelpers
-  def wait_for
-    timeout = Time.now + 1.seconds
+  def wait_for(t = 1.seconds)
+    timeout = Time.now + t
     until yield
       Fiber.yield
       if Time.now > timeout
