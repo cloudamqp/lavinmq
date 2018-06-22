@@ -1,6 +1,7 @@
 :root {
   --theme-color-dark: #4F535D;
   --theme-color-dark-highlight: rgb(104, 107, 114);
+  --theme-color-dark-highlight2: rgb(119, 122, 128);
   --theme-color-light: #EFF7F6;
   --theme-color-link: #A78C88;
 }
@@ -35,15 +36,23 @@ aside {
 }
 
 @media (max-width: 700px) {
-  main,
-  aside {
+  body {
+    grid-template-rows: 70px auto auto 100px;
+  }
+
+  main, aside {
     grid-column: 1 / span 2;
+  }
+
+  aside a {
+    text-align: center;
   }
 }
 
 header {
   display: grid;
   grid-template-columns: auto 200px;
+  border-bottom: 1px solid #d1d9e8;
 }
 
 header h1 {
@@ -68,12 +77,21 @@ aside ul li a {
   padding: 8px 20px;
 }
 
+aside ul ul li a {
+  padding: 4px 20px 4px 40px;
+  font-size: small;
+}
+
+aside ul ul li a:hover {
+  background-color: var(--theme-color-dark-highlight2);
+}
+
 aside a, aside a:visited {
   color: var(--theme-color-light);
   text-decoration: none;
 }
 
-aside a:hover, aside a.active {
+aside a:hover, aside li.active a {
   background-color: var(--theme-color-dark-highlight);
 }
 
@@ -96,6 +114,11 @@ aside a:hover, aside a.active {
 .table th, .table td {
   border: 1px solid var(--theme-color-light);;
   padding: 0.2em 0.3em;
+}
+
+.table button {
+  width: 100%;
+  max-width: 200px;
 }
 
 #table-error {
@@ -125,6 +148,18 @@ aside a:hover, aside a.active {
   border-color: var(--theme-color-light);;
   border-right-width: 1px;
   border-right-style: solid;
+  width: 1%;
+  min-width: 200px;
+}
+
+.small-table {
+  width: 50%;
+  max-width: 500px;
+}
+
+.medium-table {
+  width: 70%;
+  max-width: 800px;
 }
 
 label {
