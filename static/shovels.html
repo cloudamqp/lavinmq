@@ -123,7 +123,7 @@
               <option value="no-ack">No ack</option>
             </select>
           </label>
-          <button type="submit">Add shovel</button>
+          <button type="submit" class="btn-primary">Add shovel</button>
         </fieldset>
       </form>
     </main>
@@ -169,6 +169,7 @@
         avalanchemq.table.renderCell(tr, 9, item.value['src-delete-after'])
         avalanchemq.table.renderCell(tr, 10, item.state)
         const btn = document.createElement('button')
+        btn.classList.add('btn-secondary')
         btn.innerHTML = 'Delete'
         btn.onclick = function () {
           const name = encodeURIComponent(item.name)

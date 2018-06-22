@@ -96,7 +96,7 @@
             <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
-          <button type="submit">Bind</button>
+          <button type="submit" class="btn-primary">Bind</button>
         </fieldset>
       </form>
       <form method="post" id="publishMessage" class="form">
@@ -124,7 +124,7 @@
             <span>Payload</span>
             <textarea name="payload"></textarea>
           </label>
-          <button type="submit">Publish message</button>
+          <button type="submit" class="btn-primary">Publish message</button>
         </fieldset>
       </form>
       <form method="post" id="getMessages" class="form">
@@ -152,7 +152,7 @@
             <span>Messages</span>
             <input type="number" name="messages" value=1>
           </label>
-          <button type="submit">Get message(s)</button>
+          <button type="submit" class="btn-secondary">Get message(s)</button>
         </fieldset>
       </form>
       <div id="message-template" class="hide">
@@ -193,20 +193,20 @@
           <label>
             <span>Destination queue</span>
             <input type="text" name="shovel-destination">
-            <button type="submit">Move messages</button>
+            <button type="submit" class="btn-secondary">Move messages</button>
           </label>
         </fieldset>
       </form>
       <form method="delete" id="purgeQueue" class="form">
         <fieldset>
           <legend>Purge queue</legend>
-          <button type="submit">Purge</button>
+          <button type="submit" class="btn-secondary">Purge</button>
         </fieldset>
       </form>
       <form method="delete" id="deleteQueue" class="form">
         <fieldset>
           <legend>Delete queue</legend>
-          <button type="submit">Delete</button>
+          <button type="submit" class="btn-secondary">Delete</button>
         </fieldset>
       </form>
     </main>
@@ -274,6 +274,7 @@
           td.setAttribute('colspan', 4)
         } else {
           const btn = document.createElement('button')
+          btn.classList.add('btn-secondary')
           btn.innerHTML = 'Unbind'
           btn.onclick = function () {
             const e = encodeURIComponent(item.source)

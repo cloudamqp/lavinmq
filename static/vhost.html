@@ -71,13 +71,13 @@
             <span>Read regexp</span>
             <input type="text" name="read" required value=".*">
           </label>
-          <button type="submit">Set permission</button>
+          <button type="submit" class="btn-primary">Set permission</button>
         </fieldset>
       </form>
       <form method="delete" id="deleteVhost" class="form">
         <fieldset>
           <legend>Delete vhost</legend>
-          <button type="submit">Delete</button>
+          <button type="submit" class="btn-secondary">Delete</button>
         </fieldset>
       </form>
     </main>
@@ -106,6 +106,7 @@
       const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
       const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
+        btn.classList.add('btn-secondary')
         btn.innerHTML = 'Clear'
         btn.onclick = function () {
           const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)

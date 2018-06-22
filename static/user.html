@@ -64,7 +64,7 @@
             <span>Read regexp</span>
             <input type="text" name="read" required value=".*">
           </label>
-          <button type="submit">Set permission</button>
+          <button type="submit" class="btn-primary">Set permission</button>
         </fieldset>
       </form>
       <form method="put" id="updateUser" class="form">
@@ -85,13 +85,13 @@
           <div id="dataTags" class="label">
             <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
           </div>
-          <button type="submit">Update user</button>
+          <button type="submit" class="btn-primary">Update user</button>
         </fieldset>
       </form>
       <form method="delete" id="deleteUser" class="form">
         <fieldset>
           <legend>Delete user</legend>
-          <button type="submit">Delete</button>
+          <button type="submit" class="btn-secondary">Delete</button>
         </fieldset>
       </form>
     </main>
@@ -125,6 +125,7 @@
       const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
       const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
+        btn.classList.add('btn-secondary')
         btn.innerHTML = 'Clear'
         btn.onclick = function () {
           const username = encodeURIComponent(item.user)

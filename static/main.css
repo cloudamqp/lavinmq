@@ -152,9 +152,12 @@ aside h1 small {
   margin-right: 15px;
 }
 
+aside > ul {
+  margin-top: 40px;
+}
+
 aside ul {
   list-style: none;
-  margin-top: 40px;
   padding: 0;
 }
 
@@ -335,4 +338,26 @@ h2 small {
 
 a, a:visited {
   color: var(--theme-color-link);
+}
+
+.btn-primary {
+  font-size: 14px;
+  line-height: 14px;
+  color: #FFF;
+  font-weight: 100;
+  text-transform: uppercase;
+  background-color: #3C9368;
+  border: none;
+  padding: 0 40px;
+}
+
+.btn-secondary {
+  font-size: 14px;
+  line-height: 14px;
+  font-weight: 100;
+  padding: 0 40px;
+  text-transform: uppercase;
+  border: 1px solid #DEDEDE;
+  background-color: #f5f5f5;
+  color: #2c2c2c;
 }

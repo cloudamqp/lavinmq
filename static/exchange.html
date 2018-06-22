@@ -67,7 +67,7 @@
             <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
-          <button type="submit">Bind</button>
+          <button type="submit" class="btn-primary">Bind</button>
         </fieldset>
       </form>
       <form method="post" id="publishMessage" class="form">
@@ -96,13 +96,13 @@
             <span>Payload</span>
             <textarea name="payload"></textarea>
           </label>
-          <button type="submit">Publish message</button>
+          <button type="submit" class="btn-primary">Publish message</button>
         </fieldset>
       </form>
       <form method="delete" id="deleteExchange" class="form">
         <fieldset>
           <legend>Delete exchange</legend>
-          <button type="submit">Delete</button>
+          <button type="submit" class="btn-secondary">Delete</button>
         </fieldset>
       </form>
     </main>
@@ -147,6 +147,7 @@
           td.setAttribute('colspan', 5)
         } else {
           const btn = document.createElement('button')
+          btn.classList.add('btn-secondary')
           btn.innerHTML = 'Unbind'
           btn.onclick = function () {
             const e = encodeURIComponent(item.source)
