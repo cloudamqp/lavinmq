@@ -3,37 +3,44 @@
   <head>
     <title>Login | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
     <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      body {
+        display: block;
+      }
+
+      main {
+        width: 60%;
+        min-width: 400px;
+        max-width: 800px;
+        margin: 40px auto;
+      }
+    </style>
   </head>
   <body>
-    <div class="container">
-      <h1>AvalancheMQ</h1>
-    </div>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
-    <main class="login-container">
-      <div class="box">
-        <div class="box-body">
-          <div class="login-info">
-            <h2 class="host">localhost</h2>
-          </div>
-          <form id="login" action="/">
-            <div class="form-group">
-              <label for="amq-username">Username</label>
-              <input type="text" class="form-control" id="amq-username">
-            </div>
-            <div class="form-group password mb-3">
-              <label for="amq-password">Password</label>
-              <input type="password" class="form-control" id="amq-password">
-            </div>
-            <div class="pt-3">
-              <button type="submit" class="btn btn-primary">Sign in</button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <script type="text/javascript">
+    <main class="card">
+      <h1>AvalancheMQ</h1>
+      <form id="login" action="/" class="form">
+        <fieldset>
+          <label>
+            <span>Username</span>
+            <input type="text" id="amq-username">
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" id="amq-password">
+          </label>
+          <button type="submit">Sign in</button>
+        </fieldset>
+      </form>
+    </main>
+    <script type="text/javascript">
         document.querySelector('#login').addEventListener('submit', function (evt) {
           evt.preventDefault()
           const user = document.querySelector('#amq-username').value
@@ -47,6 +54,5 @@
           })
         })
       </script>
-    </main>
   </body>
 </html>

@@ -1,7 +1,4 @@
 :root {
-  --theme-color-dark: #4F535D;
-  --theme-color-dark-highlight: rgb(104, 107, 114);
-  --theme-color-dark-highlight2: rgb(119, 122, 128);
   --theme-color-light: #EFF7F6;
   --theme-color-link: #A78C88;
 
@@ -48,6 +45,9 @@ main {
   grid-column: 2;
   align-self: start;
   margin: 0 20px 20px;
+}
+
+.card {
   padding: 20px;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
@@ -121,7 +121,7 @@ footer .logo {
 
 aside h1 {
   margin: 0.83em 0.83em 0;
-  padding-bottom: 0.83em;
+  padding-bottom: 14px;
   border-bottom: 1px solid rgb(126, 126, 126);
 }
 
@@ -154,6 +154,7 @@ aside h1 small {
 
 aside ul {
   list-style: none;
+  margin-top: 40px;
   padding: 0;
 }
 
