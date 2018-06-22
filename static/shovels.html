@@ -169,7 +169,7 @@
         avalanchemq.table.renderCell(tr, 9, item.value['src-delete-after'])
         avalanchemq.table.renderCell(tr, 10, item.state)
         const btn = document.createElement('button')
-        btn.classList.add('btn-secondary')
+        btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
         btn.onclick = function () {
           const name = encodeURIComponent(item.name)

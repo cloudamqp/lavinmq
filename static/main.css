@@ -396,3 +396,14 @@ a, a:visited {
   background-color: #f5f5f5;
   color: #2c2c2c;
 }
+
+.btn-danger {
+  font-size: 14px;
+  line-height: 14px;
+  font-weight: 100;
+  padding: 0 40px;
+  border: none;
+  text-transform: uppercase;
+  background-color: #c46868;
+  color: #fff;
+}
