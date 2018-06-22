@@ -3,31 +3,16 @@
   <head>
     <title>Exchanges | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
     <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
-    <div class="container">
-      <header>
-        <h1>
-          AvalancheMQ
-          <small id="version"></small>
-        </h1>
-        <div id="user-info">
-          <span>👤:&nbsp;</span>
-          <span id="username"></span>
-          <span id="vhost"></span>
-        </div>
-      </header>
-      <ul id="menu">
-        <li><a href="/">Overview</a></li>
-        <li><a href="/connections">Connections</a></li>
-        <li><a href="/channels">Channels</a></li>
-        <li><a href="/queues">Queues</a></li>
-        <li><a href="/exchanges">Exchanges</a></li>
-        <li><a href="/users">Users</a></li>
-        <li><a href="/vhosts">Virtual Hosts</a></li>
-        <li><a href="/shovels">Shovels</a></li>
-      </ul>
+    <header></header>
+    <aside></aside>
+    <main>
       <div id="table-error"></div>
       <h2>
         Exchanges
@@ -45,41 +30,43 @@
         </thead>
         <tbody></tbody>
       </table>
-      <form method="put" id="addExchange">
+      <form method="put" id="addExchange" class="form">
         <fieldset>
           <legend>Add exchange</legend>
           <label>
-            Virtual host
+            <span>Virtual host</span>
             <select name="vhost" required></select>
           </label>
           <label>
-            Name
+            <span>Name</span>
             <input type="text" name="name" required>
           </label>
           <label>
-            Type
+            <span>Type</span>
             <select name="type" required></select>
           </label>
           <label>
-            Durable
+            <span>Durable</span>
             <input type="checkbox" name="durable" value="1">
           </label>
           <label>
-            Auto-delete
+            <span>Auto-delete</span>
             <input type="checkbox" name="auto_delete" value="1">
           </label>
           <label>
-            Internal
+            <span>Internal</span>
             <input type="checkbox" name="internal" value="1">
           </label>
           <label>
-            Arguments
+            <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
           <button type="submit">Add exchange</button>
         </fieldset>
       </form>
-    </div>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/dom.js"></script>

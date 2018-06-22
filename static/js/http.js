@@ -54,7 +54,9 @@
     return fetch(path, opts)
       .then(function (response) {
         if (response.status === 401) {
-          redirectToLogin()
+          window.location.assign('/401')
+        } else if (response.status === 404) {
+          window.location.assign('/404')
         } else if (!response.ok) {
           throw Error(response.statusText)
         }

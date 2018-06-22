@@ -3,31 +3,16 @@
   <head>
     <title>Channels | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
     <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
-    <div class="container">
-      <header>
-        <h1>
-          AvalancheMQ
-          <small id="version"></small>
-        </h1>
-        <div id="user-info">
-          <span>👤:&nbsp;</span>
-          <span id="username"></span>
-          <span id="vhost"></span>
-        </div>
-      </header>
-      <ul id="menu">
-        <li><a href="/">Overview</a></li>
-        <li><a href="/connections">Connections</a></li>
-        <li><a href="/channels">Channels</a></li>
-        <li><a href="/queues">Queues</a></li>
-        <li><a href="/exchanges">Exchanges</a></li>
-        <li><a href="/users">Users</a></li>
-        <li><a href="/vhosts">Virtual Hosts</a></li>
-        <li><a href="/shovels">Shovels</a></li>
-      </ul>
+    <header></header>
+    <aside></aside>
+    <main>
       <div id="table-error"></div>
       <h2>
         Channels
@@ -47,7 +32,9 @@
         </thead>
         <tbody></tbody>
       </table>
-    </div>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/overview.js"></script>

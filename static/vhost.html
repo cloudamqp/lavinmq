@@ -3,31 +3,16 @@
   <head>
     <title>Virtual host | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
     <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
-    <div class="container">
-      <header>
-        <h1>
-          AvalancheMQ
-          <small id="version"></small>
-        </h1>
-        <div id="user-info">
-          <span>👤:&nbsp;</span>
-          <span id="username"></span>
-          <span id="vhost"></span>
-        </div>
-      </header>
-      <ul id="menu">
-        <li><a href="/">Overview</a></li>
-        <li><a href="/connections">Connections</a></li>
-        <li><a href="/channels">Channels</a></li>
-        <li><a href="/queues">Queues</a></li>
-        <li><a href="/exchanges">Exchanges</a></li>
-        <li><a href="/users">Users</a></li>
-        <li><a href="/vhosts">Virtual Hosts</a></li>
-        <li><a href="/shovels">Shovels</a></li>
-      </ul>
+    <header></header>
+    <aside></aside>
+    <main>
       <h2>
         Virtual host:
         <small id="vhost2"></small>
@@ -35,7 +20,7 @@
       <h3>
         Message stats
       </h3>
-      <table id="msg-table" class="table">
+      <table id="msg-table" class="table medium-table">
         <thead>
           <tr>
             <th>Ready</th>
@@ -66,35 +51,37 @@
         </thead>
         <tbody></tbody>
       </table>
-      <form method="put" id="setPermission">
+      <form method="put" id="setPermission" class="form">
         <fieldset>
           <legend>Set permission</legend>
           <label>
-            User
+            <span>User</span>
             <select name="user" required></select>
           </label>
           <label>
-            Configure regexp
+            <span>Configure regexp</span>
             <input type="text" name="configure" required value=".*">
           </label>
           <label>
-            Write regexp
+            <span>Write regexp</span>
             <input type="text" name="write" required value=".*">
           </label>
           <label>
-            Read regexp
+            <span>Read regexp</span>
             <input type="text" name="read" required value=".*">
           </label>
           <button type="submit">Set permission</button>
         </fieldset>
       </form>
-      <form method="delete" id="deleteVhost">
+      <form method="delete" id="deleteVhost" class="form">
         <fieldset>
           <legend>Delete vhost</legend>
           <button type="submit">Delete</button>
         </fieldset>
       </form>
-    </div>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/dom.js"></script>

@@ -3,31 +3,16 @@
   <head>
     <title>Shovels | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
     <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
-    <div class="container">
-      <header>
-        <h1>
-          AvalancheMQ
-          <small id="version"></small>
-        </h1>
-        <div id="user-info">
-          <span>👤:&nbsp;</span>
-          <span id="username"></span>
-          <span id="vhost"></span>
-        </div>
-      </header>
-      <ul id="menu">
-        <li><a href="/">Overview</a></li>
-        <li><a href="/connections">Connections</a></li>
-        <li><a href="/channels">Channels</a></li>
-        <li><a href="/queues">Queues</a></li>
-        <li><a href="/exchanges">Exchanges</a></li>
-        <li><a href="/users">Users</a></li>
-        <li><a href="/vhosts">Virtual Hosts</a></li>
-        <li><a href="/shovels">Shovels</a></li>
-      </ul>
+    <header></header>
+    <aside></aside>
+    <main>
       <div id="table-error"></div>
       <h2>
         Shovels
@@ -63,44 +48,44 @@
         </thead>
         <tbody></tbody>
       </table>
-      <form method="put" id="createShovel">
+      <form method="put" id="createShovel" class="form">
         <fieldset>
           <legend>Add a new shovel</legend>
           <label>
-            Virtual host
+            <span>Virtual host</span>
             <select name="vhost" required></select>
           </label>
           <label>
-            Name
+            <span>Name</span>
             <input type="text" name="name" required>
           </label>
           <fieldset>
             <legend>Source</legend>
             <label>
-              URI
+              <span>URI</span>
               <input type="text" name="src-uri" required value="amqp://">
             </label>
             <label>
-              Type
+              <span>Type</span>
               <select name="src-type" required>
                 <option value="queue">Queue</option>
                 <option value="exchange">Exchange</option>
               </select>
             </label>
             <label>
-              Endpoint
+              <span>Endpoint</span>
               <input type="text" name="src-endpoint" required>
             </label>
             <label id="srcRoutingKey" class="hide">
-              Routing key
+              <span>Routing key</span>
               <input type="text" name="src-exchange-key">
             </label>
             <label>
-              Prefetch
+              <span>Prefetch</span>
               <input type="number" name="src-prefetch-count" value="1000">
             </label>
             <label>
-              Auto delete
+              <span>Auto delete</span>
               <select name="src-delete-after" required>
                 <option value="never">Never</option>
                 <option value="queue-length">Queue length</option>
@@ -110,27 +95,27 @@
           <fieldset>
             <legend>Destination</legend>
             <label>
-              URI
+              <span>URI</span>
               <input type="text" name="dest-uri" required value="amqp://">
             </label>
             <label>
-              Type
+              <span>Type</span>
               <select name="dest-type" required>
                 <option value="queue">Queue</option>
                 <option value="exchange">Exchange</option>
               </select>
             </label>
             <label>
-              Endpoint
+              <span>Endpoint</span>
               <input type="text" name="dest-endpoint" required>
             </label>
           </fieldset>
           <label>
-            Reconnect delay
+            <span>Reconnect delay</span>
             <input type="number" name="reconnect-delay" value="5">
           </label>
           <label>
-            Ack mode
+            <span>Ack mode</span>
             <select name="ack-mode" required>
               <option value="on-confirm" selected>On confirm</option>
               <option value="on-publish">On publish</option>
@@ -140,7 +125,9 @@
           <button type="submit">Add shovel</button>
         </fieldset>
       </form>
-    </div>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/dom.js"></script>

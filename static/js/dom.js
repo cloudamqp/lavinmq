@@ -49,7 +49,7 @@
       els = [selector]
     } else if (selector instanceof NodeList) {
       els = selector
-    } else if (selector instanceof String) {
+    } else if (typeof selector === "string") {
       els = document.querySelectorAll(selector)
     } else {
       els = []

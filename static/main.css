@@ -1,13 +1,238 @@
-body { font-family: Courier, monospace; }
-.table th { font-weight: normal; }
-.table th[data-sort-key] { cursor: pointer; font-weight: bold; }
-.table { border-collapse: collapse; width: 100%; }
-.table th, .table td { border: 1px solid #EEE; padding: 0.2em 0.3em }
-#menu li { display: inline-block; }
-#table-error { color: red; float: right; }
-label { display: block; margin: 0.5em 0; }
-header { position: relative; }
-#user-info { position: absolute; top: 0; right: 0; margin-right: 15px; }
-.center { text-align: center; }
-a[data-tag] { cursor: pointer; }
-.hide { display: none; }
+:root {
+  --theme-color-dark: #4F535D;
+  --theme-color-dark-highlight: rgb(104, 107, 114);
+  --theme-color-dark-highlight2: rgb(119, 122, 128);
+  --theme-color-light: #EFF7F6;
+  --theme-color-link: #A78C88;
+}
+
+body {
+  display: grid;
+  grid-template-columns: 250px auto;
+  grid-template-rows: 70px auto 100px;
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Roboto', sans-serif;
+  background-color: white;
+  color: var(--theme-color-dark);
+}
+
+header,
+footer {
+  grid-column: 1 / span 2;
+  background-color: var(--theme-color-light);
+  padding: 10px;
+}
+
+main {
+  grid-column: 2 / span 1;
+  padding: 10px;
+}
+
+aside {
+  grid-column: 1 / span 1;
+  background-color: var(--theme-color-dark);
+  color: var(--theme-color-light);
+}
+
+@media (max-width: 700px) {
+  body {
+    grid-template-rows: 70px auto auto 100px;
+  }
+
+  main, aside {
+    grid-column: 1 / span 2;
+  }
+
+  aside a {
+    text-align: center;
+  }
+}
+
+header {
+  display: grid;
+  grid-template-columns: auto 200px;
+  border-bottom: 1px solid #d1d9e8;
+}
+
+header h1 {
+  grid-column: 1;
+  align-self: center;
+  margin: 0;
+}
+
+#user-info {
+  grid-column: 2;
+  align-self: center;
+  justify-self: end;
+}
+
+aside ul {
+  list-style: none;
+  padding: 0;
+}
+
+aside ul li a {
+  display: block;
+  padding: 8px 20px;
+}
+
+aside ul ul li a {
+  padding: 4px 20px 4px 40px;
+  font-size: small;
+}
+
+aside ul ul li a:hover {
+  background-color: var(--theme-color-dark-highlight2);
+}
+
+aside a, aside a:visited {
+  color: var(--theme-color-light);
+  text-decoration: none;
+}
+
+aside a:hover, aside li.active a {
+  background-color: var(--theme-color-dark-highlight);
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 40px;
+  border-radius: 3px;
+}
+
+.table th {
+  font-weight: normal;
+}
+
+.table th[data-sort-key] {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.table th, .table td {
+  border: 1px solid var(--theme-color-light);;
+  padding: 0.2em 0.3em;
+}
+
+.table button {
+  width: 100%;
+  max-width: 200px;
+}
+
+#table-error {
+  color: red;
+  float: right;
+}
+
+.details-table {
+  width: 100%;
+  margin-bottom: 40px;
+  border-spacing: 0;
+  border: 1px solid var(--theme-color-light);;
+  border-radius: 3px;
+  padding: 10px 0;
+}
+
+.details-table table {
+  width: 100%;
+}
+
+.details-table td {
+  text-align: center;
+  padding: 0.2em 0.3em;
+}
+
+.details-table > tbody > tr > th {
+  border-color: var(--theme-color-light);;
+  border-right-width: 1px;
+  border-right-style: solid;
+  width: 1%;
+  min-width: 200px;
+}
+
+.small-table {
+  width: 50%;
+  max-width: 500px;
+}
+
+.medium-table {
+  width: 70%;
+  max-width: 800px;
+}
+
+label {
+  display: block;
+  margin: 0.5em 0;
+}
+
+.center {
+  text-align: center;
+}
+
+a[data-tag] {
+  cursor: pointer;
+}
+
+.hide {
+  display: none;
+}
+
+.form {
+  margin-bottom: 40px;
+}
+
+.form label > span {
+  width: 150px;
+  font-weight: bold;
+  font-size: 0.8em;
+  float: left;
+  padding-top: 8px;
+  padding-right: 5px;
+}
+
+.form input:not([type="radio"]):not([type="checkbox"]), .form select {
+  width: 200px;
+}
+
+.form .label {
+  margin: 0.5em 0;
+}
+
+select, button {
+  height: 29px;
+}
+
+input, select, textarea, button {
+  box-sizing: border-box;
+  border: 1px solid #C2C2C2;
+  box-shadow: 1px 1px 4px #EBEBEB;
+  border-radius: 3px;
+  padding: 7px;
+}
+
+button:hover {
+  opacity: 0.8;
+}
+
+textarea {
+  height:100px;
+  width: calc(100% - 160px);
+  max-width: 300px;
+}
+
+fieldset {
+  border-width: 1px;
+  border-radius: 3px;
+  border-style: solid;
+  border-color: var(--theme-color-light);
+}
+
+h2 small {
+  margin-left: 20px;
+}
+
+a, a:visited {
+  color: var(--theme-color-link);
+}

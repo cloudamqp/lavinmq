@@ -3,43 +3,28 @@
   <head>
     <title>Queue | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
     <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
-    <div class="container">
-      <header>
-        <h1>
-          AvalancheMQ
-          <small id="version"></small>
-        </h1>
-        <div id="user-info">
-          <span>👤:&nbsp;</span>
-          <span id="username"></span>
-          <span id="vhost"></span>
-        </div>
-      </header>
-      <ul id="menu">
-        <li><a href="/">Overview</a></li>
-        <li><a href="/connections">Connections</a></li>
-        <li><a href="/channels">Channels</a></li>
-        <li><a href="/queues">Queues</a></li>
-        <li><a href="/exchanges">Exchanges</a></li>
-        <li><a href="/users">Users</a></li>
-        <li><a href="/vhosts">Virtual Hosts</a></li>
-        <li><a href="/shovels">Shovels</a></li>
-      </ul>
+    <header></header>
+    <aside></aside>
+    <main>
       <h2>
         Queue:
         <small id="queue"></small>
       </h2>
-      <table>
+      <table class="details-table">
         <tr>
           <th>Features</th>
           <td id="q-features"></td>
           <th>State</th>
           <td id="q-state"></td>
-          <th>Messages</th>
-          <td>
+          <th rowspan="2">Messages</th>
+          <td rowspan="2">
             <table>
               <tr>
                 <th>Total</th>
@@ -95,57 +80,57 @@
         </thead>
         <tbody></tbody>
       </table>
-      <form method="post" id="addBinding">
+      <form method="post" id="addBinding" class="form">
         <fieldset>
           <legend>Add a binding to this queue</legend>
           <label>
-            From exchange
+            <span>From exchange</span>
             <input name="source" type="text" required>
           </label>
           <label>
-            Routing key
+            <span>Routing key</span>
             <input name="routing_key" type="text">
           </label>
           <label>
-            Arguments
+            <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
           <button type="submit">Bind</button>
         </fieldset>
       </form>
-      <form method="post" id="publishMessage">
+      <form method="post" id="publishMessage" class="form">
         <fieldset>
           <legend>Publish message</legend>
           <p>
             Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to this queue.
           </p>
           <label>
-            Delivery mode
+            <span>Delivery mode</span>
             <select name="delivery_mode">
               <option value="1">1 - Transient</option>
               <option value="2">2 - Persistent</option>
             </select>
           </label>
           <label>
-            Headers
+            <span>Headers</span>
             <textarea name="headers" placeholder='{ "key": value }'></textarea>
           </label>
           <label>
-            Properties
+            <span>Properties</span>
             <textarea name="properties" placeholder='{ "key": value }'></textarea>
           </label>
           <label>
-            Payload
+            <span>Payload</span>
             <textarea name="payload"></textarea>
           </label>
           <button type="submit">Publish message</button>
         </fieldset>
       </form>
-      <form method="post" id="getMessages">
+      <form method="post" id="getMessages" class="form">
         <fieldset>
           <legend>Get messages</legend>
           <label>
-            Mode
+            <span>Mode</span>
             <select name="mode">
               <option value="peek">Peek</option>
               <option value="ack_requeue_true">Ack and requeue</option>
@@ -156,14 +141,14 @@
             </select>
           </label>
           <label>
-            Encoding
+            <span>Encoding</span>
             <select name="encoding">
               <option value="auto">Auto string/base64</option>
               <option value="base64">Base64</option>
             </select>
           </label>
           <label>
-            Messages
+            <span>Messages</span>
             <input type="number" name="messages" value=1>
           </label>
           <button type="submit">Get message(s)</button>
@@ -201,29 +186,31 @@
         </table>
       </div>
       <div id="messages"></div>
-      <form method="post" id="moveMessages">
+      <form method="post" id="moveMessages" class="form">
         <fieldset>
           <legend>Move messages</legend>
           <label>
-            Destination queue
+            <span>Destination queue</span>
             <input type="text" name="shovel-destination">
             <button type="submit">Move messages</button>
           </label>
         </fieldset>
       </form>
-      <form method="delete" id="purgeQueue">
+      <form method="delete" id="purgeQueue" class="form">
         <fieldset>
           <legend>Purge queue</legend>
           <button type="submit">Purge</button>
         </fieldset>
       </form>
-      <form method="delete" id="deleteQueue">
+      <form method="delete" id="deleteQueue" class="form">
         <fieldset>
           <legend>Delete queue</legend>
           <button type="submit">Delete</button>
         </fieldset>
       </form>
-    </div>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/dom.js"></script>
     <script src="/js/http.js"></script>
