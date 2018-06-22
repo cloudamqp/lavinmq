@@ -6,6 +6,7 @@
   --font-color: rgb(100, 100, 100);
   --font-color-dark: #2C2C2C;
   --bg-color: #EBECF1;
+  --separator-color: rgba(185, 185, 185, 0.507);
 }
 
 body {
@@ -49,6 +50,7 @@ main {
 
 .card {
   padding: 20px;
+  margin-bottom: 30px;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   background-color: #FFF;
@@ -259,6 +261,35 @@ aside li.active a {
   max-width: 800px;
 }
 
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.stats-table td, .stats-table th {
+  text-align: center;
+  border-right: 1px solid var(--separator-color);
+}
+
+.stats-table td:last-child, .stats-table th:last-child {
+  border: none;
+}
+
+.stats-table td {
+  font-size: 32px;
+  padding: 30px 0 2px;
+  color: var(--font-color-dark);
+}
+
+.stats-table th {
+  font-size: 20px;
+  padding: 2px 0 30px;
+  text-transform: uppercase;
+  font-weight: 100;
+  color: var(--font-color-light);
+}
+
 label {
   display: block;
   margin: 0.5em 0;
@@ -295,6 +326,10 @@ a[data-tag] {
 
 .form .label {
   margin: 0.5em 0;
+}
+
+.form legend {
+  margin-bottom: 20px;
 }
 
 select, button {

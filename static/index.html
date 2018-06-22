@@ -14,17 +14,8 @@
       <h2>Overview</h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <table id="overview" class="table">
-        <thead>
-          <tr>
-            <th>Connections</th>
-            <th>Channels</th>
-            <th>Consumers</th>
-            <th>Exchanges</th>
-            <th>Queues</th>
-          </tr>
-        </thead>
+    <main>
+      <table id="overview" class="stats-table card">
         <tbody>
           <tr>
             <td class="connections"></td>
@@ -34,13 +25,20 @@
             <td class="queues"></td>
           </tr>
         </tbody>
+        <tfoot>
+          <tr>
+            <th>Connections</th>
+            <th>Channels</th>
+            <th>Consumers</th>
+            <th>Exchanges</th>
+            <th>Queues</th>
+          </tr>
+        </tfoot>
       </table>
-      <form id="definitions" method="post" enctype="multipart/form-data" action="/api/definitions/upload">
-        <fieldset>
-          <legend>Upload definitions</legend>
-          <input id="file" name="file" type="file" accept=".json" required />
-          <button type="submit" class="btn-primary">Upload</button>
-        </fieldset>
+      <form id="definitions" method="post" enctype="multipart/form-data" action="/api/definitions/upload" class="form card">
+        <legend>Upload definitions</legend>
+        <input id="file" name="file" type="file" accept=".json" required />
+        <button type="submit" class="btn-primary">Upload</button>
       </form>
     </main>
     <footer></footer>
