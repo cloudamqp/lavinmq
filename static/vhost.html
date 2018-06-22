@@ -103,7 +103,7 @@
       })
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
-      const tableOptions = { url: permissionsUrl, sortBy: [], interval: 0 }
+      const tableOptions = { url: permissionsUrl, keyColumns: ['user'], interval: 0 }
       const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         const btn = document.createElement('button')
         btn.classList.add('btn-secondary')

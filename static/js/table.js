@@ -6,7 +6,7 @@
     let reverseOrder = false
     let updateTimer = null
     const url = options.url
-    const keyColumns = options.sortBy
+    const keyColumns = options.keyColumns
     const interval = options.interval
 
     makeHeadersSortable()

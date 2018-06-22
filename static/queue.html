@@ -224,7 +224,7 @@
       const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = queue + ' | AvalancheMQ'
 
-      const consumersTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, function (tr, item) {
+      const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item) {
         const channelLink = document.createElement('a')
         channelLink.href = '/channel?name=' + encodeURIComponent(item.channel_details.name)
         channelLink.textContent = item.channel_details.name
@@ -267,7 +267,7 @@
       updateQueue(true)
       setInterval(updateQueue, 5000)
 
-      const tableOptions = { url: queueUrl + '/bindings', sortBy: [], interval: 5000 }
+      const tableOptions = { url: queueUrl + '/bindings', keyColumns: ['properties_key'], interval: 5000 }
       const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
         if (item.source === '') {
           const td = avalanchemq.table.renderCell(tr, 0, '(Default exchange binding)')

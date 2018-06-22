@@ -215,11 +215,6 @@ aside li.active a {
   padding: 0.2em 0.3em;
 }
 
-.table button {
-  width: 100%;
-  max-width: 200px;
-}
-
 #table-error {
   color: red;
   float: right;

@@ -138,7 +138,7 @@
     <script>
       avalanchemq.vhosts.addVhostOptions('createShovel')
 
-      const shovelsTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, (tr, item) => {
+      const shovelsTable = avalanchemq.table.renderTable('table', { keyColumns: ['vhost', 'name'] }, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
         avalanchemq.table.renderCell(tr, 2, item.value['src-uri'])

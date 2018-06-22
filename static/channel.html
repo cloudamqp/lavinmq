@@ -73,7 +73,7 @@
       let vhost = null
       document.title = channel + ' | AvalancheMQ'
 
-      const consumersTable = avalanchemq.table.renderTable('table', { sortBy: ['name'] }, function (tr, item) {
+      const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item) {
         avalanchemq.table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
         queueLink.href = '/queue?name=' + encodeURIComponent(item.queue.name) + '&vhost=' + encodeURIComponent(vhost)

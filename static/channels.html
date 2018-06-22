@@ -41,7 +41,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const tableOptions = { url: '/api/channels', sortBy: ['name'], interval: 5000 }
+      const tableOptions = { url: '/api/channels', keyColumns: ['name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let mode = ''
         mode += item.confirm ? ' C' : ''

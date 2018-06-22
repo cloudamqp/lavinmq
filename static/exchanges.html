@@ -88,7 +88,7 @@
         select.add(opt)
       }
 
-      const tableOptions = { url: '/api/exchanges', sortBy: ['vhost', 'name'], interval: 5000 }
+      const tableOptions = { url: '/api/exchanges', keyColumns: ['vhost', 'name'], interval: 5000 }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let features = ''
         features += item.durable ? ' D' : ''

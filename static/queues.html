@@ -73,7 +73,7 @@
     <script>
       avalanchemq.vhosts.addVhostOptions('declare')
 
-      const tableOptions = { url: '/api/queues', sortBy: ['vhost', 'name'], interval: 5000 }
+      const tableOptions = { url: '/api/queues', keyColumns: ['vhost', 'name'], interval: 5000 }
       const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         let features = ''
         features += item.durable ? ' D' : ''

@@ -140,7 +140,7 @@
       }
       updateExchange()
 
-      const tableOptions = { url: exchangeUrl + '/bindings/destination', sortBy: [], interval: 5000 }
+      const tableOptions = { url: exchangeUrl + '/bindings/destination', keyColumns: ['properties_key'], interval: 5000 }
       const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
         if (item.source === '') {
           const td = avalanchemq.table.renderCell(tr, 0, '(Default exchange binding)')

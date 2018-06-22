@@ -44,7 +44,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const tableOptions = { url: '/api/connections', sortBy: ['name'], interval: 5000 }
+      const tableOptions = { url: '/api/connections', keyColumns: ['name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
         const client = item.client_properties.product + ' / ' + item.client_properties.platform
         const connectionLink = document.createElement('a')
