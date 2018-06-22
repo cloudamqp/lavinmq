@@ -327,6 +327,10 @@ a[data-tag] {
   margin-bottom: 20px;
 }
 
+.form button[type="submit"], .form input[type="submit"] {
+  margin-left: 155px;
+}
+
 select, button {
   height: 29px;
 }
