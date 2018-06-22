@@ -1,5 +1,9 @@
 (function () {
   document.getElementsByTagName('aside')[0].innerHTML = `
+    <h1>
+      AvalancheMQ
+      <small id="version"></small>
+    </h1>
     <ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/connections">Connections</a></li>
@@ -55,14 +59,15 @@
     toggleSubMenu(activeLi, false)
   }
 
-  document.getElementsByTagName('header')[0].innerHTML = `
-    <h1>
-      AvalancheMQ
-      <small id="version"></small>
-    </h1>
+  document.getElementsByTagName('header')[0].insertAdjacentHTML('beforeend', `
     <div id="user-info">
-      <span>👤:&nbsp;</span><span id="username"></span>
+      <span class="head">👤</span><span id="username"></span>
       <span id="vhost"></span>
     </div>
+  `)
+
+  document.getElementsByTagName('footer')[0].innerHTML = `
+    AvalancheMQ is open source and developed by
+    <a href="http://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a>
   `
 })()

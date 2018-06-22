@@ -31,8 +31,10 @@ module AvalancheMQ
         serve(context, params["filename"])
       end
 
-      get "/js/:filename" do |context, params|
-        serve(context, "js/#{params["filename"]}")
+      %w(js img).each do |r|
+        get "/#{r}/:filename" do |context, params|
+          serve(context, "#{r}/#{params["filename"]}")
+        end
       end
     end
 
@@ -68,6 +70,7 @@ module AvalancheMQ
       when ".png"  then "image/png"
       when ".jpg"  then "image/jpeg"
       when ".gif"  then "image/gif"
+      when ".svg"  then "image/svg+xml"
       else              "application/octet-stream"
       end
     end

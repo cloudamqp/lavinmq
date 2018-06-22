@@ -4,67 +4,152 @@
   --theme-color-dark-highlight2: rgb(119, 122, 128);
   --theme-color-light: #EFF7F6;
   --theme-color-link: #A78C88;
+
+  --font-color-light: #9A9A9A;
+  --font-color: rgb(100, 100, 100);
+  --font-color-dark: #2C2C2C;
+  --bg-color: #EBECF1;
 }
 
 body {
   display: grid;
   grid-template-columns: 250px auto;
-  grid-template-rows: 70px auto 100px;
+  grid-template-rows: 60px 80px auto 60px;
   margin: 0;
   min-height: 100vh;
   font-family: 'Roboto', sans-serif;
-  background-color: white;
-  color: var(--theme-color-dark);
+  background-color: var(--bg-color);
+  color: var(--font-color);
 }
 
 header,
 footer {
-  grid-column: 1 / span 2;
-  background-color: var(--theme-color-light);
-  padding: 10px;
+  grid-column: 2 / span 1;
+}
+
+header {
+  grid-row: 1 / span 2;
+  background-image: url(img/bg-head.jpg);
+  background-position-x: -270px;
+  color: #FFF;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: 50px auto;
+  padding: 5px 20px;
+}
+
+header h2 {
+  align-self: center;
+  margin: 0 0 0 20px;
 }
 
 main {
-  grid-column: 2 / span 1;
-  padding: 10px;
+  grid-row: 2 / span 2;
+  grid-column: 2;
+  align-self: start;
+  margin: 0 20px 20px;
+  padding: 20px;
+  border-radius: 4px;
+  box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
+  background-color: #FFF;
 }
 
 aside {
   grid-column: 1 / span 1;
-  background-color: var(--theme-color-dark);
-  color: var(--theme-color-light);
+  grid-row: 1 / span 4;
+  background-color: rgba(0, 0, 0, 0.8);
+  --font-color: #FFF;
+  --highlight-color: rgba(0, 0, 0, 0.4);
+  color: var(--font-color);
+  position: relative;
+}
+
+aside::after {
+  background-image: url(img/bg-mountain.jpg);
+  content: "";
+  opacity: 0.9;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  z-index: -1;
+}
+
+footer {
+  margin: 0 20px;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
+  background-color: #FFF;
+  color: var(--font-color-light);
+  font-size: 14px;
+  padding: 20px;
+}
+
+footer .logo {
+  vertical-align: sub;
+  height: 20px;
 }
 
 @media (max-width: 700px) {
   body {
-    grid-template-rows: 70px auto auto 100px;
+    grid-template-columns: auto;
+    grid-template-rows: auto 60px 80px auto 60px;
   }
 
-  main, aside {
-    grid-column: 1 / span 2;
+  main, aside, header, footer {
+    grid-column: 1 / span 1;
   }
 
-  aside a {
+  header {
+    grid-row: 2 / span 2;
+  }
+
+  main {
+    grid-row: 3 / span 2;
+  }
+
+  aside {
+    grid-row: 1 / span 1;
+  }
+
+  aside * {
     text-align: center;
   }
 }
 
-header {
-  display: grid;
-  grid-template-columns: auto 200px;
-  border-bottom: 1px solid #d1d9e8;
+aside h1 {
+  margin: 0.83em 0.83em 0;
+  padding-bottom: 0.83em;
+  border-bottom: 1px solid rgb(126, 126, 126);
 }
 
-header h1 {
-  grid-column: 1;
-  align-self: center;
-  margin: 0;
+aside h1 small {
+  font-size: 14px;
+  font-weight: 100;
+  opacity: 0.6;
+  margin-left: 10px;
+}
+
+#version:before {
+  content: "v ";
 }
 
 #user-info {
   grid-column: 2;
   align-self: center;
   justify-self: end;
+}
+
+#user-info .head {
+  height: 30px;
+  width: 30px;
+  background-color: #FFF;
+  border-radius: 50%;
+  display: inline-block;
+  text-align: center;
+  margin-right: 15px;
 }
 
 aside ul {
@@ -74,7 +159,10 @@ aside ul {
 
 aside ul li a {
   display: block;
-  padding: 8px 20px;
+  padding: 0 20px;
+  font-size: 20px;
+  line-height: 50px;
+  height: 50px;
 }
 
 aside ul ul li a {
@@ -83,16 +171,21 @@ aside ul ul li a {
 }
 
 aside ul ul li a:hover {
-  background-color: var(--theme-color-dark-highlight2);
+  background-color: rgba(0, 0, 0, 0.2);
 }
 
 aside a, aside a:visited {
-  color: var(--theme-color-light);
+  color: var(--font-color);
   text-decoration: none;
 }
 
-aside a:hover, aside li.active a {
-  background-color: var(--theme-color-dark-highlight);
+aside a:hover {
+  background-color: var(--highlight-color);
+}
+
+aside li.active a {
+  background-color: var(--highlight-color);
+  border-left: 6px solid #3C9368;
 }
 
 .table {
@@ -227,6 +320,12 @@ fieldset {
   border-radius: 3px;
   border-style: solid;
   border-color: var(--theme-color-light);
+  color: var(--font-color-dark);
+}
+
+main h3 {
+  color: var(--font-color-dark);
+  font-size: 20px;
 }
 
 h2 small {
