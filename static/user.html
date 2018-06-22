@@ -198,9 +198,11 @@
       document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/users/' + urlEncodedUsername
-        avalanchemq.http.request('DELETE', url)
-          .then(() => { window.location = '/users' })
-          .catch(e => console.error(e))
+        if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
+          avalanchemq.http.request('DELETE', url)
+            .then(() => { window.location = '/users' })
+            .catch(e => console.error(e))
+        }
       })
     </script>
   </body>

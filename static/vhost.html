@@ -154,9 +154,11 @@
       document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/vhosts/' + urlEncodedVhost
-        avalanchemq.http.request('DELETE', url)
-          .then(() => { window.location = '/vhosts' })
-          .catch(e => console.error(e))
+        if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
+          avalanchemq.http.request('DELETE', url)
+            .then(() => { window.location = '/vhosts' })
+            .catch(e => console.error(e))
+        }
       })
     </script>
   </body>

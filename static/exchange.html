@@ -205,9 +205,11 @@
       document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
-        avalanchemq.http.request('DELETE', url)
-          .then(() => { window.location = '/exchanges' })
-          .catch(e => console.error(e))
+        if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
+          avalanchemq.http.request('DELETE', url)
+            .then(() => { window.location = '/exchanges' })
+            .catch(e => console.error(e))
+        }
       })
     </script>
   </body>
