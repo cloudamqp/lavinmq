@@ -122,7 +122,7 @@ footer .logo {
 }
 
 aside h1 {
-  margin: 0.83em 0.83em 0;
+  margin: 14px 14px 0;
   padding-bottom: 14px;
   border-bottom: 1px solid rgb(126, 126, 126);
 }
@@ -147,6 +147,7 @@ aside h1 small {
 #user-info .head {
   height: 30px;
   width: 30px;
+  line-height: 30px;
   background-color: #FFF;
   border-radius: 50%;
   display: inline-block;
