@@ -290,6 +290,11 @@ aside li.active a {
   color: var(--font-color-light);
 }
 
+.stats-table th a {
+  color: var(--font-color-light);
+  text-decoration: none;
+}
+
 label {
   display: block;
   margin: 0.5em 0;
