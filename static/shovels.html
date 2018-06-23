@@ -138,7 +138,11 @@
     <script>
       avalanchemq.vhosts.addVhostOptions('createShovel')
 
-      const shovelsTable = avalanchemq.table.renderTable('table', { keyColumns: ['vhost', 'name'] }, (tr, item) => {
+      const shovelsTable = avalanchemq.table.renderTable('table', { keyColumns: ['vhost', 'name'] }, (tr, item, all) => {
+        if (!all) {
+          avalanchemq.table.renderCell(tr, 10, item.state)
+          return
+        }
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
         avalanchemq.table.renderCell(tr, 2, item.value['src-uri'])
@@ -167,7 +171,6 @@
         avalanchemq.table.renderCell(tr, 7, item.value['reconnect-delay'])
         avalanchemq.table.renderCell(tr, 8, item.value['ack-mode'])
         avalanchemq.table.renderCell(tr, 9, item.value['src-delete-after'])
-        avalanchemq.table.renderCell(tr, 10, item.state)
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'

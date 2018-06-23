@@ -268,7 +268,8 @@
       setInterval(updateQueue, 5000)
 
       const tableOptions = { url: queueUrl + '/bindings', keyColumns: ['properties_key'], interval: 5000 }
-      const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item) {
+      const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
+        if (!all) return
         if (item.source === '') {
           const td = avalanchemq.table.renderCell(tr, 0, '(Default exchange binding)')
           td.setAttribute('colspan', 4)

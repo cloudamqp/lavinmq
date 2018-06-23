@@ -62,17 +62,18 @@
       let usersTable = null
       avalanchemq.http.request('GET', '/api/permissions').then(permissions => {
         const tableOptions = { url: '/api/users', keyColumns: ['vhost', 'name'], interval: 0 }
-        usersTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+        usersTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
+          if (all) {
+            const userLink = document.createElement('a')
+            userLink.href = '/user?name=' + encodeURIComponent(item.name)
+            userLink.textContent = item.name
+            avalanchemq.table.renderCell(tr, 0, userLink)
+          }
           const hasPassword = item.password_hash.length ? '●' : '○'
           const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
-          const userLink = document.createElement('a')
-          userLink.href = '/user?name=' + encodeURIComponent(item.name)
-          userLink.textContent = item.name
-          avalanchemq.table.renderCell(tr, 0, userLink)
           avalanchemq.table.renderCell(tr, 1, item.tags)
           avalanchemq.table.renderCell(tr, 2, vhosts)
-          avalanchemq.table.renderCell(tr, 3, hasPassword)
-            .classList.add('center')
+          avalanchemq.table.renderCell(tr, 3, hasPassword, 'center')
         })
       })
 

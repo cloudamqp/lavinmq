@@ -89,18 +89,20 @@
       }
 
       const tableOptions = { url: '/api/exchanges', keyColumns: ['vhost', 'name'], interval: 5000 }
-      const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
-        let features = ''
-        features += item.durable ? ' D' : ''
-        features += item.auto_delete ? ' AD' : ''
-        features += item.internal ? ' I' : ''
-        const exchangeLink = document.createElement('a')
-        exchangeLink.href = '/exchange?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
-        exchangeLink.textContent = item.name
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, exchangeLink)
-        avalanchemq.table.renderCell(tr, 2, item.type)
-        avalanchemq.table.renderCell(tr, 3, features, 'center')
+      const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+        if (all) {
+          let features = ''
+          features += item.durable ? ' D' : ''
+          features += item.auto_delete ? ' AD' : ''
+          features += item.internal ? ' I' : ''
+          const exchangeLink = document.createElement('a')
+          exchangeLink.href = '/exchange?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
+          exchangeLink.textContent = item.name
+          avalanchemq.table.renderCell(tr, 0, item.vhost)
+          avalanchemq.table.renderCell(tr, 1, exchangeLink)
+          avalanchemq.table.renderCell(tr, 2, item.type)
+          avalanchemq.table.renderCell(tr, 3, features, 'center')
+        }
         let policyLink = ''
         if (item.policy) {
           policyLink = document.createElement('a')

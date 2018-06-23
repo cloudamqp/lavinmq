@@ -53,7 +53,6 @@
             <th>Ack required</th>
             <th>Exclusive</th>
             <th>Prefetch count</th>
-            <th>Arguments</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -73,7 +72,8 @@
       let vhost = null
       document.title = channel + ' | AvalancheMQ'
 
-      const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item) {
+      const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item, all) {
+        if (!all) return
         avalanchemq.table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
         queueLink.href = '/queue?name=' + encodeURIComponent(item.queue.name) + '&vhost=' + encodeURIComponent(vhost)
@@ -84,7 +84,6 @@
         avalanchemq.table.renderCell(tr, 2, ack)
         avalanchemq.table.renderCell(tr, 3, exclusive)
         avalanchemq.table.renderCell(tr, 4, item.prefetch_count)
-        avalanchemq.table.renderHtmlCell(tr, 5, '<pre>' + item.arguments + '</pre>')
       })
 
       const channelUrl = '/api/channels/' + urlEncodedChannel

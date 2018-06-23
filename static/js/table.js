@@ -70,9 +70,7 @@
       if (typeof raw === "string") {
         data = JSON.parse(raw)
       }
-      if (!Array.isArray(data)) {
-        return
-      }
+      if (!Array.isArray(data)) return
       data.sort(byColumn)
       document.getElementById(id + '-count').textContent = data.length
       const t = document.getElementById(id).tBodies[0]
@@ -80,15 +78,11 @@
         const item = data[i]
         const foundIndex = findIndex(t.rows, i, item)
         if (foundIndex !== -1) {
-          let d = foundIndex - i
-          while (d--) {
-            t.deleteRow(i)
-          }
-          renderRow(t.rows[i], item)
+          renderRow(t.rows[i], item, false)
         } else {
           const tr = t.insertRow(i)
           setKeyAttributes(tr, item)
-          renderRow(tr, item)
+          renderRow(tr, item, true)
         }
       }
 

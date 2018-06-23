@@ -45,22 +45,26 @@
     <script src="/js/table.js"></script>
     <script>
       const tableOptions = { url: '/api/connections', keyColumns: ['name'], interval: 5000 }
-      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
-        const client = item.client_properties.product + ' / ' + item.client_properties.platform
-        const connectionLink = document.createElement('a')
-        connectionLink.href = '/connection?name=' + encodeURIComponent(item.name)
-        connectionLink.textContent = item.name
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, connectionLink)
-        avalanchemq.table.renderCell(tr, 2, item.user)
+      avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+        if (all) {
+          const client = item.client_properties.product + ' / ' + item.client_properties.platform
+          const connectionLink = document.createElement('a')
+          connectionLink.href = '/connection?name=' + encodeURIComponent(item.name)
+          connectionLink.textContent = item.name
+          avalanchemq.table.renderCell(tr, 0, item.vhost)
+          avalanchemq.table.renderCell(tr, 1, connectionLink)
+          avalanchemq.table.renderCell(tr, 2, item.user)
+          tr.insertCell(-1)
+          avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
+          tr.insertCell(-1)
+          avalanchemq.table.renderCell(tr, 6, item.channel_max, 'right')
+          avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
+          avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + item.client_properties.version + '</small>')
+          avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at))
+        }
         const state = item.state == 'running' ? 'state-ok' : 'state-error'
         avalanchemq.table.renderCell(tr, 3, null, 'center ' + state)
-        avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
         avalanchemq.table.renderCell(tr, 5, item.channels, 'right')
-        avalanchemq.table.renderCell(tr, 6, item.channel_max, 'right')
-        avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
-        avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + item.client_properties.version + '</small>')
-        avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at))
       })
     </script>
   </body>

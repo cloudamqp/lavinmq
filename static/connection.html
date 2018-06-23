@@ -135,16 +135,21 @@
       setInterval(updateConnection, 5000)
       const channelsUrl = connectionUrl + '/channels'
       const tableOptions = { url: channelsUrl, keyColumns: ['name'], interval: 5000 }
-      avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
+      avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+        if (all) {
+          const channelLink = document.createElement('a')
+          const urlEncodedChannel = encodeURIComponent(item.name)
+          channelLink.textContent = item.name
+          channelLink.href = '/channel?name=' + urlEncodedChannel
+          avalanchemq.table.renderCell(tr, 0, channelLink)
+          avalanchemq.table.renderCell(tr, 1, item.vhost)
+          avalanchemq.table.renderCell(tr, 2, item.username)
+          for (let i = 0; i < 4; i++) {
+            tr.insertCell(-1)
+          }
+        }
         let mode = ''
         mode += item.confirm ? ' C' : ''
-        const channelLink = document.createElement('a')
-        const urlEncodedChannel = encodeURIComponent(item.name)
-        channelLink.textContent = item.name
-        channelLink.href = '/channel?name=' + urlEncodedChannel
-        avalanchemq.table.renderCell(tr, 0, channelLink)
-        avalanchemq.table.renderCell(tr, 1, item.vhost)
-        avalanchemq.table.renderCell(tr, 2, item.username)
         avalanchemq.table.renderCell(tr, 3, mode)
         avalanchemq.table.renderCell(tr, 4, item.consumer_count)
         avalanchemq.table.renderCell(tr, 5, item.prefetch_count)

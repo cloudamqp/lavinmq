@@ -54,7 +54,7 @@
     <script src="/js/table.js"></script>
     <script>
       const tableOptions = { url: '/api/vhosts', keyColumns: ['name'], interval: 5000 }
-      const vhostTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+      const vhostTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
@@ -71,11 +71,13 @@
         })
 
         permissionsPromise.then(permissions => {
+          if (all) {
+            const vhostLink = document.createElement('a')
+            vhostLink.href = '/vhost?name=' + urlEncodedVhost
+            vhostLink.textContent = item.name
+            avalanchemq.table.renderCell(tr, 0, vhostLink)
+          }
           const userList = permissions.filter(p => p.vhost === item.name).map(p => p.user).join(', ')
-          const vhostLink = document.createElement('a')
-          vhostLink.href = '/vhost?name=' + urlEncodedVhost
-          vhostLink.textContent = item.name
-          avalanchemq.table.renderCell(tr, 0, vhostLink)
           avalanchemq.table.renderCell(tr, 1, userList)
           avalanchemq.table.renderCell(tr, 2, item.messages_ready, 'right')
           avalanchemq.table.renderCell(tr, 3, item.messages_unacknowledged, 'right')

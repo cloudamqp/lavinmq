@@ -74,17 +74,20 @@
       avalanchemq.vhosts.addVhostOptions('declare')
 
       const tableOptions = { url: '/api/queues', keyColumns: ['vhost', 'name'], interval: 5000 }
-      const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item) {
-        let features = ''
-        features += item.durable ? ' D' : ''
-        features += item.auto_delete ? ' AD' : ''
-        features += item.exclusive ? ' E' : ''
-        const queueLink = document.createElement('a')
-        queueLink.href = '/queue?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
-        queueLink.textContent = item.name
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, queueLink)
-        avalanchemq.table.renderCell(tr, 2, features, 'center')
+      const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+        if (all) {
+          let features = ''
+          features += item.durable ? ' D' : ''
+          features += item.auto_delete ? ' AD' : ''
+          features += item.exclusive ? ' E' : ''
+          const queueLink = document.createElement('a')
+          queueLink.href = '/queue?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
+          queueLink.textContent = item.name
+          avalanchemq.table.renderCell(tr, 0, item.vhost)
+          avalanchemq.table.renderCell(tr, 1, queueLink)
+          avalanchemq.table.renderCell(tr, 2, features, 'center')
+        }
+
         let policyLink = ''
         if (item.policy) {
           policyLink = document.createElement('a')
