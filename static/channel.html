@@ -81,9 +81,9 @@
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
         avalanchemq.table.renderCell(tr, 1, queueLink)
-        avalanchemq.table.renderCell(tr, 2, ack)
-        avalanchemq.table.renderCell(tr, 3, exclusive)
-        avalanchemq.table.renderCell(tr, 4, item.prefetch_count)
+        avalanchemq.table.renderCell(tr, 2, ack, 'center')
+        avalanchemq.table.renderCell(tr, 3, exclusive, 'center')
+        avalanchemq.table.renderCell(tr, 4, item.prefetch_count, 'right')
       })
 
       const channelUrl = '/api/channels/' + urlEncodedChannel
