@@ -17,53 +17,53 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <div id="table-error"></div>
-      <table id="table" class="table">
-        <thead>
-          <tr>
-            <th data-sort-key="vhost">Virtual host</th>
-            <th data-sort-key="name">Name</th>
-            <th data-sort-key="type">Type</th>
-            <th>Features</th>
-            <th data-sort-key="policy">Policy</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <form method="put" id="addExchange" class="form">
-        <fieldset>
-          <legend>Add exchange</legend>
-          <label>
-            <span>Virtual host</span>
-            <select name="vhost" required></select>
-          </label>
-          <label>
-            <span>Name</span>
-            <input type="text" name="name" required>
-          </label>
-          <label>
-            <span>Type</span>
-            <select name="type" required></select>
-          </label>
-          <label>
-            <span>Durable</span>
-            <input type="checkbox" name="durable" value="1">
-          </label>
-          <label>
-            <span>Auto-delete</span>
-            <input type="checkbox" name="auto_delete" value="1">
-          </label>
-          <label>
-            <span>Internal</span>
-            <input type="checkbox" name="internal" value="1">
-          </label>
-          <label>
-            <span>Arguments</span>
-            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-          </label>
-          <button type="submit" class="btn-primary">Add exchange</button>
-        </fieldset>
+    <main>
+      <section class="card">
+        <div id="table-error"></div>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th data-sort-key="vhost">Virtual host</th>
+              <th data-sort-key="name">Name</th>
+              <th data-sort-key="type">Type</th>
+              <th>Features</th>
+              <th data-sort-key="policy">Policy</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="addExchange" class="form card">
+        <h3>Add exchange</h3>
+        <label>
+          <span>Virtual host</span>
+          <select name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <label>
+          <span>Type</span>
+          <select name="type" required></select>
+        </label>
+        <label>
+          <span>Durable</span>
+          <input type="checkbox" name="durable" value="1">
+        </label>
+        <label>
+          <span>Auto-delete</span>
+          <input type="checkbox" name="auto_delete" value="1">
+        </label>
+        <label>
+          <span>Internal</span>
+          <input type="checkbox" name="internal" value="1">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+        </label>
+        <button type="submit" class="btn-primary">Add exchange</button>
       </form>
     </main>
     <footer></footer>

@@ -17,33 +17,33 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <div id="table-error"></div>
-      <table id="table" class="table">
-        <thead>
-          <tr>
-            <td colspan="2">Overview</td>
-            <td colspan="3">Messages</td>
-          </tr>
-          <tr>
-            <th data-sort-key="name">Name</th>
-            <th>Users</th>
-            <th data-sort-key="ready">Ready</th>
-            <th data-sort-key="unacked">Unacked</th>
-            <th data-sort-key="total">Total</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <form method="put" id="createVhost" class="form">
-        <fieldset>
-          <legend>Add virtual host</legend>
-          <label>
-            <span>Name</span>
-            <input type="text" name="name" required>
-          </label>
-          <button type="submit" class="btn-primary">Add virtual host</button>
-        </fieldset>
+    <main>
+      <section class="card">
+        <div id="table-error"></div>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <td colspan="2">Overview</td>
+              <td colspan="3">Messages</td>
+            </tr>
+            <tr>
+              <th data-sort-key="name">Name</th>
+              <th>Users</th>
+              <th data-sort-key="ready">Ready</th>
+              <th data-sort-key="unacked">Unacked</th>
+              <th data-sort-key="total">Total</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="createVhost" class="form card">
+        <h3>Add virtual host</h3>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <button type="submit" class="btn-primary">Add virtual host</button>
       </form>
     </main>
     <footer></footer>

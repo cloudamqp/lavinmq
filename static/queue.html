@@ -17,119 +17,117 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <table class="details-table">
-        <tr>
-          <th>Features</th>
-          <td id="q-features"></td>
-          <th>State</th>
-          <td id="q-state"></td>
-          <th rowspan="2">Messages</th>
-          <td rowspan="2">
-            <table>
-              <tr>
-                <th>Total</th>
-                <th>Ready</th>
-                <th>Unacked</th>
-              </tr>
-              <tr>
-                <td id="q-total"></td>
-                <td id="q-ready"></td>
-                <td id="q-unacked"></td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-        <tr>
-          <th>Policy</th>
-          <td id="q-policy"></td>
-          <th>Consumers</th>
-          <td id="q-consumers"></td>
-        </tr>
-      </table>
-      <div id="table-error"></div>
-      <h3>
-        Consumers
-        <small id="table-count"></small>
-      </h3>
-      <table id="table" class="table">
-        <thead>
+    <main>
+      <section class="card">
+        <table class="details-table">
           <tr>
-            <th>Channel</th>
-            <th>Consumer tag</th>
-            <th>Ack required</th>
-            <th>Exclusive</th>
-            <th>Prefetch count</th>
-            <th>Arguments</th>
+            <th>Features</th>
+            <td id="q-features"></td>
+            <th>State</th>
+            <td id="q-state"></td>
+            <th rowspan="2">Messages</th>
+            <td rowspan="2">
+              <table>
+                <tr>
+                  <th>Total</th>
+                  <th>Ready</th>
+                  <th>Unacked</th>
+                </tr>
+                <tr>
+                  <td id="q-total"></td>
+                  <td id="q-ready"></td>
+                  <td id="q-unacked"></td>
+                </tr>
+              </table>
+            </td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <div id="bindings-table-error"></div>
-      <h3>
-        Bindings
-        <small id="bindings-table-count"></small>
-      </h3>
-      <table id="bindings-table" class="table">
-        <thead>
           <tr>
-            <th>From</th>
-            <th>Routing key</th>
-            <th>Arguments</th>
-            <th></th>
+            <th>Policy</th>
+            <td id="q-policy"></td>
+            <th>Consumers</th>
+            <td id="q-consumers"></td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <form method="post" id="addBinding" class="form">
-        <fieldset>
-          <legend>Add a binding to this queue</legend>
-          <label>
-            <span>From exchange</span>
-            <input name="source" type="text" required>
-          </label>
-          <label>
-            <span>Routing key</span>
-            <input name="routing_key" type="text">
-          </label>
-          <label>
-            <span>Arguments</span>
-            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-          </label>
-          <button type="submit" class="btn-primary">Bind</button>
-        </fieldset>
+        </table>
+        <div id="table-error"></div>
+        <h3>
+          Consumers
+          <small id="table-count"></small>
+        </h3>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th>Channel</th>
+              <th>Consumer tag</th>
+              <th>Ack required</th>
+              <th>Exclusive</th>
+              <th>Prefetch count</th>
+              <th>Arguments</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="bindings-table-error"></div>
+        <h3>
+          Bindings
+          <small id="bindings-table-count"></small>
+        </h3>
+        <table id="bindings-table" class="table">
+          <thead>
+            <tr>
+              <th>From</th>
+              <th>Routing key</th>
+              <th>Arguments</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="post" id="addBinding" class="form card">
+        <h3>Add a binding to this queue</h3>
+        <label>
+          <span>From exchange</span>
+          <input name="source" type="text" required>
+        </label>
+        <label>
+          <span>Routing key</span>
+          <input name="routing_key" type="text">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+        </label>
+        <button type="submit" class="btn-primary">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form">
-        <fieldset>
-          <legend>Publish message</legend>
-          <p>
-            Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to this queue.
-          </p>
-          <label>
-            <span>Delivery mode</span>
-            <select name="delivery_mode">
-              <option value="1">1 - Transient</option>
-              <option value="2">2 - Persistent</option>
-            </select>
-          </label>
-          <label>
-            <span>Headers</span>
-            <textarea name="headers" placeholder='{ "key": value }'></textarea>
-          </label>
-          <label>
-            <span>Properties</span>
-            <textarea name="properties" placeholder='{ "key": value }'></textarea>
-          </label>
-          <label>
-            <span>Payload</span>
-            <textarea name="payload"></textarea>
-          </label>
-          <button type="submit" class="btn-primary">Publish message</button>
-        </fieldset>
+      <form method="post" id="publishMessage" class="form card">
+        <h3>Publish message</h3>
+        <p>
+          Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to this queue.
+        </p>
+        <label>
+          <span>Delivery mode</span>
+          <select name="delivery_mode">
+            <option value="1">1 - Transient</option>
+            <option value="2">2 - Persistent</option>
+          </select>
+        </label>
+        <label>
+          <span>Headers</span>
+          <textarea name="headers" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label>
+          <span>Properties</span>
+          <textarea name="properties" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label>
+          <span>Payload</span>
+          <textarea name="payload"></textarea>
+        </label>
+        <button type="submit" class="btn-primary">Publish message</button>
       </form>
-      <form method="post" id="getMessages" class="form">
-        <fieldset>
-          <legend>Get messages</legend>
+      <section class="card">
+        <form method="post" id="getMessages" class="form">
+          <h3>Get messages</h3>
           <label>
             <span>Mode</span>
             <select name="mode">
@@ -138,7 +136,6 @@
               <option value="ack_requeue_false">Ack</option>
               <option value="reject_requeue_true">Reject and requeue</option>
               <option value="reject_requeue_false">Reject</option>
-
             </select>
           </label>
           <label>
@@ -153,61 +150,55 @@
             <input type="number" name="messages" value=1>
           </label>
           <button type="submit" class="btn-secondary">Get message(s)</button>
-        </fieldset>
+        </form>
+        <div id="message-template" class="hide">
+          <span>Message <span class="message-number"></span></span>
+          <hr>
+          <span>The server reported <span class="messages-remaining"></span> messages remaining.</span>
+          <table>
+            <tr>
+              <th>Exchange</th>
+              <td class="message-exchange"></td>
+            </tr>
+            <tr>
+              <th>Routing key</th>
+              <td class="message-routing-key"></td>
+            </tr>
+            <tr>
+              <th>Mode</th>
+              <td class="message-mode"></td>
+            </tr>
+            <tr>
+              <th>Properties</th>
+              <td><pre class="message-properties"></pre></td>
+            </tr>
+            <tr>
+              <th>
+                Payload
+                <div><small><span class="message-size"></span> bytes</small></div>
+                <div><small>Encoding: <span class="message-encoding"></span></small></div>
+              </th>
+              <td class="message-payload"></td>
+            </tr>
+          </table>
+        </div>
+        <div id="messages"></div>
+      </section>
+      <form method="post" id="moveMessages" class="form card">
+        <h3>Move messages</h3>
+        <label>
+          <span>Destination queue</span>
+          <input type="text" name="shovel-destination">
+        </label>
+        <button type="submit" class="btn-primary">Move messages</button>
       </form>
-      <div id="message-template" class="hide">
-        <span>Message <span class="message-number"></span></span>
-        <hr>
-        <span>The server reported <span class="messages-remaining"></span> messages remaining.</span>
-        <table>
-          <tr>
-            <th>Exchange</th>
-            <td class="message-exchange"></td>
-          </tr>
-          <tr>
-            <th>Routing key</th>
-            <td class="message-routing-key"></td>
-          </tr>
-          <tr>
-            <th>Mode</th>
-            <td class="message-mode"></td>
-          </tr>
-          <tr>
-            <th>Properties</th>
-            <td><pre class="message-properties"></pre></td>
-          </tr>
-          <tr>
-            <th>
-              Payload
-              <div><small><span class="message-size"></span> bytes</small></div>
-              <div><small>Encoding: <span class="message-encoding"></span></small></div>
-            </th>
-            <td class="message-payload"></td>
-          </tr>
-        </table>
-      </div>
-      <div id="messages"></div>
-      <form method="post" id="moveMessages" class="form">
-        <fieldset>
-          <legend>Move messages</legend>
-          <label>
-            <span>Destination queue</span>
-            <input type="text" name="shovel-destination">
-          </label>
-          <button type="submit" class="btn-primary">Move messages</button>
-        </fieldset>
+      <form method="delete" id="purgeQueue" class="form card">
+        <h3>Purge queue</h3>
+        <button type="submit" class="btn-danger">Purge</button>
       </form>
-      <form method="delete" id="purgeQueue" class="form">
-        <fieldset>
-          <legend>Purge queue</legend>
-          <button type="submit" class="btn-danger">Purge</button>
-        </fieldset>
-      </form>
-      <form method="delete" id="deleteQueue" class="form">
-        <fieldset>
-          <legend>Delete queue</legend>
-          <button type="submit" class="btn-danger">Delete</button>
-        </fieldset>
+      <form method="delete" id="deleteQueue" class="form card">
+        <h3>Delete queue</h3>
+        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

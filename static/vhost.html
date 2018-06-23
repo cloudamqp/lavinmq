@@ -17,68 +17,66 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <h3>
-        Message stats
-      </h3>
-      <table id="msg-table" class="table medium-table">
-        <thead>
-          <tr>
-            <th>Ready</th>
-            <th>Unacked</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          <td id="ready"></td>
-          <td id="unacked"></td>
-          <td id="total"></td>
-        </tbody>
-      </table>
-      <div id="table-error"></div>
-      <h3>
-        Permissions
-        <small id="table-count"></small>
-      </h3>
-      <table id="table" class="table">
-        <thead>
-          <tr>
-            <th>User</th>
-            <th>Configure regexp</th>
-            <th>Write regexp</th>
-            <th>Read regexp</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <form method="put" id="setPermission" class="form">
-        <fieldset>
-          <legend>Set permission</legend>
-          <label>
-            <span>User</span>
-            <select name="user" required></select>
-          </label>
-          <label>
-            <span>Configure regexp</span>
-            <input type="text" name="configure" required value=".*">
-          </label>
-          <label>
-            <span>Write regexp</span>
-            <input type="text" name="write" required value=".*">
-          </label>
-          <label>
-            <span>Read regexp</span>
-            <input type="text" name="read" required value=".*">
-          </label>
-          <button type="submit" class="btn-primary">Set permission</button>
-        </fieldset>
+    <main>
+      <section class="card">
+        <h3>
+          Message stats
+        </h3>
+        <table id="msg-table" class="table medium-table">
+          <thead>
+            <tr>
+              <th>Ready</th>
+              <th>Unacked</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <td id="ready"></td>
+            <td id="unacked"></td>
+            <td id="total"></td>
+          </tbody>
+        </table>
+        <div id="table-error"></div>
+        <h3>
+          Permissions
+          <small id="table-count"></small>
+        </h3>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Configure regexp</th>
+              <th>Write regexp</th>
+              <th>Read regexp</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="setPermission" class="form card">
+        <h3>Set permission</h3>
+        <label>
+          <span>User</span>
+          <select name="user" required></select>
+        </label>
+        <label>
+          <span>Configure regexp</span>
+          <input type="text" name="configure" required value=".*">
+        </label>
+        <label>
+          <span>Write regexp</span>
+          <input type="text" name="write" required value=".*">
+        </label>
+        <label>
+          <span>Read regexp</span>
+          <input type="text" name="read" required value=".*">
+        </label>
+        <button type="submit" class="btn-primary">Set permission</button>
       </form>
-      <form method="delete" id="deleteVhost" class="form">
-        <fieldset>
-          <legend>Delete vhost</legend>
-          <button type="submit" class="btn-danger">Delete</button>
-        </fieldset>
+      <form method="delete" id="deleteVhost" class="form card">
+        <h3>Delete vhost</h3>
+        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

@@ -17,82 +17,78 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <table class="details-table small-table">
-        <tr>
-          <th>Tags</th>
-          <td id="tags"></td>
-        </tr>
-        <tr>
-          <th>Has password</th>
-          <td id="hasPassword"></td>
-        </tr>
-      </table>
-      <div id="table-error"></div>
-      <h3>
-        Permissions
-        <small id="table-count"></small>
-      </h3>
-      <table id="table" class="table">
-        <thead>
+    <main>
+      <section class="card">
+        <table class="details-table small-table">
           <tr>
-            <th>Virtual host</th>
-            <th>Configure regexp</th>
-            <th>Write regexp</th>
-            <th>Read regexp</th>
-            <th></th>
+            <th>Tags</th>
+            <td id="tags"></td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <form method="put" id="setPermission" class="form">
-        <fieldset>
-          <legend>Set permission</legend>
-          <label>
-            <span>Virtual host</span>
-            <select name="vhost" required></select>
-          </label>
-          <label>
-            <span>Configure regexp</span>
-            <input type="text" name="configure" required value=".*">
-          </label>
-          <label>
-            <span>Write regexp</span>
-            <input type="text" name="write" required value=".*">
-          </label>
-          <label>
-            <span>Read regexp</span>
-            <input type="text" name="read" required value=".*">
-          </label>
-          <button type="submit" class="btn-primary">Set permission</button>
-        </fieldset>
+          <tr>
+            <th>Has password</th>
+            <td id="hasPassword"></td>
+          </tr>
+        </table>
+        <div id="table-error"></div>
+        <h3>
+          Permissions
+          <small id="table-count"></small>
+        </h3>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th>Virtual host</th>
+              <th>Configure regexp</th>
+              <th>Write regexp</th>
+              <th>Read regexp</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="setPermission" class="form card">
+        <h3>Set permission</h3>
+        <label>
+          <span>Virtual host</span>
+          <select name="vhost" required></select>
+        </label>
+        <label>
+          <span>Configure regexp</span>
+          <input type="text" name="configure" required value=".*">
+        </label>
+        <label>
+          <span>Write regexp</span>
+          <input type="text" name="write" required value=".*">
+        </label>
+        <label>
+          <span>Read regexp</span>
+          <input type="text" name="read" required value=".*">
+        </label>
+        <button type="submit" class="btn-primary">Set permission</button>
       </form>
-      <form method="put" id="updateUser" class="form">
-        <fieldset>
-          <legend>Update user</legend>
-          <label>
-            <span>Remove password</span>
-            <input type="checkbox" name="remove_password">
-          </label>
-          <label>
-            <span>Password</span>
-            <input type="password" name="password" required>
-          </label>
-          <label>
-            <span>Tags</span>
-            <input type="text" name="tags">
-          </label>
-          <div id="dataTags" class="label">
-            <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
-          </div>
-          <button type="submit" class="btn-primary">Update user</button>
-        </fieldset>
+      <form method="put" id="updateUser" class="form card">
+        <h3>Update user</h3>
+        <label>
+          <span>Remove password</span>
+          <input type="checkbox" name="remove_password">
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" name="password" required>
+        </label>
+        <label>
+          <span>Tags</span>
+          <input type="text" name="tags">
+        </label>
+        <div id="dataTags" class="label">
+          <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
+        </div>
+        <button type="submit" class="btn-primary">Update user</button>
       </form>
-      <form method="delete" id="deleteUser" class="form">
-        <fieldset>
-          <legend>Delete user</legend>
-          <button type="submit" class="btn-danger">Delete</button>
-        </fieldset>
+      <form method="delete" id="deleteUser" class="form card">
+        <h3>Delete user</h3>
+        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

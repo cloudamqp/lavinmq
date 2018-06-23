@@ -17,93 +17,89 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <table class="details-table">
-        <tr>
-          <th>Type</th>
-          <td id="e-type"></td>
-        </tr>
-        <tr>
-          <th>Features</th>
-          <td id="e-features"></td>
-        </tr>
-        <tr>
-          <th>Policy</th>
-          <td id="e-policy"></td>
-        </tr>
-      </table>
-      <div id="bindings-table-error"></div>
-      <h3>
-        Bindings
-        <small id="bindings-table-count"></small>
-      </h3>
-      <table id="bindings-table" class="table">
-        <thead>
+    <main>
+      <section class="card">
+        <table class="details-table">
           <tr>
             <th>Type</th>
-            <th>To</th>
-            <th>Routing key</th>
-            <th>Arguments</th>
-            <th></th>
+            <td id="e-type"></td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <form method="post" id="addBinding" class="form">
-        <fieldset>
-          <legend>Add a binding from this exchange</legend>
-          <label>
-            <select name="dest-type" required>
-              <option value="q">To queue</option>
-              <option value="e">To exchange</option>
-            </select>
-            <input name="destination" type="text" required>
-          </label>
-          <label>
-            <span>Routing key</span>
-            <input name="routing_key" type="text">
-          </label>
-          <label>
-            <span>Arguments</span>
-            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-          </label>
-          <button type="submit" class="btn-primary">Bind</button>
-        </fieldset>
+          <tr>
+            <th>Features</th>
+            <td id="e-features"></td>
+          </tr>
+          <tr>
+            <th>Policy</th>
+            <td id="e-policy"></td>
+          </tr>
+        </table>
+        <div id="bindings-table-error"></div>
+        <h3>
+          Bindings
+          <small id="bindings-table-count"></small>
+        </h3>
+        <table id="bindings-table" class="table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>To</th>
+              <th>Routing key</th>
+              <th>Arguments</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="post" id="addBinding" class="form card">
+        <h3>Add a binding from this exchange</h3>
+        <label>
+          <select name="dest-type" required>
+            <option value="q">To queue</option>
+            <option value="e">To exchange</option>
+          </select>
+          <input name="destination" type="text" required>
+        </label>
+        <label>
+          <span>Routing key</span>
+          <input name="routing_key" type="text">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+        </label>
+        <button type="submit" class="btn-primary">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form">
-        <fieldset>
-          <legend>Publish message</legend>
-          <label>
-            <span>Routing key</span>
-            <input name="routing_key" type="text">
-          </label>
-          <label>
-            <span>Delivery mode</span>
-            <select name="delivery_mode">
-              <option value="1">1 - Transient</option>
-              <option value="2">2 - Persistent</option>
-            </select>
-          </label>
-          <label>
-            <span>Headers</span>
-            <textarea name="headers" placeholder='{ "key": value }'></textarea>
-          </label>
-          <label>
-            <span>Properties</span>
-            <textarea name="properties" placeholder='{ "key": value }'></textarea>
-          </label>
-          <label>
-            <span>Payload</span>
-            <textarea name="payload"></textarea>
-          </label>
-          <button type="submit" class="btn-primary">Publish message</button>
-        </fieldset>
+      <form method="post" id="publishMessage" class="form card">
+        <h3>Publish message</h3>
+        <label>
+          <span>Routing key</span>
+          <input name="routing_key" type="text">
+        </label>
+        <label>
+          <span>Delivery mode</span>
+          <select name="delivery_mode">
+            <option value="1">1 - Transient</option>
+            <option value="2">2 - Persistent</option>
+          </select>
+        </label>
+        <label>
+          <span>Headers</span>
+          <textarea name="headers" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label>
+          <span>Properties</span>
+          <textarea name="properties" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label>
+          <span>Payload</span>
+          <textarea name="payload"></textarea>
+        </label>
+        <button type="submit" class="btn-primary">Publish message</button>
       </form>
-      <form method="delete" id="deleteExchange" class="form">
-        <fieldset>
-          <legend>Delete exchange</legend>
-          <button type="submit" class="btn-danger">Delete</button>
-        </fieldset>
+      <form method="delete" id="deleteExchange" class="form card">
+        <h3>Delete exchange</h3>
+        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

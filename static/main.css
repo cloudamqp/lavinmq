@@ -56,6 +56,10 @@ main {
   background-color: #FFF;
 }
 
+.card > :first-child {
+  margin-top: 0;
+}
+
 aside {
   grid-column: 1 / span 1;
   grid-row: 1 / span 4;
@@ -334,6 +338,10 @@ a[data-tag] {
 
 .form button[type="submit"], .form input[type="submit"] {
   margin-left: 155px;
+}
+
+.form label > select:first-child {
+  width: 151px;
 }
 
 select, button {

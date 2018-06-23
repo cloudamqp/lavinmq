@@ -17,78 +17,78 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <table class="details-table">
-        <tr>
-          <th>Username</th>
-          <td id="conn-username"></td>
-          <th>State</th>
-          <td id="state"></td>
-        </tr>
-        <tr>
-          <th>Connected at</th>
-          <td id="connected_at"></td>
-          <th>Heartbeat</th>
-          <td id="heartbeat"></td>
-        </tr>
-        <tr>
-          <th>Authentication</th>
-          <td id="authentication"></td>
-          <th>Channel max</th>
-          <td id="channel_max"></td>
-        </tr>
-      </table>
-      <div id="table-error"></div>
-      <h3>
-        Channels
-        <small id="table-count"></small>
-      </h3>
-      <table id="table" class="table">
-        <thead>
+    <main>
+      <section class="card">
+        <table class="details-table">
           <tr>
-            <th data-sort-key="name">Name</th>
-            <th data-sort-key="vhost">Virtual Host</th>
-            <th data-sort-key="username">Username</th>
-            <th>Mode</th>
-            <th data-sort-key="consumer_count">Consumers</th>
-            <th data-sort-key="prefetch_count">Prefetch limit</th>
-            <th data-sort-key="messages_unacked">Unacked messages</th>
+            <th>Username</th>
+            <td id="conn-username"></td>
+            <th>State</th>
+            <td id="state"></td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <h3>Client properties</h3>
-      <table class="details-table">
-        <tr>
-          <th>Capabilities</th>
-          <td><pre id="cp-capabilities"></pre></td>
-        </tr>
-        <tr>
-          <th>Product</th>
-          <td id="cp-product"></td>
-        </tr>
-        <tr>
-          <th>Platform</th>
-          <td id="cp-platform"></td>
-        </tr>
-        <tr>
-          <th>Version</th>
-          <td id="cp-version"></td>
-        </tr>
-        <tr>
-          <th>Information</th>
-          <td id="cp-information"></td>
-        </tr>
-      </table>
-      <form method="delete" id="closeConnection" class="form">
-        <fieldset>
-          <legend>Close connection</legend>
-          <label>
-            <span>Reason</span>
-            <input type="text" name="reason" value="Closed via Web management">
-          </label>
-          <button type="submit" class="btn-secondary">Close</button>
-        </fieldset>
+          <tr>
+            <th>Connected at</th>
+            <td id="connected_at"></td>
+            <th>Heartbeat</th>
+            <td id="heartbeat"></td>
+          </tr>
+          <tr>
+            <th>Authentication</th>
+            <td id="authentication"></td>
+            <th>Channel max</th>
+            <td id="channel_max"></td>
+          </tr>
+        </table>
+        <div id="table-error"></div>
+        <h3>
+          Channels
+          <small id="table-count"></small>
+        </h3>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th data-sort-key="name">Name</th>
+              <th data-sort-key="vhost">Virtual Host</th>
+              <th data-sort-key="username">Username</th>
+              <th>Mode</th>
+              <th data-sort-key="consumer_count">Consumers</th>
+              <th data-sort-key="prefetch_count">Prefetch limit</th>
+              <th data-sort-key="messages_unacked">Unacked messages</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h3>Client properties</h3>
+        <table class="details-table">
+          <tr>
+            <th>Capabilities</th>
+            <td><pre id="cp-capabilities"></pre></td>
+          </tr>
+          <tr>
+            <th>Product</th>
+            <td id="cp-product"></td>
+          </tr>
+          <tr>
+            <th>Platform</th>
+            <td id="cp-platform"></td>
+          </tr>
+          <tr>
+            <th>Version</th>
+            <td id="cp-version"></td>
+          </tr>
+          <tr>
+            <th>Information</th>
+            <td id="cp-information"></td>
+          </tr>
+        </table>
+      </section>
+      <form method="delete" id="closeConnection" class="form card">
+        <h3>Close connection</h3>
+        <label>
+          <span>Reason</span>
+          <input type="text" name="reason" value="Closed via Web management">
+        </label>
+        <button type="submit" class="btn-secondary">Close</button>
       </form>
     </main>
     <footer></footer>
