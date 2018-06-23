@@ -67,7 +67,7 @@
 
     function updateTable (raw) {
       let data = raw
-      if (raw instanceof String) {
+      if (typeof raw === "string") {
         data = JSON.parse(raw)
       }
       if (!Array.isArray(data)) {
