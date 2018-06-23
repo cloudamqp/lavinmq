@@ -58,7 +58,7 @@
         <tbody></tbody>
       </table>
       <h3>Client properties</h3>
-      <table>
+      <table class="details-table">
         <tr>
           <th>Capabilities</th>
           <td><pre id="cp-capabilities"></pre></td>
@@ -83,7 +83,10 @@
       <form method="delete" id="closeConnection" class="form">
         <fieldset>
           <legend>Close connection</legend>
-          <input type="text" name="reason" value="Closed via Web management">
+          <label>
+            <span>Reason</span>
+            <input type="text" name="reason" value="Closed via Web management">
+          </label>
           <button type="submit" class="btn-secondary">Close</button>
         </fieldset>
       </form>
