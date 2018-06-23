@@ -60,7 +60,11 @@
     return fetch(path, opts)
       .then(function (response) {
         if (response.status === 401) {
-          redirect('/401')
+          if (location.pathname !== '/401') {
+            redirect('/401')
+          } else {
+            redirectToLogin()
+          }
         } else if (response.status === 404) {
           redirect('/404')
         } else if (!response.ok) {
