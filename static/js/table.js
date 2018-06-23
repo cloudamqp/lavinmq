@@ -4,7 +4,6 @@
   function renderTable (id, options = {}, renderRow) {
     let sortKey = ''
     let reverseOrder = false
-    let updateTimer = null
     const url = options.url
     const keyColumns = options.keyColumns
     const interval = options.interval
@@ -18,15 +17,13 @@
       }
       fetchAndUpdate()
       if (interval) {
-        updateTimer = setInterval(fetchAndUpdate, interval)
+        setInterval(fetchAndUpdate, interval)
       }
     }
 
     function makeHeadersSortable () {
       document.querySelectorAll('#' + id + ' th[data-sort-key]').forEach(function (cell) {
         cell.addEventListener('click', function (e) {
-          // let column = e.target.cellIndex;
-          // let newSortColumn = e.target.textContent.toLowerCase();
           const newSortKey = e.target.getAttribute('data-sort-key')
           if (newSortKey === sortKey) {
             reverseOrder = !reverseOrder
@@ -34,7 +31,6 @@
             sortKey = newSortKey
             reverseOrder = false
           }
-          clearInterval(updateTimer)
           const t = document.getElementById(id).tBodies[0]
           clearRows(t)
           const raw = localStorage.getItem(url)
@@ -74,15 +70,25 @@
       data.sort(byColumn)
       document.getElementById(id + '-count').textContent = data.length
       const t = document.getElementById(id).tBodies[0]
+      let start = 0
       for (let i = 0; i < data.length; i++) {
         const item = data[i]
-        const foundIndex = findIndex(t.rows, i, item)
+        const foundIndex = findIndex(t.rows, start, item)
         if (foundIndex !== -1) {
-          renderRow(t.rows[i], item, false)
+          if (foundIndex !== i) {
+            renderRow(t.rows[i], item, true)
+            setKeyAttributes(t.rows[i], item)
+            renderRow(t.rows[foundIndex], data[foundIndex], true)
+            setKeyAttributes(t.rows[foundIndex], data[foundIndex])
+          } else {
+            renderRow(t.children[i], item, false)
+          }
+          start = Math.min(i + 1, foundIndex)
         } else {
           const tr = t.insertRow(i)
           setKeyAttributes(tr, item)
           renderRow(tr, item, true)
+          start = i + 1
         }
       }
 
