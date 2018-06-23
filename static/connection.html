@@ -110,7 +110,7 @@
           }
           if (all) {
             document.getElementById('conn-username').textContent = item.user
-            document.getElementById('connected_at').textContent = new Date(item.connected_at)
+            document.getElementById('connected_at').textContent = new Date(item.connected_at).toLocaleString()
             document.getElementById('heartbeat').textContent = item.timeout + 's'
             document.getElementById('authentication').textContent = item.auth_mechanism
             document.getElementById('channel_max').textContent = item.channel_max

@@ -60,7 +60,7 @@
           avalanchemq.table.renderCell(tr, 6, item.channel_max, 'right')
           avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
           avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + item.client_properties.version + '</small>')
-          avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at))
+          avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString())
         }
         const state = item.state == 'running' ? 'state-ok' : 'state-error'
         avalanchemq.table.renderCell(tr, 3, null, 'center ' + state)
