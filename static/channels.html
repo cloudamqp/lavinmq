@@ -52,10 +52,10 @@
         avalanchemq.table.renderCell(tr, 0, channelLink)
         avalanchemq.table.renderCell(tr, 1, item.vhost)
         avalanchemq.table.renderCell(tr, 2, item.user)
-        avalanchemq.table.renderCell(tr, 3, mode)
-        avalanchemq.table.renderCell(tr, 4, item.consumer_count)
-        avalanchemq.table.renderCell(tr, 5, item.prefetch_count)
-        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged)
+        avalanchemq.table.renderCell(tr, 3, mode, 'center')
+        avalanchemq.table.renderCell(tr, 4, item.consumer_count, 'right')
+        avalanchemq.table.renderCell(tr, 5, item.prefetch_count, 'right')
+        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged, 'right')
       })
     </script>
   </body>

@@ -77,9 +77,9 @@
           vhostLink.textContent = item.name
           avalanchemq.table.renderCell(tr, 0, vhostLink)
           avalanchemq.table.renderCell(tr, 1, userList)
-          avalanchemq.table.renderCell(tr, 2, item.messages_ready)
-          avalanchemq.table.renderCell(tr, 3, item.messages_unacknowledged)
-          avalanchemq.table.renderCell(tr, 4, item.messages)
+          avalanchemq.table.renderCell(tr, 2, item.messages_ready, 'right')
+          avalanchemq.table.renderCell(tr, 3, item.messages_unacknowledged, 'right')
+          avalanchemq.table.renderCell(tr, 4, item.messages, 'right')
         })
       })
 

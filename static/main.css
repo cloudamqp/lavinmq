@@ -295,6 +295,10 @@ label {
   text-align: center;
 }
 
+.right {
+  text-align: right;
+}
+
 a[data-tag] {
   cursor: pointer;
 }
@@ -406,4 +410,14 @@ a, a:visited {
   text-transform: uppercase;
   background-color: #c46868;
   color: #fff;
+}
+
+.state-ok:after {
+  content: '●';
+  color: green;
+}
+
+.state-error:after {
+  content: '●';
+  color: red;
 }

@@ -132,8 +132,9 @@
     return { updateTable, fetchAndUpdate }
   }
 
-  function renderCell (tr, column, value) {
+  function renderCell (tr, column, value, classList = '') {
     const cell = tr.cells[column] || tr.insertCell(-1)
+    cell.classList = classList
     if (value instanceof Element) {
       if (!value.isEqualNode(cell.firstChild)) {
         while (cell.lastChild) {
@@ -142,7 +143,7 @@
         cell.appendChild(value)
       }
     } else {
-      const text = value === undefined ? '' : value.toString()
+      const text = value == null ? '' : value.toString()
       if (cell.textContent !== text) {
         cell.textContent = text
       }

@@ -100,14 +100,14 @@
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, exchangeLink)
         avalanchemq.table.renderCell(tr, 2, item.type)
-        avalanchemq.table.renderCell(tr, 3, features)
+        avalanchemq.table.renderCell(tr, 3, features, 'center')
         let policyLink = ''
         if (item.policy) {
           policyLink = document.createElement('a')
           policyLink.href = '/policy?name=' + encodeURIComponent(item.policy)
           policyLink.textContent = item.policy
         }
-        avalanchemq.table.renderCell(tr, 4, policyLink)
+        avalanchemq.table.renderCell(tr, 4, policyLink, 'center')
       })
 
       document.querySelector('#addExchange').addEventListener('submit', function (evt) {
