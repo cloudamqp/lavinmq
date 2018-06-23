@@ -96,7 +96,7 @@
           features += item.auto_delete ? ' AD' : ''
           features += item.internal ? ' I' : ''
           const exchangeLink = document.createElement('a')
-          exchangeLink.href = '/exchange?name=' + encodeURIComponent(item.name) + '&vhost=' + encodeURIComponent(item.vhost)
+          exchangeLink.href = '/exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
           exchangeLink.textContent = item.name
           avalanchemq.table.renderCell(tr, 0, item.vhost)
           avalanchemq.table.renderCell(tr, 1, exchangeLink)

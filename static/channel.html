@@ -76,7 +76,7 @@
         if (!all) return
         avalanchemq.table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
-        queueLink.href = '/queue?name=' + encodeURIComponent(item.queue.name) + '&vhost=' + encodeURIComponent(vhost)
+        queueLink.href = '/queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
         queueLink.textContent = item.queue.name
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
