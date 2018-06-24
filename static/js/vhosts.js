@@ -8,7 +8,7 @@
       var vhosts = JSON.parse(raw)
       cb(vhosts)
     }
-    avalanchemq.http.request('GET', url).then(function (vhosts) {
+    return avalanchemq.http.request('GET', url).then(function (vhosts) {
       try {
         localStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
       } catch (e) {
@@ -21,7 +21,7 @@
   }
 
   function addVhostOptions (formId) {
-    fetch(vhosts => {
+    return fetch(vhosts => {
       const select = document.forms[formId].elements['vhost']
       while (select.options.length) {
         select.remove(0)

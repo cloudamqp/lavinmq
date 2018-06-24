@@ -35,10 +35,18 @@
           </tr>
         </tfoot>
       </table>
-      <form id="definitions" method="post" enctype="multipart/form-data" action="/api/definitions/upload" class="form card">
-        <legend>Upload definitions</legend>
+      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card">
+        <h3>Upload definitions</h3>
         <input id="file" name="file" type="file" accept=".json" required />
         <button type="submit" class="btn-primary">Upload</button>
+      </form>
+      <form id="exportDefinitions" method="post" class="form card">
+        <h3>Export definitions</h3>
+        <label>
+          <span>Virtual host</span>
+          <select id="definitionsVhost" name="vhost" required></select>
+        </label>
+        <button type="submit" class="btn-primary">Download</button>
       </form>
     </main>
     <footer></footer>
@@ -48,10 +56,11 @@
 <script src="/js/auth.js"></script>
 <script src="/js/http.js"></script>
 <script src="/js/overview.js"></script>
+<script src="/js/vhosts.js"></script>
 <script src="/js/table.js"></script>
 <script>
   avalanchemq.overview.start()
-  document.querySelector('#definitions').addEventListener('submit', function (evt) {
+  document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
     evt.preventDefault()
     const body = new FormData(this)
     avalanchemq.http.request('POST', '/api/definitions/upload', { body }).then(function () {
@@ -59,6 +68,34 @@
     }).catch(function () {
       alert('Upload failed')
     })
-})
+  })
+
+  avalanchemq.vhosts.addVhostOptions('exportDefinitions').then(() => {
+    const allOpt = '<option value="_all" selected>All</option>'
+    document.querySelector('#definitionsVhost').insertAdjacentHTML('afterbegin', allOpt)
+  })
+  document.querySelector('#exportDefinitions').addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    const body = new FormData(this)
+    let url = '/api/definitions'
+    if (body.get('vhost') !== '_all') {
+      url += '/' + body.get('vhost')
+    }
+    avalanchemq.http.request('GET', url).then(function (data) {
+      const a = document.createElement('a');
+      a.classList.add('hide')
+      let name = 'avalanchemq-definitions-' + window.location.hostname
+      name += '-' + new Date().toISOString() + '.json'
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'text/json', name })
+      a.download = name
+      a.href = URL.createObjectURL(blob)
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }).catch(function (e) {
+      console.error(e)
+    })
+  })
+
 </script>
 
