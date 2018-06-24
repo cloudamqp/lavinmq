@@ -329,7 +329,7 @@ a[data-tag] {
   padding-right: 5px;
 }
 
-.form input:not([type="radio"]):not([type="checkbox"]), .form select {
+.form input:not([type="radio"]):not([type="checkbox"]):not([type="file"]), .form select {
   width: 200px;
 }
 
@@ -341,7 +341,7 @@ a[data-tag] {
   margin-bottom: 20px;
 }
 
-.form button[type="submit"], .form input[type="submit"] {
+.form button[type="submit"]:not(.btn-inline), .form input[type="submit"]:not(.btn-inline) {
   margin-left: 155px;
 }
 
