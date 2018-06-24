@@ -25,10 +25,6 @@
     }
   }
 
-  function redirectToLogin () {
-    window.location.assign('/login')
-  }
-
   function redirect (path) {
     if (location.pathname !== path) {
       window.location.assign(path)
@@ -38,8 +34,8 @@
   function request (method, path, options = {}) {
     const body = options.body
     const headers = options.headers || new Headers()
-    if (!avalanchemq.auth && window.location.pathname !== '/login') {
-      redirectToLogin()
+    if (!avalanchemq.auth) {
+      redirect('/login')
     }
     const hdr = avalanchemq.auth.header()
     headers.append('Authorization', hdr)
@@ -63,7 +59,7 @@
           if (location.pathname !== '/401') {
             redirect('/401')
           } else {
-            redirectToLogin()
+            redirect('/login')
           }
         } else if (response.status === 404) {
           redirect('/404')
@@ -84,7 +80,7 @@
 
   Object.assign(window.avalanchemq, {
     http: {
-      request, redirectToLogin, redirect
+      request, redirect
     }
   })
 })()
