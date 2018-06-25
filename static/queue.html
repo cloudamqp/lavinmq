@@ -366,14 +366,16 @@
             'src-queue': queue,
             'dest-uri': 'amqp:///' + urlEncodedVhost,
             'dest-queue': document.querySelector('[name=shovel-destination]').value,
-            'prefetch': 1000,
+            'src-prefetch-count': 1000,
             'ack-mode': 'on-confirm',
-            'add-forward-headers': false,
-            'delete-after': 'queue-length'
+            'src-delete-after': 'queue-length'
           }
         }
         avalanchemq.http.request('PUT', url, { body })
-          .then(() => { window.location == '/queues' })
+          .then(() => {
+            evt.target.reset()
+            scrollTo(0, 0)
+          })
           .catch(e => console.error(e))
       })
 
