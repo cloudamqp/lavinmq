@@ -24,13 +24,13 @@
           <thead>
             <tr>
               <th data-sort-key="vhost">Virtual host</th>
-              <th data-sort-key="name">Name</th>
-              <th data-sort-key="user">Username</th>
+              <th data-sort-key="name" class="left">Name</th>
+              <th data-sort-key="user" class="left">User</th>
               <th data-sort-key="state">State</th>
               <th data-sort-key="ssl">TLS</th>
               <th data-sort-key="channels">Channels</th>
               <th data-sort-key="channel_max">Channel max</th>
-              <th data-sort-key="auth_mechanism">Auth mechanism</th>
+              <!--th data-sort-key="auth_mechanism">Auth mechanism</th-->
               <th>Client</th>
               <th data-sort-key="connected_at">Connected at</th>
             </tr>
@@ -70,7 +70,7 @@
           avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
           tr.insertCell(-1)
           avalanchemq.table.renderCell(tr, 6, item.channel_max, 'right')
-          avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
+          // avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
           avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + clientVersion + '</small>')
           avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString())
         }

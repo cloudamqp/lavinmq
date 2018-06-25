@@ -55,7 +55,7 @@ main {
 
 .card {
   overflow: scroll;
-  padding: 20px;
+  padding: 1.5rem;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   background-color: #FFF;
@@ -286,6 +286,9 @@ aside li.active a {
 
 .table th {
   font-weight: normal;
+  border-bottom: 1px solid var(--font-color-dark);
+  padding: .75rem 1.15rem .5rem .75rem;
+  min-width: 60px;
 }
 
 .table th:first-child {
@@ -296,11 +299,10 @@ aside li.active a {
   cursor: pointer;
   font-weight: bold;
   position: relative;
-  padding: .75rem 1.25rem .5rem .75rem;
 }
 
 .table th[data-sort-key]:before, .table th[data-sort-key]:after {
-  bottom: .6em;
+  bottom: 10px;
   display: block;
   font-weight: 100;
   opacity: .3;
@@ -309,21 +311,26 @@ aside li.active a {
 
 .table th[data-sort-key]:before {
   content: '\2191';
-  right: 1em;
+  right: 9px;
 }
 
 .table th[data-sort-key]:after {
   content: '\2193';
-  right: .5em;
+  right: 2px;
 }
 
 .table th.sorting_asc:before, .table th.sorting_desc:after {
   opacity: 1;
 }
 
-.table th, .table td {
-  border: 1px solid var(--theme-color-light);;
-  padding: .65rem;
+.table tbody td {
+  border-top: 1px solid #ddd;
+  padding: .75rem 1.55rem .5rem .55rem;
+  color: var(--font-color-light);
+}
+
+.table tbody tr:nth-of-type(odd) {
+  background-color: #fafafa;
 }
 
 #table-error {
