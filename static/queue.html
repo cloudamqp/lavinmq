@@ -82,7 +82,7 @@
           <tbody></tbody>
         </table>
       </section>
-      <form method="post" id="addBinding" class="form card">
+      <form method="post" id="addBinding" class="form card cols-2">
         <h3>Add a binding to this queue</h3>
         <label>
           <span>From exchange</span>
@@ -98,7 +98,7 @@
         </label>
         <button type="submit" class="btn-primary">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form card">
+      <form method="post" id="publishMessage" class="form card cols-2">
         <h3>Publish message</h3>
         <p>
           Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to this queue.
@@ -124,7 +124,7 @@
         </label>
         <button type="submit" class="btn-primary">Publish message</button>
       </form>
-      <section class="card">
+      <section class="card cols-2">
         <form method="post" id="getMessages" class="form">
           <h3>Get messages</h3>
           <label>
@@ -183,7 +183,7 @@
         </div>
         <div id="messages"></div>
       </section>
-      <form method="post" id="moveMessages" class="form card">
+      <form method="post" id="moveMessages" class="form card cols-2">
         <h3>Move messages</h3>
         <label>
           <span>Destination queue</span>
@@ -191,11 +191,11 @@
         </label>
         <button type="submit" class="btn-primary">Move messages</button>
       </form>
-      <form method="delete" id="purgeQueue" class="form card">
+      <form method="delete" id="purgeQueue" class="form card cols-2">
         <h3>Purge queue</h3>
         <button type="submit" class="btn-danger">Purge</button>
       </form>
-      <form method="delete" id="deleteQueue" class="form card">
+      <form method="delete" id="deleteQueue" class="form card cols-2">
         <h3>Delete queue</h3>
         <button type="submit" class="btn-danger">Delete</button>
       </form>

@@ -31,7 +31,7 @@ header {
   background-size: cover;
   color: #FFF;
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: 1fr 1fr;
   grid-template-rows: 50px auto;
   padding: 5px 20px;
 }
@@ -45,19 +45,41 @@ main {
   grid-row: 2 / span 2;
   grid-column: 2;
   align-self: start;
-  margin: 0 20px 20px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  width: calc(100% - 40px);
+  justify-self: center;
+  margin-bottom: 20px;
 }
 
 .card {
+  overflow: scroll;
   padding: 20px;
-  margin-bottom: 30px;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   background-color: #FFF;
+  grid-column: 1 / span 4;
 }
 
 .card > :first-child, .card > form > :first-child {
   margin-top: 0;
+}
+
+.cols-1 {
+  grid-column: auto / span 1
+}
+
+.cols-2 {
+  grid-column: auto / span 2
+}
+
+.cols-3 {
+  grid-column: auto / span 3
+}
+
+.cols-4 {
+  grid-column: auto / span 4
 }
 
 aside {
@@ -99,7 +121,21 @@ footer .logo {
   height: 20px;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 1200px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    grid-column: auto / span 1 !important;
+  }
+}
+
+@media (max-width: 1000px) {
+  aside::after {
+    background-size: cover;
+  }
+
   body {
     grid-template-columns: auto;
     grid-template-rows: auto 60px 80px auto 60px;
@@ -245,7 +281,6 @@ aside li.active a {
 .table {
   border-collapse: collapse;
   width: 100%;
-  margin-bottom: 40px;
   border-radius: 3px;
 }
 
@@ -389,10 +424,6 @@ a[data-tag] {
 
 .hide {
   display: none;
-}
-
-.form {
-  margin-bottom: 40px;
 }
 
 .form label > span {
