@@ -4,14 +4,30 @@ module AvalancheMQ
   class MainController < Controller
     private def register_routes
       get "/api/overview" do |context, _params|
+        x_vhost = context.request.headers["x-vhost"]?
+        channels = 0
+        connections = 0
+        exchanges = 0
+        queues = 0
+        consumers = 0
+        vhosts(user(context)).each do |vhost|
+          next unless x_vhost.nil? || vhost.name == x_vhost
+          vhost_connections = @amqp_server.connections.select { |c| c.vhost.name == vhost.name }
+          connections += vhost_connections.size
+          channels += vhost_connections.reduce(0) { |memo, i| memo + i.channels.size }
+          consumers += nr_of_consumers(vhost_connections)
+          exchanges += vhost.exchanges.size
+          queues += vhost.queues.size
+        end
+
         {
           "avalanchemq_version": AvalancheMQ::VERSION,
           "object_totals":       {
-            "channels":    @amqp_server.connections.reduce(0) { |memo, i| memo + i.channels.size },
-            "connections": @amqp_server.connections.size,
-            "consumers":   nr_of_consumers,
-            "exchanges":   @amqp_server.vhosts.reduce(0) { |memo, i| memo + i.exchanges.size },
-            "queues":      @amqp_server.vhosts.reduce(0) { |memo, i| memo + i.queues.size },
+            "channels":    channels,
+            "connections": connections,
+            "consumers":   consumers,
+            "exchanges":   exchanges,
+            "queues":      queues,
           },
           "listeners":      @amqp_server.listeners,
           "exchange_types": Exchange.types.map { |name| {"name": name} },
@@ -57,8 +73,8 @@ module AvalancheMQ
       end
     end
 
-    private def nr_of_consumers
-      @amqp_server.connections.reduce(0) do |memo_i, i|
+    private def nr_of_consumers(connections)
+      connections.reduce(0) do |memo_i, i|
         memo_i + i.channels.values.reduce(0) { |memo_j, j| memo_j + j.consumers.size }
       end
     end
