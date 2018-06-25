@@ -288,7 +288,7 @@ aside li.active a {
 
 .table th, .table td {
   border: 1px solid var(--theme-color-light);;
-  padding: 0.2em 0.3em;
+  padding: .65rem;
 }
 
 #table-error {
