@@ -78,9 +78,14 @@
     return ''
   }
 
+  function selectVhost (select) {
+    sessionStorage.setItem('vhost', select.value)
+    window.location.reload()
+  }
+
   Object.assign(window.avalanchemq, {
     auth: {
-      header, setAuth, storeCookie, signOut, setUsername
+      header, setAuth, storeCookie, signOut, setUsername, selectVhost
     }
   })
 })()

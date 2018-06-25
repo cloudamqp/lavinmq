@@ -6,6 +6,7 @@ module AvalancheMQ
     include Router
 
     @log : Logger
+
     def initialize(@amqp_server : AvalancheMQ::Server)
       @log = @amqp_server.log.dup
       @log.progname += " " + self.class.name.split("::").last
@@ -30,15 +31,15 @@ module AvalancheMQ
     end
 
     private def not_found(context, message = "Not found")
-      halt(context, 404, { error: "not_found", reason: message })
+      halt(context, 404, {error: "not_found", reason: message})
     end
 
     private def bad_request(context, message = "Bad request")
-      halt(context, 400, { error: "bad_request", reason: message })
+      halt(context, 400, {error: "bad_request", reason: message})
     end
 
     private def access_refused(context, message = "Access refused")
-      halt(context, 401, { error: "access_refused", reason: message })
+      halt(context, 401, {error: "access_refused", reason: message})
     end
 
     private def halt(context, status_code, body = nil)
@@ -69,7 +70,7 @@ module AvalancheMQ
       user
     end
 
-    def vhosts(user : User, require_amqp_access = true)
+    def vhosts(user : User, require_amqp_access = false)
       @amqp_server.vhosts.select do |v|
         full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
         amqp_access = user.permissions.has_key?(v.name)
@@ -77,15 +78,14 @@ module AvalancheMQ
         if require_amqp_access
           next amqp_access && (full_view_vhosts_access || mgmt)
         else
-          next full_view_vhosts_access || (mgmt && amqp_access)
+          next full_view_vhosts_access || mgmt
         end
       end
     end
 
     private def refuse_unless_management(context, user, vhost = nil)
-      vhost_access = vhost.nil? || user.permissions.has_key?(vhost)
-      unless vhost_access
-        @log.debug { "user=#{user.name} does not have management access on vhost=#{vhost}" }
+      if user.tags.empty?
+        @log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
         access_refused(context)
       end
     end
@@ -93,7 +93,7 @@ module AvalancheMQ
     private def refuse_unless_policymaker(context, user, vhost = nil)
       refuse_unless_management(context, user, vhost)
       unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
-        @log.debug { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
+        @log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
         access_refused(context)
       end
     end
@@ -101,7 +101,7 @@ module AvalancheMQ
     private def refuse_unless_monitoring(context, user)
       refuse_unless_management(context, user)
       unless user.tags.any? { |t| t.administrator? || t.monitoring? }
-        @log.debug { "user=#{user.name} does not have monitoring access" }
+        @log.warn { "user=#{user.name} does not have monitoring access" }
         access_refused(context)
       end
     end
@@ -110,10 +110,11 @@ module AvalancheMQ
       refuse_unless_policymaker(context, user)
       refuse_unless_monitoring(context, user)
       unless user.tags.any? &.administrator?
-        @log.debug { "user=#{user.name} does not have administrator access" }
+        @log.warn { "user=#{user.name} does not have administrator access" }
         access_refused(context)
       end
     end
+
     class HaltRequest < Exception; end
   end
 end

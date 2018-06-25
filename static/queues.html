@@ -73,7 +73,12 @@
     <script>
       avalanchemq.vhosts.addVhostOptions('declare')
 
-      const tableOptions = { url: '/api/queues', keyColumns: ['vhost', 'name'], interval: 5000 }
+      const vhost = sessionStorage.getItem('vhost')
+      let url = '/api/queues'
+      if (vhost && vhost !== "_all") {
+        url += '/' + encodeURIComponent(vhost)
+      }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
       const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''

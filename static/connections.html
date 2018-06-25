@@ -45,7 +45,12 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const tableOptions = { url: '/api/connections', keyColumns: ['name'], interval: 5000 }
+      const vhost = sessionStorage.getItem('vhost')
+      let url = '/api/connections'
+      if (vhost && vhost !== "_all") {
+        url = '/api/vhosts/' + encodeURIComponent(vhost) + '/connections'
+      }
+      const tableOptions = { url, keyColumns: ['name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           const client = item.client_properties.product + ' / ' + item.client_properties.platform

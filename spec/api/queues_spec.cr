@@ -17,22 +17,6 @@ describe AvalancheMQ::QueuesController do
     ensure
       close(h)
     end
-
-    it "should not list queues in vhosts the user don't have access to" do
-      s, h = create_servers
-      listen(h)
-      s.vhosts["/"].declare_queue("q0", false, false)
-      s.vhosts.create("test")
-      s.vhosts["test"].declare_queue("test.q1", false, false)
-      response = get("http://localhost:8080/api/queues")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body.any? { |v| v["name"].as_s == "q0" }.should be_true
-      body.any? { |v| v["name"].as_s == "test.q1" }.should be_false
-    ensure
-      s.try &.vhosts.delete("test")
-      close(h)
-    end
   end
 
   describe "GET /api/queues/vhost" do

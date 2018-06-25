@@ -28,7 +28,7 @@ footer {
 header {
   grid-row: 1 / span 2;
   background-image: url(img/bg-head.jpg);
-  background-position-x: -270px;
+  background-size: cover;
   color: #FFF;
   display: grid;
   grid-template-columns: auto auto;
@@ -163,12 +163,22 @@ aside h1 small {
   right: -100%;
 }
 
-.user-menu button {
+.user-menu ul li {
+  display: inline-block;
+  margin: 0 5px;
+}
+
+.user-menu button, .user-menu select {
   box-shadow: none;
 }
 
 .user-menu ul.show {
   right: 0;
+}
+
+.user-menu label span {
+  margin-right: 10px;
+  line-height: 29px;
 }
 
 #user-info {

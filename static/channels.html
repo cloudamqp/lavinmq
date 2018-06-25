@@ -42,7 +42,12 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const tableOptions = { url: '/api/channels', keyColumns: ['name'], interval: 5000 }
+      const vhost = sessionStorage.getItem('vhost')
+      let url = '/api/channels'
+      if (vhost && vhost !== "_all") {
+        url = '/api/vhosts/' + encodeURIComponent(vhost) + '/channels'
+      }
+      const tableOptions = { url, keyColumns: ['name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           const channelLink = document.createElement('a')

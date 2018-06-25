@@ -186,8 +186,13 @@
         avalanchemq.table.renderCell(tr, 11, btn)
       })
 
+      const vhost = sessionStorage.getItem('vhost')
+      let url = '/api/parameters/shovel'
+      if (vhost && vhost !== "_all") {
+        url += '/' + encodeURIComponent(vhost)
+      }
       function updateShovelsTable() {
-        const p1 = avalanchemq.http.request('GET', '/api/parameters/shovel')
+        const p1 = avalanchemq.http.request('GET', url)
         const p2 = avalanchemq.http.request('GET', '/api/shovels')
 
         Promise.all([p1, p2]).then(values => {

@@ -11,7 +11,7 @@
     makeHeadersSortable()
 
     if (url) {
-      const raw = localStorage.getItem(url)
+      const raw = sessionStorage.getItem(url)
       if (raw) {
         updateTable(raw)
       }
@@ -33,7 +33,7 @@
           }
           const t = document.getElementById(id).tBodies[0]
           clearRows(t)
-          const raw = localStorage.getItem(url)
+          const raw = sessionStorage.getItem(url)
           updateTable(raw)
         })
       })
@@ -50,9 +50,9 @@
       return avalanchemq.http.request('GET', url).then(function (response) {
         tableError.textContent = ''
         try {
-          localStorage.setItem(url, JSON.stringify(response))
+          sessionStorage.setItem(url, JSON.stringify(response))
         } catch (e) {
-          console.error('Saving localStorage', e)
+          console.error('Saving sessionStorage', e)
         }
         updateTable(response)
       }).catch(function (e) {

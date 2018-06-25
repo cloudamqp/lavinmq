@@ -3,16 +3,16 @@
 
   function fetch (cb) {
     const url = '/api/users'
-    const raw = localStorage.getItem(url)
+    const raw = sessionStorage.getItem(url)
     if (raw) {
       var users = JSON.parse(raw)
       cb(users)
     }
     avalanchemq.http.request('GET', url).then(function (users) {
       try {
-        localStorage.setItem('/api/users', JSON.stringify(users))
+        sessionStorage.setItem('/api/users', JSON.stringify(users))
       } catch (e) {
-        console.error('Saving localStorage', e)
+        console.error('Saving sessionStorage', e)
       }
       cb(users)
     }).catch(function (e) {

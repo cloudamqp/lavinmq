@@ -45,14 +45,20 @@ describe AvalancheMQ::HTTPServer do
 
     it "should filter stats if x-vhost header is set" do
       s, h = create_servers
-      listen(h)
-      headers = HTTP::Headers{"x-vhost" => "/"}
-      response = get("http://localhost:8080/api/overview", headers: headers)
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body["object_totals"]["exchanges"].should eq 6
+      listen(s, h)
+      AMQP::Connection.start do |conn|
+        response = get("http://localhost:8080/api/overview")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["object_totals"]["connections"].should_not eq 0
+        headers = HTTP::Headers{"x-vhost" => "default"}
+        response = get("http://localhost:8080/api/overview", headers: headers)
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["object_totals"]["connections"].should eq 0
+      end
     ensure
-      close(h)
+      close(s, h)
     end
   end
 

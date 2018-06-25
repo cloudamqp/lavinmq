@@ -14,22 +14,6 @@ describe AvalancheMQ::ExchangesController do
     ensure
       close(h)
     end
-
-    it "should not list exchanges in vhosts the user don't have access to" do
-      s, h = create_servers
-      listen(h)
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts.create("test")
-      s.vhosts["test"].declare_exchange("spexxxhange", "topic", false, false)
-      response = get("http://localhost:8080/api/exchanges")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body.any? { |v| v["name"].as_s == "spechange" }.should be_true
-      body.any? { |v| v["name"].as_s == "spexxxhange" }.should be_false
-    ensure
-      s.try &.vhosts.delete("test")
-      close(h)
-    end
   end
 
   describe "GET /api/exchanges/vhost" do

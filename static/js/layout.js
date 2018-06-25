@@ -63,6 +63,14 @@
     <div class="user-menu">
       <div class="slide-in-area">
         <ul>
+          <li>
+            <form id="user-vhost">
+              <label>
+                <span>Virtual host:</span>
+                <select id="userMenuVhost" name="vhost" onchange="avalanchemq.auth.selectVhost(this)"></select>
+              </label>
+            </form>
+          </li>
           <li><button onclick="avalanchemq.auth.signOut()">Logout</button></li>
         </ul>
       </div>

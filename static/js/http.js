@@ -15,13 +15,6 @@
       }).catch(function () {
         // not logged in
       })
-      request('GET', '/api/overview').then(function (response) {
-        try {
-          localStorage.setItem('/api/overview', JSON.stringify(response))
-        } catch (e) {
-          console.error('Saving localStorage', e)
-        }
-      })
     }
   }
 

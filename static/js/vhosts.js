@@ -3,16 +3,16 @@
 
   function fetch (cb) {
     const url = '/api/vhosts'
-    const raw = localStorage.getItem(url)
+    const raw = sessionStorage.getItem(url)
     if (raw) {
       var vhosts = JSON.parse(raw)
       cb(vhosts)
     }
     return avalanchemq.http.request('GET', url).then(function (vhosts) {
       try {
-        localStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
+        sessionStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
       } catch (e) {
-        console.error('Saving localStorage', e)
+        console.error('Saving sessionStorage', e)
       }
       cb(vhosts)
     }).catch(function (e) {
@@ -29,10 +29,25 @@
       for (let i = 0; i < vhosts.length; i++) {
         const opt = document.createElement('option')
         opt.text = vhosts[i].name
+        opt.value = vhosts[i].name
         select.add(opt)
       }
     })
   }
+
+  addVhostOptions('user-vhost').then(() => {
+    const allOpt = '<option value="_all">All</option>'
+    document.querySelector('#userMenuVhost').insertAdjacentHTML('afterbegin', allOpt)
+    const vhost = sessionStorage.getItem("vhost")
+    if (vhost) {
+      const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
+      if (opt) {
+        document.querySelector('#userMenuVhost').value = vhost
+      }
+    } else {
+      sessionStorage.setItem("vhost", "_all")
+    }
+  })
 
   Object.assign(window.avalanchemq, {
     vhosts: {

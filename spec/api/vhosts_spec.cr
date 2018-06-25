@@ -27,26 +27,6 @@ describe AvalancheMQ::VHostsController do
       close(h)
     end
 
-    it "should only list vhosts user has access to" do
-      s, h = create_servers
-      listen(h)
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::Management])
-      s.vhosts.create("test")
-      s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      response = get("http://localhost:8080/api/vhosts", headers: hdrs)
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body.any? { |v| v["name"].as_s == "/" }.should be_true
-      body.any? { |v| v["name"].as_s == "test" }.should be_false
-    ensure
-      s.try do |s|
-        s.vhosts.delete("test")
-        s.users.delete("arnold")
-      end
-      close(h)
-    end
-
     it "should list vhosts from monitoring users" do
       s, h = create_servers
       listen(h)
@@ -84,18 +64,6 @@ describe AvalancheMQ::VHostsController do
       response = get("http://localhost:8080/api/vhosts/404")
       response.status_code.should eq 404
     ensure
-      close(h)
-    end
-
-    it "should return 401 if user does not have access to vhost" do
-      s, h = create_servers
-      listen(h)
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::Management])
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      response = get("http://localhost:8080/api/vhosts/%2f", headers: hdrs)
-      response.status_code.should eq 401
-    ensure
-      s.try &.users.delete("arnold")
       close(h)
     end
   end

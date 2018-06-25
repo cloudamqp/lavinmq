@@ -59,13 +59,13 @@
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
-          const raw = localStorage.getItem(permissionsUrl)
+          const raw = sessionStorage.getItem(permissionsUrl)
 
           if (raw) {
             resolve(JSON.parse(raw))
           } else {
             avalanchemq.http.request('GET', permissionsUrl).then(permissions => {
-              localStorage.setItem(permissionsUrl, JSON.stringify(permissions))
+              sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
               resolve(permissions)
             }).catch(e => reject(e))
           }

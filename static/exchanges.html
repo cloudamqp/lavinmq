@@ -88,7 +88,12 @@
         select.add(opt)
       }
 
-      const tableOptions = { url: '/api/exchanges', keyColumns: ['vhost', 'name'], interval: 5000 }
+      const vhost = sessionStorage.getItem('vhost')
+      let url = '/api/exchanges'
+      if (vhost && vhost !== "_all") {
+        url += '/' + encodeURIComponent(vhost)
+      }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''
