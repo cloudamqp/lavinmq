@@ -24,12 +24,21 @@
     function makeHeadersSortable () {
       document.querySelectorAll('#' + id + ' th[data-sort-key]').forEach(function (cell) {
         cell.addEventListener('click', function (e) {
+          document.querySelectorAll('#' + id + ' th[data-sort-key]').forEach(th => {
+            if (th.isEqualNode(e.target)) return
+            th.classList.remove('sorting_desc')
+            th.classList.remove('sorting_asc')
+          })
           const newSortKey = e.target.getAttribute('data-sort-key')
           if (newSortKey === sortKey) {
             reverseOrder = !reverseOrder
+            e.target.classList.toggle('sorting_asc')
+            e.target.classList.toggle('sorting_desc')
           } else {
             sortKey = newSortKey
             reverseOrder = false
+            e.target.classList.add('sorting_asc')
+            e.target.classList.remove('sorting_desc')
           }
           const t = document.getElementById(id).tBodies[0]
           clearRows(t)

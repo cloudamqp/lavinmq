@@ -253,9 +253,37 @@ aside li.active a {
   font-weight: normal;
 }
 
+.table th:first-child {
+  text-align: left;
+}
+
 .table th[data-sort-key] {
   cursor: pointer;
   font-weight: bold;
+  position: relative;
+  padding: .75rem 1.25rem .5rem .75rem;
+}
+
+.table th[data-sort-key]:before, .table th[data-sort-key]:after {
+  bottom: .6em;
+  display: block;
+  font-weight: 100;
+  opacity: .3;
+  position: absolute;
+}
+
+.table th[data-sort-key]:before {
+  content: '\2191';
+  right: 1em;
+}
+
+.table th[data-sort-key]:after {
+  content: '\2193';
+  right: .5em;
+}
+
+.table th.sorting_asc:before, .table th.sorting_desc:after {
+  opacity: 1;
 }
 
 .table th, .table td {
@@ -351,6 +379,10 @@ label {
   text-align: right;
 }
 
+.left {
+  text-align: left;
+}
+
 a[data-tag] {
   cursor: pointer;
 }
@@ -365,8 +397,6 @@ a[data-tag] {
 
 .form label > span {
   width: 150px;
-  font-weight: bold;
-  font-size: 0.8em;
   float: left;
   padding-top: 8px;
   padding-right: 5px;

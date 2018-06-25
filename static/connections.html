@@ -53,7 +53,11 @@
       const tableOptions = { url, keyColumns: ['name'], interval: 5000 }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
-          const client = item.client_properties.product + ' / ' + item.client_properties.platform
+          let client = ''
+          if (item.client_properties.product) {
+            client = item.client_properties.product + ' / ' + (item.client_properties.platform || '')
+          }
+          const clientVersion = item.client_properties.version || ''
           const connectionLink = document.createElement('a')
           connectionLink.href = '/connection?name=' + encodeURIComponent(item.name)
           connectionLink.textContent = item.name
@@ -65,7 +69,7 @@
           tr.insertCell(-1)
           avalanchemq.table.renderCell(tr, 6, item.channel_max, 'right')
           avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
-          avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + item.client_properties.version + '</small>')
+          avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + clientVersion + '</small>')
           avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString())
         }
         const state = item.state == 'running' ? 'state-ok' : 'state-error'
