@@ -56,7 +56,7 @@ main {
   background-color: #FFF;
 }
 
-.card > :first-child {
+.card > :first-child, .card > form > :first-child {
   margin-top: 0;
 }
 
@@ -72,6 +72,7 @@ aside {
 
 aside::after {
   background-image: url(img/bg-mountain.jpg);
+  background-attachment: fixed;
   content: "";
   opacity: 0.9;
   position: absolute;
@@ -281,8 +282,8 @@ aside li.active a {
 }
 
 .details-table td {
-  text-align: center;
-  padding: 0.2em 0.3em;
+  text-align: left;
+  padding: 0.2em 0.2em 0.2em 1em;
 }
 
 .details-table > tbody > tr > th {
@@ -295,12 +296,12 @@ aside li.active a {
 
 .small-table {
   width: 50%;
-  max-width: 500px;
+  max-width: 600px;
 }
 
 .medium-table {
   width: 70%;
-  max-width: 800px;
+  max-width: 1000px;
 }
 
 .stats-table {
@@ -328,7 +329,7 @@ aside li.active a {
   font-size: 20px;
   padding: 2px 0 30px;
   text-transform: uppercase;
-  font-weight: 100;
+  font-weight: 300;
   color: var(--font-color-light);
 }
 
@@ -424,6 +425,7 @@ fieldset {
 main h3 {
   color: var(--font-color-dark);
   font-size: 20px;
+  font-weight: 400;
 }
 
 h2 small {
