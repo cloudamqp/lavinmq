@@ -368,7 +368,6 @@ aside li.active a {
 }
 
 .stats-table {
-  width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }

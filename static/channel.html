@@ -17,46 +17,48 @@
       </h2>
     </header>
     <aside></aside>
-    <main class="card">
-      <table class="details-table">
-        <tr>
-          <th>Connection</th>
-          <td id="ch-connection"></td>
-          <th>State</th>
-          <td id="ch-state"></td>
-          <th>Messages unacknowledged</th>
-          <td id="ch-unacked"></td>
-        </tr>
-        <tr>
-          <th>Username</th>
-          <td id="ch-username"></td>
-          <th>Prefetch count</th>
-          <td id="ch-prefetch"></td>
-        </tr>
-        <tr>
-          <th>Mode</th>
-          <td id="ch-mode"></td>
-          <th>Global prefetch count</th>
-          <td id="ch-global-prefetch"></td>
-        </tr>
-      </table>
-      <div id="table-error"></div>
-      <h3>
-        Consumers
-        <small id="table-count"></small>
-      </h3>
-      <table id="table" class="table">
-        <thead>
+    <main>
+      <section class="card">
+        <table class="details-table">
           <tr>
-            <th>Consumer tag</th>
-            <th>Queue</th>
-            <th>Ack required</th>
-            <th>Exclusive</th>
-            <th>Prefetch count</th>
+            <th>Connection</th>
+            <td id="ch-connection"></td>
+            <th>State</th>
+            <td id="ch-state"></td>
+            <th>Messages unacknowledged</th>
+            <td id="ch-unacked"></td>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+          <tr>
+            <th>Username</th>
+            <td id="ch-username"></td>
+            <th>Prefetch count</th>
+            <td id="ch-prefetch"></td>
+          </tr>
+          <tr>
+            <th>Mode</th>
+            <td id="ch-mode"></td>
+            <th>Global prefetch count</th>
+            <td id="ch-global-prefetch"></td>
+          </tr>
+        </table>
+        <div id="table-error"></div>
+        <h3>
+          Consumers
+          <small id="table-count"></small>
+        </h3>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th>Consumer tag</th>
+              <th>Queue</th>
+              <th>Ack required</th>
+              <th>Exclusive</th>
+              <th>Prefetch count</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
     </main>
     <footer></footer>
     </body>
