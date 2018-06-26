@@ -18,7 +18,8 @@
     </header>
     <aside></aside>
     <main>
-      <section class="card">
+      <section class="card cols-6 align-start">
+        <h3>Details</h3>
         <table class="details-table">
           <tr>
             <th>Username</th>
@@ -39,25 +40,8 @@
             <td id="channel_max"></td>
           </tr>
         </table>
-        <div id="table-error"></div>
-        <h3>
-          Channels
-          <small id="table-count"></small>
-        </h3>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th data-sort-key="name">Name</th>
-              <th data-sort-key="vhost">Virtual Host</th>
-              <th data-sort-key="username">Username</th>
-              <th>Mode</th>
-              <th data-sort-key="consumer_count">Consumers</th>
-              <th data-sort-key="prefetch_count">Prefetch limit</th>
-              <th data-sort-key="messages_unacked">Unacked messages</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      </section>
+      <section class="card cols-6 align-start">
         <h3>Client properties</h3>
         <table class="details-table">
           <tr>
@@ -80,6 +64,27 @@
             <th>Information</th>
             <td id="cp-information"></td>
           </tr>
+        </table>
+      </section>
+      <section class="card">
+        <h3>
+          Channels
+          <small id="table-count"></small>
+        </h3>
+        <div id="table-error"></div>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th data-sort-key="name">Name</th>
+              <th data-sort-key="vhost">Virtual Host</th>
+              <th data-sort-key="username">Username</th>
+              <th>Mode</th>
+              <th data-sort-key="consumer_count">Consumers</th>
+              <th data-sort-key="prefetch_count">Prefetch limit</th>
+              <th data-sort-key="messages_unacked">Unacked messages</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
         </table>
       </section>
       <form method="delete" id="closeConnection" class="form card">
@@ -124,13 +129,13 @@
             document.getElementById('cp-platform').textContent = cp.platform
             document.getElementById('cp-version').textContent = cp.version
             const infoEl = document.getElementById('cp-information')
-            if (cp.information.startsWith('http')) {
+            if (cp.information && cp.information.startsWith('http')) {
               const infoLink = document.createElement('a')
               infoLink.textContent = cp.information
               infoLink.href = cp.information
               avalanchemq.dom.setChild(infoEl, infoLink)
             } else {
-              infoEl.textContent = cp.information
+              infoEl.textContent = cp.information || ''
             }
           }
         }).catch(e => console.error(e))
@@ -148,16 +153,13 @@
           avalanchemq.table.renderCell(tr, 0, channelLink)
           avalanchemq.table.renderCell(tr, 1, item.vhost)
           avalanchemq.table.renderCell(tr, 2, item.username)
-          for (let i = 0; i < 4; i++) {
-            tr.insertCell(-1)
-          }
         }
         let mode = ''
         mode += item.confirm ? ' C' : ''
-        avalanchemq.table.renderCell(tr, 3, mode)
-        avalanchemq.table.renderCell(tr, 4, item.consumer_count)
-        avalanchemq.table.renderCell(tr, 5, item.prefetch_count)
-        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged)
+        avalanchemq.table.renderCell(tr, 3, mode, 'center')
+        avalanchemq.table.renderCell(tr, 4, item.consumer_count, 'right')
+        avalanchemq.table.renderCell(tr, 5, item.prefetch_count, 'right')
+        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged, 'right')
       })
 
       document.querySelector('#closeConnection').addEventListener('submit', function (evt) {

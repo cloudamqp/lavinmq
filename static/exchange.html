@@ -18,8 +18,9 @@
     </header>
     <aside></aside>
     <main>
-      <section class="card">
-        <table class="details-table small-table">
+      <section class="card cols-4 align-start">
+        <h3>Details</h3>
+        <table class="details-table">
           <tr>
             <th>Type</th>
             <td id="e-type"></td>
@@ -33,11 +34,22 @@
             <td id="e-policy"></td>
           </tr>
         </table>
-        <div id="bindings-table-error"></div>
+      </section>
+      <section class="card cols-4 align-start">
+        <h3>Actions</h3>
+        <form method="delete" id="deleteExchange" class="form">
+          <label>
+            <span>Delete exchange</span>
+            <button type="submit" class="btn-danger">Delete</button>
+          </label>
+        </form>
+      </section>
+      <section class="card">
         <h3>
           Bindings
           <small id="bindings-table-count"></small>
         </h3>
+        <div id="bindings-table-error"></div>
         <table id="bindings-table" class="table medium-table">
           <thead>
             <tr>
@@ -51,7 +63,7 @@
           <tbody></tbody>
         </table>
       </section>
-      <form method="post" id="addBinding" class="form card cols-2">
+      <form method="post" id="addBinding" class="form card cols-6">
         <h3>Add a binding from this exchange</h3>
         <label>
           <select name="dest-type" required>
@@ -70,7 +82,7 @@
         </label>
         <button type="submit" class="btn-primary">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form card cols-2">
+      <form method="post" id="publishMessage" class="form card cols-6">
         <h3>Publish message</h3>
         <label>
           <span>Routing key</span>
@@ -96,10 +108,6 @@
           <textarea name="payload"></textarea>
         </label>
         <button type="submit" class="btn-primary">Publish message</button>
-      </form>
-      <form method="delete" id="deleteExchange" class="form card cols-2">
-        <h3>Delete exchange</h3>
-        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

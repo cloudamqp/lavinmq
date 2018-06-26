@@ -58,6 +58,7 @@
   }
 
   function jsonToText (obj) {
+    if (obj == null) return ''
     return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '')
   }
 

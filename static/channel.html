@@ -18,34 +18,50 @@
     </header>
     <aside></aside>
     <main>
-      <section class="card">
+      <section class="card cols-6 align-start">
+        <h3>Details</h3>
         <table class="details-table">
           <tr>
             <th>Connection</th>
             <td id="ch-connection"></td>
-            <th>State</th>
-            <td id="ch-state"></td>
-            <th>Messages unacknowledged</th>
-            <td id="ch-unacked"></td>
           </tr>
           <tr>
             <th>Username</th>
             <td id="ch-username"></td>
-            <th>Prefetch count</th>
-            <td id="ch-prefetch"></td>
+          </tr>
+          <tr>
+            <th>State</th>
+            <td id="ch-state"></td>
           </tr>
           <tr>
             <th>Mode</th>
             <td id="ch-mode"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-6 align-start">
+        <h3>Stats</h3>
+        <table class="details-table">
+          <tr>
+            <th>Messages unacknowledged</th>
+            <td id="ch-unacked"></td>
+          </tr>
+          <tr>
+            <th>Prefetch count</th>
+            <td id="ch-prefetch"></td>
+          </tr>
+          <tr>
             <th>Global prefetch count</th>
             <td id="ch-global-prefetch"></td>
           </tr>
         </table>
-        <div id="table-error"></div>
+      </section>
+      <section class="card">
         <h3>
           Consumers
           <small id="table-count"></small>
         </h3>
+        <div id="table-error"></div>
         <table id="table" class="table">
           <thead>
             <tr>

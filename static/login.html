@@ -24,10 +24,10 @@
   <body>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
-    <main class="card">
-      <h1>AvalancheMQ</h1>
-      <form id="login" action="/" class="form">
-        <fieldset>
+    <main>
+      <section class="card">
+        <h1>AvalancheMQ</h1>
+        <form id="login" action="/" class="form">
           <label>
             <span>Username</span>
             <input type="text" id="amq-username">
@@ -37,8 +37,8 @@
             <input type="password" id="amq-password">
           </label>
           <button type="submit" class="btn-primary">Sign in</button>
-        </fieldset>
-      </form>
+        </form>
+      </section>
     </main>
     <script type="text/javascript">
       document.querySelector('#login').addEventListener('submit', function (evt) {

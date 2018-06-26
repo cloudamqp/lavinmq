@@ -35,12 +35,15 @@
           </tr>
         </tfoot>
       </table>
-      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-2">
+      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
         <h3>Upload definitions</h3>
-        <input id="file" name="file" type="file" accept=".json" required />
-        <button type="submit" class="btn-primary btn-inline">Upload</button>
+        <label>
+          <span>File</span>
+          <input id="file" name="file" type="file" accept=".json" required />
+        </label>
+        <button type="submit" class="btn-primary">Upload</button>
       </form>
-      <form id="exportDefinitions" method="post" class="form card cols-2">
+      <form id="exportDefinitions" method="post" class="form card cols-6">
         <h3>Export definitions</h3>
         <label>
           <span>Virtual host</span>

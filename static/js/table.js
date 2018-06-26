@@ -142,7 +142,7 @@
   }
 
   function renderCell (tr, column, value, classList = '') {
-    const cell = tr.cells[column] || tr.insertCell(-1)
+    const cell = tr.cells[column] || buildCells(tr, column)
     cell.classList = classList
     if (value instanceof Element) {
       if (!value.isEqualNode(cell.firstChild)) {
@@ -161,11 +161,21 @@
   }
 
   function renderHtmlCell (tr, column, innerHTML) {
-    const cell = tr.cells[column] || tr.insertCell(-1)
+    const cell = tr.cells[column] || buildCells(tr, column)
     if (cell.innerHTML !== innerHTML) {
       cell.innerHTML = innerHTML
     }
     return cell
+  }
+
+  function buildCells (tr, index) {
+    const target = index + 1
+    while(index >= 0) {
+      if (tr.cells.length >= target) break
+      tr.insertCell(-1)
+      index--
+    }
+    return tr.cells[tr.cells.length - 1]
   }
 
   Object.assign(window.avalanchemq, {

@@ -18,29 +18,39 @@
     </header>
     <aside></aside>
     <main>
-      <section class="card">
+      <section class="card cols-6 align-start">
         <h3>
           Message stats
         </h3>
-        <table id="msg-table" class="table medium-table">
-          <thead>
-            <tr>
-              <th>Ready</th>
-              <th>Unacked</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
+        <table id="msg-table" class="details-table">
+          <tr>
+            <th>Ready</th>
             <td id="ready"></td>
+          </tr>
+          <tr>
+            <th>Unacked</th>
             <td id="unacked"></td>
+          </tr>
+          <tr>
+            <th>Total</th>
             <td id="total"></td>
-          </tbody>
+          </tr>
         </table>
-        <div id="table-error"></div>
+      </section>
+      <section class="card cols-4 align-start">
+        <form method="delete" id="deleteVhost" class="form">
+          <label>
+            <span>Delete vhost</span>
+            <button type="submit" class="btn-danger">Delete</button>
+          </label>
+        </form>
+      </section>
+      <section class="card">
         <h3>
           Permissions
           <small id="table-count"></small>
         </h3>
+        <div id="table-error"></div>
         <table id="table" class="table">
           <thead>
             <tr>
@@ -54,7 +64,7 @@
           <tbody></tbody>
         </table>
       </section>
-      <form method="put" id="setPermission" class="form card cols-2">
+      <form method="put" id="setPermission" class="form card cols-6">
         <h3>Set permission</h3>
         <label>
           <span>User</span>
@@ -73,10 +83,6 @@
           <input type="text" name="read" required value=".*">
         </label>
         <button type="submit" class="btn-primary">Set permission</button>
-      </form>
-      <form method="delete" id="deleteVhost" class="form card cols-2">
-        <h3>Delete vhost</h3>
-        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>
@@ -104,7 +110,6 @@
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
       const tableOptions = { url: permissionsUrl, keyColumns: ['user'], interval: 0 }
       const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
-        tr.insertCell(-1)
         avalanchemq.table.renderCell(tr, 1, item.configure)
         avalanchemq.table.renderCell(tr, 2, item.write)
         avalanchemq.table.renderCell(tr, 3, item.read)

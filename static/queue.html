@@ -18,71 +18,97 @@
     </header>
     <aside></aside>
     <main>
-      <section class="card">
+      <section class="card cols-4 align-start">
+        <h3>Details</h3>
         <table class="details-table">
           <tr>
             <th>Features</th>
             <td id="q-features"></td>
+          </tr>
+          <tr>
             <th>State</th>
             <td id="q-state"></td>
-            <th rowspan="2">Messages</th>
-            <td rowspan="2">
-              <table>
-                <tr>
-                  <th>Total</th>
-                  <th>Ready</th>
-                  <th>Unacked</th>
-                </tr>
-                <tr>
-                  <td id="q-total"></td>
-                  <td id="q-ready"></td>
-                  <td id="q-unacked"></td>
-                </tr>
-              </table>
-            </td>
           </tr>
           <tr>
             <th>Policy</th>
             <td id="q-policy"></td>
+          </tr>
+          <tr>
             <th>Consumers</th>
             <td id="q-consumers"></td>
           </tr>
         </table>
-        <div id="table-error"></div>
+      </section>
+      <section class="card cols-4 align-start">
+        <h3>Messages</h3>
+        <table class="details-table">
+          <tr>
+            <th>Total</th>
+            <td id="q-total"></td>
+          </tr>
+          <tr>
+            <th>Ready</th>
+            <td id="q-ready"></td>
+          </tr>
+          <tr>
+            <th>Unacked</th>
+            <td id="q-unacked"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-4 align-start">
+        <h3>Actions</h3>
+        <form method="delete" id="purgeQueue" class="form">
+          <label>
+            <span>Purge queue</span>
+            <button type="submit" class="btn-danger">Purge</button>
+          </label>
+        </form>
+        <form method="delete" id="deleteQueue" class="form">
+          <label>
+            <span>Delete queue</span>
+            <button type="submit" class="btn-danger">Delete</button>
+          </label>
+        </form>
+      </section>
+      <section class="card">
         <h3>
           Consumers
           <small id="table-count"></small>
         </h3>
+        <div id="table-error"></div>
         <table id="table" class="table">
           <thead>
             <tr>
               <th>Channel</th>
-              <th>Consumer tag</th>
+              <th class="left">Consumer tag</th>
               <th>Ack required</th>
               <th>Exclusive</th>
-              <th>Prefetch count</th>
+              <th class="right">Prefetch count</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
-        <div id="bindings-table-error"></div>
+      </section>
+      <section class="card">
         <h3>
           Bindings
           <small id="bindings-table-count"></small>
         </h3>
+        <div id="bindings-table-error"></div>
         <table id="bindings-table" class="table medium-table">
           <thead>
             <tr>
               <th>From</th>
-              <th>Routing key</th>
-              <th>Arguments</th>
+              <th class="left">Routing key</th>
+              <th class="left">Arguments</th>
               <th></th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </section>
-      <form method="post" id="addBinding" class="form card cols-2">
+      <form method="post" id="addBinding" class="form card cols-6">
         <h3>Add a binding to this queue</h3>
         <label>
           <span>From exchange</span>
@@ -98,7 +124,7 @@
         </label>
         <button type="submit" class="btn-primary">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form card cols-2">
+      <form method="post" id="publishMessage" class="form card cols-6">
         <h3>Publish message</h3>
         <p>
           Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to this queue.
@@ -124,7 +150,7 @@
         </label>
         <button type="submit" class="btn-primary">Publish message</button>
       </form>
-      <section class="card cols-2">
+      <section class="card cols-6">
         <form method="post" id="getMessages" class="form">
           <h3>Get messages</h3>
           <label>
@@ -183,21 +209,13 @@
         </div>
         <div id="messages"></div>
       </section>
-      <form method="post" id="moveMessages" class="form card cols-2">
+      <form method="post" id="moveMessages" class="form card cols-6">
         <h3>Move messages</h3>
         <label>
           <span>Destination queue</span>
           <input type="text" name="shovel-destination">
         </label>
         <button type="submit" class="btn-primary">Move messages</button>
-      </form>
-      <form method="delete" id="purgeQueue" class="form card cols-2">
-        <h3>Purge queue</h3>
-        <button type="submit" class="btn-danger">Purge</button>
-      </form>
-      <form method="delete" id="deleteQueue" class="form card cols-2">
-        <h3>Delete queue</h3>
-        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

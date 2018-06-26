@@ -18,8 +18,9 @@
     </header>
     <aside></aside>
     <main>
-      <section class="card">
-        <table class="details-table small-table">
+      <section class="card cols-4 align-start">
+        <h3>Details</h3>
+        <table class="details-table">
           <tr>
             <th>Tags</th>
             <td id="tags"></td>
@@ -29,11 +30,21 @@
             <td id="hasPassword"></td>
           </tr>
         </table>
-        <div id="table-error"></div>
+      </section>
+      <section class="card cols-4 align-start">
+        <form method="delete" id="deleteUser" class="form">
+          <label
+            ><span>Delete user</span>
+            <button type="submit" class="btn-danger">Delete</button>
+          </label>
+        </form>
+      </section>
+      <section class="card">
         <h3>
           Permissions
           <small id="table-count"></small>
         </h3>
+        <div id="table-error"></div>
         <table id="table" class="table">
           <thead>
             <tr>
@@ -47,7 +58,7 @@
           <tbody></tbody>
         </table>
       </section>
-      <form method="put" id="setPermission" class="form card cols-2">
+      <form method="put" id="setPermission" class="form card cols-6">
         <h3>Set permission</h3>
         <label>
           <span>Virtual host</span>
@@ -67,7 +78,7 @@
         </label>
         <button type="submit" class="btn-primary">Set permission</button>
       </form>
-      <form method="put" id="updateUser" class="form card cols-2">
+      <form method="put" id="updateUser" class="form card cols-6">
         <h3>Update user</h3>
         <label>
           <span>Remove password</span>
@@ -85,10 +96,6 @@
           <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
         </div>
         <button type="submit" class="btn-primary">Update user</button>
-      </form>
-      <form method="delete" id="deleteUser" class="form card cols-2">
-        <h3>Delete user</h3>
-        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>
@@ -120,7 +127,6 @@
       const permissionsUrl = '/api/users/' + urlEncodedUsername + '/permissions'
       const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0 }
       const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
-        tr.insertCell(-1)
         avalanchemq.table.renderCell(tr, 1, item.configure)
         avalanchemq.table.renderCell(tr, 2, item.write)
         avalanchemq.table.renderCell(tr, 3, item.read)

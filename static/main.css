@@ -46,7 +46,7 @@ main {
   grid-column: 2;
   align-self: start;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(12, 1fr);
   gap: 20px;
   width: calc(100% - 40px);
   justify-self: center;
@@ -59,28 +59,29 @@ main {
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   background-color: #FFF;
-  grid-column: 1 / span 4;
+  grid-column: 1 / span 12;
 }
 
 .card > :first-child, .card > form > :first-child {
   margin-top: 0;
 }
 
-.cols-1 {
-  grid-column: auto / span 1
+.card.align-start {
+  align-self: start;
 }
 
-.cols-2 {
-  grid-column: auto / span 2
-}
-
-.cols-3 {
-  grid-column: auto / span 3
-}
-
-.cols-4 {
-  grid-column: auto / span 4
-}
+.cols-1 { grid-column: auto / span 1 }
+.cols-2 { grid-column: auto / span 2 }
+.cols-3 { grid-column: auto / span 3 }
+.cols-4 { grid-column: auto / span 4 }
+.cols-5 { grid-column: auto / span 5 }
+.cols-6 { grid-column: auto / span 6 }
+.cols-7 { grid-column: auto / span 7 }
+.cols-8 { grid-column: auto / span 8 }
+.cols-9 { grid-column: auto / span 9 }
+.cols-10 { grid-column: auto / span 10 }
+.cols-11 { grid-column: auto / span 11 }
+.cols-12 { grid-column: auto / span 12 }
 
 aside {
   grid-column: 1 / span 1;
@@ -339,29 +340,30 @@ aside li.active a {
 }
 
 .details-table {
-  width: 100%;
-  margin-bottom: 40px;
-  border-spacing: 0;
-  border: 1px solid var(--theme-color-light);;
-  border-radius: 3px;
-  padding: 10px 0;
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  margin-bottom: -1.5rem;
+  width: calc(100% + 3rem);
+  border-collapse: collapse;
 }
 
-.details-table table {
-  width: 100%;
+.details-table th {
+  text-align: left;
+  border-top: 1px solid #e0e1e2;
+  border-right: 1px dashed #e0e1e2;
+  vertical-align: middle;
+  padding: .75rem;
+  padding-left: 1rem;
 }
 
 .details-table td {
-  text-align: left;
-  padding: 0.2em 0.2em 0.2em 1em;
+  border-top: 1px solid #e0e1e2;
+  vertical-align: middle;
+  padding: .75rem;
 }
 
-.details-table > tbody > tr > th {
-  border-color: var(--theme-color-light);;
-  border-right-width: 1px;
-  border-right-style: solid;
-  width: 1%;
-  min-width: 200px;
+.details-table tr:first-child > * {
+  border-top: #fff;
 }
 
 .small-table {
@@ -434,13 +436,14 @@ a[data-tag] {
 
 .form label > span {
   width: 150px;
-  float: left;
+  display: inline-block;
   padding-top: 8px;
   padding-right: 5px;
 }
 
-.form input:not([type="radio"]):not([type="checkbox"]):not([type="file"]), .form select {
-  width: 200px;
+.form input:not([type="radio"]):not([type="checkbox"]), .form select {
+  max-width: 300px;
+  width: calc(100% - 160px);
 }
 
 .form .label {
@@ -452,7 +455,13 @@ a[data-tag] {
 }
 
 .form button[type="submit"]:not(.btn-inline), .form input[type="submit"]:not(.btn-inline) {
-  margin-left: 155px;
+  margin-left: 160px;
+  display: inline-block;
+}
+
+.form label button[type="submit"]:not(.btn-inline), .form label input[type="submit"]:not(.btn-inline) {
+  margin-left: 15px;
+  display: inline-block;
 }
 
 .form label > select:first-child {
@@ -478,7 +487,7 @@ button:hover {
 textarea {
   height:100px;
   width: calc(100% - 160px);
-  max-width: 300px;
+  max-width: 400px;
 }
 
 fieldset {
