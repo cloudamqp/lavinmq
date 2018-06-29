@@ -5,11 +5,10 @@ install: build
 	cp bin/avalanchemq /usr/sbin/
 
 build-deb:
-	vagrant up && vagrant ssh -c "cd /vagrant && make deb" && vagrant down
+	vagrant up && vagrant ssh -c "cd /vagrant && make deb" && vagrant halt
 
 deb:
 	build/deb 1
 
-release:
-	aws s3 cp avalanchemq_*.deb s3://avalanchemq/
-	aws s3 cp `ls avalanchemq_*.deb | tail -1` s3://avalanchemq/avalanchemq_latest.deb
+release-deb:
+	last=$$(ls avalanchemq_*.deb | tail -1) && deb-s3 upload --bucket apt.avalanchemq.com $$last && aws cloudfront create-invalidation --distribution-id E26Y9DFNV7WCMR --paths "/dists/*"
