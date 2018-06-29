@@ -256,13 +256,16 @@ module AvalancheMQ
               ack(@delivery_tags[frame.delivery_tag])
             end
           when AMQP::Connection::CloseOk
-            @socket.close
+            break
+          when AMQP::Connection::Close
+            raise UnexpectedFrame.new(frame) unless @out.closed?
+            @socket.write AMQP::Connection::CloseOk.new.to_slice
             break
           else
             @log.warn { "Unexpected frame #{frame}" }
           end
         rescue Channel::ClosedError
-          force_close
+          @log.debug { "#amqp_read_loop out channel closed" }
         end
       ensure
         @socket.close
@@ -285,6 +288,7 @@ module AvalancheMQ
             end
           rescue Channel::ClosedError
             @log.debug { "#channel_read_loop closed" }
+            force_close
             break
           end
         end
@@ -352,14 +356,19 @@ module AvalancheMQ
           when AMQP::BodyFrame
             @out.send(frame)
           when AMQP::Connection::CloseOk
-            @socket.close
+            break
+          when AMQP::Connection::Close
+            raise UnexpectedFrame.new(frame) unless @out.closed?
+            @socket.write AMQP::Connection::CloseOk.new.to_slice
             break
           else
             raise UnexpectedFrame.new(frame)
           end
         rescue Channel::ClosedError
-          force_close
+          @log.debug { "#consume_loop out channel closed" }
         end
+      ensure
+        @socket.close
       end
 
       private def channel_read_loop
@@ -384,8 +393,9 @@ module AvalancheMQ
             else
               @log.warn { "Unexpected frame #{frame}" }
             end
-          rescue Channel::ClosedError
+          rescue ex : Channel::ClosedError
             @log.debug { "#channel_read_loop closed" }
+            force_close
             break
           end
         end
@@ -425,7 +435,6 @@ module AvalancheMQ
         return if @socket.closed?
         @socket.write AMQP::Connection::Close.new(320_u16,
           "Shovel stopped", 0_u16, 0_u16).to_slice
-        Client.close_on_ok(@socket, @log)
       end
     end
   end

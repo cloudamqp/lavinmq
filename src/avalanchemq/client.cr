@@ -555,6 +555,9 @@ module AvalancheMQ
         break frame if frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
         log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
       end
+    rescue e : AMQP::FrameDecodeError
+      log.warn { "#{e.inspect} when waiting for CloseOk" }
+    ensure
       socket.close
     end
   end
