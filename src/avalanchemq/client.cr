@@ -55,7 +55,7 @@ module AvalancheMQ
       proto = uninitialized UInt8[8]
       bytes = socket.read_fully(proto.to_slice)
 
-      if proto != AMQP::PROTOCOL_START
+      if proto != AMQP::PROTOCOL_START && proto != AMQP::PROTOCOL_START_ALT
         socket.write AMQP::PROTOCOL_START.to_slice
         socket.close
         return

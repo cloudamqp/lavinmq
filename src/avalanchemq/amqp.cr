@@ -4,6 +4,10 @@ require "./slice_to_json"
 module AvalancheMQ
   module AMQP
     PROTOCOL_START = UInt8.static_array(65, 77, 81, 80, 0, 0, 9, 1)
+
+    # Protocol header for AMQP 0-9
+    PROTOCOL_START_ALT = UInt8.static_array(65, 77, 81, 80, 1, 1, 0, 9)
+
     class InvalidFrameEnd < Exception
     end
 
