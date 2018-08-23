@@ -34,7 +34,7 @@ module AvalancheMQ
         unless users.try &.as_a?
           bad_request(context, "Field 'users' is required")
         end
-        users.try &.each do |u|
+        users.try &.as_a.each do |u|
           unless u.as_s?
             bad_request(context, "Field 'users' must be array of user names")
           end

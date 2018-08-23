@@ -41,9 +41,9 @@ module AvalancheMQ
         ParametersController.new(@amqp_server).route_handler,
       ] of HTTP::Handler
       handlers.unshift(HTTP::LogHandler.new) if @log.level == Logger::DEBUG
-      @http = HTTP::Server.new("::", @port, handlers)
-      server = @http.not_nil!.bind
-      @log.info { "Listening on #{server.local_address}" }
+      @http = HTTP::Server.new(handlers)
+      addr = @http.not_nil!.bind_tcp "::", @port
+      @log.info { "Listening on #{addr}" }
       @http.not_nil!.listen
     end
 

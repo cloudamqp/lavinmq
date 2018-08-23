@@ -56,7 +56,7 @@ module AvalancheMQ
       if File.exists? path
         @log.debug "Loading vhosts from file"
         File.open(path) do |f|
-          JSON.parse(f).each do |vhost|
+          JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
             @vhosts[name] = VHost.new(name, @data_dir, @log)

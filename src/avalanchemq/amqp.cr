@@ -44,7 +44,7 @@ module AvalancheMQ
     end
 
     def self.cast_to_field(x)
-      x.try &.as(Field)
+      x.try &.raw.as(Field)
     end
 
     struct Table

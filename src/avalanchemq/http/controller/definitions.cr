@@ -115,7 +115,7 @@ module AvalancheMQ
 
     private def import_vhosts(body)
       return unless vhosts = body["vhosts"]? || nil
-      vhosts.each do |v|
+      vhosts.as_a.each do |v|
         name = v["name"].as_s
         @amqp_server.vhosts.create name
       end
@@ -123,7 +123,7 @@ module AvalancheMQ
 
     private def import_queues(body, vhosts)
       return unless queues = body["queues"]? || nil
-      queues.each do |q|
+      queues.as_a.each do |q|
         name = q["name"].as_s
         vhost = q["vhost"].as_s
         durable = q["durable"].as_bool
@@ -131,7 +131,7 @@ module AvalancheMQ
         json_args = q["arguments"].as_h
         arguments = Hash(String, AMQP::Field).new(json_args.size)
         json_args.each do |k, v|
-          arguments[k] = v.as AMQP::Field
+          arguments[k] = v.raw.as AMQP::Field
         end
         next unless v = fetch_vhost?(vhosts, vhost)
         v.declare_queue(name, durable, auto_delete, arguments)
@@ -140,7 +140,7 @@ module AvalancheMQ
 
     private def import_exchanges(body, vhosts)
       return unless exchanges = body["exchanges"]? || nil
-      exchanges.each do |e|
+      exchanges.as_a.each do |e|
         name = e["name"].as_s
         vhost = e["vhost"].as_s
         type = e["type"].as_s
@@ -150,7 +150,7 @@ module AvalancheMQ
         json_args = e["arguments"].as_h
         arguments = Hash(String, AMQP::Field).new(json_args.size)
         json_args.each do |k, v|
-          arguments[k] = v.as AMQP::Field
+          arguments[k] = v.raw.as AMQP::Field
         end
         next unless v = fetch_vhost?(vhosts, vhost)
         v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
@@ -159,7 +159,7 @@ module AvalancheMQ
 
     private def import_bindings(body, vhosts)
       return unless bindings = body["bindings"]? || nil
-      bindings.each do |b|
+      bindings.as_a.each do |b|
         source = b["source"].as_s
         vhost = b["vhost"].as_s
         destination = b["destination"].as_s
@@ -168,7 +168,7 @@ module AvalancheMQ
         json_args = b["arguments"].as_h
         arguments = Hash(String, AMQP::Field).new(json_args.size)
         json_args.each do |k, v|
-          arguments[k] = v.as AMQP::Field
+          arguments[k] = v.raw.as AMQP::Field
         end
         next unless v = fetch_vhost?(vhosts, vhost)
         case destination_type
@@ -182,7 +182,7 @@ module AvalancheMQ
 
     private def import_permissions(body)
       return unless permissions = body["permissions"]? || nil
-      permissions.each do |p|
+      permissions.as_a.each do |p|
         user = p["user"].as_s
         vhost = p["vhost"].as_s
         configure = p["configure"].as_s
@@ -199,7 +199,7 @@ module AvalancheMQ
 
     private def import_users(body)
       return unless users = body["users"]? || nil
-      users.each do |u|
+      users.as_a.each do |u|
         name = u["name"].as_s
         pass_hash = u["password_hash"].as_s
         hash_algo =
@@ -217,7 +217,7 @@ module AvalancheMQ
 
     private def import_parameters(body, vhosts)
       return unless parameters = body["parameters"]? || nil
-      parameters.each do |p|
+      parameters.as_a.each do |p|
         param = Parameter.new(p["component"].as_s, p["name"].as_s, p["value"])
         vhost = p["vhost"].as_s
         next unless v = fetch_vhost?(vhosts, vhost)
@@ -227,7 +227,7 @@ module AvalancheMQ
 
     private def import_global_parameters(body)
       return unless parameters = body["global-parameters"]? || nil
-      parameters.each do |p|
+      parameters.as_a.each do |p|
         param = Parameter.new(nil, p["name"].as_s, p["value"])
         @amqp_server.add_parameter(param)
       end
@@ -235,7 +235,7 @@ module AvalancheMQ
 
     private def import_policies(body, vhosts)
       return unless policies = body["policies"]? || nil
-      policies.each do |p|
+      policies.as_a.each do |p|
         name = p["name"].as_s
         vhost = p["vhost"].as_s
         next unless v = fetch_vhost?(vhosts, vhost)

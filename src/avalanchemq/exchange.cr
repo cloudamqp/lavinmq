@@ -22,7 +22,7 @@ module AvalancheMQ
 
     def apply_policy(@policy : Policy)
       handle_arguments
-      @policy.not_nil!.definition.each do |k, v|
+      @policy.not_nil!.definition.as_h.each do |k, v|
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
