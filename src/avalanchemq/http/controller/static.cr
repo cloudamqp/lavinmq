@@ -6,7 +6,7 @@ module AvalancheMQ
   class StaticController
     class Static
       extend BakedFileSystem
-      # bake_folder "../../../../static"
+      bake_folder "../../../../static"
     end
 
     include Router
