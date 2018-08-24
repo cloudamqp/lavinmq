@@ -14,7 +14,7 @@ describe AvalancheMQ::BindingsController do
       body.as_a.empty?.should be_false
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments",
               "properties_key"]
-      body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
     end

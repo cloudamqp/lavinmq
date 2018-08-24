@@ -10,7 +10,7 @@ describe AvalancheMQ::UsersController do
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
       keys = ["name", "password_hash", "hashing_algorithm"]
-      body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
     end
@@ -128,7 +128,7 @@ describe AvalancheMQ::UsersController do
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
       keys = ["user", "vhost", "configure", "write", "read"]
-      body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
     end

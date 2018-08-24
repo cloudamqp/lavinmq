@@ -15,7 +15,7 @@ describe AvalancheMQ::ChannelsController do
         body.as_a.empty?.should be_false
         keys = ["vhost", "user", "number", "name", "connection_details", "state", "prefetch_count",
                 "global_prefetch_count", "consumer_count", "confirm", "transactional"]
-        body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+        body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     ensure
       close(h, s)

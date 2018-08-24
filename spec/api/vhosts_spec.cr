@@ -10,7 +10,7 @@ describe AvalancheMQ::VHostsController do
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
       keys = ["name", "dir", "messages", "messages_unacknowledged", "messages_ready"]
-      body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
     end
@@ -37,8 +37,8 @@ describe AvalancheMQ::VHostsController do
       response = get("http://localhost:8080/api/vhosts", headers: hdrs)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
-      body.any? { |v| v["name"].as_s == "/" }.should be_true
-      body.any? { |v| v["name"].as_s == "test" }.should be_true
+      body.as_a.any? { |v| v["name"].as_s == "/" }.should be_true
+      body.as_a.any? { |v| v["name"].as_s == "test" }.should be_true
     ensure
       s.try do |s|
         s.vhosts.delete("test")

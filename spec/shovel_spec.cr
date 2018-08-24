@@ -217,11 +217,11 @@ describe AvalancheMQ::Shovel do
     Fiber.yield
     p = AvalancheMQ::Parameter.new("shovel", "shovel",
       JSON::Any.new({
-        "src-uri" => "amqp://guest:guest@localhost",
-        "src-queue" => "q1d",
-        "dest-uri" => "amqp://guest:guest@localhost",
-        "dest-queue" => "q2d"
-      } of String => JSON::Type))
+      "src-uri" => JSON::Any.new("amqp://guest:guest@localhost"),
+      "src-queue" => JSON::Any.new("q1d"),
+      "dest-uri" => JSON::Any.new("amqp://guest:guest@localhost"),
+      "dest-queue" => JSON::Any.new("q2d")
+      } of String => JSON::Any))
     s.not_nil!.vhosts["/"].add_parameter(p)
     AMQP::Connection.start do |conn|
       ch = conn.channel

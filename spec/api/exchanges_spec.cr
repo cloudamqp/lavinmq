@@ -10,7 +10,7 @@ describe AvalancheMQ::ExchangesController do
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
       keys = ["arguments", "internal", "auto_delete", "durable", "type", "vhost", "name"]
-      body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
     end

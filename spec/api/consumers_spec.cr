@@ -16,7 +16,7 @@ describe AvalancheMQ::ConsumersController do
         body.as_a.empty?.should be_false
         keys = ["prefetch_count", "ack_required", "exclusive", "consumer_tag", "channel_details",
                 "queue"]
-        body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+        body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     ensure
       close(h, s)

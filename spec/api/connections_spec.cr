@@ -64,7 +64,7 @@ describe AvalancheMQ::ConnectionsController do
         keys = ["channels", "connected_at", "type", "channel_max", "timeout", "client_properties",
                 "vhost", "user", "protocol", "auth_mechanism", "host", "port", "name", "ssl",
                 "state"]
-        body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+        body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     ensure
       close(h, s)

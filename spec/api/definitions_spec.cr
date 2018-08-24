@@ -205,7 +205,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       body["users"].as_a.empty?.should be_false
       keys = ["name", "password_hash", "hashing_algorithm"]
-      body["users"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["users"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -218,7 +218,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       body["vhosts"].as_a.empty?.should be_false
       keys = ["name"]
-      body["vhosts"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["vhosts"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -232,7 +232,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
       keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
-      body["queues"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -246,7 +246,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
-      body["exchanges"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -262,7 +262,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
-      body["bindings"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -275,14 +275,14 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["user", "vhost", "configure", "read", "write"]
       body["permissions"].as_a.empty?.should be_false
-      body["permissions"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["permissions"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
 
      it "exports policies" do
       s, h = create_servers
-      d = JSON::Any.new({ "x-max-lenght" => 10_i64 } of String => JSON::Type)
+      d = JSON::Any.new({ "x-max-lenght" => JSON::Any.new(10_i64) })
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       listen(h)
       response = get("http://localhost:8080/api/definitions")
@@ -290,14 +290,14 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
-      body["policies"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
 
     it "exports parameters" do
       s, h = create_servers
-      d = JSON::Any.new({ "dummy" => 10_i64 } of String => JSON::Type)
+      d = JSON::Any.new({ "dummy" => JSON::Any.new(10_i64) })
       p = AvalancheMQ::Parameter.new("c1", "p1", d)
       s.add_parameter(p)
       listen(h)
@@ -306,7 +306,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "component", "value"]
       body["parameters"].as_a.empty?.should be_false
-      body["parameters"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -322,7 +322,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
       keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
-      body["queues"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -336,7 +336,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
-      body["exchanges"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
@@ -352,14 +352,14 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
-      body["bindings"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end
 
     it "exports policies" do
       s, h = create_servers
-      d = JSON::Any.new({ "x-max-lenght" => 10_i64 } of String => JSON::Type)
+      d = JSON::Any.new({ "x-max-lenght" => JSON::Any.new(10_i64) })
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       listen(h)
       response = get("http://localhost:8080/api/definitions/%2f")
@@ -367,7 +367,7 @@ describe AvalancheMQ::HTTPServer do
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
-      body["policies"].each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h, s)
     end

@@ -13,7 +13,7 @@ describe AvalancheMQ::QueuesController do
       keys = ["name", "durable", "exclusive", "auto_delete", "arguments", "consumers", "vhost",
               "messages", "ready", "unacked", "policy", "exclusive_consumer_tag", "state",
               "effective_policy_definition"]
-      body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       close(h)
     end
@@ -192,7 +192,7 @@ describe AvalancheMQ::QueuesController do
         body.as_a.empty?.should be_false
         keys = ["payload_bytes", "redelivered", "exchange", "routing_key", "message_count",
                 "properties", "payload", "payload_encoding"]
-        body.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+        body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
         s.not_nil!.vhosts["/"].queues["q3"].message_count.should eq 1
       end
     ensure
