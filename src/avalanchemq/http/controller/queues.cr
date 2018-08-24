@@ -139,8 +139,7 @@ module AvalancheMQ
           msgs ||= [] of Envelope
           count = q.message_count
           res = msgs.compact.map do |env|
-            io = IO::Memory.new(env.message.body)
-            payload = (truncate.nil? ? io.gets_to_end : io.gets(truncate)).to_s
+            payload = String.new(truncate.nil? ? env.message.body : env.message.body[0, truncate])
             case encoding
             when "auto"
               if payload.valid_encoding?
