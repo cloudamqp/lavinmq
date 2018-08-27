@@ -408,7 +408,8 @@ module AvalancheMQ
 
       private def consume
         queue_name = @source.queue || ""
-        @socket.write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
+        passive = !queue_name.empty?
+        @socket.write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
           false, true, true, false,
           {} of String => AMQP::Field).to_slice
         frame = AMQP::Frame.decode(@socket)
