@@ -47,7 +47,7 @@ module AvalancheMQ
         rescue ex
           @state -= 1
           break if @channel_a.closed?
-          @log.warn "Shovel consumer failure: #{ex.message}"
+          @log.warn "Shovel consumer failure: #{ex.inspect_with_backtrace}"
           sub.try &.force_close
           sleep @reconnect_delay.seconds
         end
