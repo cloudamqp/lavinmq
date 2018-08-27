@@ -554,3 +554,7 @@ a, a:visited {
   content: '●';
   color: red;
 }
+
+pre {
+  white-space: pre-wrap;
+}
