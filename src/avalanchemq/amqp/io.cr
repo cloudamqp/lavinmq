@@ -48,12 +48,12 @@ module AvalancheMQ
       end
 
       def read_timestamp
-        ms = read_bytes(Int64, ::IO::ByteFormat::NetworkEndian)
-        Time.epoch_ms(ms)
+        ms = read_bytes(UInt64, ::IO::ByteFormat::NetworkEndian)
+        Time.epoch(ms)
       end
 
       def write_timestamp(ts)
-        write_bytes(ts.epoch_ms.to_i64, ::IO::ByteFormat::NetworkEndian)
+        write_bytes(ts.epoch.to_u64, ::IO::ByteFormat::NetworkEndian)
       end
 
       def read_uint32
