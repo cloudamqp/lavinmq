@@ -145,7 +145,7 @@
         }
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['src-uri']))
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ":***@")))
         let srcEndpoint = ''
         let srcEndpointType = ''
         if (item.value['src-queue']) {
@@ -157,7 +157,7 @@
         }
         avalanchemq.table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
         avalanchemq.table.renderCell(tr, 4, item.value['src-prefetch-count'])
-        avalanchemq.table.renderCell(tr, 5, decodeURI(item.value['dest-uri']))
+        avalanchemq.table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ":***@")))
         let destEndpoint = ''
         let destEndpointType = ''
         if (item.value['dest-queue']) {
