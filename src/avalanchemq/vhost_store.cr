@@ -67,8 +67,6 @@ module AvalancheMQ
       else
         @log.debug "Loading default vhosts"
         create("/", save: false)
-        create("default", save: false)
-        create("bunny_testbed", save: false)
         save!
       end
       @log.debug("#{@vhosts.size} vhosts loaded")
