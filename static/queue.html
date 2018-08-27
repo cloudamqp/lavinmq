@@ -203,7 +203,7 @@
                 <div><small><span class="message-size"></span> bytes</small></div>
                 <div><small>Encoding: <span class="message-encoding"></span></small></div>
               </th>
-              <td class="message-payload"></td>
+              <td><pre class="message-payload"></pre></td>
             </tr>
           </table>
         </div>
@@ -364,7 +364,7 @@
               msgNode.querySelector('.message-properties').textContent = avalanchemq.dom.jsonToText(message.properties)
               msgNode.querySelector('.message-size').textContent = message.payload_bytes
               msgNode.querySelector('.message-encoding').textContent = message.payload_encoding
-              msgNode.querySelector('.message-payload').textContent = JSON.stringify(message.payload)
+              msgNode.querySelector('.message-payload').textContent = message.payload
               msgNode.classList.remove('hide')
               messagesContainer.appendChild(msgNode)
             }
