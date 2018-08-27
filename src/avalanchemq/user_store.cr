@@ -87,10 +87,6 @@ module AvalancheMQ
         @log.debug "Loading default users"
         create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
-        create("bunny_gem", "bunny_password", tags, save: false)
-        add_permission("bunny_gem", "bunny_testbed", /.*/, /.*/, /.*/)
-        create("bunny_reader", "reader_password", tags, save: false)
-        add_permission("bunny_reader", "bunny_testbed", /.*/, /.*/, /.*/)
         save!
       end
       @log.debug("#{@users.size} users loaded")
