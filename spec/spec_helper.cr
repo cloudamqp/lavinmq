@@ -29,7 +29,7 @@ FileUtils.rm_rf("/tmp/spec")
 #)
 
 module TestHelpers
-  def wait_for(t = 1.seconds)
+  def wait_for(t = 2.seconds)
     timeout = Time.now + t
     until yield
       Fiber.yield
