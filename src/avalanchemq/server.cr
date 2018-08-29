@@ -2,7 +2,7 @@ require "socket"
 require "logger"
 require "openssl"
 require "./amqp"
-require "./client"
+require "./client/network_client"
 require "./vhost_store"
 require "./user_store"
 require "./exchange"
@@ -12,15 +12,16 @@ require "./parameter"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, log, parameters, direct_reply_channels, config
+    getter connections, vhosts, users, data_dir, log, parameters, config
     alias ConfigValue = UInt16
+    alias ConnectionsEvents = Channel::Buffered(Tuple(Client, Symbol))
     include ParameterTarget
 
-    @direct_reply_channels = Hash(String, Client::Channel).new
     @running = false
     @config = {"heartbeat" => 60_u16} of String => ConfigValue
 
-    def initialize(@data_dir : String, log_level, log_prefix_systemd_level = false, config = Hash(String, ConfigValue).new)
+    def initialize(@data_dir : String, log_level, log_prefix_systemd_level = false,
+                   config = Hash(String, ConfigValue).new)
       @log = Logger.new(STDOUT)
       @log.level = log_level
       @log.progname = "amqpserver"
@@ -40,8 +41,8 @@ module AvalancheMQ
       Dir.mkdir_p @data_dir
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
-      @connection_events = Channel(Tuple(Client, Symbol)).new(16)
-      @vhosts = VHostStore.new(@data_dir, @log)
+      @connection_events = ConnectionsEvents.new(16)
+      @vhosts = VHostStore.new(@data_dir, @connection_events, @log)
       @users = UserStore.new(@data_dir, @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
@@ -148,7 +149,7 @@ module AvalancheMQ
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
       # socket.send_buffer_size = 65536
-      client = Client.start(socket, ssl_client, self, @vhosts, @users, @log)
+      client = NetworkClient.start(socket, ssl_client, @config, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})
         client.on_close do |c|

@@ -3,10 +3,12 @@ require "digest/sha1"
 require "./amqp/io"
 require "./segment_position"
 require "./policy"
+require "./observable"
 
 module AvalancheMQ
   class Queue
     include PolicyTarget
+    include Observable
 
     class QueueFile < File
       include AMQP::IO
@@ -73,6 +75,10 @@ module AvalancheMQ
           @dlx = v.as_s
         when "dead-letter-routing-key"
           @dlrk = v.as_s
+        when "upstream"
+          @vhost.upstreams.try &.link(v.as_s, self)
+        when "upstream-set"
+          @vhost.upstreams.try &.link_set(v.as_s, self)
         end
       end
     end
@@ -178,6 +184,7 @@ module AvalancheMQ
       if !deleting && ((@auto_delete || @exclusive) && @expires.nil?)
         delete
       end
+      notifyObservers(:close)
       @log.info "Closed"
     end
 
@@ -186,6 +193,7 @@ module AvalancheMQ
       @log.info "Deleting"
       @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
       @deleted = true
+      notifyObservers(:delete)
     end
 
     def details
@@ -376,6 +384,7 @@ module AvalancheMQ
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @consumer_available.send nil unless @consumer_available.full?
+      notifyObservers(:add_consumer, consumer)
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
@@ -383,9 +392,8 @@ module AvalancheMQ
         @exclusive_consumer = false if consumer.exclusive
         consumer.unacked.each { |sp| reject(sp, true) }
         @log.debug { "Removing consumer (#{@consumers.size} left)" }
-        if @auto_delete && @consumers.size == 0
-          delete
-        end
+        notifyObservers(:rm_consumer, consumer)
+        delete if @consumers.size == 0 && @auto_delete
       end
     end
 

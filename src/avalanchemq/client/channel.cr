@@ -3,7 +3,7 @@ require "./channel/consumer"
 require "../amqp"
 
 module AvalancheMQ
-  class Client
+  abstract class Client
     class Channel
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
@@ -19,7 +19,7 @@ module AvalancheMQ
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
-        @name = "#{@client.remote_address}[#{id}]"
+        @name = "#{@client.channel_name_prefix}[#{@id}]"
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
         @confirm_count = 0_u64
@@ -37,19 +37,15 @@ module AvalancheMQ
           number:                  @id,
           name:                    @name,
           vhost:                   @client.vhost.name,
-          user:                    @client.user.name,
+          user:                    @client.user.try(&.name),
           consumer_count:          @consumers.size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch ? @prefetch_count : 0,
           confirm:                 @confirm,
           transactional:           false,
           messages_unacknowledged: @map.size,
-          connection_details:      {
-            peer_host: @client.remote_address.address,
-            peer_port: @client.remote_address.port,
-            name:      @client.name,
-          },
-          state: @running ? "running" : "closed",
+          connection_details:      @client.connection_details,
+          state:                   @running ? "running" : "closed",
         }
       end
 
@@ -69,11 +65,6 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
-        unless @client.user.can_write?(@client.vhost.name, frame.exchange)
-          @client.send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
-          return
-        end
-
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -113,10 +104,10 @@ module AvalancheMQ
           @next_msg_body.not_nil!.to_slice)
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
-          @client.server.direct_reply_channels[consumer_tag]?.try do |ch|
+          @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
             deliver = AMQP::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
               msg.exchange_name, msg.routing_key)
-            ch.deliver(deliver, msg)
+            deliver(deliver, msg)
             delivered = true
           end
         end
@@ -145,11 +136,11 @@ module AvalancheMQ
         @next_publish_mandatory = @next_publish_immediate = false
       end
 
+      private def deliver(frame, msg)
+        @client.deliver(@id, frame, msg)
+      end
+
       def consume(frame)
-        unless @client.user.can_read?(@client.vhost.name, frame.queue)
-          @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
-          return
-        end
         if frame.consumer_tag.empty?
           frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
         end
@@ -160,7 +151,7 @@ module AvalancheMQ
           end
           @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
           @client.direct_reply_consumer_tag = frame.consumer_tag
-          @client.server.direct_reply_channels[frame.consumer_tag] = self
+          @client.vhost.direct_reply_channels[frame.consumer_tag] = self
         elsif q = @client.vhost.queues[frame.queue]? || nil
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
@@ -182,10 +173,6 @@ module AvalancheMQ
       end
 
       def basic_get(frame)
-        unless @client.user.can_read?(@client.vhost.name, frame.queue)
-          @client.send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
-          return
-        end
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
@@ -218,24 +205,6 @@ module AvalancheMQ
           @client.send AMQP::BodyFrame.new(@id, body_part)
           pos += length
         end
-      end
-
-      def deliver(frame, msg)
-        @log.debug { "Merging delivery, header and body frame to one" }
-        size = msg.size + 256
-        buff = AMQP::MemoryIO.new(size)
-        frame.encode buff
-        header = AMQP::HeaderFrame.new(@id, 60_u16, 0_u16, msg.size, msg.properties)
-        header.encode(buff)
-        pos = 0
-        while pos < msg.size
-          length = [msg.size - pos, @client.max_frame_size - 8].min
-          body_part = msg.body[pos, length]
-          @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
-          AMQP::BodyFrame.new(@id, body_part).encode(buff)
-          pos += length
-        end
-        @client.write buff.to_slice
       end
 
       def basic_ack(frame)
