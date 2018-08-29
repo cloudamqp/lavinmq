@@ -157,6 +157,7 @@ describe AvalancheMQ::Server do
     close(s)
   end
 
+  # TODO: Publish should yield Channel::Close beacuse exchange should be deleted on unbind.
   it "can auto delete exchange" do
     s = amqp_server
     listen(s, 5672)
