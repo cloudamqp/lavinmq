@@ -48,7 +48,7 @@ module AvalancheMQ
 
     def create_upstream_set(name, config)
       upstreams = Array(Upstream).new
-      config.each do |cfg|
+      config.as_a.each do |cfg|
         upstream = @upstreams[cfg["upstream"].as_s]
         if (cfg.as_h.keys.size > 1)
           upstream = upstream.dup
