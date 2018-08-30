@@ -22,6 +22,7 @@ module AvalancheMQ
 
     @state = 0_u8
     @log : Logger
+    @links = Hash(String, Publisher).new
 
     getter name, log, vhost, out_ch
     property uri, prefetch, reconnect_delay, ack_mode, trust_user_id
@@ -32,12 +33,12 @@ module AvalancheMQ
       @uri = URI.parse(raw_uri)
       @log = @vhost.log.dup
       @log.progname += " upstream=#{@name}"
-      @out_ch = Channel::Buffered(AMQP::Frame).new(@prefetch.to_i32)
     end
 
     def stop
       @state = -1
-      @out_ch.close
+      @links.values.each(&.force_close)
+      @links.clear
     end
 
     class Publisher
@@ -47,10 +48,11 @@ module AvalancheMQ
       def initialize(@upstream : QueueUpstream, @federated_q : Queue)
         @log = @upstream.log.dup
         @log.progname += " publisher"
+        @out_ch = Channel::Buffered(AMQP::Frame).new(@upstream.prefetch.to_i32)
         client_properties = {
           "connection_name" => "Federation #{@upstream.name}",
         } of String => AMQP::Field
-        @client = @upstream.vhost.direct_client(@upstream.out_ch, client_properties)
+        @client = @upstream.vhost.direct_client(@out_ch, client_properties)
         set_confirm if @upstream.ack_mode == AckMode::OnConfirm
         @message_count = 0_u32
         @delivery_tags = Hash(UInt64, UInt64).new
@@ -63,8 +65,8 @@ module AvalancheMQ
       private def client_read_loop
         spawn(name: "Upstream publisher #{@upstream.name}#client_read_loop") do
           loop do
-            Fiber.yield if @upstream.out_ch.empty?
-            frame = @upstream.out_ch.receive
+            Fiber.yield if @out_ch.empty?
+            frame = @out_ch.receive
             case frame
             when AMQP::Basic::Nack
               next unless @upstream.ack_mode == AckMode::OnConfirm
@@ -100,7 +102,7 @@ module AvalancheMQ
 
       private def set_confirm
         @client.write AMQP::Confirm::Select.new(1_u16, false)
-        @upstream.out_ch.receive.as(AMQP::Confirm::SelectOk)
+        @out_ch.receive.as(AMQP::Confirm::SelectOk)
       end
 
       private def with_multiple(delivery_tag)
@@ -177,7 +179,7 @@ module AvalancheMQ
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
-            raise UnexpectedFrame.new(frame) unless @upstream.out_ch.closed?
+            raise UnexpectedFrame.new(frame)
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             break
           else
@@ -234,6 +236,10 @@ module AvalancheMQ
       super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode, trust_user_id)
     end
 
+    def close_link(federated_exchange : Exchange)
+      @links.delete(federated_exchange.name).try(&.force_close)
+    end
+
     def link(federated_exchange : Exchange)
     end
   end
@@ -249,20 +255,22 @@ module AvalancheMQ
       super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode, trust_user_id)
     end
 
+    def close_link(federated_q : Queue)
+      @links.delete(federated_q.name).try(&.force_close)
+    end
+
     def link(federated_q : Queue)
-      @state = 0_u8
+      pub = Publisher.new(self, federated_q)
       @queue ||= federated_q.name
+      @links[federated_q.name] = pub
       spawn(name: "Upstream #{@uri.host}/#{@queue}") do
         sub = nil
         loop do
-          pub = Publisher.new(self, federated_q)
           sub = Consumer.new(self, pub, federated_q)
-          @state += 1
           sub.start
           pub.start(sub)
         rescue ex
-          @state -= 1
-          break if @out_ch.closed?
+          break unless @links[federated_q.name]?
           @log.warn "Upstream failure: #{ex.message}"
           sub.try &.force_close
           pub.try &.force_close
