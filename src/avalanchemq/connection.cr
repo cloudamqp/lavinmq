@@ -56,10 +56,9 @@ module AvalancheMQ
       AMQP::Frame.decode(@socket).as(AMQP::Channel::OpenOk)
     end
 
-    def force_close
+    def force_close(msg = "Connection closed")
       return if @socket.closed?
-      @socket.write AMQP::Connection::Close.new(320_u16,
-        "Shovel stopped", 0_u16, 0_u16).to_slice
+      @socket.write AMQP::Connection::Close.new(320_u16, msg, 0_u16, 0_u16).to_slice
     end
 
     class UnexpectedFrame < Exception

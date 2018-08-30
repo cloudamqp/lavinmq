@@ -46,7 +46,7 @@ module AvalancheMQ
           @state -= 1
           break if @channel_a.closed?
           @log.warn "Shovel consumer failure: #{ex.inspect_with_backtrace}"
-          sub.try &.force_close
+          sub.try &.force_close("Shovel stopped")
           sleep @reconnect_delay.seconds
         end
         @log.debug { "Consumer stopped" }
@@ -61,7 +61,7 @@ module AvalancheMQ
           @state -= 1
           break if @channel_b.closed?
           @log.warn "Shovel publisher failure: #{ex.message}"
-          pub.try &.force_close
+          pub.try &.force_close("Shovel stopped")
           sleep @reconnect_delay.seconds
         end
         @log.debug { "Publisher stopped" }
@@ -196,7 +196,6 @@ module AvalancheMQ
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
-            raise UnexpectedFrame.new(frame) unless @out.closed?
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             break
           else
@@ -226,7 +225,7 @@ module AvalancheMQ
             end
           rescue Channel::ClosedError
             @log.debug { "#channel_read_loop closed" }
-            force_close
+            force_close("Shovel stopped")
             break
           end
         end
@@ -327,7 +326,7 @@ module AvalancheMQ
             end
           rescue ex : Channel::ClosedError
             @log.debug { "#channel_read_loop closed" }
-            force_close
+            force_close("Shovel stopped")
             break
           end
         end

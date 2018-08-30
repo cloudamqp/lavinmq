@@ -162,8 +162,14 @@ module AvalancheMQ
       @socket.close
     end
 
+    private def ensure_open_channel(frame)
+      return if @channels[frame.channel]?.try(&.running?)
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
+    end
+
     def write(frame : AMQP::Frame)
-      @channels[frame.channel] ||= Client::Channel.new(self, frame.channel)
+      return if @socket.closed?
+      ensure_open_channel(frame)
       process_frame(frame)
     rescue ex : AMQP::NotImplemented
       @log.error { "#{ex} when reading handling frame" }
@@ -176,13 +182,14 @@ module AvalancheMQ
       @log.info "Lost connection, while reading (#{ex.cause})"
       cleanup
     rescue ex : Exception
-      @log.error { "Unexpected error, while reading: #{ex.inspect}" }
-      @log.debug { ex.inspect_with_backtrace }
+      @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
     end
 
     def send(frame : AMQP::Frame)
+      return if @socket.closed?
+      ensure_open_channel(frame)
       @log.debug { "Send #{frame.inspect}" }
       @socket.send frame
       case frame
@@ -198,8 +205,7 @@ module AvalancheMQ
       cleanup
       false
     rescue ex
-      @log.error { "Unexpected error, while sending: #{ex.inspect}" }
-      @log.debug { ex.inspect_with_backtrace }
+      @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 

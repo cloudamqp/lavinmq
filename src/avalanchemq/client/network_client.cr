@@ -365,8 +365,7 @@ module AvalancheMQ
       @log.info "Lost connection, while reading (#{ex.cause})"
       cleanup
     rescue ex : Exception
-      @log.error { "Unexpected error, while reading: #{ex.inspect}" }
-      @log.debug { ex.inspect_with_backtrace }
+      @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
     end
@@ -391,8 +390,7 @@ module AvalancheMQ
       cleanup
       false
     rescue ex
-      @log.error { "Unexpected error, while sending: #{ex.inspect}" }
-      @log.debug { ex.inspect_with_backtrace }
+      @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 

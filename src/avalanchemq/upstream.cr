@@ -40,23 +40,109 @@ module AvalancheMQ
       @out_ch.close
     end
 
-    class Consumer < Connection
-      include Observer
-
+    class Publisher
       @client : DirectClient
+      @log : Logger
 
       def initialize(@upstream : QueueUpstream, @federated_q : Queue)
         @log = @upstream.log.dup
-        @log.progname += " consumer"
-        @message_counter = 0_u32
-        @message_count = 0_u32
-        @delivery_tags = Hash(UInt64, UInt64).new
-        super(@upstream.uri, @log)
-        set_prefetch
+        @log.progname += " publisher"
         client_properties = {
           "connection_name" => "Federation #{@upstream.name}",
         } of String => AMQP::Field
         @client = @upstream.vhost.direct_client(@upstream.out_ch, client_properties)
+        set_confirm if @upstream.ack_mode == AckMode::OnConfirm
+        @message_count = 0_u32
+        @delivery_tags = Hash(UInt64, UInt64).new
+      end
+
+      def start(@consumer : Consumer)
+        client_read_loop
+      end
+
+      private def client_read_loop
+        spawn(name: "Upstream publisher #{@upstream.name}#client_read_loop") do
+          loop do
+            Fiber.yield if @upstream.out_ch.empty?
+            frame = @upstream.out_ch.receive
+            case frame
+            when AMQP::Basic::Nack
+              next unless @upstream.ack_mode == AckMode::OnConfirm
+              if frame.multiple
+                with_multiple(frame.delivery_tag) { |t| @consumer.not_nil!.reject(t) }
+              else
+                @consumer.not_nil!.reject(@delivery_tags[frame.delivery_tag])
+              end
+            when AMQP::Basic::Return
+              @consumer.not_nil!.reject(@message_count) if @upstream.ack_mode == AckMode::OnConfirm
+            when AMQP::Basic::Ack
+              next unless @upstream.ack_mode == AckMode::OnConfirm
+              if frame.multiple
+                with_multiple(frame.delivery_tag) { |t| @consumer.not_nil!.ack(t) }
+              else
+                @consumer.not_nil!.ack(@delivery_tags[frame.delivery_tag])
+              end
+            when AMQP::Connection::CloseOk
+              break
+            when AMQP::Connection::Close
+              @client.write AMQP::Connection::CloseOk.new
+              break
+            else
+              @log.warn { "Unexpected frame #{frame}" }
+            end
+          rescue ex : Channel::ClosedError
+            @log.debug { "#client_read_loop closed" }
+            force_close
+            break
+          end
+        end
+      end
+
+      private def set_confirm
+        @client.write AMQP::Confirm::Select.new(1_u16, false)
+        @upstream.out_ch.receive.as(AMQP::Confirm::SelectOk)
+      end
+
+      private def with_multiple(delivery_tag)
+        @delivery_tags.delete_if do |m, t|
+          next false unless m <= delivery_tag
+          yield t
+          true
+        end
+      end
+
+      def send_basic_publish(frame)
+        exchange = ""
+        routing_key = @federated_q.name
+        mandatory = @upstream.ack_mode == AckMode::OnConfirm
+        @client.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
+          mandatory, false)
+        if mandatory
+          @message_count += 1
+          @delivery_tags[@message_count.to_u64] = frame.delivery_tag
+        else
+          @consumer.not_nil!.ack(frame.delivery_tag)
+        end
+      end
+
+      def write(frame)
+        @client.write(frame)
+      end
+
+      def force_close
+        return if @client.closed?
+        @client.write AMQP::Connection::Close.new(320_u16, "Federation stopped", 0_u16, 0_u16)
+      end
+    end
+
+    class Consumer < Connection
+      include Observer
+
+      def initialize(@upstream : QueueUpstream, @pub : Publisher, @federated_q : Queue)
+        @log = @upstream.log.dup
+        @log.progname += " consumer"
+        super(@upstream.uri, @log)
+        set_prefetch
         @federated_q.registerObserver(self)
       end
 
@@ -73,22 +159,21 @@ module AvalancheMQ
 
       def start
         return unless @federated_q.immediate_delivery?
-        client_read_loop
-        upstream_loop
+        upstream_read_loop
       end
 
-      private def upstream_loop
+      private def upstream_read_loop
         consume
         loop do
           frame = AMQP::Frame.decode(@socket)
           @log.debug { "Read #{frame.inspect}" }
           case frame
           when AMQP::Basic::Deliver
-            send_basic_publish(frame)
+            @pub.send_basic_publish(frame)
           when AMQP::HeaderFrame
-            @client.write(frame)
+            @pub.write(frame)
           when AMQP::BodyFrame
-            @client.write(frame)
+            @pub.write(frame)
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
@@ -105,30 +190,6 @@ module AvalancheMQ
         @socket.close
       end
 
-      private def client_read_loop
-        spawn(name: "Upstream consumer #{@upstream.name}#client_read_loop") do
-          loop do
-            Fiber.yield if @upstream.out_ch.empty?
-            frame = @upstream.out_ch.receive
-            case frame
-            when AMQP::Basic::Ack
-              @socket.write frame.to_slice
-              @message_counter += 1
-            when AMQP::Basic::Nack
-              @socket.write frame.to_slice
-            when AMQP::Basic::Return
-              @socket.write frame.to_slice
-            else
-              @log.warn { "Unexpected frame #{frame}" }
-            end
-          rescue ex : Channel::ClosedError
-            @log.debug { "#client_read_loop closed" }
-            force_close
-            break
-          end
-        end
-      end
-
       private def set_prefetch
         @socket.write AMQP::Basic::Qos.new(1_u16, 0_u32, @upstream.prefetch, false).to_slice
         AMQP::Frame.decode(@socket).as(AMQP::Basic::QosOk)
@@ -142,7 +203,6 @@ module AvalancheMQ
         frame = AMQP::Frame.decode(@socket)
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
         queue = frame.queue_name
-        @message_count = frame.message_count
         no_ack = @upstream.ack_mode == AckMode::NoAck
         consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "downstream_consumer",
           false, no_ack, false, false, {} of String => AMQP::Field)
@@ -151,32 +211,12 @@ module AvalancheMQ
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Basic::ConsumeOk)
       end
 
-      def force_close
-        return if @socket.closed?
-        @socket.write AMQP::Connection::Close.new(320_u16,
-          "Federation stopped", 0_u16, 0_u16).to_slice
+      def ack(delivery_tag)
+        @socket.write AMQP::Basic::Ack.new(1_u16, delivery_tag, false).to_slice
       end
 
-      def send_basic_publish(frame)
-        exchange = ""
-        routing_key = @federated_q.name
-        mandatory = @upstream.ack_mode == AckMode::OnConfirm
-        @client.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
-          mandatory, false)
-        if mandatory
-          @message_count += 1
-          @delivery_tags[@message_count.to_u64] = frame.delivery_tag
-        else
-          ack(frame.delivery_tag)
-        end
-      end
-
-      private def ack(delivery_tag)
-        @client.write AMQP::Basic::Ack.new(1_u16, delivery_tag, false)
-      end
-
-      private def reject(delivery_tag)
-        @client.write AMQP::Basic::Reject.new(1_u16, delivery_tag, false)
+      def reject(delivery_tag)
+        @socket.write AMQP::Basic::Reject.new(1_u16, delivery_tag.to_u64, false).to_slice
       end
     end
   end
@@ -212,21 +252,24 @@ module AvalancheMQ
     def link(federated_q : Queue)
       @state = 0_u8
       @queue ||= federated_q.name
-      spawn(name: "Upstream consumer #{@uri.host}/#{@queue}") do
+      spawn(name: "Upstream #{@uri.host}/#{@queue}") do
         sub = nil
         loop do
-          sub = Consumer.new(self, federated_q)
+          pub = Publisher.new(self, federated_q)
+          sub = Consumer.new(self, pub, federated_q)
           @state += 1
           sub.start
+          pub.start(sub)
         rescue ex
           @state -= 1
           break if @out_ch.closed?
-          @log.warn "Upstream consumer failure: #{ex.message}"
+          @log.warn "Upstream failure: #{ex.message}"
           sub.try &.force_close
+          pub.try &.force_close
           sleep @reconnect_delay.seconds
         end
         federated_q.unregisterObserver(sub) unless sub.nil?
-        @log.debug { "Consumer stopped" }
+        @log.debug { "Upstream stopped" }
       end
       @log.info { "Federation '#{@name}' starting" }
       Fiber.yield
