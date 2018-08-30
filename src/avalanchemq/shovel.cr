@@ -309,7 +309,7 @@ module AvalancheMQ
             frame = @in.receive
             case frame
             when AMQP::Basic::Ack
-              @socket.write frame.to_slice
+              @socket.write frame.to_slice unless @ack_mode == AckMode::NoAck
               @message_counter += 1
               if @source.delete_after == DeleteAfter::QueueLength &&
                  @message_count <= @message_counter

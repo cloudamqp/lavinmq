@@ -20,7 +20,6 @@ module AvalancheMQ
       NoAck
     end
 
-    @state = 0_u8
     @log : Logger
     @links = Hash(String, Publisher).new
 
@@ -36,7 +35,6 @@ module AvalancheMQ
     end
 
     def stop
-      @state = -1
       @links.values.each(&.force_close)
       @links.clear
     end
@@ -122,7 +120,7 @@ module AvalancheMQ
         if mandatory
           @message_count += 1
           @delivery_tags[@message_count.to_u64] = frame.delivery_tag
-        else
+        elsif @upstream.ack_mode == AckMode::OnPublish
           @consumer.not_nil!.ack(frame.delivery_tag)
         end
       end
@@ -179,14 +177,11 @@ module AvalancheMQ
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
-            raise UnexpectedFrame.new(frame)
             @socket.write AMQP::Connection::CloseOk.new.to_slice
-            break
+            raise UnexpectedFrame.new(frame)
           else
             raise UnexpectedFrame.new(frame)
           end
-        rescue Channel::ClosedError
-          @log.debug { "#upstream_loop out channel closed" }
         end
       ensure
         @socket.close
@@ -267,19 +262,19 @@ module AvalancheMQ
         sub = nil
         loop do
           sub = Consumer.new(self, pub, federated_q)
-          sub.start
           pub.start(sub)
+          sub.start
         rescue ex
           break unless @links[federated_q.name]?
-          @log.warn "Upstream failure: #{ex.message}"
+          @log.warn "Failure: #{ex.inspect_with_backtrace}"
           sub.try &.force_close
           pub.try &.force_close
           sleep @reconnect_delay.seconds
         end
         federated_q.unregisterObserver(sub) unless sub.nil?
-        @log.debug { "Upstream stopped" }
+        @log.debug { "Link stopped" }
       end
-      @log.info { "Federation '#{@name}' starting" }
+      @log.info { "Link starting" }
       Fiber.yield
     end
   end

@@ -5,7 +5,7 @@ module AvalancheMQ
     def initialize(@socket : ::Channel::Buffered(AMQP::Frame), vhost : VHost,
                    client_properties : Hash(String, AMQP::Field))
       log = vhost.log.dup
-      log.progname += " direct"
+      log.progname += " direct=#{self.hash}"
       name = "localhost:#{self.hash}"
       super(name, vhost, log, client_properties)
     end

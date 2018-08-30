@@ -11,6 +11,8 @@ FileUtils.rm_rf("/tmp/spec")
 
 {% if flag?(:verbose) %}
   LOG_LEVEL = Logger::DEBUG
+{% elsif flag?(:warn) %}
+  LOG_LEVEL = Logger::WARN
 {% else %}
   LOG_LEVEL = Logger::ERROR
 {% end %}
@@ -34,7 +36,7 @@ module TestHelpers
     until yield
       Fiber.yield
       if Time.now > timeout
-        puts "Execuction expired"
+        puts "\nExecuction expired"
         return
       end
     end
