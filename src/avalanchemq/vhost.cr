@@ -26,6 +26,7 @@ module AvalancheMQ
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : UpstreamStore?
+    EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger,
                    @connection_events = Server::ConnectionsEvents.new(16))

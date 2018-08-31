@@ -3,6 +3,7 @@ require "logger"
 require "./amqp"
 require "./connection"
 require "./observable"
+require "./exchange"
 require "./client/direct_client"
 
 module AvalancheMQ
@@ -24,11 +25,10 @@ module AvalancheMQ
     @links = Hash(String, Publisher).new
 
     getter name, log, vhost, out_ch
-    property uri, prefetch, reconnect_delay, ack_mode, trust_user_id
+    property uri, prefetch, reconnect_delay, ack_mode
 
     def initialize(@vhost : VHost, @name : String, raw_uri : String, @prefetch = DEFAULT_PREFETCH,
-                   @reconnect_delay = DEFUALT_RECONNECT_DELAY, @ack_mode = DEFAULT_ACK_MODE,
-                   @trust_user_id = false)
+                   @reconnect_delay = DEFUALT_RECONNECT_DELAY, @ack_mode = DEFAULT_ACK_MODE)
       @uri = URI.parse(raw_uri)
       @log = @vhost.log.dup
       @log.progname += " upstream=#{@name}"
@@ -43,7 +43,7 @@ module AvalancheMQ
       @client : DirectClient
       @log : Logger
 
-      def initialize(@upstream : QueueUpstream, @federated_q : Queue)
+      def initialize(@upstream : Upstream)
         @log = @upstream.log.dup
         @log.progname += " publisher"
         @out_ch = Channel::Buffered(AMQP::Frame).new(@upstream.prefetch.to_i32)
@@ -111,9 +111,8 @@ module AvalancheMQ
         end
       end
 
-      def send_basic_publish(frame)
+      def send_basic_publish(frame, routing_key = nil)
         exchange = ""
-        routing_key = @federated_q.name
         mandatory = @upstream.ack_mode == AckMode::OnConfirm
         @client.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
           mandatory, false)
@@ -169,7 +168,7 @@ module AvalancheMQ
           @log.debug { "Read #{frame.inspect}" }
           case frame
           when AMQP::Basic::Deliver
-            @pub.send_basic_publish(frame)
+            @pub.send_basic_publish(frame, @federated_q.name)
           when AMQP::HeaderFrame
             @pub.write(frame)
           when AMQP::BodyFrame
@@ -226,16 +225,26 @@ module AvalancheMQ
     def initialize(vhost : VHost, name : String, uri : String, @exchange = nil,
                    @max_hops = DEFAULT_MAX_HOPS, @expires = DEFAULT_EXPIRES,
                    @msg_ttl = DEFAULT_MSG_TTL, prefetch = DEFAULT_PREFETCH,
-                   reconnect_delay = DEFUALT_RECONNECT_DELAY, ack_mode = DEFAULT_ACK_MODE,
-                   trust_user_id = false)
-      super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode, trust_user_id)
+                   reconnect_delay = DEFUALT_RECONNECT_DELAY, ack_mode = DEFAULT_ACK_MODE)
+      super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode)
     end
 
     def close_link(federated_exchange : Exchange)
       @links.delete(federated_exchange.name).try(&.force_close)
+      # delete x-federation-upstream exchange on upstream
+      # delete queue on upstream
     end
 
     def link(federated_exchange : Exchange)
+      # declare queue on upstream
+      # consume queue and publish to downstream exchange
+      # declare upstream exchange (passive)
+      # declare x-federation-upstream exchange on upstream
+      # bind x-federation-upstream exchange to queue
+      # get bindings for downstream exchange
+      # add bindings from upstream exchange to x-federation-upstream exchange
+
+      # keep downstream exchange bindings reflected on x-federation-upstream exchange
     end
   end
 
@@ -246,8 +255,8 @@ module AvalancheMQ
 
     def initialize(vhost : VHost, name : String, uri : String, @queue = nil,
                    prefetch = DEFAULT_PREFETCH, reconnect_delay = DEFUALT_RECONNECT_DELAY,
-                   ack_mode = DEFAULT_ACK_MODE, trust_user_id = false)
-      super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode, trust_user_id)
+                   ack_mode = DEFAULT_ACK_MODE)
+      super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode)
     end
 
     def close_link(federated_q : Queue)
@@ -255,7 +264,7 @@ module AvalancheMQ
     end
 
     def link(federated_q : Queue)
-      pub = Publisher.new(self, federated_q)
+      pub = Publisher.new(self)
       @queue ||= federated_q.name
       @links[federated_q.name] = pub
       spawn(name: "Upstream #{@uri.host}/#{@queue}") do
@@ -276,6 +285,19 @@ module AvalancheMQ
       end
       @log.info { "Link starting" }
       Fiber.yield
+    end
+  end
+
+  class FederationExchange < TopicExchange
+    def type
+      "x-federation-upstream"
+    end
+
+    def initialize(vhost, name, max_hops = 1)
+      arguments = Hash(String, AMQP::Field).new
+      arguments["x-internal-purpose"] = "federation"
+      arguments["x-max-hops"] = max_hops
+      super(vhost, name, durable: true, auto_delete: true, internal: true, arguments: arguments)
     end
   end
 end

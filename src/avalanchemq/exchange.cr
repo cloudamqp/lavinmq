@@ -42,10 +42,6 @@ module AvalancheMQ
       }.to_json(builder)
     end
 
-    def self.types
-      %w(direct fanout topic headers)
-    end
-
     def self.make(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"

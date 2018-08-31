@@ -14,18 +14,17 @@ module AvalancheMQ
       reconnect_delay = config["reconnect-delay"]?.try(&.as_i) || Upstream::DEFUALT_RECONNECT_DELAY
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
       ack_mode = Upstream::AckMode.parse?(ack_mode_str) || Upstream::DEFAULT_ACK_MODE
-      trust_user_id = config["trust-user-id"]?.try(&.as_bool?) || false
       if config["exchange"]?
         exchange = config["exchange"].as_s
         max_hops = config["max-hops"]?.try(&.as_i) || Upstream::DEFAULT_MAX_HOPS
         expires = config["expires"]?.try(&.as_s) || Upstream::DEFAULT_EXPIRES
         msg_ttl = config["message-ttl"]?.try(&.as_s) || Upstream::DEFAULT_MSG_TTL
         @upstreams[name] = ExchangeUpstream.new(@vhost, name, uri, exchange, max_hops, expires,
-          msg_ttl, prefetch, reconnect_delay, ack_mode, trust_user_id)
+          msg_ttl, prefetch, reconnect_delay, ack_mode)
       else
         queue = config["queue"]?.try(&.as_s)
         @upstreams[name] = QueueUpstream.new(@vhost, name, uri, queue, prefetch, reconnect_delay,
-          ack_mode, trust_user_id)
+          ack_mode)
       end
       @upstreams[name]
     end
@@ -57,7 +56,6 @@ module AvalancheMQ
           config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i }
           ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
           Upstream::AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
-          config["trust-user-id"]?.try { |p| upstream.trust_user_id = p.as_bool }
           if upstream.is_a?(ExchangeUpstream)
             config["exchange"]?.try { |p| upstream.exchange = p.as_s }
             config["max-hops"]?.try { |p| upstream.max_hops = p.as_i }
