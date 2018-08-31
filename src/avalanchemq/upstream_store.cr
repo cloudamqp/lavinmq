@@ -9,7 +9,7 @@ module AvalancheMQ
     end
 
     def create_upstream(name, config)
-      uri = config["uri"].as_a.first.to_s
+      uri = config["uri"].to_s
       prefetch = config["prefetch-count"]?.try(&.as_i) || Upstream::DEFAULT_PREFETCH
       reconnect_delay = config["reconnect-delay"]?.try(&.as_i) || Upstream::DEFUALT_RECONNECT_DELAY
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s

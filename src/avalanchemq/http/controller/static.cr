@@ -21,7 +21,7 @@ module AvalancheMQ
       end
 
       %w(login connections connection channels channel queues queue exchanges exchange users user
-        vhosts vhost shovels 401 404).each do |r|
+        vhosts vhost shovels federation 401 404).each do |r|
         get "/#{r}" do |context, _|
           serve(context, "#{r}.html")
         end
@@ -90,7 +90,7 @@ module AvalancheMQ
     private def static(context, file_path)
       info = File.info(file_path)
       etag = info.modification_time.epoch_ms.to_s
-      { File.open(file_path), etag }
+      {File.open(file_path), etag}
     end
   end
 end

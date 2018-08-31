@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Federation | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:400,100,300,100italic,300italic,400italic,500italic,500,700,700italic,900,900italic" rel="stylesheet">
+    <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body>
+    <header>
+      <h2>
+        Upstreams
+        <small id="upstreamTable-count"></small>
+      </h2>
+    </header>
+    <aside></aside>
+    <main>
+      <section class="card">
+        <div id="upstreamTable-error"></div>
+        <table id="upstreamTable" class="table">
+          <thead>
+            <tr>
+              <td>Virtual host</td>
+              <td data-sort-key="name">Name</td>
+              <td>URI</td>
+              <td>Prefetch</td>
+              <td>Reconnect delay</td>
+              <td>Ack mode</td>
+              <td>Queue</td>
+              <td></td>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="createUpstream" class="form card">
+        <h3>Add a new upstream</h3>
+        <label>
+          <span>Virtual host</span>
+          <select name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <label>
+          <span>URI</span>
+          <input type="text" name="uri" required value="amqp://">
+        </label>
+        <label>
+          <span>Prefetch</span>
+          <input type="number" name="prefetch-count" value="1000">
+        </label>
+        <label>
+          <span>Reconnect delay</span>
+          <input type="number" name="reconnect-delay" value="5">
+        </label>
+        <label>
+          <span>Ack mode</span>
+          <select name="ack-mode" required>
+            <option value="on-confirm" selected>On confirm</option>
+            <option value="on-publish">On publish</option>
+            <option value="no-ack">No ack</option>
+          </select>
+        </label>
+        <label>
+          <span>Queue</span>
+          <input type="text" name="queue" required>
+        </label>
+        <button type="submit" class="btn-primary">Add upstream</button>
+      </form>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/dom.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/vhosts.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      avalanchemq.vhosts.addVhostOptions('createUpstream')
+
+      let url = '/api/parameters/federation-upstream'
+      const vhost = sessionStorage.getItem('vhost')
+      if (vhost && vhost !== "_all") {
+        url += '/' + encodeURIComponent(vhost)
+      }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'] }
+      const upstreamsTable = avalanchemq.table.renderTable('upstreamTable', tableOptions, (tr, item) => {
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, item.name)
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['uri'].replace(/:([^:]+)@/, ":***@")))
+        avalanchemq.table.renderCell(tr, 3, item.value['prefetch-count'])
+        avalanchemq.table.renderCell(tr, 4, item.value['reconnect-delay'])
+        avalanchemq.table.renderCell(tr, 5, item.value['ack-mode'])
+        avalanchemq.table.renderCell(tr, 6, item.value['queue'])
+        const btn = document.createElement('button')
+        btn.classList.add('btn-danger')
+        btn.innerHTML = 'Delete'
+        btn.onclick = function () {
+          const name = encodeURIComponent(item.name)
+          const vhost = encodeURIComponent(item.vhost)
+          const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
+          avalanchemq.http.request('DELETE', url)
+            .then(() => {
+              avalanchemq.dom.removeNodes(tr)
+            }).catch(e => console.error(e))
+        }
+        avalanchemq.table.renderCell(tr, 7, btn)
+      })
+
+      document.querySelector('#createUpstream').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const name = encodeURIComponent(data.get('name'))
+        const vhost = encodeURIComponent(data.get('vhost'))
+        const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
+        const body = {
+          value: {
+            'uri': data.get('uri'),
+            'prefetch-count': parseInt(data.get('prefetch-count')),
+            'reconnect-delay': parseInt(data.get('reconnect-delay')),
+            'ack-mode': data.get('ack-mode'),
+            'queue': data.get('queue')
+          }
+        }
+        avalanchemq.http.request('PUT', url, { body })
+          .then(() => {
+            upstreamsTable.fetchAndUpdate()
+            evt.target.reset()
+          }).catch(e => console.error(e))
+      })
+    </script>
+  </body>
+</html>

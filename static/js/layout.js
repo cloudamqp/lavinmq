@@ -38,6 +38,12 @@
           <li><a href="#createShovel">Add Shovel</a></li>
         </ul>
       </li>
+      <li>
+        <a href="/federation">Federation</a>
+        <ul class="hide">
+          <li><a href="#createUpstream">Add Upstream</a></li>
+        </ul>
+      </li>
     </ul>
   `
 

@@ -255,14 +255,6 @@ module AvalancheMQ
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
     def add_parameter(p : Parameter)
-      case p.component_name
-      when SHOVEL
-        p.value = Shovel.merge_defaults(p.value)
-      when FEDERATION_UPSTREAM
-        # ?
-      when FEDERATION_UPSTREAM_SET
-        # ?
-      end
       @parameters.create p
       apply_parameters(p)
     end
