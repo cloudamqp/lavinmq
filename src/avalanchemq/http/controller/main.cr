@@ -30,7 +30,7 @@ module AvalancheMQ
             "queues":      queues,
           },
           "listeners":      @amqp_server.listeners,
-          "exchange_types": Exchange.types.map { |name| {"name": name} },
+          "exchange_types": VHost::EXCHANGE_TYPES.map { |name| {"name": name} },
         }.to_json(context.response)
         context
       end

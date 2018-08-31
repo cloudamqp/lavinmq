@@ -18,5 +18,5 @@ shards:
 
   specreporter-spec:
     github: docelic/specreporter-spec
-    commit: 536c534c485278892df407d59e250ccfc0ac051d
+    version: 0.2.0
 

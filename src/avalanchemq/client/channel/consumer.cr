@@ -2,7 +2,7 @@ require "logger"
 require "./consumer"
 
 module AvalancheMQ
-  class Client
+  abstract class Client
     class Channel
       class Consumer
         getter no_ack, queue, unacked, tag, exclusive
@@ -26,10 +26,10 @@ module AvalancheMQ
           delivery_tag = @channel.next_delivery_tag(queue, sp, @no_ack, self)
           @log.debug { "Sending BasicDeliver" }
           deliver = AMQP::Basic::Deliver.new(@channel.id, @tag,
-                                             delivery_tag,
-                                             redelivered,
-                                             msg.exchange_name, msg.routing_key)
-          @channel.deliver(deliver, msg)
+            delivery_tag,
+            redelivered,
+            msg.exchange_name, msg.routing_key)
+          @channel.client.deliver(@channel.id, deliver, msg)
         end
 
         def ack(sp)
@@ -52,21 +52,21 @@ module AvalancheMQ
           channel_details = @channel.details
           {
             queue: {
-              name: @queue.name,
-              vhost: @queue.vhost
+              name:  @queue.name,
+              vhost: @queue.vhost,
             },
-            consumer_tag: @tag,
-            exclusive: @exclusive,
-            ack_required: !@no_ack,
-            prefetch_count: @channel.prefetch_count,
+            consumer_tag:    @tag,
+            exclusive:       @exclusive,
+            ack_required:    !@no_ack,
+            prefetch_count:  @channel.prefetch_count,
             channel_details: {
-              peer_host: channel_details[:connection_details][:peer_host],
-              peer_port: channel_details[:connection_details][:peer_port],
+              peer_host:       channel_details[:connection_details][:peer_host]?,
+              peer_port:       channel_details[:connection_details][:peer_port]?,
               connection_name: channel_details[:connection_details][:name],
-              user: channel_details[:user],
-              number: channel_details[:number],
-              name: channel_details[:name]
-            }
+              user:            channel_details[:user],
+              number:          channel_details[:number],
+              name:            channel_details[:name],
+            },
           }
         end
 

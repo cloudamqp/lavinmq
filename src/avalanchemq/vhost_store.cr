@@ -5,7 +5,8 @@ module AvalancheMQ
   class VHostStore
     include Enumerable(VHost)
 
-    def initialize(@data_dir : String, @log : Logger)
+    def initialize(@data_dir : String, @connection_events : Server::ConnectionsEvents,
+                   @log : Logger)
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -28,7 +29,7 @@ module AvalancheMQ
 
     def create(name, save = true)
       return if @vhosts.has_key?(name)
-      vhost = VHost.new(name, @data_dir, @log)
+      vhost = VHost.new(name, @data_dir, @log, @connection_events)
       @vhosts[name] = vhost
       save! if save
       vhost
@@ -59,7 +60,7 @@ module AvalancheMQ
           JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
-            @vhosts[name] = VHost.new(name, @data_dir, @log)
+            @vhosts[name] = VHost.new(name, @data_dir, @log, @connection_events)
           end
         rescue JSON::ParseException
           @log.warn("#{path} is not vaild json")

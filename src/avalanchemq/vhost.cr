@@ -6,6 +6,8 @@ require "./policy"
 require "./parameter_store"
 require "./parameter"
 require "./shovel_store"
+require "./upstream_store"
+require "./client/direct_client"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -14,15 +16,20 @@ module AvalancheMQ
       include AMQP::IO
     end
 
-    getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels
+    getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
+      direct_reply_channels, upstreams
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
     @wfile : MessageFile
     @log : Logger
+    @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
+    @upstreams : UpstreamStore?
+    EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
-    def initialize(@name : String, @server_data_dir : String, server_log : Logger)
+    def initialize(@name : String, @server_data_dir : String, server_log : Logger,
+                   @connection_events = Server::ConnectionsEvents.new(16))
       @log = server_log.dup
       @log.progname = "vhost=#{@name}"
       @exchanges = Hash(String, Exchange).new
@@ -36,6 +43,7 @@ module AvalancheMQ
       @segment = last_segment
       @wfile = open_wfile
       @shovels = ShovelStore.new(self)
+      @upstreams = UpstreamStore.new(self)
       load!
       compact!
       spawn save!, name: "VHost#save!"
@@ -232,12 +240,28 @@ module AvalancheMQ
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
     end
 
-    SHOVEL = "shovel"
+    def direct_client(outbox : Channel::Buffered(AMQP::Frame),
+                      client_properties : Hash(String, AMQP::Field)) : DirectClient
+      client = DirectClient.new(outbox, self, client_properties)
+      @connection_events.send({client, :connected})
+      client.on_close do |c|
+        @connection_events.send({c, :disconnected})
+      end
+      client
+    end
+
+    SHOVEL                  = "shovel"
+    FEDERATION_UPSTREAM     = "federation-upstream"
+    FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
     def add_parameter(p : Parameter)
       case p.component_name
       when SHOVEL
         p.value = Shovel.merge_defaults(p.value)
+      when FEDERATION_UPSTREAM
+        # ?
+      when FEDERATION_UPSTREAM_SET
+        # ?
       end
       @parameters.create p
       apply_parameters(p)
@@ -248,6 +272,10 @@ module AvalancheMQ
       case component_name
       when SHOVEL
         @shovels.not_nil!.delete(parameter_name)
+      when FEDERATION_UPSTREAM
+        @upstreams.not_nil!.delete_upstream(parameter_name)
+      when FEDERATION_UPSTREAM_SET
+        @upstreams.not_nil!.delete_upstream_set(parameter_name)
       else
         @log.warn { "No action when deleting parameter #{component_name}" }
       end
@@ -257,8 +285,13 @@ module AvalancheMQ
       @shovels.not_nil!.each &.stop
     end
 
+    def stop_upstream_links
+      @upstreams.not_nil!.stop_all
+    end
+
     def close
       stop_shovels
+      stop_upstream_links
       @queues.each_value &.close
       @save.close
     end
@@ -288,6 +321,10 @@ module AvalancheMQ
         case p.component_name
         when SHOVEL
           @shovels.not_nil!.create(p.parameter_name, p.value)
+        when FEDERATION_UPSTREAM
+          @upstreams.not_nil!.create_upstream(p.parameter_name, p.value)
+        when FEDERATION_UPSTREAM_SET
+          @upstreams.not_nil!.create_upstream_set(p.parameter_name, p.value)
         else
           @log.warn { "No action when applying parameter #{p.component_name}" }
         end

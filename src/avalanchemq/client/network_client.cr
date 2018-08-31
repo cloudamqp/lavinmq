@@ -1,55 +1,39 @@
-require "socket"
-require "logger"
-require "openssl"
-require "./message"
-require "./client/*"
+require "./client"
 
 module AvalancheMQ
-  class Client
-    getter socket, vhost, user, channels, log, max_frame_size, exclusive_queues,
-      remote_address, name, auth_service, server, direct_reply_consumer_tag
-    setter direct_reply_consumer_tag
+  class NetworkClient < Client
+    getter user, max_frame_size, auth_service, remote_address
 
-    @log : Logger
-    @connected_at : Int64
     @max_frame_size : UInt32
     @max_channels : UInt16
     @heartbeat : UInt16
-    @client_properties : Hash(String, AMQP::Field)
     @auth_mechanism : String
-    @socket : TCPSocket | OpenSSL::SSL::Socket
     @remote_address : Socket::IPAddress
     @local_address : Socket::IPAddress
-    @direct_reply_consumer_tag : String?
-    @running = true
+    @socket : TCPSocket | OpenSSL::SSL::Socket
 
-    def initialize(@tcp_socket : TCPSocket,
-                   @ssl_client : OpenSSL::SSL::Socket?,
-                   @server : Server,
-                   @vhost : VHost,
+    def initialize(tcp_socket : TCPSocket,
+                   ssl_client : OpenSSL::SSL::Socket?,
+                   vhost : VHost,
                    @user : User,
                    tune_ok,
                    start_ok)
       @socket = (ssl_client || tcp_socket).not_nil!
-      @remote_address = @tcp_socket.remote_address
-      @local_address = @tcp_socket.local_address
-      @log = @vhost.log.dup
-      @log.progname += " client=#{@remote_address}"
-      @log.info "Connected"
-      @channels = Hash(UInt16, Client::Channel).new
-      @exclusive_queues = Array(Queue).new
-      @connected_at = Time.now.epoch_ms
+      @remote_address = tcp_socket.remote_address
+      @local_address = tcp_socket.local_address
+      log = vhost.log.dup
+      log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
       @max_channels = tune_ok.channel_max
       @heartbeat = tune_ok.heartbeat
-      @client_properties = start_ok.client_properties
       @auth_mechanism = start_ok.mechanism
-      @name = "#{@remote_address} -> #{@local_address}"
+      name = "#{@remote_address} -> #{@local_address}"
+      super(name, vhost, log, start_ok.client_properties)
       spawn heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(tcp_socket, ssl_client, server, vhosts, users, log)
+    def self.start(tcp_socket, ssl_client, config, vhosts, users, log)
       socket = ssl_client.nil? ? tcp_socket : ssl_client
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
@@ -97,13 +81,13 @@ module AvalancheMQ
       end
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
         frame_max: 131072_u32,
-        heartbeat: server.config["heartbeat"]).to_slice
+        heartbeat: config["heartbeat"]).to_slice
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
-          return self.new(tcp_socket, ssl_client, server, vhost, user, tune_ok, start_ok)
+          return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
@@ -127,26 +111,8 @@ module AvalancheMQ
       nil
     end
 
-    def close(reason = "Broker shutdown")
-      @log.debug "Gracefully closing"
-      send AMQP::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
-      @running = false
-    end
-
-    def cleanup
-      @running = false
-      @log.debug "Yielding before cleaning up"
-      Fiber.yield
-      @log.debug "Cleaning up"
-      @exclusive_queues.each &.close
-      @channels.each_value &.close
-      @channels.clear
-      @on_close_callback.try &.call(self)
-      @on_close_callback = nil
-    end
-
-    def on_close(&blk : Client -> Nil)
-      @on_close_callback = blk
+    def channel_name_prefix
+      @remote_address.to_s
     end
 
     def to_json(json : JSON::Builder)
@@ -169,11 +135,6 @@ module AvalancheMQ
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         state:             @socket.closed? ? "closed" : "running",
       }.to_json(json)
-    end
-
-    private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
-      send AMQP::Channel::OpenOk.new(frame.channel)
     end
 
     private def declare_exchange(frame)
@@ -268,7 +229,7 @@ module AvalancheMQ
         end
         dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, frame.queue_name)
+        unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
@@ -359,6 +320,27 @@ module AvalancheMQ
       end
     end
 
+    private def start_publish(frame)
+      unless @user.can_write?(@vhost.name, frame.exchange)
+        send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+      end
+      with_channel frame, &.start_publish(frame)
+    end
+
+    private def consume(frame)
+      unless @user.can_read?(@vhost.name, frame.queue)
+        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+      end
+      with_channel frame, &.consume(frame)
+    end
+
+    private def basic_get(frame)
+      unless @user.can_read?(@vhost.name, frame.queue)
+        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+      end
+      with_channel frame, &.basic_get(frame)
+    end
+
     private def read_loop
       i = 0
       loop do
@@ -383,139 +365,13 @@ module AvalancheMQ
       @log.info "Lost connection, while reading (#{ex.cause})"
       cleanup
     rescue ex : Exception
-      @log.error { "Unexpected error, while reading: #{ex.inspect}" }
-      @log.debug { ex.inspect_with_backtrace }
+      @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
     end
 
-    private def process_frame(frame)
-      case frame
-      when AMQP::Connection::Close
-        send AMQP::Connection::CloseOk.new
-        return false
-      when AMQP::Connection::CloseOk
-        @log.info "Disconnected"
-        @log.debug { "Closing socket" }
-        @socket.close
-        cleanup
-        return false
-      when AMQP::Channel::Open
-        open_channel(frame)
-      when AMQP::Channel::Close
-        @channels.delete(frame.channel).try &.close
-        send AMQP::Channel::CloseOk.new(frame.channel)
-      when AMQP::Channel::CloseOk
-        @channels.delete(frame.channel).try &.close
-      when AMQP::Confirm::Select
-        with_channel frame, &.confirm_select(frame)
-      when AMQP::Exchange::Declare
-        declare_exchange(frame)
-      when AMQP::Exchange::Delete
-        delete_exchange(frame)
-      when AMQP::Exchange::Bind
-        bind_exchange(frame)
-      when AMQP::Exchange::Unbind
-        unbind_exchange(frame)
-      when AMQP::Queue::Declare
-        declare_queue(frame)
-      when AMQP::Queue::Bind
-        bind_queue(frame)
-      when AMQP::Queue::Unbind
-        unbind_queue(frame)
-      when AMQP::Queue::Delete
-        delete_queue(frame)
-      when AMQP::Queue::Purge
-        purge_queue(frame)
-      when AMQP::Basic::Publish
-        with_channel frame, &.start_publish(frame)
-      when AMQP::HeaderFrame
-        with_channel frame, &.next_msg_headers(frame)
-      when AMQP::BodyFrame
-        with_channel frame, &.add_content(frame)
-      when AMQP::Basic::Consume
-        with_channel frame, &.consume(frame)
-      when AMQP::Basic::Get
-        with_channel frame, &.basic_get(frame)
-      when AMQP::Basic::Ack
-        with_channel frame, &.basic_ack(frame)
-      when AMQP::Basic::Reject
-        with_channel frame, &.basic_reject(frame)
-      when AMQP::Basic::Nack
-        with_channel frame, &.basic_nack(frame)
-      when AMQP::Basic::Cancel
-        with_channel frame, &.cancel_consumer(frame)
-      when AMQP::Basic::Qos
-        with_channel frame, &.basic_qos(frame)
-      when AMQP::HeartbeatFrame
-        # send AMQP::HeartbeatFrame.new
-      else
-        raise AMQP::NotImplemented.new(frame)
-      end
-      true
-    rescue ex : AMQP::NotImplemented
-      @log.error { "#{frame.inspect}, not implemented" }
-      raise ex if ex.channel == 0
-      close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
-      true
-    rescue ex : KeyError
-      raise ex unless frame.is_a? AMQP::MethodFrame
-      @log.error { "Channel #{frame.channel} not open" }
-      close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
-      true
-    rescue ex : Exception
-      raise ex unless frame.is_a? AMQP::MethodFrame
-      @log.error { "#{ex.inspect}, when processing frame" }
-      @log.debug { ex.inspect_with_backtrace }
-      close_channel(frame, 541_u16, "INTERNAL_ERROR")
-      true
-    end
-
-    private def with_channel(frame)
-      ch = @channels[frame.channel]
-      if ch.running?
-        yield ch
-      else
-        @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-      end
-    end
-
-    def direct_reply_channel
-      if direct_reply_consumer_tag
-        server.direct_reply_channels[direct_reply_consumer_tag]?
-      end
-    end
-
-    def close_connection(frame, code, text)
-      send AMQP::Connection::Close.new(code, text, frame.class_id, frame.method_id)
-      @running = false
-    end
-
-    def close_channel(frame, code, text)
-      send AMQP::Channel::Close.new(frame.channel, code, text,
-        frame.class_id, frame.method_id)
-      @channels[frame.channel].running = false
-    end
-
-    def send_access_refused(frame, text)
-      close_channel(frame, 403_u16, "ACCESS_REFUSED - #{text}")
-    end
-
-    def send_not_found(frame, text = "")
-      close_channel(frame, 404_u16, "NOT_FOUND - #{text}")
-    end
-
-    def send_resource_locked(frame, text)
-      close_channel(frame, 405_u16, "RESOURCE_LOCKED - #{text}")
-    end
-
-    def send_precondition_failed(frame, text)
-      close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
-    end
-
-    def write(bytes : Bytes)
-      @log.debug { "Send #{bytes.inspect}" }
-      @socket.write bytes
+    private def close_socket
+      @socket.close
     end
 
     def send(frame : AMQP::Frame)
@@ -534,9 +390,34 @@ module AvalancheMQ
       cleanup
       false
     rescue ex
-      @log.error { "Unexpected error, while sending: #{ex.inspect}" }
-      @log.debug { ex.inspect_with_backtrace }
+      @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+    end
+
+    def connection_details
+      {
+        peer_host: @remote_address.address,
+        peer_port: @remote_address.port,
+        name:      @name,
+      }
+    end
+
+    def deliver(channel, frame, msg)
+      @log.debug { "Merging delivery, header and body frame to one" }
+      size = msg.size + 256
+      buff = AMQP::MemoryIO.new(size)
+      frame.encode buff
+      header = AMQP::HeaderFrame.new(channel, 60_u16, 0_u16, msg.size, msg.properties)
+      header.encode(buff)
+      pos = 0
+      while pos < msg.size
+        length = [msg.size - pos, @max_frame_size - 8].min
+        body_part = msg.body[pos, length]
+        @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
+        AMQP::BodyFrame.new(channel, body_part).encode(buff)
+        pos += length
+      end
+      @socket.write buff.to_slice
     end
 
     private def heartbeat_loop
@@ -547,18 +428,6 @@ module AvalancheMQ
         break unless @running
         send(AMQP::HeartbeatFrame.new) || break
       end
-    end
-
-    def self.close_on_ok(socket, log)
-      loop do
-        frame = AMQP::Frame.decode(socket)
-        break frame if frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
-        log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-      end
-    rescue e : AMQP::FrameDecodeError
-      log.warn { "#{e.inspect} when waiting for CloseOk" }
-    ensure
-      socket.close
     end
   end
 end
