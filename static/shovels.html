@@ -189,12 +189,15 @@
 
       const vhost = sessionStorage.getItem('vhost')
       let url = '/api/parameters/shovel'
+      let statusUrl = '/api/shovels'
       if (vhost && vhost !== "_all") {
-        url += '/' + encodeURIComponent(vhost)
+        let urlEncodedVhost = encodeURIComponent(vhost)
+        url += '/' + urlEncodedVhost
+        statusUrl += '/' + urlEncodedVhost
       }
       function updateShovelsTable() {
         const p1 = avalanchemq.http.request('GET', url)
-        const p2 = avalanchemq.http.request('GET', '/api/shovels')
+        const p2 = avalanchemq.http.request('GET', statusUrl)
 
         Promise.all([p1, p2]).then(values => {
           const items = values[0]

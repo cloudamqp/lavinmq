@@ -36,6 +36,25 @@
           <tbody></tbody>
         </table>
       </section>
+      <section class="card">
+        <h3>
+          Federation Links
+          <small id="linksTable-count"></small>
+        </h3>
+        <div id="linksTable-error"></div>
+        <table id="linksTable" class="table">
+          <thead>
+            <tr>
+              <td>Virtual host</td>
+              <td data-sort-key="name">Name</td>
+              <td>URI</td>
+              <td>Resource</td>
+              <td>Connected at</td>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
       <form method="put" id="createUpstream" class="form card">
         <h3>Add a new upstream</h3>
         <label>
@@ -85,12 +104,16 @@
       avalanchemq.vhosts.addVhostOptions('createUpstream')
 
       let url = '/api/parameters/federation-upstream'
+      let linksUrl = '/api/federation-links'
       const vhost = sessionStorage.getItem('vhost')
       if (vhost && vhost !== "_all") {
-        url += '/' + encodeURIComponent(vhost)
+        let urlEncodedVhost = encodeURIComponent(vhost)
+        url += '/' + urlEncodedVhost
+        linksUrl += '/' + urlEncodedVhost
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'] }
-      const upstreamsTable = avalanchemq.table.renderTable('upstreamTable', tableOptions, (tr, item) => {
+
+      const utOpts = { url, keyColumns: ['vhost', 'name'] }
+      const upstreamsTable = avalanchemq.table.renderTable('upstreamTable', utOpts, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
         avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['uri'].replace(/:([^:]+)@/, ":***@")))
@@ -111,6 +134,15 @@
             }).catch(e => console.error(e))
         }
         avalanchemq.table.renderCell(tr, 7, btn)
+      })
+
+      const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }
+      avalanchemq.table.renderTable('linksTable', linksOpts, (tr, item) => {
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, item.name)
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri.replace(/:([^:]+)@/, ":***@")))
+        avalanchemq.table.renderHtmlCell(tr, 3, item.resource + '<br><small>' + item.type + '</small>')
+        avalanchemq.table.renderCell(tr, 4, item.timestamp)
       })
 
       document.querySelector('#createUpstream').addEventListener('submit', function (evt) {

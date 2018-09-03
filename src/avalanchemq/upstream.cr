@@ -24,7 +24,7 @@ module AvalancheMQ
     @log : Logger
     @links = Hash(String, Publisher).new
 
-    getter name, log, vhost, out_ch
+    getter name, log, vhost, out_ch, links
     property uri, prefetch, reconnect_delay, ack_mode
 
     def initialize(@vhost : VHost, @name : String, raw_uri : String, @prefetch = DEFAULT_PREFETCH,
@@ -42,6 +42,8 @@ module AvalancheMQ
     class Publisher
       @client : DirectClient
       @log : Logger
+      @connected_at = Time.utc_now
+      getter connected_at
 
       def initialize(@upstream : Upstream)
         @log = @upstream.log.dup
@@ -57,6 +59,7 @@ module AvalancheMQ
       end
 
       def start(@consumer : Consumer)
+        @connected_at = Time.utc_now
         client_read_loop
       end
 

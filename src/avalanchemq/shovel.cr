@@ -9,7 +9,7 @@ module AvalancheMQ
     @log : Logger
     @state = 0_u8
 
-    getter name
+    getter name, vhost
 
     DEFAULT_ACK_MODE        = AckMode::OnConfirm
     DEFUALT_RECONNECT_DELAY = 5

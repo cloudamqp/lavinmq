@@ -2,10 +2,19 @@ require "./upstream"
 
 module AvalancheMQ
   class UpstreamStore
+    include Enumerable(Upstream)
     @upstreams = Hash(String, Upstream).new
     @upstream_sets = Hash(String, Array(Upstream)).new
 
     def initialize(@vhost : VHost)
+    end
+
+    def each
+      @upstreams.values.each { |e| yield e }
+    end
+
+    def empty?
+      @upstreams.empty?
     end
 
     def create_upstream(name, config)

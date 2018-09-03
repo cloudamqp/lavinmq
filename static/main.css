@@ -504,7 +504,7 @@ main h3 {
   font-weight: 400;
 }
 
-h2 small {
+h2 small, h3 small {
   margin-left: 20px;
 }
 
