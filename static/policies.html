@@ -115,7 +115,7 @@
         const url = '/api/policies/' + vhost + '/' + name
         const body = {
           'pattern': data.get('pattern'),
-          'definition': data.get('definition'),
+          'definition': avalanchemq.dom.parseJSON(data.get('definition')),
           'apply-to': data.get('apply-to'),
           'priority': parseInt(data.get('priority'))
         }
@@ -123,7 +123,7 @@
           .then(() => {
             policiesTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(e => console.error(e))
+          }).catch(e => alert(e))
       })
     </script>
   </body>

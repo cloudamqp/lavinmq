@@ -62,7 +62,7 @@
       .then(function (response) {
         return response.json().then(json => {
           if (!response.ok) {
-            return alert(json.reason)
+            throw new Error(json.reason)
           }
           return json
         }).catch(function (e) {
