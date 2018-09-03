@@ -5,9 +5,10 @@ describe AvalancheMQ::VHost do
   log.level = LOG_LEVEL
 
   vhost = AvalancheMQ::VHost.new("add_policy", "/tmp/spec", log)
-  definitions = JSON::Any.new({
-    "max-length" => JSON::Any.new(10_i64),
-    "alternate-exchange" => JSON::Any.new("dead-letters") } of String => JSON::Any)
+  definitions = {
+    "max-length"         => JSON::Any.new(10_i64),
+    "alternate-exchange" => JSON::Any.new("dead-letters"),
+  } of String => JSON::Any
 
   it "should be able to add policy" do
     vhost.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
@@ -32,7 +33,7 @@ describe AvalancheMQ::VHost do
   end
 
   it "should apply policy" do
-    definitions = JSON::Any.new({ "max-length" => JSON::Any.new(1_i64) } of String => JSON::Any)
+    definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
     vhost.queues["test"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 11_i8)
     Fiber.yield
@@ -41,7 +42,7 @@ describe AvalancheMQ::VHost do
   end
 
   it "should respect priroty" do
-    definitions = JSON::Any.new({ "max-length" => JSON::Any.new(1_i64) } of String => JSON::Any)
+    definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
     vhost.queues["test2"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml2", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 1_i8)
     vhost.add_policy("ml1", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 0_i8)

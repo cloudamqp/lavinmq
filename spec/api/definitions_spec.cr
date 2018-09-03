@@ -280,9 +280,9 @@ describe AvalancheMQ::HTTPServer do
       close(h, s)
     end
 
-     it "exports policies" do
+    it "exports policies" do
       s, h = create_servers
-      d = JSON::Any.new({ "x-max-lenght" => JSON::Any.new(10_i64) })
+      d = {"x-max-lenght" => JSON::Any.new(10_i64)}
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       listen(h)
       response = get("http://localhost:8080/api/definitions")
@@ -297,7 +297,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "exports parameters" do
       s, h = create_servers
-      d = JSON::Any.new({ "dummy" => JSON::Any.new(10_i64) })
+      d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
       p = AvalancheMQ::Parameter.new("c1", "p1", d)
       s.add_parameter(p)
       listen(h)
@@ -359,7 +359,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "exports policies" do
       s, h = create_servers
-      d = JSON::Any.new({ "x-max-lenght" => JSON::Any.new(10_i64) })
+      d = {"x-max-lenght" => JSON::Any.new(10_i64)}
       s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       listen(h)
       response = get("http://localhost:8080/api/definitions/%2f")
