@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Policies | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:400,100,300,100italic,300italic,400italic,500italic,500,700,700italic,900,900italic" rel="stylesheet">
+    <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body>
+    <header>
+      <h2>
+        Policies
+        <small id="table-count"></small>
+      </h2>
+    </header>
+    <aside></aside>
+    <main>
+      <section class="card">
+        <div id="table-error"></div>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <td>Virtual host</td>
+              <td data-sort-key="name">Name</td>
+              <td>Pattern</td>
+              <td>Apply to</td>
+              <td>Definition</td>
+              <td>Priority</td>
+              <td></td>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="createPolicy" class="form card">
+        <h3>Add/update policy</h3>
+        <label>
+          <span>Virtual host</span>
+          <select name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <label>
+          <span>Pattern</span>
+          <input type="text" name="pattern" required>
+        </label>
+        <label>
+          <span>Apply to</span>
+          <select name="apply-to" required>
+            <option value="all">Exchanges & Queues</option>
+            <option value="exchanges">Exchanges</option>
+            <option value="queues">Queues</option>
+          </select>
+        </label>
+        <label>
+          <span>Definition</span>
+          <textarea name="definition" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label>
+          <span>Priority</span>
+          <input type="number" name="priority" required>
+        </label>
+        <button type="submit" class="btn-primary">Add policy</button>
+      </form>
+    </main>
+    <footer></footer>
+    <script src="/js/layout.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/dom.js"></script>
+    <script src="/js/overview.js"></script>
+    <script src="/js/vhosts.js"></script>
+    <script src="/js/table.js"></script>
+    <script>
+      avalanchemq.vhosts.addVhostOptions('createPolicy')
+
+      let url = '/api/policies'
+      const vhost = sessionStorage.getItem('vhost')
+      if (vhost && vhost !== "_all") {
+        url += '/' + encodeURIComponent(vhost)
+      }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'] }
+      const policiesTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
+        avalanchemq.table.renderCell(tr, 0, item.vhost)
+        avalanchemq.table.renderCell(tr, 1, item.name)
+        avalanchemq.table.renderCell(tr, 2, item.pattern)
+        avalanchemq.table.renderCell(tr, 3, item['apply-to'])
+        avalanchemq.table.renderCell(tr, 4, JSON.stringify(item.definition))
+        avalanchemq.table.renderCell(tr, 5, item.priority)
+        const btn = document.createElement('button')
+        btn.classList.add('btn-danger')
+        btn.innerHTML = 'Delete'
+        btn.onclick = function () {
+          const name = encodeURIComponent(item.name)
+          const vhost = encodeURIComponent(item.vhost)
+          const url = '/api/policies/' + vhost + '/' + name
+          avalanchemq.http.request('DELETE', url)
+            .then(() => {
+              avalanchemq.dom.removeNodes(tr)
+            }).catch(e => console.error(e))
+        }
+        avalanchemq.table.renderCell(tr, 7, btn)
+      })
+
+      document.querySelector('#createPolicy').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const data = new FormData(this)
+        const name = encodeURIComponent(data.get('name'))
+        const vhost = encodeURIComponent(data.get('vhost'))
+        const url = '/api/policies/' + vhost + '/' + name
+        const body = {
+          'pattern': data.get('pattern'),
+          'definition': data.get('definition'),
+          'apply-to': data.get('apply-to'),
+          'priority': parseInt(data.get('priority'))
+        }
+        avalanchemq.http.request('PUT', url, { body })
+          .then(() => {
+            policiesTable.fetchAndUpdate()
+            evt.target.reset()
+          }).catch(e => console.error(e))
+      })
+    </script>
+  </body>
+</html>

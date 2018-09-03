@@ -18,19 +18,19 @@ module AvalancheMQ
     end
 
     JSON.mapping(
-      name: { type: String, setter: false },
-      vhost: { type: String, setter: false },
-      pattern: { type: Regex, setter: false },
-      apply_to: { key: "apply-to", type: Target, setter: false },
-      definition: { type: JSON::Any, setter: false },
-      priority: { type: Int8, setter: false }
+      name: {type: String, setter: false},
+      vhost: {type: String, setter: false},
+      pattern: {type: Regex, setter: false},
+      apply_to: {key: "apply-to", type: Target, setter: false},
+      definition: {type: Hash(String, JSON::Any), setter: false},
+      priority: {type: Int8, setter: false}
     )
 
     def_equals_and_hash @name, @vhost
     getter name, vhost, definition, pattern, apply_to, priority
 
     def initialize(@name : String, @vhost : String, @pattern : Regex, @apply_to : Target,
-                   @definition : JSON::Any, @priority : Int8)
+                   @definition : Hash(String, JSON::Any), @priority : Int8)
     end
 
     def match?(resource : Queue | Exchange)

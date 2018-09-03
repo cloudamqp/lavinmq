@@ -96,7 +96,7 @@
         let policyLink = ''
         if (item.policy) {
           policyLink = document.createElement('a')
-          policyLink.href = '/policy?name=' + encodeURIComponent(item.policy)
+          policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
           policyLink.textContent = item.policy
         }
         const state = item.state == 'running' ? 'state-ok' : 'state-error'

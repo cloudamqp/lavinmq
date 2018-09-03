@@ -226,7 +226,7 @@ module AvalancheMQ
     end
 
     def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
-                   definition : JSON::Any, priority : Int8)
+                   definition : Hash(String, JSON::Any), priority : Int8)
       add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))
     end
 

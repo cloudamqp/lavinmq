@@ -111,7 +111,7 @@
         let policyLink = ''
         if (item.policy) {
           policyLink = document.createElement('a')
-          policyLink.href = '/policy?name=' + encodeURIComponent(item.policy)
+          policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
           policyLink.textContent = item.policy
         }
         avalanchemq.table.renderCell(tr, 4, policyLink, 'center')

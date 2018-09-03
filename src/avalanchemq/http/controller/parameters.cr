@@ -28,9 +28,9 @@ module AvalancheMQ
           refuse_unless_policymaker(context, user(context), vhost)
           component = URI.unescape(params["component"])
           @amqp_server.vhosts[vhost].parameters.values
-                                               .select { |p| p.component_name == component }
-                                               .map { |p| map_parameter(vhost, p) }
-                                               .to_json(context.response)
+            .select { |p| p.component_name == component }
+            .map { |p| map_parameter(vhost, p) }
+            .to_json(context.response)
         end
       end
 
@@ -74,8 +74,8 @@ module AvalancheMQ
       get "/api/global-parameters" do |context, _params|
         refuse_unless_administrator(context, user(context))
         @amqp_server.parameters.values
-                               .map { |p| map_parameter(nil, p) }
-                               .to_json(context.response)
+          .map { |p| map_parameter(nil, p) }
+          .to_json(context.response)
         context
       end
 
@@ -139,7 +139,7 @@ module AvalancheMQ
           name = URI.unescape(params["name"])
           body = parse_body(context)
           pattern = body["pattern"]?.try &.as_s?
-          definition = body["definition"]?
+          definition = body["definition"]?.try &.as_h
           priority = body["priority"]?.try &.as_i? || 0
           apply_to = body["apply-to"]?.try &.as_s? || "all"
           apply = Policy::Target.parse(apply_to)
@@ -147,7 +147,7 @@ module AvalancheMQ
             bad_request(context, "Fields 'pattern' and 'definition' are required")
           end
           @amqp_server.vhosts[vhost]
-                      .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
+            .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
           context.response.status_code = 204
         end
       end

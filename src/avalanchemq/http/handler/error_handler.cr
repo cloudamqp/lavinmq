@@ -17,7 +17,7 @@ module AvalancheMQ
       @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
       not_found(context, ex.message)
     rescue ex : JSON::Error | HTTPServer::ExpectedBodyError | ArgumentError
-      @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex.inspect}"
+      @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex.inspect_with_backtrace}"
       context.response.status_code = 400
       {error: "bad_request", reason: "#{ex.message}"}.to_json(context.response)
     rescue ex : Controller::HaltRequest

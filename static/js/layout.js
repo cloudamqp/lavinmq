@@ -33,6 +33,12 @@
         </ul>
       </li>
       <li>
+        <a href="/policies">Policies</a>
+        <ul class="hide">
+          <li><a href="#createPolicy">Add Policy</a></li>
+        </ul>
+      </li>
+      <li>
         <a href="/shovels">Shovels</a>
         <ul class="hide">
           <li><a href="#createShovel">Add Shovel</a></li>

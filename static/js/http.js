@@ -56,13 +56,16 @@
           }
         } else if (response.status === 404) {
           redirect('/404')
-        } else if (!response.ok) {
-          throw Error(response.statusText)
         }
         return response
       })
       .then(function (response) {
-        return response.json().catch(function (e) {
+        return response.json().then(json => {
+          if (!response.ok) {
+            return alert(json.reason)
+          }
+          return json
+        }).catch(function (e) {
           // not json
           return e
         })

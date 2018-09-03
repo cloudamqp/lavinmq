@@ -21,7 +21,7 @@ module AvalancheMQ
       end
 
       %w(login connections connection channels channel queues queue exchanges exchange users user
-        vhosts vhost shovels federation 401 404).each do |r|
+        vhosts vhost shovels federation policies 401 404).each do |r|
         get "/#{r}" do |context, _|
           serve(context, "#{r}.html")
         end
