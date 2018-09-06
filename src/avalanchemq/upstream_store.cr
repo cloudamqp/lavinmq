@@ -47,11 +47,25 @@ module AvalancheMQ
     end
 
     def link(name, resource : Queue)
-      spawn(name: "Upstream '#{name}'") { @upstreams[name].as(QueueUpstream).link(resource) }
+      @upstreams[name].as(QueueUpstream).link(resource)
     end
 
     def link(name, resource : Exchange)
-      spawn(name: "Upstream '#{name}'") { @upstreams[name].as(ExchangeUpstream).link(resource) }
+      @upstreams[name].as(ExchangeUpstream).link(resource)
+    end
+
+    def close_link(resource : Queue)
+      each do |upstream|
+        next if upstream.is_a?(ExchangeUpstream)
+        upstream.as(QueueUpstream).close_link(resource)
+      end
+    end
+
+    def close_link(resource : Exchange)
+      each do |upstream|
+        next if upstream.is_a?(QueueUpstream)
+        upstream.as(ExchangeUpstream).close_link(resource)
+      end
     end
 
     def create_upstream_set(name, config)
@@ -87,14 +101,14 @@ module AvalancheMQ
     def link_set(name, resource : Queue)
       set = get_set(name)
       set.each do |upstream|
-        spawn(name: "Upstream '#{upstream.name}'") { upstream.as(QueueUpstream).link(resource) }
+        upstream.as(QueueUpstream).link(resource)
       end
     end
 
     def link_set(name, resource : Exchange)
       set = get_set(name)
       set.each do |upstream|
-        spawn(name: "Upstream '#{upstream.name}'") { upstream.as(ExchangeUpstream).link(resource) }
+        upstream.as(ExchangeUpstream).link(resource)
       end
     end
 

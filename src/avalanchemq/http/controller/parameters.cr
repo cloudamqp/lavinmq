@@ -146,6 +146,7 @@ module AvalancheMQ
           unless pattern && definition
             bad_request(context, "Fields 'pattern' and 'definition' are required")
           end
+          @amqp_server.vhosts[vhost].delete_policy(name)
           @amqp_server.vhosts[vhost]
             .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
           context.response.status_code = 204
@@ -156,7 +157,7 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           refuse_unless_policymaker(context, user(context), vhost)
           name = URI.unescape(params["name"])
-          policy = policy(context, name, vhost)
+          policy(context, name, vhost)
           @amqp_server.vhosts[vhost].delete_policy(name)
           context.response.status_code = 204
         end

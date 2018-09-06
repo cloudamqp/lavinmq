@@ -1,4 +1,5 @@
 require "base64"
+require "logger"
 require "./policy"
 
 module AvalancheMQ
@@ -10,6 +11,7 @@ module AvalancheMQ
     def_equals_and_hash @vhost.name, @name
 
     @alternate_exchange : String?
+    @log : Logger
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
@@ -17,12 +19,15 @@ module AvalancheMQ
       @bindings = Hash(Tuple(String, Hash(String, AMQP::Field)), Set(Queue | Exchange)).new do |h, k|
         h[k] = Set(Queue | Exchange).new
       end
+      @log = @vhost.log.dup
+      @log.progname += " exchange=#{@name}"
       handle_arguments
     end
 
     def apply_policy(@policy : Policy)
       handle_arguments
       @policy.not_nil!.definition.each do |k, v|
+        @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
@@ -120,7 +125,7 @@ module AvalancheMQ
     end
 
     protected def delete
-      @vhost.log.info { "Deleting exchange: #{@name}" }
+      @log.info { "Deleting exchange: #{@name}" }
       @vhost.apply AMQP::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
     end
 

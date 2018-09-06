@@ -28,6 +28,7 @@
               <th data-sort-key="user" class="left">User</th>
               <th data-sort-key="state">State</th>
               <th data-sort-key="ssl">TLS</th>
+              <th data-sort-key="protocol">Protocol</th>
               <th data-sort-key="channels">Channels</th>
               <th data-sort-key="channel_max">Channel max</th>
               <!--th data-sort-key="auth_mechanism">Auth mechanism</th-->
@@ -62,19 +63,25 @@
           const clientVersion = item.client_properties.version || ''
           const connectionLink = document.createElement('a')
           connectionLink.href = '/connection?name=' + encodeURIComponent(item.name)
-          connectionLink.textContent = item.name
+          if (item.client_properties.connection_name) {
+            connectionLink.innerHTML = '<span>' + item.name + '</span><br>' + '<small>' +
+              item.client_properties.connection_name + '</small>'
+          } else {
+            connectionLink.textContent = item.name
+          }
           avalanchemq.table.renderCell(tr, 0, item.vhost)
           avalanchemq.table.renderCell(tr, 1, connectionLink)
           avalanchemq.table.renderCell(tr, 2, item.user)
           avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
-          avalanchemq.table.renderCell(tr, 6, item.channel_max, 'right')
-          // avalanchemq.table.renderCell(tr, 7, item.auth_mechanism)
-          avalanchemq.table.renderHtmlCell(tr, 7, client + '<br><small>' + clientVersion + '</small>')
-          avalanchemq.table.renderCell(tr, 8, new Date(item.connected_at).toLocaleString())
+          avalanchemq.table.renderCell(tr, 5, item.protocol)
+          avalanchemq.table.renderCell(tr, 7, item.channel_max, 'right')
+          // avalanchemq.table.renderCell(tr, 8, item.auth_mechanism)
+          avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + clientVersion + '</small>')
+          avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString())
         }
         const state = item.state == 'running' ? 'state-ok' : 'state-error'
         avalanchemq.table.renderCell(tr, 3, null, 'center ' + state)
-        avalanchemq.table.renderCell(tr, 5, item.channels, 'right')
+        avalanchemq.table.renderCell(tr, 6, item.channels, 'right')
       })
     </script>
   </body>

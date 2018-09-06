@@ -29,6 +29,7 @@ module AvalancheMQ
     @exclusive_consumer = false
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers
+    getter? closed
     def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
@@ -61,7 +62,9 @@ module AvalancheMQ
 
     def apply_policy(@policy : Policy)
       handle_arguments
+      @vhost.upstreams.try &.close_link(self)
       @policy.not_nil!.definition.each do |k, v|
+        @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
           @max_length = v.as_i64
@@ -75,9 +78,9 @@ module AvalancheMQ
           @dlx = v.as_s
         when "dead-letter-routing-key"
           @dlrk = v.as_s
-        when "upstream"
+        when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
-        when "upstream-set"
+        when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
         end
       end

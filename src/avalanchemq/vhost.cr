@@ -180,7 +180,7 @@ module AvalancheMQ
       when AMQP::Exchange::Declare
         e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
-        apply_policies([e] of Exchange)
+        apply_policies([e] of Exchange) unless loading
       when AMQP::Exchange::Delete
         @exchanges.each_value do |e|
           e.bindings.each_value do |destination|
@@ -204,7 +204,7 @@ module AvalancheMQ
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
           end
         @exchanges[""].bind(q, f.queue_name, f.arguments)
-        apply_policies([q] of Queue)
+        apply_policies([q] of Queue) unless loading
       when AMQP::Queue::Delete
         q = @queues.delete(f.queue_name)
         @exchanges.each_value do |e|
@@ -325,8 +325,11 @@ module AvalancheMQ
 
     private def load!
       load_definitions!
-      apply_policies
       apply_parameters
+      spawn(name: "Load policies") do
+        sleep(1)
+        apply_policies
+      end
     end
 
     private def load_definitions!

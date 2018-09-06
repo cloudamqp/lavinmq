@@ -45,6 +45,10 @@
         <h3>Client properties</h3>
         <table class="details-table">
           <tr>
+            <th>Client name</th>
+            <td><pre id="cp-name"></pre></td>
+          </tr>
+          <tr>
             <th>Capabilities</th>
             <td><pre id="cp-capabilities"></pre></td>
           </tr>
@@ -124,6 +128,7 @@
             document.getElementById('authentication').textContent = item.auth_mechanism
             document.getElementById('channel_max').textContent = item.channel_max
             const cp = item.client_properties
+            document.getElementById('cp-name').textContent = cp.connection_name
             document.getElementById('cp-capabilities').textContent = avalanchemq.dom.jsonToText(cp.capabilities)
             document.getElementById('cp-product').textContent = cp.product
             document.getElementById('cp-platform').textContent = cp.platform
