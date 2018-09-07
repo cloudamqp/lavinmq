@@ -1623,6 +1623,14 @@ module AvalancheMQ
           io.write @body
         end
       end
+
+      def inspect(io)
+        io << self.class.name
+        io << "("
+        io << "@body.size=" << @body.size
+        io << ")"
+        io
+      end
     end
 
     abstract struct Confirm < MethodFrame
