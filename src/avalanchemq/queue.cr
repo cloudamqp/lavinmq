@@ -340,7 +340,7 @@ module AvalancheMQ
       pr = AMQP::Properties.decode seg
       sz = seg.read_uint64
       bd = Bytes.new(sz)
-      seg.read(bd)
+      seg.read_fully(bd)
       msg = Message.new(ts, ex, rk, pr, sz, bd)
       Envelope.new(sp, msg)
     end
