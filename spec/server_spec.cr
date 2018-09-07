@@ -417,6 +417,23 @@ describe AvalancheMQ::Server do
     close(s)
   end
 
+  it "can receive and deliver large messages" do
+    s = amqp_server
+    spawn { s.not_nil!.listen(5672) }
+    Fiber.yield
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      pmsg1 = AMQP::Message.new("a" * 8133)
+      x = ch.exchange("", "direct", passive: true)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      x.publish pmsg1, q.name
+      msg = q.get
+      msg.to_s.should eq pmsg1.to_s
+    end
+  ensure
+    close(s)
+  end
+
   it "acking an invalid delivery tag should close the channel" do
     s = amqp_server
     spawn { s.not_nil!.listen(5672) }
