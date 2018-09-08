@@ -327,7 +327,7 @@ module AvalancheMQ
       load_definitions!
       apply_parameters
       spawn(name: "Load policies") do
-        sleep(1)
+        sleep 0.05
         apply_policies
       end
     end

@@ -4,6 +4,7 @@ require "./amqp"
 require "./connection"
 require "./observable"
 require "./exchange"
+require "./queue"
 require "./client/direct_client"
 
 module AvalancheMQ
@@ -22,7 +23,7 @@ module AvalancheMQ
     end
 
     @log : Logger
-    @links = Hash(String, Publisher).new
+    @links = Hash(String, Link).new
 
     getter name, log, vhost, out_ch, links
     property uri, prefetch, reconnect_delay, ack_mode
@@ -35,15 +36,13 @@ module AvalancheMQ
     end
 
     def stop
-      @links.values.each(&.force_close)
+      @links.values.each(&.close)
       @links.clear
     end
 
     class Publisher
       @client : DirectClient
       @log : Logger
-      @connected_at = Time.utc_now
-      getter connected_at
 
       def initialize(@upstream : Upstream)
         @log = @upstream.log.dup
@@ -59,7 +58,6 @@ module AvalancheMQ
       end
 
       def start(@consumer : Consumer)
-        @connected_at = Time.utc_now
         client_read_loop
       end
 
@@ -68,6 +66,7 @@ module AvalancheMQ
           loop do
             Fiber.yield if @out_ch.empty?
             frame = @out_ch.receive
+            @log.debug { "Read #{frame.inspect}" }
             case frame
             when AMQP::Basic::Nack
               next unless @upstream.ack_mode == AckMode::OnConfirm
@@ -95,7 +94,7 @@ module AvalancheMQ
             end
           rescue ex : Channel::ClosedError
             @log.debug { "#client_read_loop closed" }
-            force_close
+            close
             break
           end
         end
@@ -117,8 +116,10 @@ module AvalancheMQ
       def send_basic_publish(frame, routing_key = nil)
         exchange = ""
         mandatory = @upstream.ack_mode == AckMode::OnConfirm
-        @client.write AMQP::Basic::Publish.new(1_u16, 0_u16, exchange, routing_key,
+        pub_frame = AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
           mandatory, false)
+        @log.debug "Send #{pub_frame.inspect}"
+        @client.write pub_frame
         if mandatory
           @message_count += 1
           @delivery_tags[@message_count.to_u64] = frame.delivery_tag
@@ -131,32 +132,18 @@ module AvalancheMQ
         @client.write(frame)
       end
 
-      def force_close
+      def close
         return if @client.closed?
         @client.write AMQP::Connection::Close.new(320_u16, "Federation stopped", 0_u16, 0_u16)
       end
     end
 
     class Consumer < Connection
-      include Observer
-
       def initialize(@upstream : QueueUpstream, @pub : Publisher, @federated_q : Queue)
         @log = @upstream.log.dup
         @log.progname += " consumer"
         super(@upstream.uri, @log)
         set_prefetch
-        @federated_q.registerObserver(self)
-      end
-
-      def on(event, data)
-        case event
-        when :delete, :close
-          force_close
-        when :add_consumer
-          start
-        when :rm_consumer
-          force_close unless @federated_q.immediate_delivery?
-        end
       end
 
       def start
@@ -218,6 +205,49 @@ module AvalancheMQ
         @socket.write AMQP::Basic::Reject.new(1_u16, delivery_tag.to_u64, false).to_slice
       end
     end
+
+    class Link
+      include Observer
+      getter connected_at
+
+      @publisher : Publisher?
+      @consumer : Consumer?
+
+      def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
+        @log.progname += " link queue=#{@federated_q.name}:"
+        @federated_q.registerObserver(self)
+      end
+
+      def on(event, data)
+        @log.debug { "event=#{event} data=#{data}" }
+        case event
+        when :delete, :close
+          @upstream.close_link(@federated_q)
+        when :rm_consumer
+          @upstream.close_link(@federated_q) unless @federated_q.consumer_count > 0
+        end
+      end
+
+      def start
+        @log.debug { "start=#{@federated_q.immediate_delivery?}" }
+        return false unless @federated_q.immediate_delivery?
+        @consumer.try &.close
+        @publisher.try &.close
+        @publisher = Publisher.new(@upstream)
+        @consumer = Consumer.new(@upstream, @publisher.not_nil!, @federated_q)
+        @publisher.not_nil!.start(@consumer.not_nil!)
+        @connected_at = Time.utc_now
+        @consumer.not_nil!.start
+        @log.debug "link stopped"
+      end
+
+      def close
+        @log.debug "close link"
+        @federated_q.unregisterObserver(self)
+        @consumer.try &.close
+        @publisher.try &.close
+      end
+    end
   end
 
   class ExchangeUpstream < Upstream
@@ -233,7 +263,7 @@ module AvalancheMQ
     end
 
     def close_link(federated_exchange : Exchange)
-      @links.delete(federated_exchange.name).try(&.force_close)
+      @links.delete(federated_exchange.name).try(&.close)
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
     end
@@ -263,27 +293,29 @@ module AvalancheMQ
     end
 
     def close_link(federated_q : Queue)
-      @links.delete(federated_q.name).try(&.force_close)
+      @links.delete(federated_q.name).try(&.close)
     end
 
+    # When federated_q has a consumer the connections are estabished.
+    # If all consumers disconnect, the connections are closed.
+    # When the policy or the upstream is removed the link is also removed.
     def link(federated_q : Queue)
-      pub = Publisher.new(self)
+      @log.debug "link #{federated_q.name}"
       @queue ||= federated_q.name
-      @links[federated_q.name] = pub
+      link = Link.new(self, federated_q, @log.dup)
+      @links[federated_q.name] = link
       spawn(name: "Upstream #{@uri.host}/#{@queue}") do
-        sub = nil
+        sleep 0.05
         loop do
-          sub = Consumer.new(self, pub, federated_q)
-          pub.start(sub)
-          sub.start
+          unless link.start # blocking
+            @log.debug { "Waiting for consumers" }
+            sleep @reconnect_delay.seconds
+          end
         rescue ex
           break unless @links[federated_q.name]?
           @log.warn "Failure: #{ex.inspect_with_backtrace}"
-          sub.try &.force_close
-          pub.try &.force_close
           sleep @reconnect_delay.seconds
         end
-        federated_q.unregisterObserver(sub) unless sub.nil?
         @log.debug { "Link stopped" }
       end
       @log.info { "Link starting" }
