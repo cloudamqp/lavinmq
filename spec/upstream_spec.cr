@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/avalanchemq/upstream"
+require "../src/avalanchemq/federation/upstream"
 
 def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue, AMQP::Queue}
   ch = conn.channel

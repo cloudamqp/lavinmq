@@ -6,7 +6,7 @@ require "./policy"
 require "./parameter_store"
 require "./parameter"
 require "./shovel_store"
-require "./upstream_store"
+require "./federation/upstream_store"
 require "./client/direct_client"
 require "digest/sha1"
 
