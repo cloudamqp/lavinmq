@@ -257,6 +257,7 @@ module AvalancheMQ
     def add_parameter(p : Parameter)
       @parameters.create p
       apply_parameters(p)
+      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
     end
 
     def delete_parameter(component_name, parameter_name)
