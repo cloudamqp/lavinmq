@@ -47,11 +47,11 @@ module AvalancheMQ
     end
 
     def link(name, resource : Queue)
-      @upstreams[name].as(QueueUpstream).link(resource)
+      @upstreams[name]?.try &.as(QueueUpstream).link(resource)
     end
 
     def link(name, resource : Exchange)
-      @upstreams[name].as(ExchangeUpstream).link(resource)
+      @upstreams[name]?.try &.as(ExchangeUpstream).link(resource)
     end
 
     def close_link(resource : Queue)
