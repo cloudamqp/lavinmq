@@ -107,7 +107,7 @@ module AvalancheMQ
           @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
             deliver = AMQP::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
               msg.exchange_name, msg.routing_key)
-            deliver(deliver, msg)
+            ch.deliver(deliver, msg)
             delivered = true
           end
         end
@@ -136,8 +136,8 @@ module AvalancheMQ
         @next_publish_mandatory = @next_publish_immediate = false
       end
 
-      private def deliver(frame, msg)
-        @client.deliver(@id, frame, msg)
+      def deliver(frame, msg)
+        @client.deliver(frame, msg)
       end
 
       def consume(frame)
@@ -211,10 +211,10 @@ module AvalancheMQ
         if qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
             @map.select { |k, _| k < frame.delivery_tag }
-                .each_value do |queue, sp, consumer|
-              consumer.ack(sp) if consumer
-              queue.ack(sp, flush: false)
-            end
+              .each_value do |queue, sp, consumer|
+                consumer.ack(sp) if consumer
+                queue.ack(sp, flush: false)
+              end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
           queue, sp, consumer = qspc
@@ -247,10 +247,10 @@ module AvalancheMQ
         elsif qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
             @map.select { |k, _| k < frame.delivery_tag }
-                .each_value do |queue, sp, consumer|
-              consumer.reject(sp) if consumer
-              queue.reject(sp, frame.requeue)
-            end
+              .each_value do |queue, sp, consumer|
+                consumer.reject(sp) if consumer
+                queue.reject(sp, frame.requeue)
+              end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
           queue, sp, consumer = qspc

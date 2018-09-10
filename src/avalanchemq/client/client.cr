@@ -11,7 +11,7 @@ module AvalancheMQ
     abstract def send(frame : AMQP::Frame)
     abstract def to_json(json : JSON::Builder)
     abstract def connection_details
-    abstract def deliver(channel : UInt16, frame : AMQP::Frame, msg : Message)
+    abstract def deliver(frame : AMQP::Frame, msg : Message)
     abstract def close_socket
     abstract def channel_name_prefix
 

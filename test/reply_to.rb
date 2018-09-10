@@ -7,14 +7,20 @@ q = "test.direct.reply-to"
 s = Thread.new do
   Bunny.run("amqp://guest:guest@localhost/%2f") do |b|
     ch = b.create_channel
-    ch.queue(q).subscribe(block: true) do |_delivery, headers, body|
+    ch.queue(q).subscribe do |_delivery, headers, body|
       correlation_id = headers[:correlation_id]
-      puts "Server sending direct reply with correlation_id #{correlation_id} and body #{body}"\
-          " to #{headers[:reply_to]}"
+      print "Server sending direct reply with correlation_id #{correlation_id} and body #{body}"\
+          " to #{headers[:reply_to]}\n"
       ch.basic_publish body, "", headers[:reply_to]
+      next
     end
+    puts "Server subscribing to #{q} on ch=#{ch.id} "\
+         "consumers=#{ch.consumers.keys.join(', ')}"
+    loop { sleep 1 }
   end
 end
+
+sleep 1
 
 # Client
 c = Thread.new do
@@ -26,6 +32,8 @@ c = Thread.new do
       puts "Client got direct reply with correlation_id #{correlation_id} and body #{body}"
       waiting = false
     end
+    puts "Client subscribing to amq.rabbitmq.reply-to on ch=#{ch.id} "\
+          "consumers=#{ch.consumers.keys.join(', ')}"
     loop do
       next if waiting
       print "Enter to send rpc ..."

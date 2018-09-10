@@ -29,7 +29,7 @@ module AvalancheMQ
             delivery_tag,
             redelivered,
             msg.exchange_name, msg.routing_key)
-          @channel.client.deliver(@channel.id, deliver, msg)
+          @channel.client.deliver(deliver, msg)
         end
 
         def ack(sp)

@@ -215,10 +215,10 @@ module AvalancheMQ
       }
     end
 
-    def deliver(channel, frame, msg)
+    def deliver(frame, msg)
       @log.debug { "Merging delivery, header and body frame to one" }
-      header = AMQP::HeaderFrame.new(channel, 60_u16, 0_u16, msg.size, msg.properties)
-      body = AMQP::BodyFrame.new(channel, msg.body)
+      header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+      body = AMQP::BodyFrame.new(frame.channel, msg.body)
       send(frame)
       send(header)
       send(body)
