@@ -389,6 +389,11 @@ module AvalancheMQ
       @log.info { "Lost connection, while sending (#{ex})" }
       cleanup
       false
+    rescue ex : IO::Timeout
+      @log.info { "Timeout while sending (#{ex})" }
+      @socket.close
+      cleanup
+      false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
@@ -418,6 +423,16 @@ module AvalancheMQ
         pos += length
       end
       @socket.write buff.to_slice
+      true
+    rescue ex : IO::Error | Errno
+      @log.info { "Lost connection, while sending (#{ex})" }
+      cleanup
+      false
+    rescue ex : IO::Timeout
+      @log.info { "Timeout while sending (#{ex})" }
+      @socket.close
+      cleanup
+      false
     end
 
     private def heartbeat_loop

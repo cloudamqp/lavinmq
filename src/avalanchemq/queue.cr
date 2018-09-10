@@ -140,34 +140,40 @@ module AvalancheMQ
           @message_available.receive
         end
         break if @closed
-        @log.debug { "Looking for available consumers" }
-        c = nil
-        @consumers.size.times do
-          c = @consumers.shift
-          @consumers.push c
-          break if c.accepts?
-          c = nil
-        end
-        if c
-          @log.debug { "Getting a new message" }
-          if env = get(c.no_ack)
-            @log.debug { "Delivering #{env.segment_position} to consumer" }
-            c.deliver(env.message, env.segment_position, self)
-            @log.debug { "Delivery done" }
-          end
-        else
-          @log.debug "No consumer available"
-          now = Time.now.epoch_ms
-          schedule_expiration_of_queue(now)
-          schedule_expiration_of_next_msg(now)
-          @log.debug "Waiting for consumer"
-          @consumer_available.receive
-        end
+        deliver_to_consumer || schedule_expiration_and_wait
         Fiber.yield if (i += 1) % 1000 == 0
       end
       @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
       @log.debug "Delivery loop channel closed"
+    end
+
+    private def deliver_to_consumer
+      @log.debug { "Looking for available consumers" }
+      @consumers.size.times do
+        c = @consumers.shift
+        @consumers.push c
+        if c.accepts?
+          @log.debug { "Getting a new message" }
+          if env = get(c.no_ack)
+            @log.debug { "Delivering #{env.segment_position} to consumer" }
+            if c.deliver(env.message, env.segment_position, self)
+              @log.debug { "Delivery done" }
+              return true
+            end
+          end
+        end
+      end
+      false
+    end
+
+    private def schedule_expiration_and_wait
+      @log.debug "No consumer available"
+      now = Time.now.epoch_ms
+      schedule_expiration_of_queue(now)
+      schedule_expiration_of_next_msg(now)
+      @log.debug "Waiting for consumer"
+      @consumer_available.receive
     end
 
     def close(deleting = false) : Nil
