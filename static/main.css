@@ -439,6 +439,7 @@ a[data-tag] {
   display: inline-block;
   padding-top: 8px;
   padding-right: 5px;
+  vertical-align: top;
 }
 
 .form input:not([type="radio"]):not([type="checkbox"]), .form select {
