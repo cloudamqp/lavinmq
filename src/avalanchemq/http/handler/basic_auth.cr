@@ -20,14 +20,12 @@ module AvalancheMQ
           if user = @user_store[username]?
             if !user.tags.empty? && user.password.to_s.size > 0 && user.password == password
               context.authenticated_username = username
-              @log.debug { "auth? #{username} ok" }
               return call_next(context)
             end
           end
         rescue Base64::Error
         end
       end
-      @log.debug { "auth? #{username} not ok" }
       context.response.status_code = 401
       # context.response.headers["WWW-Authenticate"] = %(Basic realm="Login Required")
     end
