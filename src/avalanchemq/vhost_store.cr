@@ -28,7 +28,9 @@ module AvalancheMQ
     end
 
     def create(name, save = true)
-      return if @vhosts.has_key?(name)
+      if v = @vhosts[name]?
+        return v
+      end
       vhost = VHost.new(name, @data_dir, @log, @connection_events)
       @vhosts[name] = vhost
       save! if save

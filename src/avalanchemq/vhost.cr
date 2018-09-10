@@ -287,6 +287,7 @@ module AvalancheMQ
       stop_upstream_links
       @queues.each_value &.close
       @save.close
+      compact!
     end
 
     def delete
@@ -361,7 +362,6 @@ module AvalancheMQ
     private def compact!
       @log.debug "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
-      File.delete tmp_path if File.exists? tmp_path
       File.open(tmp_path, "w") do |io|
         @exchanges.each do |name, e|
           next unless e.durable
@@ -370,6 +370,17 @@ module AvalancheMQ
             false, e.durable, e.auto_delete, e.internal,
             false, e.arguments)
           f.encode(io)
+        end
+        @queues.each do |name, q|
+          next unless q.durable
+          next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
+          f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
+            q.auto_delete, false, q.arguments)
+          f.encode(io)
+        end
+        @exchanges.each do |name, e|
+          next unless e.durable
+          next if e.auto_delete
           e.bindings.each do |bt, destinations|
             destinations.each do |d|
               f =
@@ -383,13 +394,6 @@ module AvalancheMQ
               f.encode(io)
             end
           end
-        end
-        @queues.each do |name, q|
-          next unless q.durable
-          next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
-          f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
-            q.auto_delete, false, q.arguments)
-          f.encode(io)
         end
       end
       File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
@@ -421,7 +425,7 @@ module AvalancheMQ
             next unless d.durable
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
-          @log.debug { "Storing definition: #{f.inspect}" }
+          @log.debug { "Storing definition: #{frame.inspect}" }
           frame.encode(f)
           f.flush
         end
