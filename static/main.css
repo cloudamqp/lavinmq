@@ -121,7 +121,6 @@ footer {
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   background-color: #FFF;
   color: var(--font-color-light);
-  font-size: 14px;
   padding: 20px;
 }
 
@@ -178,7 +177,7 @@ aside h1 {
 }
 
 aside h1 small {
-  font-size: 14px;
+  font-size: 0.7em;
   font-weight: 100;
   opacity: 0.6;
   margin-left: 10px;
@@ -258,10 +257,9 @@ aside ul {
 
 aside ul li a {
   display: block;
-  padding: 0 20px;
-  font-size: 20px;
-  line-height: 50px;
-  height: 50px;
+  padding: 0 1em;
+  font-size: 1.3em;
+  line-height: 3em;
 }
 
 aside ul ul li a {
@@ -509,7 +507,7 @@ fieldset {
 
 main h3 {
   color: var(--font-color-dark);
-  font-size: 20px;
+  font-size: 1.5em;
   font-weight: 400;
 }
 
@@ -522,8 +520,7 @@ a, a:visited {
 }
 
 .btn-primary {
-  font-size: 14px;
-  line-height: 14px;
+  font-size: 1em;
   color: #FFF;
   font-weight: 100;
   text-transform: uppercase;
@@ -533,8 +530,7 @@ a, a:visited {
 }
 
 .btn-secondary {
-  font-size: 14px;
-  line-height: 14px;
+  font-size: 1em;
   font-weight: 100;
   padding: 0 40px;
   text-transform: uppercase;
@@ -544,8 +540,7 @@ a, a:visited {
 }
 
 .btn-danger {
-  font-size: 14px;
-  line-height: 14px;
+  font-size: 1em;
   font-weight: 100;
   padding: 0 40px;
   border: none;
