@@ -177,7 +177,7 @@ aside h1 small {
 }
 
 #version:before {
-  content: "v ";
+  content: "v";
 }
 
 .user-menu {
