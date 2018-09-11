@@ -141,8 +141,8 @@ module AvalancheMQ
     def can_write?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_write_cache.has_key? cache_key
-        perm = permissions[vhost][:write]
-        @acl_write_cache[cache_key] = perm_match?(perm, name)
+        perm = permissions[vhost]?
+        @acl_write_cache[cache_key] = perm ? perm_match?(perm[:write], name) : false
       end
       @acl_write_cache[cache_key]
     end
@@ -152,8 +152,8 @@ module AvalancheMQ
     def can_read?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_read_cache.has_key? cache_key
-        perm = permissions[vhost][:read]
-        @acl_read_cache[cache_key] = perm_match?(perm, name)
+        perm = permissions[vhost]?
+        @acl_read_cache[cache_key] = perm ? perm_match?(perm[:read], name) : false
       end
       @acl_read_cache[cache_key]
     end
@@ -163,8 +163,8 @@ module AvalancheMQ
     def can_config?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_config_cache.has_key? cache_key
-        perm = permissions[vhost][:config]
-        @acl_config_cache[cache_key] = perm_match?(perm, name)
+        perm = permissions[vhost]?
+        @acl_config_cache[cache_key] = perm ? perm_match?(perm[:config], name) : false
       end
       @acl_config_cache[cache_key]
     end
