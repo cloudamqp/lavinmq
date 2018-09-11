@@ -61,8 +61,7 @@ module AvalancheMQ
     end
 
     def apply_policy(@policy : Policy)
-      handle_arguments
-      @vhost.upstreams.try &.close_link(self)
+      clear_policy
       @policy.not_nil!.definition.each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
@@ -84,6 +83,11 @@ module AvalancheMQ
           @vhost.upstreams.try &.link_set(v.as_s, self)
         end
       end
+    end
+
+    def clear_policy
+      handle_arguments
+      @vhost.upstreams.try &.close_link(self)
     end
 
     private def handle_arguments

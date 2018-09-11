@@ -35,6 +35,10 @@ module AvalancheMQ
       end
     end
 
+    def clear_policy
+      handle_arguments
+    end
+
     def handle_arguments
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
     end

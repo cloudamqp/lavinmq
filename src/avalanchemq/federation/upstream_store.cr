@@ -39,9 +39,13 @@ module AvalancheMQ
     end
 
     def delete_upstream(name)
-      @upstreams.delete(name)
+      @upstreams.delete(name).try(&.close)
       @upstream_sets.each do |_, set|
-        set.reject! { |upstream| upstream.name == name }
+        set.reject! do |upstream|
+          return false unless upstream.name == name
+          upstream.close
+          true
+        end
       end
       @vhost.log.info { "Upstream '#{name}' deleted" }
     end
@@ -122,8 +126,8 @@ module AvalancheMQ
     end
 
     def stop_all
-      @upstreams.each { |_, upstream| upstream.stop }
-      @upstream_sets.values.flatten.each { |upstream| upstream.stop }
+      @upstreams.each { |_, upstream| upstream.close }
+      @upstream_sets.values.flatten.each { |upstream| upstream.close }
     end
   end
 end

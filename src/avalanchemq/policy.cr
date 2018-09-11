@@ -3,6 +3,7 @@ require "json"
 module AvalancheMQ
   module PolicyTarget
     abstract def apply_policy(p : Policy)
+    abstract def clear_policy
     abstract def policy : Policy?
   end
 

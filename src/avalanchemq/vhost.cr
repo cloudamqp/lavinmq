@@ -231,6 +231,7 @@ module AvalancheMQ
     end
 
     def add_policy(p : Policy)
+      @policies.delete(p.name)
       @policies.create(p)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
     end
@@ -306,7 +307,7 @@ module AvalancheMQ
       sorted_policies = @policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
         match = sorted_policies.find { |p| p.match?(r) }
-        r.apply_policy(match) unless match.nil?
+        match.nil? ? r.clear_policy : r.apply_policy(match)
       end
     end
 

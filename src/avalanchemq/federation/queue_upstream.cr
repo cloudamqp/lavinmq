@@ -20,6 +20,7 @@ module AvalancheMQ
     # If all consumers disconnect, the connections are closed.
     # When the policy or the upstream is removed the link is also removed.
     def link(federated_q : Queue)
+      return if @links[federated_q.name]?
       @log.debug "link #{federated_q.name}"
       @queue ||= federated_q.name
       link = Link.new(self, federated_q, @log.dup)
@@ -31,9 +32,10 @@ module AvalancheMQ
             @log.debug { "Waiting for consumers" }
             sleep @reconnect_delay.seconds
           end
+          break unless @links[federated_q.name]?
         rescue ex
           break unless @links[federated_q.name]?
-          @log.warn "Failure: #{ex.inspect_with_backtrace}"
+          @log.warn "Failure: #{ex.inspect}"
           sleep @reconnect_delay.seconds
         end
         @log.debug { "Link stopped" }

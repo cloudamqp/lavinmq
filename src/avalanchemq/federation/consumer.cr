@@ -32,6 +32,10 @@ module AvalancheMQ
           when AMQP::Connection::Close
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             raise UnexpectedFrame.new(frame)
+          when AMQP::Basic::Cancel
+            @socket.write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag).to_slice
+          when AMQP::Channel::Close
+            @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
           else
             raise UnexpectedFrame.new(frame)
           end

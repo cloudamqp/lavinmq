@@ -39,6 +39,8 @@ module AvalancheMQ
         @connected_at = Time.utc_now
         @consumer.not_nil!.start
         @log.debug "link stopped"
+      ensure
+        @connected_at = nil
       end
 
       def close

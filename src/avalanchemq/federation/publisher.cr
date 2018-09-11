@@ -52,6 +52,10 @@ module AvalancheMQ
             when AMQP::Connection::Close
               @client.write AMQP::Connection::CloseOk.new
               break
+            when AMQP::Basic::Cancel
+              @client.write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            when AMQP::Channel::Close
+              @client.write AMQP::Channel::CloseOk.new(frame.channel)
             else
               @log.warn { "Unexpected frame #{frame}" }
             end

@@ -30,7 +30,7 @@ module AvalancheMQ
       @log.progname += " upstream=#{@name}"
     end
 
-    def stop
+    def close
       @links.values.each(&.close)
       @links.clear
     end
