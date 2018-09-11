@@ -46,6 +46,7 @@ module AvalancheMQ
           end
         rescue Channel::ClosedError
           @log.debug { "#consume_loop out channel closed" }
+          break
         end
       rescue ex : Errno | IO::Error
         @log.info { ex.inspect }
