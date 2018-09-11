@@ -203,6 +203,8 @@ module AvalancheMQ
           end
         rescue Channel::ClosedError
           @log.debug { "#amqp_read_loop out channel closed" }
+        rescue e : Errno | IO::Error
+          @log.info { e.inspect }
         end
       ensure
         @socket.close
@@ -227,8 +229,13 @@ module AvalancheMQ
             @log.debug { "#channel_read_loop closed" }
             close("Shovel stopped")
             break
+          rescue e : Errno | IO::Error
+            @log.debug { "#channel_read_loop #{e.inspect}" }
+            break
           end
         end
+      ensure
+        @socket.close
       end
 
       private def set_confirm
@@ -298,7 +305,10 @@ module AvalancheMQ
         rescue Channel::ClosedError
           @log.debug { "#consume_loop out channel closed" }
         end
+      rescue ex : Errno | IO::Error
+        @log.info { ex.inspect }
       ensure
+        @out.close
         @socket.close
       end
 

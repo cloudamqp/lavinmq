@@ -42,7 +42,7 @@ module AvalancheMQ
       @socket.write start_ok.to_slice
       tune = AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
       @socket.write AMQP::Connection::TuneOk.new(channel_max: 1_u16,
-        frame_max: 4096_u32,
+        frame_max: 131072_u32,
         heartbeat: 0_u16).to_slice
       path = @uri.path || ""
       vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
@@ -59,6 +59,8 @@ module AvalancheMQ
     def close(msg = "Connection closed")
       return if @socket.closed?
       @socket.write AMQP::Connection::Close.new(320_u16, msg, 0_u16, 0_u16).to_slice
+    rescue Errno
+      @log.info ("socket already closed, can't send close frame")
     end
 
     class UnexpectedFrame < Exception
