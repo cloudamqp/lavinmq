@@ -475,8 +475,8 @@ a[data-tag] {
   width: 151px;
 }
 
-select, button {
-  height: 29px;
+button {
+  height: 2em;
 }
 
 input, select, textarea, button {
