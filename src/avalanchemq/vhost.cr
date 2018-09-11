@@ -285,9 +285,13 @@ module AvalancheMQ
 
     def close
       stop_shovels
+      Fiber.yield
       stop_upstream_links
+      Fiber.yield
       @queues.each_value &.close
+      Fiber.yield
       @save.close
+      Fiber.yield
       compact!
     end
 
