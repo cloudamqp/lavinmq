@@ -18,7 +18,7 @@ module AvalancheMQ
       end
 
       def start
-        channel_read_loop
+        spawn(channel_read_loop, name: "Shovel publisher #{@source.uri.host}#channel_read_loop")
         consume_loop
       end
 
@@ -56,32 +56,29 @@ module AvalancheMQ
       end
 
       private def channel_read_loop
-        spawn(name: "Shovel publisher #{@source.uri.host}#channel_read_loop") do
-          loop do
-            frame = @in.receive
-            case frame
-            when AMQP::Basic::Ack
-              @socket.write frame.to_slice unless @ack_mode == AckMode::NoAck
-              @message_counter += 1
-              if @source.delete_after == DeleteAfter::QueueLength &&
-                 @message_count <= @message_counter
-                @socket.write AMQP::Connection::Close.new(200_u16,
-                  "Shovel done", 0_u16, 0_u16).to_slice
-                @on_done.try &.call
-              end
-            when AMQP::Basic::Nack
-              @socket.write frame.to_slice
-            when AMQP::Basic::Return
-              @socket.write frame.to_slice
-            else
-              @log.warn { "Unexpected frame #{frame}" }
+        loop do
+          frame = @in.receive
+          case frame
+          when AMQP::Basic::Ack
+            @socket.write frame.to_slice unless @ack_mode == AckMode::NoAck
+            @message_counter += 1
+            if @source.delete_after == DeleteAfter::QueueLength &&
+               @message_count <= @message_counter
+              @socket.write AMQP::Connection::Close.new(200_u16,
+                "Shovel done", 0_u16, 0_u16).to_slice
+              @on_done.try &.call
             end
-          rescue ex : Channel::ClosedError
-            @log.debug { "#channel_read_loop closed" }
-            close("Shovel stopped")
-            break
+          when AMQP::Basic::Nack
+            @socket.write frame.to_slice
+          when AMQP::Basic::Return
+            @socket.write frame.to_slice
+          else
+            @log.warn { "Unexpected frame #{frame}" }
           end
         end
+      rescue ex : Channel::ClosedError
+        @log.debug { "#channel_read_loop closed" }
+        close("Shovel stopped")
       end
 
       private def set_prefetch

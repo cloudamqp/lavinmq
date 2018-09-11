@@ -14,7 +14,7 @@ module AvalancheMQ
       end
 
       def start
-        channel_read_loop
+        spawn(channel_read_loop, name: "Shovel publisher #{@destination.uri.host}#channel_read_loop")
         amqp_read_loop
       end
 
@@ -72,27 +72,25 @@ module AvalancheMQ
       end
 
       private def channel_read_loop
-        spawn(name: "Shovel publisher #{@destination.uri.host}#channel_read_loop") do
-          loop do
-            frame = @in.receive
-            case frame
-            when AMQP::Basic::Deliver
-              send_basic_publish(frame)
-            when AMQP::HeaderFrame
-              @socket.write frame.to_slice
-            when AMQP::BodyFrame
-              @socket.write frame.to_slice
-            else
-              @log.warn { "Unexpected frame #{frame}" }
-            end
-          rescue Channel::ClosedError
-            @log.debug { "#channel_read_loop closed" }
-            close("Shovel stopped")
-            break
-          rescue e : Errno | IO::Error
-            @log.debug { "#channel_read_loop #{e.inspect_with_backtrace}" }
-            break
+        loop do
+          frame = @in.receive
+          case frame
+          when AMQP::Basic::Deliver
+            send_basic_publish(frame)
+          when AMQP::HeaderFrame
+            @socket.write frame.to_slice
+          when AMQP::BodyFrame
+            @socket.write frame.to_slice
+          else
+            @log.warn { "Unexpected frame #{frame}" }
           end
+        rescue Channel::ClosedError
+          @log.debug { "#channel_read_loop closed" }
+          close("Shovel stopped")
+          break
+        rescue e : Errno | IO::Error
+          @log.debug { "#channel_read_loop #{e.inspect_with_backtrace}" }
+          break
         end
       ensure
         @socket.close
