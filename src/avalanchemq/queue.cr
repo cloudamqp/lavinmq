@@ -143,7 +143,6 @@ module AvalancheMQ
           @log.debug { "Waiting for msgs" }
           @message_available.receive
         end
-        break if @closed
         deliver_to_consumer || schedule_expiration_and_wait
         Fiber.yield if (i += 1) % 1000 == 0
       end
@@ -153,6 +152,7 @@ module AvalancheMQ
     end
 
     private def deliver_to_consumer
+      return if @closed
       @log.debug { "Looking for available consumers" }
       @consumers.size.times do
         c = @consumers.shift
@@ -172,6 +172,7 @@ module AvalancheMQ
     end
 
     private def schedule_expiration_and_wait
+      return if @closed
       @log.debug "No consumer available"
       now = Time.now.epoch_ms
       schedule_expiration_of_queue(now)
@@ -189,6 +190,7 @@ module AvalancheMQ
       @closed = true
       @message_available.close
       @consumer_available.close
+      Fiber.yield
       loop do
         c = @consumers.shift? || break
         c.cancel
