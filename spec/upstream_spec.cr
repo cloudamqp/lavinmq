@@ -37,7 +37,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
-    upstream.not_nil!.stop
+    upstream.not_nil!.close
     close(s)
   end
 
@@ -58,7 +58,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q2"].message_count.should eq 0
     end
   ensure
-    upstream.not_nil!.stop
+    upstream.not_nil!.close
     close(s)
   end
 
@@ -82,7 +82,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
-    upstream.not_nil!.stop
+    upstream.not_nil!.close
     close(s)
   end
 
@@ -106,7 +106,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
-    upstream.not_nil!.stop
+    upstream.not_nil!.close
     close(s)
   end
 end
