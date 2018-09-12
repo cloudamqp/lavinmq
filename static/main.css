@@ -476,7 +476,7 @@ a[data-tag] {
 }
 
 button {
-  height: 2em;
+  line-height: 2em;
 }
 
 input, select, textarea, button {
