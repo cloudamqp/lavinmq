@@ -33,13 +33,17 @@ module AvalancheMQ
         end
 
         def ack(sp)
-          if @unacked.delete(sp)
-            @log.debug { "Ackin #{sp}. Unacked: #{@unacked.size}" }
+          idx = @unacked.index(sp)
+          if idx
+            @unacked.delete_at(idx)
+            @log.debug { "Acking #{sp}. Unacked: #{@unacked.size}" }
           end
         end
 
         def reject(sp)
-          if @unacked.delete(sp)
+          idx = @unacked.index(sp)
+          if idx
+            @unacked.delete_at(idx)
             @log.debug { "Rejecting #{sp}. Unacked: #{@unacked.size}" }
           end
         end

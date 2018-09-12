@@ -363,7 +363,7 @@ module AvalancheMQ
     def ack(sp : SegmentPosition, flush : Bool)
       return if @closed
       @log.debug { "Acking #{sp}" }
-      idx = @unacked.rindex(sp)
+      idx = @unacked.index(sp)
       @log.debug { "Acking idx #{idx} in unacked deque" }
       @unacked.delete_at(idx) if idx
       @consumer_available.send nil unless @consumer_available.full?
@@ -372,7 +372,7 @@ module AvalancheMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @closed
       @log.debug { "Rejecting #{sp}" }
-      idx = @unacked.rindex(sp)
+      idx = @unacked.index(sp)
       @log.debug { "Rejecting idx #{idx} in unacked deque" }
       if idx
         @unacked.delete_at(idx)
