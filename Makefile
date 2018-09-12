@@ -5,7 +5,7 @@ install: build
 	cp bin/avalanchemq /usr/sbin/
 
 build-deb:
-	vagrant up && vagrant ssh -c "cd /vagrant && make deb" && vagrant halt
+	vagrant up && vagrant ssh -c "cd /vagrant && build/deb 1" && vagrant halt
 
 deb:
 	build/deb 1
