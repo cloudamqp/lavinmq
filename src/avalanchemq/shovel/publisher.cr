@@ -24,10 +24,11 @@ module AvalancheMQ
         mandatory = @ack_mode == AckMode::OnConfirm
         @socket.write AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
           mandatory, false).to_slice
-        if mandatory
+        case @ack_mode
+        when AckMode::OnConfirm
           @message_count += 1
           @delivery_tags[@message_count] = frame.delivery_tag
-        else
+        when AckMode::OnPublish
           ack(frame.delivery_tag)
         end
       end
@@ -81,6 +82,7 @@ module AvalancheMQ
             @socket.write frame.to_slice
           when AMQP::BodyFrame
             @socket.write frame.to_slice
+            @socket.flush
           else
             @log.warn { "Unexpected frame #{frame}" }
           end

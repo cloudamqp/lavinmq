@@ -74,6 +74,7 @@ module AvalancheMQ
           else
             @log.warn { "Unexpected frame #{frame}" }
           end
+          @socket.flush
         end
       rescue ex : Channel::ClosedError
         @log.debug { "#channel_read_loop closed" }

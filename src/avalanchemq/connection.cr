@@ -12,7 +12,6 @@ module AvalancheMQ
       host = @uri.host || "localhost"
       tls = @uri.scheme == "amqps"
       socket = TCPSocket.new(host, @uri.port || tls ? 5671 : 5672)
-      socket.sync = true
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
