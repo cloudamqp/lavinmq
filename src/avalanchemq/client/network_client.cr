@@ -376,7 +376,10 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       @log.debug { "Send #{frame.inspect}" }
-      @socket.write frame.to_slice
+      bytes = frame.to_slice
+      @write_lock.synchronize do
+        @socket.write bytes
+      end
       @socket.flush
       case frame
       when AMQP::Connection::CloseOk
@@ -408,9 +411,10 @@ module AvalancheMQ
       }
     end
 
-    @deliver_lock = Mutex.new
+    @write_lock = Mutex.new
+
     def deliver(frame, msg)
-      @deliver_lock.synchronize do
+      @write_lock.synchronize do
         @socket.write frame.to_slice
         header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
         @socket.write header.to_slice
@@ -422,9 +426,9 @@ module AvalancheMQ
           @socket.write AMQP::BodyFrame.new(frame.channel, body_part).to_slice
           pos += length
         end
-        @socket.flush
-        true
       end
+      @socket.flush
+      true
     rescue ex : IO::Error | Errno
       @log.info { "Lost connection, while sending (#{ex})" }
       cleanup
