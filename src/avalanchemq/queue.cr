@@ -139,6 +139,7 @@ module AvalancheMQ
     private def deliver_loop
       i = 0
       loop do
+        break if @closed
         unless @ready[0]?
           @log.debug { "Waiting for msgs" }
           @message_available.receive
@@ -152,7 +153,6 @@ module AvalancheMQ
     end
 
     private def deliver_to_consumer
-      return if @closed
       @log.debug { "Looking for available consumers" }
       @consumers.size.times do
         c = @consumers.shift
