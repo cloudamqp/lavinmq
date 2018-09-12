@@ -27,7 +27,7 @@ module AvalancheMQ
         loop do
           Fiber.yield if @out.full?
           frame = AMQP::Frame.decode(@socket)
-          #@log.debug { "Read #{frame.inspect}" }
+          # @log.debug { "Read #{frame.inspect}" }
           case frame
           when AMQP::HeaderFrame
             @out.send(frame)
@@ -69,9 +69,7 @@ module AvalancheMQ
                 "Shovel done", 0_u16, 0_u16).to_slice
               @on_done.try &.call
             end
-          when AMQP::Basic::Nack
-            @socket.write frame.to_slice
-          when AMQP::Basic::Return
+          when AMQP::Basic::Reject
             @socket.write frame.to_slice
           else
             @log.warn { "Unexpected frame #{frame}" }
