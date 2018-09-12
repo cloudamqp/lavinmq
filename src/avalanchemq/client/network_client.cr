@@ -69,7 +69,7 @@ module AvalancheMQ
         log.warn "Access denied for #{remote_address} using username \"#{username}\""
         props = start_ok.client_properties
         capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
-        if capabilities && capabilities["authentication_failure_close"].try &.as(Bool)
+        if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
           socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
             start_ok.class_id,
             start_ok.method_id).to_slice
@@ -106,7 +106,7 @@ module AvalancheMQ
       log.warn "#{ex.cause.inspect} while #{remote_address} tried to establish connection"
       nil
     rescue ex : Exception
-      log.warn "#{ex.inspect} while #{remote_address} tried to establish connection"
+      log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
       socket.try &.close unless socket.try &.closed?
       nil
     end

@@ -3,56 +3,38 @@ require "../spec_helper"
 describe AvalancheMQ::ExchangesController do
   describe "GET /api/exchanges" do
     it "should return all exchanges" do
-      s, h = create_servers
-      listen(h)
       response = get("http://localhost:8080/api/exchanges")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
       keys = ["arguments", "internal", "auto_delete", "durable", "type", "vhost", "name"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      close(h)
     end
   end
 
   describe "GET /api/exchanges/vhost" do
     it "should return all exchanges for a vhost" do
-      s, h = create_servers
-      listen(h)
       response = get("http://localhost:8080/api/exchanges/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      close(h)
     end
   end
 
   describe "GET /api/exchanges/vhost/name" do
     it "should return exchange" do
-      s, h = create_servers
-      listen(h)
       response = get("http://localhost:8080/api/exchanges/%2f/amq.topic")
       response.status_code.should eq 200
-    ensure
-      close(h)
     end
 
     it "should return 404 if exchange does not exist" do
-      s, h = create_servers
-      listen(h)
       response = get("http://localhost:8080/api/exchanges/%2f/404")
       response.status_code.should eq 404
-    ensure
-      close(h)
     end
   end
 
   describe "PUT /api/exchanges/vhost/name" do
     it "should create exchange" do
-      s, h = create_servers
-      listen(h)
       body = %({
         "type": "topic",
         "durable": false,
@@ -67,24 +49,16 @@ describe AvalancheMQ::ExchangesController do
       response.status_code.should eq 204
       response = get("http://localhost:8080/api/exchanges/%2f/spechange")
       response.status_code.should eq 200
-    ensure
-      close(h)
     end
 
     it "should require type" do
-      s, h = create_servers
-      listen(h)
       body = %({})
       s.vhosts["/"].delete_exchange("faulty")
       response = put("http://localhost:8080/api/exchanges/%2f/faulty", body: body)
       response.status_code.should eq 400
-    ensure
-      close(h)
     end
 
     it "should require durable to be the same when overwriting" do
-      s, h = create_servers
-      listen(h)
       body = %({
         "type": "topic",
         "durable": true,
@@ -104,78 +78,52 @@ describe AvalancheMQ::ExchangesController do
       })
       response = put("http://localhost:8080/api/exchanges/%2f/spechange", body: body)
       response.status_code.should eq 400
-    ensure
-      close(h)
     end
 
     it "should not be possible to declare amq. prefixed exchanges" do
-      s, h = create_servers
-      listen(h)
       body = %({
         "type": "topic"
       })
       response = put("http://localhost:8080/api/exchanges/%2f/amq.test", body: body)
       response.status_code.should eq 400
-    ensure
-      close(h)
     end
 
     it "should require config access to declare" do
-      s, h = create_servers
-      s.users.create("test_perm", "pw")
-      s.users.add_permission("test_perm", "/", /^$/, /^$/, /^$/)
-      listen(h)
       body = %({
         "type": "topic"
       })
       hdrs = HTTP::Headers{"Authorization" => "Basic dGVzdF9wZXJtOnB3"}
       response = put("http://localhost:8080/api/exchanges/%2f/test_perm", headers: hdrs, body: body)
       response.status_code.should eq 401
-    ensure
-      close(h)
     end
   end
 
   describe "DELETE /api/exchanges/vhost/name" do
     it "should delete exchange" do
-      s, h = create_servers
-      listen(h)
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       response = delete("http://localhost:8080/api/exchanges/%2f/spechange")
       response.status_code.should eq 204
-    ensure
-      close(h)
     end
 
     it "should not delete exchange if in use as source when query param if-unused is set" do
-      s, h = create_servers
-      listen(h)
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_queue("q1", false, false)
       s.vhosts["/"].bind_queue("q1", "spechange", ".*")
       response = delete("http://localhost:8080/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
-    ensure
-      close(h)
     end
 
     it "should not delete exchange if in use as destination when query param if-unused is set" do
-      s, h = create_servers
-      listen(h)
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
       s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
       response = delete("http://localhost:8080/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
-    ensure
-      close(h)
     end
   end
 
   describe "GET /api/exchanges/vhost/name/bindings/source" do
     it "should list bindings" do
-      s, h = create_servers
-      listen(h)
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_queue("q1", false, false)
       s.vhosts["/"].bind_queue("q1", "spechange", ".*")
@@ -183,15 +131,11 @@ describe AvalancheMQ::ExchangesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.size.should eq 1
-    ensure
-      close(h)
     end
   end
 
   describe "GET /api/exchanges/vhost/name/bindings/destination" do
     it "should list bindings" do
-      s, h = create_servers
-      listen(h)
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
       s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
@@ -199,15 +143,11 @@ describe AvalancheMQ::ExchangesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.size.should eq 1
-    ensure
-      close(h)
     end
   end
 
   describe "POST /api/exchanges/vhost/name/publish" do
     it "should publish" do
-      s, h = create_servers
-      listen(h)
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_queue("q1", false, false)
       s.vhosts["/"].bind_queue("q1", "spechange", "*")
@@ -223,25 +163,16 @@ describe AvalancheMQ::ExchangesController do
       body["routed"].as_bool.should be_true
       s.vhosts["/"].queues["q1"].message_count.should eq 1
     ensure
-      s.try &.vhosts["/"].delete_queue("q1")
-      close(h, s)
+      s.vhosts["/"].delete_queue("q1")
     end
 
     it "should require all args" do
-      s, h = create_servers
-      listen(h)
       body = %({})
       response = post("http://localhost:8080/api/exchanges/%2f/spechange/publish", body: body)
       response.status_code.should eq 400
-    ensure
-      close(h)
     end
 
     it "should handle string encoding" do
-      s, h = create_servers
-      spawn { h.try &.listen }
-      spawn { s.try &.listen(5672) }
-      Fiber.yield
       body = %({
         "properties": {},
         "routing_key": "rk",
@@ -261,16 +192,11 @@ describe AvalancheMQ::ExchangesController do
         msgs[0].to_s.should eq("test")
       end
     ensure
-      s.try &.vhosts["/"].delete_queue("q2")
-      s.try &.vhosts["/"].delete_exchange("str_enc")
-      close(h, s)
+      s.vhosts["/"].delete_queue("q2")
+      s.vhosts["/"].delete_exchange("str_enc")
     end
 
     it "should handle base64 encoding" do
-      s, h = create_servers
-      spawn { h.try &.listen }
-      spawn { s.try &.listen(5672) }
-      Fiber.yield
       payload = Base64.urlsafe_encode("test")
       body = %({
         "properties": {},
@@ -291,9 +217,8 @@ describe AvalancheMQ::ExchangesController do
         msgs[0].to_s.should eq("test")
       end
     ensure
-      s.try &.vhosts["/"].delete_queue("q2")
-      s.try &.vhosts["/"].delete_exchange("str_enc")
-      close(h, s)
+      s.vhosts["/"].delete_queue("q2")
+      s.vhosts["/"].delete_exchange("str_enc")
     end
   end
 end

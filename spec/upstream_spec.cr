@@ -6,6 +6,8 @@ def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue, AMQP::Queue}
   x = ch.exchange("", "direct", passive: true)
   q1 = ch.queue("q1")
   q2 = ch.queue("q2")
+  q1.purge
+  q2.purge
   {x, q1, q2}
 end
 
@@ -19,11 +21,8 @@ describe AvalancheMQ::Upstream do
   log.level = LOG_LEVEL
 
   it "should federate queue" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     uri = "amqp://localhost"
-    vhost = s.not_nil!.vhosts["/"]
+    vhost = s.vhosts["/"]
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1")
 
     AMQP::Connection.start do |conn|
@@ -38,15 +37,11 @@ describe AvalancheMQ::Upstream do
     end
   ensure
     upstream.not_nil!.close
-    close(s)
   end
 
   it "should not federate queue if no downstream consumer" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     uri = "amqp://localhost"
-    vhost = s.not_nil!.vhosts["/"]
+    vhost = s.vhosts["/"]
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1")
 
     AMQP::Connection.start do |conn|
@@ -59,15 +54,11 @@ describe AvalancheMQ::Upstream do
     end
   ensure
     upstream.not_nil!.close
-    close(s)
   end
 
   it "should federate queue with ack mode no-ack" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     uri = "amqp://localhost"
-    vhost = s.not_nil!.vhosts["/"]
+    vhost = s.vhosts["/"]
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1",
       ack_mode: AvalancheMQ::Upstream::AckMode::NoAck)
 
@@ -83,15 +74,11 @@ describe AvalancheMQ::Upstream do
     end
   ensure
     upstream.not_nil!.close
-    close(s)
   end
 
   it "should federate queue with ack mode on-publish" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     uri = "amqp://localhost"
-    vhost = s.not_nil!.vhosts["/"]
+    vhost = s.vhosts["/"]
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1",
       ack_mode: AvalancheMQ::Upstream::AckMode::OnPublish)
 
@@ -107,6 +94,5 @@ describe AvalancheMQ::Upstream do
     end
   ensure
     upstream.not_nil!.close
-    close(s)
   end
 end

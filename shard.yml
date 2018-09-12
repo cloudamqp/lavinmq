@@ -21,8 +21,6 @@ development_dependencies:
     github: cloudamqp/amqp.cr
     branch: master
     # path: ../amqp.cr
-  specreporter-spec:
-    github: docelic/specreporter-spec
 
 crystal: 0.26.1
 

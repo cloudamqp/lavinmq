@@ -6,6 +6,8 @@ def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue, AMQP::Queue}
   x = ch.exchange("", "direct", passive: true)
   q1 = ch.queue("q1")
   q2 = ch.queue("q2")
+  q1.purge
+  q2.purge
   {x, q1, q2}
 end
 
@@ -20,9 +22,6 @@ describe AvalancheMQ::Shovel do
   vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
 
   it "should shovel and stop when queue length is met" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1",
@@ -39,16 +38,11 @@ describe AvalancheMQ::Shovel do
       shovel.run
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.should eq "shovel me"
-      s.not_nil!.vhosts["/"].shovels.not_nil!.empty?.should be_true
+      s.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
-  ensure
-    close(s)
   end
 
   it "should shovel large messages" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1",
@@ -66,14 +60,9 @@ describe AvalancheMQ::Shovel do
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.bytesize.should eq 10_000
     end
-  ensure
-    close(s)
   end
 
   it "should shovel forever" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1",
@@ -98,14 +87,9 @@ describe AvalancheMQ::Shovel do
       shovel.stop
       Fiber.yield
     end
-  ensure
-    close(s)
   end
 
   it "should shovel with ack mode on-publish" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1",
@@ -124,14 +108,9 @@ describe AvalancheMQ::Shovel do
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
-  ensure
-    close(s)
   end
 
   it "should shovel with ack mode no-ack" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1",
@@ -150,14 +129,9 @@ describe AvalancheMQ::Shovel do
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
-  ensure
-    close(s)
   end
 
   it "should shovel with past prefetch" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1",
@@ -176,17 +150,12 @@ describe AvalancheMQ::Shovel do
       end
       shovel.run
       wait_for { shovel.stopped? }
-      s.not_nil!.vhosts["/"].queues["q1"].message_count.should eq 0
-      s.not_nil!.vhosts["/"].queues["q2"].message_count.should eq 100
+      s.vhosts["/"].queues["q1"].message_count.should eq 0
+      s.vhosts["/"].queues["q2"].message_count.should eq 100
     end
-  ensure
-    close(s)
   end
 
   it "should shovel once qs are declared" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "q1"
@@ -207,22 +176,17 @@ describe AvalancheMQ::Shovel do
       rmsg.to_s.should eq "shovel me"
       shovel.stop
     end
-  ensure
-    close(s)
   end
 
   it "should reconnect and continue" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     p = AvalancheMQ::Parameter.new("shovel", "shovel",
       JSON::Any.new({
-      "src-uri" => JSON::Any.new("amqp://guest:guest@localhost"),
-      "src-queue" => JSON::Any.new("q1d"),
-      "dest-uri" => JSON::Any.new("amqp://guest:guest@localhost"),
-      "dest-queue" => JSON::Any.new("q2d")
+        "src-uri"    => JSON::Any.new("amqp://guest:guest@localhost"),
+        "src-queue"  => JSON::Any.new("q1d"),
+        "dest-uri"   => JSON::Any.new("amqp://guest:guest@localhost"),
+        "dest-queue" => JSON::Any.new("q2d"),
       } of String => JSON::Any))
-    s.not_nil!.vhosts["/"].add_parameter(p)
+    s.vhosts["/"].add_parameter(p)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
@@ -232,10 +196,9 @@ describe AvalancheMQ::Shovel do
       pmsg = AMQP::Message.new("shovel me", props)
       x.publish pmsg, "q1d"
     end
-    close(s)
-    s = amqp_server
-    Fiber.yield
-    spawn { s.not_nil!.listen(5672) }
+    close_servers
+    TestHelpers.setup
+
     Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -246,11 +209,10 @@ describe AvalancheMQ::Shovel do
       msgs = [] of AMQP::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 2 }
-      s.not_nil!.vhosts["/"].queues["q1d"].message_count.should eq 0
+      s.vhosts["/"].queues["q1d"].message_count.should eq 0
       msgs.size.should eq 2
     end
   ensure
-    s.not_nil!.vhosts["/"].delete_parameter("shovel", "shovel")
-    close(s)
+    s.vhosts["/"].delete_parameter("shovel", "shovel")
   end
 end

@@ -19,6 +19,23 @@ FileUtils.rm_rf("/tmp/spec")
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
 module TestHelpers
+  class_property s, h
+
+  def self.setup
+    create_servers
+    spawn { @@s.try &.listen(5672) }
+    spawn { @@h.try &.listen }
+    Fiber.yield
+  end
+
+  def s
+    TestHelpers.s.not_nil!
+  end
+
+  def h
+    TestHelpers.h.not_nil!
+  end
+
   def wait_for(t = 2.seconds)
     timeout = Time.now + t
     until yield
@@ -37,32 +54,14 @@ module TestHelpers
     req_hdrs
   end
 
-  def create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    s = AvalancheMQ::Server.new(dir, level)
-    h = AvalancheMQ::HTTPServer.new(s, 8080)
-    {s, h}
+  def close_servers
+    s.close
+    h.close
   end
 
-  def amqp_server(dir = "/tmp/spec", level = LOG_LEVEL)
-    AvalancheMQ::Server.new(dir, level)
-  end
-
-  def listen(server : (AvalancheMQ::HTTPServer | AvalancheMQ::Server), port : Int)
-    spawn { server.listen(port) }
-    Fiber.yield
-  end
-
-  def listen(*servers)
-    servers.each do |s|
-      spawn { s.try &.listen }
-    end
-    Fiber.yield
-  end
-
-  def close(*servers)
-    servers.each do |s|
-      spawn { s.try &.close }
-    end
+  def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
+    @@s = AvalancheMQ::Server.new(dir, level)
+    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, 8080)
   end
 
   def get(url, headers = nil)
@@ -83,3 +82,4 @@ module TestHelpers
 end
 
 extend TestHelpers
+TestHelpers.setup

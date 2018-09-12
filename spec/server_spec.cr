@@ -2,8 +2,6 @@ require "./spec_helper"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
@@ -14,13 +12,9 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should eq("test message")
     end
-  ensure
-    close(s)
   end
 
   it "can delete queue" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -38,13 +32,9 @@ describe AvalancheMQ::Server do
       msg = q.get
       msg.to_s.should eq("m2")
     end
-  ensure
-    close(s)
   end
 
   it "can reject message" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -56,13 +46,9 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: false)
       m1.should eq(nil)
     end
-  ensure
-    close(s)
   end
 
   it "can reject and requeue message" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -74,13 +60,9 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: false)
       m1.to_s.should eq("m1")
     end
-  ensure
-    close(s)
   end
 
   it "rejects all unacked msgs when disconnecting" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -96,13 +78,9 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: true)
       m1.to_s.should eq("m1")
     end
-  ensure
-    close(s)
   end
 
   it "respects prefetch" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       ch.qos(0, 2, false)
@@ -117,13 +95,9 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msgs.size.should eq(2)
     end
-  ensure
-    close(s)
   end
 
   it "respects prefetch and acks" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       ch.qos(0, 1, false)
@@ -141,26 +115,18 @@ describe AvalancheMQ::Server do
       end
       c.should eq(4)
     end
-  ensure
-    close(s)
   end
 
   it "can delete exchange" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("test_delete_exchange", "topic", durable: true)
       x.delete.should be x
     end
-  ensure
-    close(s)
   end
 
   # TODO: Publish should yield Channel::Close beacuse exchange should be deleted on unbind.
   it "can auto delete exchange" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acked = nil
@@ -175,13 +141,9 @@ describe AvalancheMQ::Server do
       wait_for { acked == true }
       acked.should be_true
     end
-  ensure
-    close(s)
   end
 
   it "can purge a queue" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -190,13 +152,9 @@ describe AvalancheMQ::Server do
       4.times { x.publish pmsg, q.name }
       q.purge.should eq 4
     end
-  ensure
-    close(s)
   end
 
   it "supports publisher confirms" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       acked = false
@@ -216,13 +174,9 @@ describe AvalancheMQ::Server do
       acked.should eq true
       delivery_tag.should eq 2
     end
-  ensure
-    close(s)
   end
 
   it "supports mandatory publish flag" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -235,13 +189,9 @@ describe AvalancheMQ::Server do
       reply_code.should eq 312
       reply_text.should eq "No Route"
     end
-  ensure
-    close(s)
   end
 
   it "expires messages" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("exp1")
@@ -253,13 +203,9 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should be ""
     end
-  ensure
-    close(s)
   end
 
   it "expires messages with message TTL on queue declaration" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
@@ -275,13 +221,9 @@ describe AvalancheMQ::Server do
       msg = dlq.get(no_ack: true)
       msg.to_s.should eq("queue dlx")
     end
-  ensure
-    close(s)
   end
 
   it "dead-letter expired messages" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       dlq = ch.queue("dlq2")
@@ -299,13 +241,9 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
       msgs.first.to_s.should eq("dead letter")
     end
-  ensure
-    close(s)
   end
 
   it "handle immediate flag" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -319,13 +257,9 @@ describe AvalancheMQ::Server do
       wait_for { reply_code == 313 }
       reply_code.should eq 313
     end
-  ensure
-    close(s)
   end
 
   it "can cancel consumers" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
@@ -338,14 +272,9 @@ describe AvalancheMQ::Server do
       Fiber.yield
       ch.has_subscriber?(tag).should eq false
     end
-  ensure
-    close(s)
   end
 
   it "supports header exchange all" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("q-header-ex", auto_delete: true, durable: false, exclusive: false)
@@ -367,14 +296,9 @@ describe AvalancheMQ::Server do
       end
       msgs.size.should eq 1
     end
-  ensure
-    close(s)
   end
 
   it "supports header exchange any" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("q-header-ex2", auto_delete: true, durable: false, exclusive: false)
@@ -394,14 +318,9 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msgs.size.should eq 2
     end
-  ensure
-    close(s)
   end
 
   it "splits frames into max frame sizes" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(port: 5672, frame_max: 4096_u32)) do |conn|
       ch = conn.channel
       pmsg1 = AMQP::Message.new("m" * (2**17 + 1))
@@ -413,14 +332,9 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msgs.size.should eq 1
     end
-  ensure
-    close(s)
   end
 
   it "can receive and deliver large messages" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg1 = AMQP::Message.new("a" * 8133)
@@ -430,14 +344,9 @@ describe AvalancheMQ::Server do
       msg = q.get
       msg.to_s.should eq pmsg1.to_s
     end
-  ensure
-    close(s)
   end
 
   it "acking an invalid delivery tag should close the channel" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       cch = Channel(Tuple(UInt16, String)).new
@@ -448,14 +357,9 @@ describe AvalancheMQ::Server do
       code, text = cch.receive
       code.should eq 406
     end
-  ensure
-    close(s)
   end
 
   it "can bind exchanges to exchanges" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x1 = ch.exchange("x1", "direct")
@@ -469,14 +373,9 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should eq("test message")
     end
-  ensure
-    close(s)
   end
 
   it "supports x-max-length drop-head" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
@@ -495,14 +394,9 @@ describe AvalancheMQ::Server do
       acks.should eq 2
       msgs.size.should eq 1
     end
-  ensure
-    close(s)
   end
 
   it "supports x-max-length reject-publish" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
@@ -524,28 +418,18 @@ describe AvalancheMQ::Server do
       nacks.should eq 0
       msgs.size.should eq 1
     end
-  ensure
-    close(s)
   end
 
   it "disallows creating queues starting with amq." do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       expect_raises(AMQP::ChannelClosed, /REFUSED/) do
         ch.queue("amq.test")
       end
     end
-  ensure
-    close(s)
   end
 
   it "disallows deleting exchanges named amq.*" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       expect_raises(AMQP::ChannelClosed, /REFUSED/) do
@@ -554,28 +438,18 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       ch.exchange("amq.topic", "topic", passive: true).should_not be_nil
     end
-  ensure
-    close(s)
   end
 
   it "disallows creating new exchanges named amq.*" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       expect_raises(AMQP::ChannelClosed, /REFUSED/) do
         ch.exchange("amq.topic2", "topic")
       end
     end
-  ensure
-    close(s)
   end
 
   it "only allow one consumer on when exlusive consumers flag is set" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("exlusive_consumer", auto_delete: true)
@@ -591,14 +465,9 @@ describe AvalancheMQ::Server do
       q = ch.queue("exlusive_consumer", auto_delete: true)
       q.subscribe { }
     end
-  ensure
-    close(s)
   end
 
   it "only allow one connection access an exlusive queues" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("exlusive_queue", durable: true, exclusive: true)
@@ -609,14 +478,9 @@ describe AvalancheMQ::Server do
         end
       end
     end
-  ensure
-    close(s)
   end
 
   it "it persists msgs between restarts" do
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("durable_queue", durable: true)
@@ -628,10 +492,9 @@ describe AvalancheMQ::Server do
         x.publish(msg, q.name)
       end
     end
-    close(s)
+    close_servers
+    TestHelpers.setup
 
-    s = amqp_server
-    spawn { s.not_nil!.listen(5672) }
     Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel
@@ -639,16 +502,11 @@ describe AvalancheMQ::Server do
       deleted_msgs = q.delete
       deleted_msgs.should eq(500)
     end
-  ensure
-    close(s)
   end
 
   it "supports max-length" do
-    s = amqp_server
     definitions = {"max-length" => JSON::Any.new(1_i64)}
     s.vhosts["/"].add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
-    spawn { s.not_nil!.listen(5672) }
-    Fiber.yield
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
@@ -667,13 +525,9 @@ describe AvalancheMQ::Server do
       acks.should eq 2
       msgs.size.should eq 1
     end
-  ensure
-    close(s)
   end
 
   it "supports alternate-exchange" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       args = AMQP::Protocol::Table.new
@@ -686,21 +540,14 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should eq("m1")
     end
-  ensure
-    close(s)
   end
 
   it "supports heartbeats" do
     s = AvalancheMQ::Server.new("/tmp/spec", LOG_LEVEL, config: {"heartbeat" => 1_u16})
-    listen(s, 5672)
     s.config["heartbeat"].should eq 1
-  ensure
-    close(s)
   end
 
   it "supports expires" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       args = AMQP::Protocol::Table.new
@@ -710,18 +557,14 @@ describe AvalancheMQ::Server do
       Fiber.yield
       s.vhosts["/"].queues.has_key?("test").should be_false
     end
-  ensure
-    close(s)
   end
 
   it "should deliver to all matching queues" do
-    s = amqp_server
-    listen(s, 5672)
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q1 = ch.queue("q699")
       q2 = ch.queue("q700")
-      x1 = ch.exchange("x1", "topic")
+      x1 = ch.exchange("x122", "topic")
       q1.bind(x1, "rk")
       q2.bind(x1, "rk")
       x1.publish(AMQP::Message.new("m1"), "rk")
@@ -730,7 +573,5 @@ describe AvalancheMQ::Server do
       msg_q1.to_s.should eq("m1")
       msg_q2.to_s.should eq("m1")
     end
-  ensure
-    close(s)
   end
 end

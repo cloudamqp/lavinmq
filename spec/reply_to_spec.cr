@@ -3,72 +3,50 @@ require "./spec_helper"
 describe AvalancheMQ::Server do
   describe "amq.direct.reply-to" do
     it "should allow amq.direct.reply-to to be declared" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
         q = ch.queue("amq.direct.reply-to")
         q.name.should eq "amq.direct.reply-to"
       end
-    ensure
-      close(s)
     end
 
     it "should allow amq.rabbitmq.reply-to to be declared" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
         q = ch.queue("amq.rabbitmq.reply-to")
         q.name.should eq "amq.rabbitmq.reply-to"
       end
-    ensure
-      close(s)
     end
 
     it "should be able to consume amq.direct.reply-to" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        consumer_tag = ch.queue("amq.direct.reply-to").subscribe("tag", no_ack: true) {}
+        consumer_tag = ch.queue("amq.direct.reply-to").subscribe("tag", no_ack: true) { }
         consumer_tag.should eq "tag"
       end
-    ensure
-      close(s)
     end
 
     it "should be able to consume amq.rabbitmq.reply-to" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        consumer_tag = ch.queue("amq.rabbitmq.reply-to").subscribe("tag", no_ack: true) {}
+        consumer_tag = ch.queue("amq.rabbitmq.reply-to").subscribe("tag", no_ack: true) { }
         consumer_tag.should eq "tag"
       end
-    ensure
-      close(s)
     end
 
     it "should require consumer to be in no-ack mode" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
         expect_raises(AMQP::ChannelClosed, /PRECONDITION_FAILED/) do
-          consumer_tag = ch.queue("amq.direct.reply-to").subscribe(no_ack: false) {}
+          consumer_tag = ch.queue("amq.direct.reply-to").subscribe(no_ack: false) { }
         end
       end
-    ensure
-      close(s)
     end
 
     it "should set reply-to" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        ch.queue("amq.direct.reply-to").subscribe(no_ack: true) {}
+        ch.queue("amq.direct.reply-to").subscribe(no_ack: true) { }
         reply_to = nil
         ch.queue("test").subscribe do |msg|
           reply_to = msg.properties.reply_to
@@ -79,13 +57,9 @@ describe AvalancheMQ::Server do
         wait_for { reply_to }
         reply_to.should match /^amq\.direct\.reply-to\..+$/
       end
-    ensure
-      close(s)
     end
 
     it "should reject publish if no amq.direct.reply-to consumer" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
         props = AMQP::Protocol::Properties.new(reply_to: "amq.direct.reply-to")
@@ -97,41 +71,31 @@ describe AvalancheMQ::Server do
           ch.confirm
         end
       end
-    ensure
-      close(s)
     end
 
     it "should be ok to declare reply-to queue to check if consumer is connected" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
         queue = AMQP::Queue.new(ch, "amq.direct.reply-to.random", false,
-                                false, false, AMQP::Protocol::Table.new)
+          false, false, AMQP::Protocol::Table.new)
         resp = queue.declare
         resp[1].should eq 0
       end
-    ensure
-      close(s)
     end
 
     it "should return on mandatory publish to a reply routing key" do
-      s = amqp_server
-      listen(s, 5672)
       AMQP::Connection.start do |conn|
         ch = conn.channel
         pmsg = AMQP::Message.new("m1")
         ch1 = Channel(Tuple(UInt16, String)).new
         ch.on_return do |code, text|
-          ch1.send({ code, text })
+          ch1.send({code, text})
         end
         ch.publish(pmsg, "amq.direct", "amq.direct.reply-to.random", mandatory: true)
         reply_code, reply_text = ch1.receive
         reply_code.should eq 312
         reply_text.should eq "No Route"
       end
-    ensure
-      close(s)
     end
   end
 end
