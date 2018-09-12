@@ -59,6 +59,8 @@ module AvalancheMQ
         IO.copy(file, context.response)
       end
       context
+    ensure
+      file.close if file
     end
 
     private def mime_type(path)
