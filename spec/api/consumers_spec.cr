@@ -9,7 +9,7 @@ describe AvalancheMQ::ConsumersController do
       AMQP::Connection.start do |conn|
         ch = conn.channel
         q = ch.queue("")
-        q.subscribe {}
+        q.subscribe { }
         response = get("http://localhost:8080/api/consumers")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -43,7 +43,7 @@ describe AvalancheMQ::ConsumersController do
       AMQP::Connection.start do |conn|
         ch = conn.channel
         q = ch.queue("")
-        q.subscribe {}
+        q.subscribe { }
         response = get("http://localhost:8080/api/consumers/%2f")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
