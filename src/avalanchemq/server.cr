@@ -53,7 +53,6 @@ module AvalancheMQ
     def listen(port = 5672)
       @running = true
       s = TCPServer.new("::", port)
-      s.sync = true
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
       loop do
@@ -82,7 +81,6 @@ module AvalancheMQ
           begin
             ssl_client = OpenSSL::SSL::Socket::Server.new(client, context)
             ssl_client.sync_close = true
-            ssl_client.sync = true
             spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
           rescue e : OpenSSL::SSL::Error
             @log.error "Error accepting OpenSSL connection from #{client.remote_address}: #{e.inspect}"

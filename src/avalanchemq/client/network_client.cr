@@ -377,6 +377,7 @@ module AvalancheMQ
     def send(frame : AMQP::Frame)
       @log.debug { "Send #{frame.inspect}" }
       @socket.write frame.to_slice
+      @socket.flush
       case frame
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
@@ -407,23 +408,23 @@ module AvalancheMQ
       }
     end
 
+    @deliver_lock = Mutex.new
     def deliver(frame, msg)
-      @log.debug { "Merging delivery, header and body frame to one" }
-      size = msg.size + 256
-      buff = AMQP::MemoryIO.new(size)
-      frame.encode buff
-      header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-      header.encode(buff)
-      pos = 0
-      while pos < msg.size
-        length = [msg.size - pos, @max_frame_size - 8].min
-        body_part = msg.body[pos, length]
-        @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
-        AMQP::BodyFrame.new(frame.channel, body_part).encode(buff)
-        pos += length
+      @deliver_lock.synchronize do
+        @socket.write frame.to_slice
+        header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+        @socket.write header.to_slice
+        pos = 0
+        while pos < msg.size
+          length = Math.min(msg.size - pos, @max_frame_size - 8)
+          body_part = msg.body[pos, length]
+          @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
+          @socket.write AMQP::BodyFrame.new(frame.channel, body_part).to_slice
+          pos += length
+        end
+        @socket.flush
+        true
       end
-      @socket.write buff.to_slice
-      true
     rescue ex : IO::Error | Errno
       @log.info { "Lost connection, while sending (#{ex})" }
       cleanup
