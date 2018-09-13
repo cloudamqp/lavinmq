@@ -43,6 +43,7 @@ module AvalancheMQ
     end
 
     def close(deleting = false) : Nil
+      compact_index! unless deleting
       @log.debug { "Closing index files" }
       @ack.close
       @enq.close
