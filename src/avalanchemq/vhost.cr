@@ -256,7 +256,8 @@ module AvalancheMQ
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
     def add_parameter(p : Parameter)
-      @parameters.create p
+      @parameters.delete(p.name)
+      @parameters.create(p)
       apply_parameters(p)
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
     end
