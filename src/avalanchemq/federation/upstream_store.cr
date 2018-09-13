@@ -18,6 +18,7 @@ module AvalancheMQ
     end
 
     def create_upstream(name, config)
+      delete_upstream(name)
       uri = config["uri"].to_s
       prefetch = config["prefetch-count"]?.try(&.as_i) || Upstream::DEFAULT_PREFETCH
       reconnect_delay = config["reconnect-delay"]?.try(&.as_i) || Upstream::DEFUALT_RECONNECT_DELAY
@@ -73,6 +74,7 @@ module AvalancheMQ
     end
 
     def create_upstream_set(name, config)
+      delete_upstream_set(name)
       upstreams = Array(Upstream).new
       config.as_a.each do |cfg|
         upstream = @upstreams[cfg["upstream"].as_s]
