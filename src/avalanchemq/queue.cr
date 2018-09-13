@@ -148,7 +148,11 @@ module AvalancheMQ
           @message_available.receive
           @log.debug { "Message available" }
         end
-        deliver_to_consumer || schedule_expiration_and_wait
+        if c = find_consumer
+          deliver_to_consumer(c)
+        else
+          schedule_expiration_and_wait
+        end
       rescue ex : Errno
         sp = @ready_lock.synchronize { @ready.shift }
         @log.error "Segment #{sp} not found, possible message loss. #{ex.inspect}"
@@ -158,23 +162,28 @@ module AvalancheMQ
       @log.debug "Delivery loop channel closed"
     end
 
-    private def deliver_to_consumer
+    private def find_consumer
       @log.debug { "Looking for available consumers" }
       @consumers.size.times do
         c = @consumers.shift
         @consumers.push c
-        if c.accepts?
-          @log.debug { "Getting a new message" }
-          if env = get(c.no_ack)
-            @log.debug { "Delivering #{env.segment_position} to consumer" }
-            if c.deliver(env.message, env.segment_position, self)
-              @log.debug { "Delivery done" }
-              return true
-            end
-          end
-        end
+        return c if c.accepts?
       end
-      false
+      nil
+    end
+
+    private def deliver_to_consumer(c)
+      @log.debug { "Getting a new message" }
+      if env = get(c.no_ack)
+        @log.debug { "Delivering #{env.segment_position} to consumer" }
+        if c.deliver(env.message, env.segment_position, self)
+          @log.debug { "Delivery done" }
+        else
+          @log.debug { "Delivery failed" }
+        end
+      else
+        @log.debug { "Consumer found, but not a message" }
+      end
     end
 
     private def schedule_expiration_and_wait
