@@ -111,7 +111,7 @@
         linksUrl += '/' + urlEncodedVhost
       }
 
-      const utOpts = { url, keyColumns: ['vhost', 'name'] }
+      const utOpts = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
       const upstreamsTable = avalanchemq.table.renderTable('upstreamTable', utOpts, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
