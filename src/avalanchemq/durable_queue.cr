@@ -35,8 +35,8 @@ module AvalancheMQ
         end
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-      @enq = File.open(File.join(@index_dir, "enq"), "a").tap { |f| f.sync = true }
-      @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+      @enq = File.open(File.join(@index_dir, "enq"), "a")
+      @ack ||= File.open(File.join(@index_dir, "ack"), "a")
       @ack.not_nil!.truncate
     end
 
@@ -57,11 +57,9 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, persistent = false)
-      if persistent
-        @enq ||= File.open(File.join(@index_dir, "enq"), "a").tap { |f| f.sync = true }
-        @enq.not_nil!.write_bytes sp
-        @enq.not_nil!.flush
-      end
+      @enq ||= File.open(File.join(@index_dir, "enq"), "a")
+      @enq.not_nil!.write_bytes sp
+      @enq.not_nil!.flush if persistent
       super
     end
 
@@ -69,18 +67,16 @@ module AvalancheMQ
       super.tap do |env|
         if env && no_ack
           persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
-          if persistent
-            @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
-            @ack.not_nil!.write_bytes env.segment_position
-            @ack.not_nil!.flush
-            compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
-          end
+          @ack ||= File.open(File.join(@index_dir, "ack"), "a")
+          @ack.not_nil!.write_bytes env.segment_position
+          @ack.not_nil!.flush if persistent
+          compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
         end
       end
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
-      @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+      @ack ||= File.open(File.join(@index_dir, "ack"), "a")
       @ack.not_nil!.write_bytes sp
       @ack.not_nil!.flush if flush
       compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
@@ -89,8 +85,8 @@ module AvalancheMQ
 
     def purge
       @log.info "Purging"
-      @enq ||= File.open(File.join(@index_dir, "enq"), "a").tap { |f| f.sync = true }
-      @ack ||= File.open(File.join(@index_dir, "ack"), "a").tap { |f| f.sync = true }
+      @enq ||= File.open(File.join(@index_dir, "enq"), "a")
+      @ack ||= File.open(File.join(@index_dir, "ack"), "a")
       @enq.not_nil!.truncate
       @ack.not_nil!.truncate
       super
@@ -101,7 +97,6 @@ module AvalancheMQ
       acked = Set(SegmentPosition).new(0)
       if File.exists? File.join(@index_dir, "ack")
         File.open(File.join(@index_dir, "ack")) do |ack|
-          ack.sync = true
           acked = Set(SegmentPosition).new(ack.size / sizeof(SegmentPosition))
           loop do
             break if ack.pos == ack.size
@@ -111,7 +106,6 @@ module AvalancheMQ
       end
       if File.exists? File.join(@index_dir, "enq")
         File.open(File.join(@index_dir, "enq")) do |enq|
-          enq.sync = true
           loop do
             break if enq.pos == enq.size
             sp = SegmentPosition.decode enq
