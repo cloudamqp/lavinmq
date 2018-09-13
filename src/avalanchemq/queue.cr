@@ -186,15 +186,11 @@ module AvalancheMQ
     end
 
     def close(deleting = false) : Nil
-      if @closed
-        @log.debug "Already closed"
-        return
-      end
+      return if @closed
       @log.info "Closing"
       @closed = true
       @message_available.close
       @consumer_available.close
-      Fiber.yield
       loop do
         c = @consumers.shift? || break
         c.cancel
@@ -203,6 +199,7 @@ module AvalancheMQ
       if !deleting && ((@auto_delete || @exclusive) && @expires.nil?)
         delete
       end
+      Fiber.yield
       notifyObservers(:close)
       @log.info "Closed"
     end
