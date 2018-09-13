@@ -16,6 +16,16 @@ describe AvalancheMQ::VHost do
     vhost.delete_policy("test")
   end
 
+  it "should remove policy from resource when deleted" do
+    vhost.queues["test"] = AvalancheMQ::Queue.new(vhost, "test")
+    vhost.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+    Fiber.yield
+    vhost.queues["test"].policy.try(&.name).should eq "test"
+    vhost.delete_policy("test")
+    Fiber.yield
+    vhost.queues["test"].policy.should be_nil
+  end
+
   it "should be able to list policies" do
     vhost2 = AvalancheMQ::VHost.new("add_remove_policy", "/tmp/spec_lp", log)
     vhost2.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)

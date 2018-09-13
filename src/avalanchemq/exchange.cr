@@ -24,19 +24,21 @@ module AvalancheMQ
       handle_arguments
     end
 
-    def apply_policy(@policy : Policy)
+    def apply_policy(policy : Policy)
       handle_arguments
-      @policy.not_nil!.definition.each do |k, v|
+      policy.not_nil!.definition.each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
         end
       end
+      @policy = policy
     end
 
     def clear_policy
       handle_arguments
+      @policy = nil
     end
 
     def handle_arguments

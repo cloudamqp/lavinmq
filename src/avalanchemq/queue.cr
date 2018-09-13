@@ -60,9 +60,9 @@ module AvalancheMQ
       @exclusive_consumer
     end
 
-    def apply_policy(@policy : Policy)
+    def apply_policy(policy : Policy)
       clear_policy
-      @policy.not_nil!.definition.each do |k, v|
+      policy.not_nil!.definition.each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
@@ -83,10 +83,12 @@ module AvalancheMQ
           @vhost.upstreams.try &.link_set(v.as_s, self)
         end
       end
+      @policy = policy
     end
 
     def clear_policy
       handle_arguments
+      @policy = nil
       @vhost.upstreams.try &.close_link(self)
     end
 
