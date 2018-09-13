@@ -148,6 +148,8 @@ module AvalancheMQ
         end
         deliver_to_consumer || schedule_expiration_and_wait
         Fiber.yield if (i += 1) % 1000 == 0
+      rescue ex : Errno
+        @log.error "Segment not found, possible message loss. #{ex.inspect}"
       end
       @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
