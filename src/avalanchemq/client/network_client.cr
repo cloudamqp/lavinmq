@@ -345,7 +345,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.debug { "Read #{frame.inspect}" }
+        @log.debug { "Read #{frame.inspect}" } unless frame.is_a?(AvalancheMQ::AMQP::BodyFrame | AvalancheMQ::AMQP::HeaderFrame | AvalancheMQ::AMQP::Basic::Publish)
         if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
           @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           next
