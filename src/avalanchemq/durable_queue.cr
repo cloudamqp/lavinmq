@@ -7,6 +7,7 @@ module AvalancheMQ
     @ack : File?
     @enq : File?
     @durable = true
+    @lock = Mutex.new
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
@@ -65,28 +66,34 @@ module AvalancheMQ
       super.tap do |env|
         if env && no_ack
           persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
-          @ack ||= File.open(File.join(@index_dir, "ack"), "a")
-          @ack.not_nil!.write_bytes env.segment_position
-          @ack.not_nil!.flush if persistent
-          compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
+          @lock.synchronize do
+            @ack ||= File.open(File.join(@index_dir, "ack"), "a")
+            @ack.not_nil!.write_bytes env.segment_position
+            @ack.not_nil!.flush if persistent
+            compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
+          end
         end
       end
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
-      @ack ||= File.open(File.join(@index_dir, "ack"), "a")
-      @ack.not_nil!.write_bytes sp
-      @ack.not_nil!.flush if flush
-      compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
+      @lock.synchronize do
+        @ack ||= File.open(File.join(@index_dir, "ack"), "a")
+        @ack.not_nil!.write_bytes sp
+        @ack.not_nil!.flush if flush
+        compact_index! if @ack.not_nil!.pos >= MAX_ACK_FILE_SIZE
+      end
       super
     end
 
     def purge
       @log.info "Purging"
-      @enq ||= File.open(File.join(@index_dir, "enq"), "a")
-      @ack ||= File.open(File.join(@index_dir, "ack"), "a")
-      @enq.not_nil!.truncate
-      @ack.not_nil!.truncate
+      @lock.synchronize do
+        @enq ||= File.open(File.join(@index_dir, "enq"), "a")
+        @ack ||= File.open(File.join(@index_dir, "ack"), "a")
+        @enq.not_nil!.truncate
+        @ack.not_nil!.truncate
+      end
       super
     end
 
