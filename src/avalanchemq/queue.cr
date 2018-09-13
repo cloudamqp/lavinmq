@@ -43,6 +43,7 @@ module AvalancheMQ
       @consumer_available = Channel(Nil).new(1)
       @unacked = Deque(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
+      @ready_lock = Mutex.new
       @segments = Hash(UInt32, QueueFile).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = QueueFile.open(path, "r")
@@ -139,17 +140,17 @@ module AvalancheMQ
     end
 
     private def deliver_loop
-      i = 0
       loop do
         break if @closed
-        unless @ready[0]?
+        empty = @ready_lock.synchronize { @ready.empty? }
+        if empty
           @log.debug { "Waiting for msgs" }
           @message_available.receive
+          @log.debug { "Message available" }
         end
         deliver_to_consumer || schedule_expiration_and_wait
-        Fiber.yield if (i += 1) % 1000 == 0
       rescue ex : Errno
-        sp = @ready.shift
+        sp = @ready_lock.synchronize { @ready.shift }
         @log.error "Segment #{sp} not found, possible message loss. #{ex.inspect}"
       end
       @log.debug "Exiting delivery loop"
@@ -184,6 +185,7 @@ module AvalancheMQ
       schedule_expiration_of_next_msg(now)
       @log.debug "Waiting for consumer"
       @consumer_available.receive
+      @log.debug "Consumer available"
     end
 
     def close(deleting = false) : Nil
@@ -243,7 +245,7 @@ module AvalancheMQ
         end
       end
       @log.debug { "Enqueuing message #{sp}" }
-      @ready.push sp
+      @ready_lock.synchronize { @ready.push sp }
       @message_available.send nil unless @message_available.full?
       @log.debug { "Enqueued successfully #{sp}" }
       true
@@ -260,7 +262,8 @@ module AvalancheMQ
     end
 
     private def schedule_expiration_of_next_msg(now)
-      sp = @ready[0]? || return nil
+      sp = @ready_lock.synchronize { @ready[0]? }
+      return unless sp
       @log.debug { "Checking if next message has to be expired" }
       meta = metadata(sp)
       @log.debug { "Next message: #{meta}" }
@@ -278,8 +281,10 @@ module AvalancheMQ
     private def expire_later(expire_in, meta, sp)
       @log.debug { "Expiring #{sp} in #{expire_in}ms" }
       sleep expire_in.milliseconds if expire_in > 0
-      return unless @ready[0]? == sp
-      @ready.shift
+      @ready_lock.synchronize do
+        return unless @ready[0]? == sp
+        @ready.shift
+      end
       expire_msg(meta, sp, :expired)
     end
 
@@ -338,7 +343,8 @@ module AvalancheMQ
 
     def get(no_ack : Bool) : Envelope | Nil
       return if @closed
-      sp = @ready.shift? || return nil
+      sp = @ready_lock.synchronize { @ready.shift? }
+      return unless sp
       @unacked << sp unless no_ack
       read(sp)
     end
@@ -379,8 +385,10 @@ module AvalancheMQ
       if idx
         @unacked.delete_at(idx)
         if requeue
-          i = @ready.index { |rsp| rsp > sp } || 0
-          @ready.insert(i, sp)
+          @ready_lock.synchronize do
+            i = @ready.index { |rsp| rsp > sp } || 0
+            @ready.insert(i, sp)
+          end
           @message_available.send nil unless @message_available.full?
         else
           expire_msg(sp, :rejected)
@@ -389,7 +397,7 @@ module AvalancheMQ
     end
 
     private def drophead
-      if sp = @ready.shift?
+      if sp = @ready_lock.synchronize { @ready.shift? }
         @log.debug { "Dropping head #{sp}" }
         expire_msg(sp, :maxlen)
       end
@@ -416,7 +424,7 @@ module AvalancheMQ
 
     def purge
       purged_count = message_count
-      @ready.clear
+      @ready_lock.synchronize { @ready.clear }
       @consumers.each { |c| c.unacked.clear }
       @log.debug { "Purged #{purged_count} messages" }
       purged_count
