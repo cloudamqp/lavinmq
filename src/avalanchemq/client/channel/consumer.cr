@@ -12,7 +12,7 @@ module AvalancheMQ
                        @no_ack : Bool, @exclusive : Bool)
           @log = @channel.log.dup
           @log.progname += " consumer=#{@tag}"
-          @unacked = Deque(SegmentPosition).new
+          @unacked = Deque(SegmentPosition).new(@channel.prefetch_count)
         end
 
         def accepts?
