@@ -59,12 +59,18 @@ module AvalancheMQ
       return if @socket.closed?
       @socket.write AMQP::Connection::Close.new(320_u16, msg, 0_u16, 0_u16).to_slice
     rescue Errno
-      @log.info ("socket already closed, can't send close frame")
+      @log.info("Socket already closed, can't send close frame")
     end
 
     class UnexpectedFrame < Exception
       def initialize(@frame : AMQP::Frame)
-        super(@frame.class.name)
+        msg = @frame.class.name
+        if frame.is_a?(AMQP::Channel::Close)
+          msg += ": " + frame.as(AMQP::Channel::Close).reply_text
+        elsif frame.is_a?(AMQP::Connection::Close)
+          msg += ": " + frame.as(AMQP::Connection::Close).reply_text
+        end
+        super(msg)
       end
     end
   end
