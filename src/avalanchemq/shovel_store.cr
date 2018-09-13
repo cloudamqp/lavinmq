@@ -18,6 +18,7 @@ module AvalancheMQ
     end
 
     def create(name, config)
+      delete(name)
       delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFUALT_DELETE_AFTER
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
@@ -44,7 +45,8 @@ module AvalancheMQ
 
     def delete(name)
       shovel = @shovels.delete name
-      shovel.try &.stop
+      return unless shovel
+      shovel.stop
       @vhost.log.info { "Shovel '#{name}' deleted" }
       shovel
     end

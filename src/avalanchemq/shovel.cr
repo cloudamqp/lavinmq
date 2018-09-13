@@ -20,8 +20,8 @@ module AvalancheMQ
                    @ack_mode = DEFAULT_ACK_MODE, @reconnect_delay = DEFUALT_RECONNECT_DELAY)
       @log = @vhost.log.dup
       @log.progname += " shovel=#{@name}"
-      @channel_a = Channel::Buffered(AMQP::Frame).new(@source.prefetch.to_i32)
-      @channel_b = Channel::Buffered(AMQP::Frame).new(@source.prefetch.to_i32)
+      @channel_a = Channel::Buffered(AMQP::Frame?).new(@source.prefetch.to_i32)
+      @channel_b = Channel::Buffered(AMQP::Frame?).new(@source.prefetch.to_i32)
     end
 
     def self.merge_defaults(config : JSON::Any)
@@ -37,45 +37,51 @@ module AvalancheMQ
       @state = 0
       spawn(name: "Shovel consumer #{@source.uri.host}") do
         loop do
-          break if @channel_a.closed?
+          break if stopped?
           sub = Consumer.new(@source, @channel_b, @channel_a, @ack_mode, @log)
           sub.on_done { delete }
           @state += 1
           sub.start
         rescue ex
-          @state -= 1
-          break if @channel_a.closed?
-          @log.warn "Shovel consumer failure: #{ex.inspect_with_backtrace}"
+          unless stopped?
+            @state -= 1
+            @log.warn "Shovel consumer failure: #{ex.message}"
+          end
           sub.try &.close("Shovel stopped")
+          break if stopped?
+          @channel_b.send(nil)
           sleep @reconnect_delay.seconds
         end
-        @log.debug { "Consumer stopped" }
+        @log.info { "Consumer stopped" }
       end
       spawn(name: "Shovel publisher #{@destination.uri.host}") do
         loop do
-          break if @channel_b.closed?
+          break if stopped?
           pub = Publisher.new(@destination, @channel_a, @channel_b, @ack_mode, @log)
           @state += 1
           pub.start
         rescue ex
-          @state -= 1
-          break if @channel_b.closed?
-          @log.warn "Shovel publisher failure: #{ex.message}"
+          unless stopped?
+            @state -= 1
+            @log.warn "Shovel publisher failure: #{ex.message}"
+          end
           pub.try &.close("Shovel stopped")
+          break if stopped?
+          @channel_a.send(nil)
           sleep @reconnect_delay.seconds
         end
-        @log.debug { "Publisher stopped" }
+        @log.info { "Publisher stopped" }
       end
-      @log.info { "Shovel '#{@name}' starting" }
+      @log.info { "Starting" }
       Fiber.yield
     end
 
     # Does not trigger reconnect, but a graceful close
     def stop
+      @log.info { "Stopping" }
       @state = -1
       @channel_a.close
       @channel_b.close
-      Fiber.yield
     end
 
     def delete

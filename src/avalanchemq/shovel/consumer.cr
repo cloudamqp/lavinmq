@@ -3,8 +3,8 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Consumer < Connection
-      def initialize(@source : Source, @in : Channel::Buffered(AMQP::Frame),
-                     @out : Channel::Buffered(AMQP::Frame), @ack_mode : AckMode, log : Logger)
+      def initialize(@source : Source, @in : Channel::Buffered(AMQP::Frame?),
+                     @out : Channel::Buffered(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
         @log = log.dup
         @log.progname += " consumer"
         @message_counter = 0_u32
@@ -18,7 +18,7 @@ module AvalancheMQ
       end
 
       def start
-        spawn(channel_read_loop, name: "Shovel publisher #{@source.uri.host}#channel_read_loop")
+        spawn(channel_read_loop, name: "Shovel consumer #{@source.uri.host}#channel_read_loop")
         consume_loop
       end
 
@@ -27,7 +27,7 @@ module AvalancheMQ
         loop do
           Fiber.yield if @out.full?
           frame = AMQP::Frame.decode(@socket)
-          # @log.debug { "Read #{frame.inspect}" }
+          @log.debug { "Read socket #{frame.inspect}" }
           case frame
           when AMQP::HeaderFrame
             @out.send(frame)
@@ -35,6 +35,7 @@ module AvalancheMQ
             @out.send(frame)
           when AMQP::BodyFrame
             @out.send(frame)
+            after_publish if @ack_mode == AckMode::NoAck
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
@@ -44,41 +45,41 @@ module AvalancheMQ
           else
             raise UnexpectedFrame.new(frame)
           end
-        rescue Channel::ClosedError
-          @log.debug { "#consume_loop out channel closed" }
-          break
         end
-      rescue ex : Errno | IO::Error
-        @log.info { ex.inspect }
-      rescue ex
-        @log.debug { ex.inspect }
       ensure
+        @log.debug "Closing socket"
         @socket.close
       end
 
       private def channel_read_loop
         loop do
           frame = @in.receive
+          @log.debug { "Read internal #{frame.inspect}" }
           case frame
           when AMQP::Basic::Ack
             @socket.write frame.to_slice unless @ack_mode == AckMode::NoAck
-            @message_counter += 1
-            if @source.delete_after == DeleteAfter::QueueLength &&
-               @message_count <= @message_counter
-              @socket.write AMQP::Connection::Close.new(200_u16,
-                "Shovel done", 0_u16, 0_u16).to_slice
-              @on_done.try &.call
-            end
+            after_publish
           when AMQP::Basic::Reject
             @socket.write frame.to_slice
+          when nil
+            break
           else
-            @log.warn { "Unexpected frame #{frame}" }
+            @log.warn { "Unexpected frame: #{frame.inspect}" }
           end
           @socket.flush
         end
-      rescue ex : Channel::ClosedError
-        @log.debug { "#channel_read_loop closed" }
+      rescue ex
+        @log.debug { "#channel_read_loop closed: #{Fiber.current.hash} #{ex.inspect_with_backtrace}" }
+      ensure
         close("Shovel stopped")
+      end
+
+      private def after_publish
+        @message_counter += 1
+        if @source.delete_after == DeleteAfter::QueueLength && @message_count <= @message_counter
+          @socket.write AMQP::Connection::Close.new(200_u16, "Shovel done", 0_u16, 0_u16).to_slice
+          @on_done.try &.call
+        end
       end
 
       private def set_prefetch
@@ -94,15 +95,17 @@ module AvalancheMQ
           {} of String => AMQP::Field).to_slice
         frame = AMQP::Frame.decode(@socket)
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
+        queue = frame.queue_name
+        @message_count = frame.message_count
         if @source.exchange
           @socket.write AMQP::Queue::Bind.new(1_u16, 0_u16, frame.queue_name,
             @source.exchange.not_nil!,
             @source.exchange_key || "",
-            true,
+            false,
             {} of String => AMQP::Field).to_slice
+          frame = AMQP::Frame.decode(@socket)
+          raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::BindOk)
         end
-        queue = frame.queue_name
-        @message_count = frame.message_count
         no_ack = @ack_mode == AckMode::NoAck
         consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,

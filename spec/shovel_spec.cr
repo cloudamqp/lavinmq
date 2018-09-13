@@ -40,6 +40,8 @@ describe AvalancheMQ::Shovel do
       q2.get(no_ack: true).to_s.should eq "shovel me"
       s.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should shovel large messages" do
@@ -60,6 +62,8 @@ describe AvalancheMQ::Shovel do
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.bytesize.should eq 10_000
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should shovel forever" do
@@ -76,17 +80,15 @@ describe AvalancheMQ::Shovel do
     AMQP::Connection.start do |conn|
       x, q1, q2 = setup_qs conn
       shovel.run
-      Fiber.yield
       publish x, "q1", "shovel me"
-      Fiber.yield
       rmsg = nil
       until rmsg = q2.get(no_ack: true)
         Fiber.yield
       end
       rmsg.to_s.should eq "shovel me"
-      shovel.stop
-      Fiber.yield
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should shovel with ack mode on-publish" do
@@ -108,6 +110,8 @@ describe AvalancheMQ::Shovel do
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should shovel with ack mode no-ack" do
@@ -129,6 +133,8 @@ describe AvalancheMQ::Shovel do
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should shovel with past prefetch" do
@@ -153,6 +159,8 @@ describe AvalancheMQ::Shovel do
       s.vhosts["/"].queues["q1"].message_count.should eq 0
       s.vhosts["/"].queues["q2"].message_count.should eq 100
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should shovel once qs are declared" do
@@ -174,8 +182,9 @@ describe AvalancheMQ::Shovel do
         Fiber.yield
       end
       rmsg.to_s.should eq "shovel me"
-      shovel.stop
     end
+  ensure
+    shovel.try &.stop
   end
 
   it "should reconnect and continue" do
@@ -214,5 +223,6 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     s.vhosts["/"].delete_parameter("shovel", "shovel")
+    sleep 0.05
   end
 end

@@ -3,8 +3,8 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Publisher < Connection
-      def initialize(@destination : Destination, @in : Channel::Buffered(AMQP::Frame),
-                     @out : Channel::Buffered(AMQP::Frame), @ack_mode : AckMode, log : Logger)
+      def initialize(@destination : Destination, @in : Channel::Buffered(AMQP::Frame?),
+                     @out : Channel::Buffered(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
         @log = log.dup
         @log.progname += " publisher"
         @message_count = 0_u64
@@ -37,7 +37,7 @@ module AvalancheMQ
         loop do
           Fiber.yield if @out.full?
           frame = AMQP::Frame.decode(@socket)
-          @log.debug { "Read #{frame.inspect}" }
+          @log.debug { "Read socket #{frame.inspect}" }
           case frame
           when AMQP::Basic::Nack
             next unless @ack_mode == AckMode::OnConfirm
@@ -61,20 +61,18 @@ module AvalancheMQ
             @socket.write AMQP::Connection::CloseOk.new.to_slice
             break
           else
-            @log.warn { "Unexpected frame #{frame}" }
+            raise UnexpectedFrame.new(frame)
           end
-        rescue Channel::ClosedError
-          @log.debug { "#amqp_read_loop out channel closed" }
-        rescue e : Errno | IO::Error
-          @log.info { e.inspect }
         end
       ensure
+        @log.debug "Closing socket"
         @socket.close
       end
 
       private def channel_read_loop
         loop do
           frame = @in.receive
+          @log.debug { "Read internal #{frame.inspect}" }
           case frame
           when AMQP::Basic::Deliver
             send_basic_publish(frame)
@@ -83,19 +81,16 @@ module AvalancheMQ
           when AMQP::BodyFrame
             @socket.write frame.to_slice
             @socket.flush
+          when nil
+            break
           else
-            @log.warn { "Unexpected frame #{frame}" }
+            @log.warn { "Unexpected frame: #{frame.inspect}" }
           end
-        rescue Channel::ClosedError
-          @log.debug { "#channel_read_loop closed" }
-          close("Shovel stopped")
-          break
-        rescue e : Errno | IO::Error
-          @log.debug { "#channel_read_loop #{e.inspect_with_backtrace}" }
-          break
         end
+      rescue ex
+        @log.debug { "#channel_read_loop closed: #{ex.inspect_with_backtrace}" }
       ensure
-        @socket.close
+        close("Shovel stopped")
       end
 
       private def set_confirm
