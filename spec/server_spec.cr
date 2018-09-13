@@ -480,7 +480,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "it persists msgs between restarts" do
+  it "it persists transient msgs between restarts" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("durable_queue", durable: true)
@@ -500,7 +500,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete
-      deleted_msgs.should eq(500)
+      deleted_msgs.should eq(1000)
     end
   end
 
