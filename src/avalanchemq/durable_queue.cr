@@ -17,7 +17,7 @@ module AvalancheMQ
     end
 
     private def compact_index! : Nil
-      @log.debug { "Compacting index" }
+      @log.info { "Compacting index" }
       @enq.try &.close
       File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
         unacked = @unacked.to_a.sort.each
@@ -28,6 +28,10 @@ module AvalancheMQ
             next_unacked = unacked.next
           end
           f.write_bytes sp
+        end
+        until next_unacked == Iterator::Stop::INSTANCE
+          f.write_bytes next_unacked.as(SegmentPosition)
+          next_unacked = unacked.next
         end
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
