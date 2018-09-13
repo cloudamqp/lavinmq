@@ -379,6 +379,8 @@ module AvalancheMQ
       end
 
       struct Close < Connection
+        getter reply_code, reply_text, failing_class_id, failing_method_id
+
         METHOD_ID = 50_u16
 
         def method_id
