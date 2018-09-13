@@ -16,7 +16,3 @@ shards:
     github: tbrand/router.cr
     version: 0.2.3
 
-  specreporter-spec:
-    github: docelic/specreporter-spec
-    version: 0.2.0
-

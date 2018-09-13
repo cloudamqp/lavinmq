@@ -3,6 +3,7 @@ version: 0.1.0
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
+  - Anders Bälter <anders@cloudamqp.com>
 
 targets:
   avalanchemq:
