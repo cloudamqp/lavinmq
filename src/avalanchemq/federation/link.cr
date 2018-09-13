@@ -15,7 +15,7 @@ module AvalancheMQ
 
       def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
         @log.progname += " link queue=#{@federated_q.name}:"
-        @federated_q.registerObserver(self)
+        @federated_q.register_observer(self)
       end
 
       def on(event, data)
@@ -45,7 +45,7 @@ module AvalancheMQ
 
       def close
         @log.debug "close link"
-        @federated_q.unregisterObserver(self)
+        @federated_q.unregister_observer(self)
         @consumer.try &.close
         @publisher.try &.close
       end

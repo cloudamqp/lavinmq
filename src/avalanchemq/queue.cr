@@ -200,7 +200,7 @@ module AvalancheMQ
         delete
       end
       Fiber.yield
-      notifyObservers(:close)
+      notify_observers(:close)
       @log.info "Closed"
     end
 
@@ -209,7 +209,7 @@ module AvalancheMQ
       @log.info "Deleting"
       @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
       @deleted = true
-      notifyObservers(:delete)
+      notify_observers(:delete)
     end
 
     def details
@@ -400,7 +400,7 @@ module AvalancheMQ
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @consumer_available.send nil unless @consumer_available.full?
-      notifyObservers(:add_consumer, consumer)
+      notify_observers(:add_consumer, consumer)
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
@@ -408,7 +408,7 @@ module AvalancheMQ
         @exclusive_consumer = false if consumer.exclusive
         consumer.unacked.each { |sp| reject(sp, true) }
         @log.debug { "Removing consumer (#{@consumers.size} left)" }
-        notifyObservers(:rm_consumer, consumer)
+        notify_observers(:rm_consumer, consumer)
         delete if @consumers.size == 0 && @auto_delete
       end
     end

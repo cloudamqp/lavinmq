@@ -1,15 +1,15 @@
 module Observable
   @observers = Set(Observer).new
 
-  def registerObserver(observer : Observer)
+  def register_observer(observer : Observer)
     @observers.add(observer)
   end
 
-  def unregisterObserver(observer : Observer)
+  def unregister_observer(observer : Observer)
     @observers.delete(observer)
   end
 
-  def notifyObservers(event : Symbol, data : Object? = nil)
+  def notify_observers(event : Symbol, data : Object? = nil)
     @observers.each { |o| o.on(event, data) }
   end
 end
