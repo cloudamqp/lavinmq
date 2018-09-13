@@ -1,4 +1,6 @@
+require "file_utils"
 require "./queue"
+
 module AvalancheMQ
   class DurableQueue < Queue
     MAX_ACK_FILE_SIZE = 16 * 1024**2
@@ -48,12 +50,8 @@ module AvalancheMQ
     end
 
     def delete
-      if super
-        Dir.children(@index_dir).each { |f| File.delete File.join(@index_dir, f) }
-        Dir.rmdir @index_dir
-      end
-    rescue Errno
-      @log.debug { "Queue already deleted" }
+      super
+      FileUtils.rm_rf @index_dir
     end
 
     def publish(sp : SegmentPosition, persistent = false)
