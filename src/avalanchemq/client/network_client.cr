@@ -38,15 +38,17 @@ module AvalancheMQ
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
       bytes = socket.read_fully(proto.to_slice)
-
       if proto != AMQP::PROTOCOL_START && proto != AMQP::PROTOCOL_START_ALT
         socket.write AMQP::PROTOCOL_START.to_slice
+        socket.flush
         socket.close
+        log.debug { "Unknown protocol #{proto}, closing socket" }
         return
       end
 
       start = AMQP::Connection::Start.new
       socket.write start.to_slice
+      socket.flush
       start_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::StartOk)
 
       username = password = ""
@@ -73,6 +75,7 @@ module AvalancheMQ
           socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
             start_ok.class_id,
             start_ok.method_id).to_slice
+          socket.flush
           close_on_ok(socket, log)
         else
           socket.close
@@ -82,23 +85,27 @@ module AvalancheMQ
       socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
         frame_max: 131072_u32,
         heartbeat: config["heartbeat"]).to_slice
+      socket.flush
       tune_ok = AMQP::Frame.decode(socket).as(AMQP::Connection::TuneOk)
       open = AMQP::Frame.decode(socket).as(AMQP::Connection::Open)
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
+          socket.flush
           return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
           socket.write AMQP::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id).to_slice
+          socket.flush
           close_on_ok(socket, log)
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
         socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id).to_slice
+        socket.flush
         close_on_ok(socket, log)
       end
       nil

@@ -225,4 +225,33 @@ describe AvalancheMQ::Shovel do
     s.vhosts["/"].delete_parameter("shovel", "shovel")
     sleep 0.05
   end
+
+  it "should shovel over amqps" do
+    cert = Dir.current + "/spec/resources/test.crt"
+    key = Dir.current + "/spec/resources/test.key"
+    spawn(name: "AMQPS listening on 5671") do
+      s.listen_tls(5671, cert, key)
+    end
+    Fiber.yield
+    source = AvalancheMQ::Shovel::Source.new(
+      "amqps://guest:guest@localhost?verify=none",
+      "q1"
+    )
+    dest = AvalancheMQ::Shovel::Destination.new(
+      "amqps://guest:guest@localhost?verify=none",
+      "q2"
+    )
+    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    AMQP::Connection.start do |conn|
+      x, q1, q2 = setup_qs conn
+      shovel.run
+      publish x, "q1", "shovel me"
+      msgs = [] of AMQP::Message
+      q2.subscribe { |msg| msgs << msg }
+      wait_for { msgs.size == 1 }
+      msgs[0]?.to_s.should eq "shovel me"
+    end
+  ensure
+    shovel.try &.stop
+  end
 end

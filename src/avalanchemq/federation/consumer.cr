@@ -30,12 +30,12 @@ module AvalancheMQ
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
-            @socket.write AMQP::Connection::CloseOk.new.to_slice
+            write AMQP::Connection::CloseOk.new
             raise UnexpectedFrame.new(frame)
           when AMQP::Basic::Cancel
-            @socket.write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag).to_slice
+            write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           when AMQP::Channel::Close
-            @socket.write AMQP::Channel::CloseOk.new(frame.channel).to_slice
+            write AMQP::Channel::CloseOk.new(frame.channel)
           else
             raise UnexpectedFrame.new(frame)
           end
@@ -45,32 +45,31 @@ module AvalancheMQ
       end
 
       private def set_prefetch
-        @socket.write AMQP::Basic::Qos.new(1_u16, 0_u32, @upstream.prefetch, false).to_slice
+        write AMQP::Basic::Qos.new(1_u16, 0_u32, @upstream.prefetch, false)
         AMQP::Frame.decode(@socket).as(AMQP::Basic::QosOk)
       end
 
       private def consume
         queue_name = @upstream.queue.not_nil!
-        @socket.write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
+        write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
           false, true, true, false,
-          {} of String => AMQP::Field).to_slice
+          {} of String => AMQP::Field)
         frame = AMQP::Frame.decode(@socket)
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
         queue = frame.queue_name
         no_ack = @upstream.ack_mode == AckMode::NoAck
-        consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "downstream_consumer",
+        write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "downstream_consumer",
           false, no_ack, false, false, {} of String => AMQP::Field)
-        @socket.write consume.to_slice
         frame = AMQP::Frame.decode(@socket)
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Basic::ConsumeOk)
       end
 
       def ack(delivery_tag)
-        @socket.write AMQP::Basic::Ack.new(1_u16, delivery_tag, false).to_slice
+        write AMQP::Basic::Ack.new(1_u16, delivery_tag, false)
       end
 
       def reject(delivery_tag)
-        @socket.write AMQP::Basic::Reject.new(1_u16, delivery_tag.to_u64, false).to_slice
+        write AMQP::Basic::Reject.new(1_u16, delivery_tag.to_u64, false)
       end
     end
   end

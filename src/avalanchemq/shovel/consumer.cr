@@ -40,7 +40,7 @@ module AvalancheMQ
             break
           when AMQP::Connection::Close
             raise UnexpectedFrame.new(frame) unless @out.closed?
-            @socket.write AMQP::Connection::CloseOk.new.to_slice
+            write AMQP::Connection::CloseOk.new
             break
           else
             raise UnexpectedFrame.new(frame)
@@ -57,16 +57,17 @@ module AvalancheMQ
           @log.debug { "Read internal #{frame.inspect}" }
           case frame
           when AMQP::Basic::Ack
-            @socket.write frame.to_slice unless @ack_mode == AckMode::NoAck
+            unless @ack_mode == AckMode::NoAck
+              write frame
+            end
             after_publish
           when AMQP::Basic::Reject
-            @socket.write frame.to_slice
+            write frame
           when nil
             break
           else
             @log.warn { "Unexpected frame: #{frame.inspect}" }
           end
-          @socket.flush
         end
       rescue ex
         @log.debug { "#channel_read_loop closed: #{Fiber.current.hash} #{ex.inspect_with_backtrace}" }
@@ -77,40 +78,39 @@ module AvalancheMQ
       private def after_publish
         @message_counter += 1
         if @source.delete_after == DeleteAfter::QueueLength && @message_count <= @message_counter
-          @socket.write AMQP::Connection::Close.new(200_u16, "Shovel done", 0_u16, 0_u16).to_slice
+          write AMQP::Connection::Close.new(200_u16, "Shovel done", 0_u16, 0_u16)
           @on_done.try &.call
         end
       end
 
       private def set_prefetch
-        @socket.write AMQP::Basic::Qos.new(1_u16, 0_u32, @source.prefetch, false).to_slice
+        write AMQP::Basic::Qos.new(1_u16, 0_u32, @source.prefetch, false)
         AMQP::Frame.decode(@socket).as(AMQP::Basic::QosOk)
       end
 
       private def consume
         queue_name = @source.queue || ""
         passive = !queue_name.empty?
-        @socket.write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
+        write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
           false, true, true, false,
-          {} of String => AMQP::Field).to_slice
+          {} of String => AMQP::Field)
         frame = AMQP::Frame.decode(@socket)
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
         queue = frame.queue_name
         @message_count = frame.message_count
         if @source.exchange
-          @socket.write AMQP::Queue::Bind.new(1_u16, 0_u16, frame.queue_name,
+          write AMQP::Queue::Bind.new(1_u16, 0_u16, frame.queue_name,
             @source.exchange.not_nil!,
             @source.exchange_key || "",
             false,
-            {} of String => AMQP::Field).to_slice
+            {} of String => AMQP::Field)
           frame = AMQP::Frame.decode(@socket)
           raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::BindOk)
         end
         no_ack = @ack_mode == AckMode::NoAck
-        consume = AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
+        write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,
           {} of String => AMQP::Field)
-        @socket.write consume.to_slice
         frame = AMQP::Frame.decode(@socket)
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Basic::ConsumeOk)
       end

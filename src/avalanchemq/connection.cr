@@ -19,47 +19,61 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
-      @socket =
-        if tls
-          OpenSSL::SSL::Socket::Client.new(socket, sync_close: true, hostname: host)
-        else
-          socket
+      if tls
+        context = OpenSSL::SSL::Context::Client.new
+        HTTP::Params.parse(@uri.query.to_s) do |key, value|
+          case key
+          when "verify"
+            case value
+            when "none"
+              context.verify_mode = OpenSSL::SSL::VerifyMode::None
+            end
+          end
         end
+        @socket = OpenSSL::SSL::Socket::Client.new(socket, context: context,
+          sync_close: true, hostname: host)
+      else
+        @socket = socket
+      end
       negotiate_connection
       open_channel
     end
 
     def negotiate_connection
       @socket.write AMQP::PROTOCOL_START.to_slice
+      @socket.flush
       start = AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
 
       props = {} of String => AMQP::Field
       user = URI.unescape(@uri.user || "guest")
       password = URI.unescape(@uri.password || "guest")
       response = "\u0000#{user}\u0000#{password}"
-      start_ok = AMQP::Connection::StartOk.new(props, "PLAIN", response, "")
-      @socket.write start_ok.to_slice
+      write AMQP::Connection::StartOk.new(props, "PLAIN", response, "")
       tune = AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
-      @socket.write AMQP::Connection::TuneOk.new(channel_max: 1_u16,
-        frame_max: 131072_u32,
-        heartbeat: 0_u16).to_slice
+      write AMQP::Connection::TuneOk.new(channel_max: 1_u16,
+        frame_max: 131072_u32, heartbeat: 0_u16)
       path = @uri.path || ""
       vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
-      @socket.write AMQP::Connection::Open.new(vhost).to_slice
+      write AMQP::Connection::Open.new(vhost)
       frame = AMQP::Frame.decode(@socket)
       raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Connection::OpenOk)
     end
 
     def open_channel
-      @socket.write AMQP::Channel::Open.new(1_u16).to_slice
+      write AMQP::Channel::Open.new(1_u16)
       AMQP::Frame.decode(@socket).as(AMQP::Channel::OpenOk)
     end
 
     def close(msg = "Connection closed")
       return if @socket.closed?
-      @socket.write AMQP::Connection::Close.new(320_u16, msg, 0_u16, 0_u16).to_slice
+      write AMQP::Connection::Close.new(320_u16, msg, 0_u16, 0_u16)
     rescue Errno
       @log.info("Socket already closed, can't send close frame")
+    end
+
+    def write(frame)
+      @socket.write(frame.to_slice)
+      @socket.flush
     end
 
     class UnexpectedFrame < Exception

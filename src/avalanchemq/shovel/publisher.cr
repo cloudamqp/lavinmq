@@ -58,7 +58,7 @@ module AvalancheMQ
           when AMQP::Connection::CloseOk
             break
           when AMQP::Connection::Close
-            @socket.write AMQP::Connection::CloseOk.new.to_slice
+            write AMQP::Connection::CloseOk.new
             break
           else
             raise UnexpectedFrame.new(frame)
@@ -94,7 +94,7 @@ module AvalancheMQ
       end
 
       private def set_confirm
-        @socket.write AMQP::Confirm::Select.new(1_u16, false).to_slice
+        write AMQP::Confirm::Select.new(1_u16, false)
         AMQP::Frame.decode(@socket).as(AMQP::Confirm::SelectOk)
       end
 
