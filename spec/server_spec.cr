@@ -574,4 +574,17 @@ describe AvalancheMQ::Server do
       msg_q2.to_s.should eq("m1")
     end
   end
+
+  it "supports auto ack consumers" do
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("")
+      x = ch.exchange("", "direct")
+      x.publish AMQP::Message.new("m1"), q.name
+      msgs = [] of AMQP::Message
+      q.subscribe(no_ack: true) { |msg| msgs << msg }
+      wait_for { msgs.size == 1 }
+      msgs.size.should eq 1
+    end
+  end
 end
