@@ -43,16 +43,18 @@ module AvalancheMQ
     end
 
     def close(deleting = false) : Nil
-      compact_index! unless deleting
-      @log.debug { "Closing index files" }
-      @ack.close
-      @enq.close
-      super
+      if super
+        compact_index! unless deleting
+        @log.debug { "Closing index files" }
+        @ack.close
+        @enq.close
+      end
     end
 
     def delete
-      super
-      FileUtils.rm_rf @index_dir
+      if super
+        FileUtils.rm_rf @index_dir
+      end
     end
 
     def publish(sp : SegmentPosition, persistent = false)

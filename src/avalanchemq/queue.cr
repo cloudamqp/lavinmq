@@ -197,8 +197,8 @@ module AvalancheMQ
       @log.debug "Consumer available"
     end
 
-    def close(deleting = false) : Nil
-      return if @closed
+    def close(deleting = false) : Bool
+      return false if @closed
       @log.info "Closing"
       @closed = true
       @message_available.close
@@ -214,14 +214,17 @@ module AvalancheMQ
       Fiber.yield
       notify_observers(:close)
       @log.info "Closed"
+      true
     end
 
-    protected def delete
-      return if @deleted
+    def delete : Bool
+      return false if @deleted
       @log.info "Deleting"
-      @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
       @deleted = true
+      @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
+      close(true)
       notify_observers(:delete)
+      true
     end
 
     def details
