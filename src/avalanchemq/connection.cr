@@ -11,7 +11,25 @@ module AvalancheMQ
     def initialize(@uri : URI, @log : Logger)
       host = @uri.host || "localhost"
       tls = @uri.scheme == "amqps"
-      socket = TCPSocket.new(host, @uri.port || tls ? 5671 : 5672)
+      channel_max = 1_u16
+      heartbeat = 0_u16
+      connect_timeout = nil
+      auth_mechanism = "PLAIN"
+      params = HTTP::Params.parse(@uri.query.to_s)
+      params.each do |key, value|
+        case key
+        when "heartbeat"
+          heartbeat = value.to_u16? || heartbeat
+        when "connection_timeout"
+          connect_timeout = value.to_u16?
+        when "channel_max"
+          channel_max = value.to_u16? || channel_max
+        when "auth_mechanism"
+          auth_mechanism = "AMQPLAIN" if value =~ /AMQPLAIN/i
+        end
+      end
+      port = @uri.port || tls ? 5671 : 5672
+      socket = TCPSocket.new(host, port, connect_timeout: connect_timeout)
       socket.keepalive = true
       socket.tcp_nodelay = true
       socket.tcp_keepalive_idle = 60
@@ -19,15 +37,22 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
+
       if tls
         context = OpenSSL::SSL::Context::Client.new
-        HTTP::Params.parse(@uri.query.to_s) do |key, value|
+        params.each do |key, value|
           case key
           when "verify"
             case value
             when "none"
               context.verify_mode = OpenSSL::SSL::VerifyMode::None
             end
+          when "cacertfile"
+            context.ca_certificates = value
+          when "certfile"
+            context.certificate_chain = value
+          when "keyfile"
+            context.private_key = value
           end
         end
         @socket = OpenSSL::SSL::Socket::Client.new(socket, context: context,
@@ -35,11 +60,11 @@ module AvalancheMQ
       else
         @socket = socket
       end
-      negotiate_connection
+      negotiate_connection(channel_max, heartbeat, auth_mechanism)
       open_channel
     end
 
-    def negotiate_connection
+    def negotiate_connection(channel_max, heartbeat, auth_mechanism)
       @socket.write AMQP::PROTOCOL_START.to_slice
       @socket.flush
       start = AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
@@ -47,11 +72,21 @@ module AvalancheMQ
       props = {} of String => AMQP::Field
       user = URI.unescape(@uri.user || "guest")
       password = URI.unescape(@uri.password || "guest")
-      response = "\u0000#{user}\u0000#{password}"
-      write AMQP::Connection::StartOk.new(props, "PLAIN", response, "")
+      if auth_mechanism == "AMQPLAIN"
+        tbl = AMQP::Table.new({
+          "LOGIN"    => user,
+          "PASSWORD" => password,
+        } of String => AMQP::Field)
+        io = IO::Memory.new
+        tbl.to_io(io, ::IO::ByteFormat::NetworkEndian)
+        response = io.to_s
+      else
+        response = "\u0000#{user}\u0000#{password}"
+      end
+      write AMQP::Connection::StartOk.new(props, auth_mechanism, response, "")
       tune = AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
-      write AMQP::Connection::TuneOk.new(channel_max: 1_u16,
-        frame_max: 131072_u32, heartbeat: 0_u16)
+      write AMQP::Connection::TuneOk.new(channel_max: channel_max,
+        frame_max: 131072_u32, heartbeat: heartbeat)
       path = @uri.path || ""
       vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
       write AMQP::Connection::Open.new(vhost)
@@ -74,6 +109,10 @@ module AvalancheMQ
     def write(frame)
       @socket.write(frame.to_slice)
       @socket.flush
+    end
+
+    def closed?
+      @socket.closed?
     end
 
     class UnexpectedFrame < Exception

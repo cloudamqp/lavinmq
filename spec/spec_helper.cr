@@ -24,6 +24,10 @@ module TestHelpers
   def self.setup
     create_servers
     spawn { @@s.try &.listen(5672) }
+    cert = Dir.current + "/spec/resources/server_certificate.pem"
+    key = Dir.current + "/spec/resources/server_key.pem"
+    ca = Dir.current + "/spec/resources/ca_certificate.pem"
+    spawn { @@s.try &.listen_tls(5671, cert, key, ca) }
     spawn { @@h.try &.listen }
     Fiber.yield
   end

@@ -227,12 +227,6 @@ describe AvalancheMQ::Shovel do
   end
 
   it "should shovel over amqps" do
-    cert = Dir.current + "/spec/resources/test.crt"
-    key = Dir.current + "/spec/resources/test.key"
-    spawn(name: "AMQPS listening on 5671") do
-      s.listen_tls(5671, cert, key)
-    end
-    Fiber.yield
     source = AvalancheMQ::Shovel::Source.new(
       "amqps://guest:guest@localhost?verify=none",
       "q1"

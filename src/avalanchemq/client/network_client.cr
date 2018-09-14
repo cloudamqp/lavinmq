@@ -2,10 +2,10 @@ require "./client"
 
 module AvalancheMQ
   class NetworkClient < Client
-    getter user, max_frame_size, auth_service, remote_address
+    getter user, max_frame_size, auth_mechanism, remote_address, heartbeat, channel_max
 
     @max_frame_size : UInt32
-    @max_channels : UInt16
+    @channel_max : UInt16
     @heartbeat : UInt16
     @auth_mechanism : String
     @remote_address : Socket::IPAddress
@@ -24,7 +24,7 @@ module AvalancheMQ
       log = vhost.log.dup
       log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
-      @max_channels = tune_ok.channel_max
+      @channel_max = tune_ok.channel_max
       @heartbeat = tune_ok.heartbeat
       @auth_mechanism = start_ok.mechanism
       name = "#{@remote_address} -> #{@local_address}"
@@ -60,7 +60,7 @@ module AvalancheMQ
         password = resp[(i + 1)..-1]
       when "AMQPLAIN"
         io = ::IO::Memory.new(start_ok.response)
-        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.size.to_u32)
+        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
         username = tbl["LOGIN"].as(String)
         password = tbl["PASSWORD"].as(String)
       else "Unsupported authentication mechanism: #{start_ok.mechanism}"
@@ -127,7 +127,7 @@ module AvalancheMQ
         channels:          @channels.size,
         connected_at:      @connected_at,
         type:              "network",
-        channel_max:       @max_channels,
+        channel_max:       @channel_max,
         timeout:           @heartbeat,
         client_properties: @client_properties,
         vhost:             @vhost.name,
