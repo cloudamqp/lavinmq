@@ -11,4 +11,4 @@ deb:
 	build/deb 1
 
 release-deb:
-	last=$$(ls avalanchemq_*.deb | tail -1) && deb-s3 upload --bucket apt.avalanchemq.com $$last && aws cloudfront create-invalidation --distribution-id E26Y9DFNV7WCMR --paths "/dists/*"
+	deb-s3 upload --bucket apt.avalanchemq.com avalanchemq_*.deb && aws cloudfront create-invalidation --distribution-id E26Y9DFNV7WCMR --paths "/dists/*"

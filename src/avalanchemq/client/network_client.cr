@@ -386,8 +386,8 @@ module AvalancheMQ
       bytes = frame.to_slice
       @write_lock.synchronize do
         @socket.write bytes
+        @socket.flush
       end
-      @socket.flush
       case frame
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
@@ -433,8 +433,8 @@ module AvalancheMQ
           @socket.write AMQP::BodyFrame.new(frame.channel, body_part).to_slice
           pos += length
         end
+        @socket.flush
       end
-      @socket.flush
       true
     rescue ex : IO::Error | Errno
       @log.info { "Lost connection, while sending (#{ex})" }
