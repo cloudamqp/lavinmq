@@ -422,15 +422,16 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       @write_lock.synchronize do
-        @socket.write frame.to_slice
+        @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+        #@socket.write frame.to_slice
         header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-        @socket.write header.to_slice
+        @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         pos = 0
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8)
           body_part = msg.body[pos, length]
           @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
-          @socket.write AMQP::BodyFrame.new(frame.channel, body_part).to_slice
+          @socket.write_bytes AMQP::BodyFrame.new(frame.channel, body_part), ::IO::ByteFormat::NetworkEndian
           pos += length
         end
         @socket.flush

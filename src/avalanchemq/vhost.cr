@@ -375,14 +375,14 @@ module AvalancheMQ
           f = AMQP::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, e.arguments)
-          f.encode(io)
+          io.write f.to_slice
         end
         @queues.each do |_name, q|
           next unless q.durable
           next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
           f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, q.arguments)
-          f.encode(io)
+          io.write f.to_slice
         end
         @exchanges.each do |_name, e|
           next unless e.durable
@@ -397,7 +397,7 @@ module AvalancheMQ
                   AMQP::Exchange::Bind.new(0_u16, 0_u16, e.name, d.name, bt[0], false, bt[1])
                 else raise "Unknown destination type #{d.class}"
                 end
-              f.encode(io)
+              io.write f.to_slice
             end
           end
         end
@@ -432,7 +432,7 @@ module AvalancheMQ
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
-          frame.encode(f)
+          f.write frame.to_slice
           f.flush
         end
       end

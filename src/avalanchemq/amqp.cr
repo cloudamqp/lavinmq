@@ -350,10 +350,6 @@ module AvalancheMQ
                        message_id, timestamp, type, user_id, app_id, reserved1)
       end
 
-      def to_io(io, format)
-        encode(io)
-      end
-
       def self.from_json(data : JSON::Any)
         p = Properties.new
         p.content_type = data["content_type"]?.try(&.as_s)
@@ -391,6 +387,41 @@ module AvalancheMQ
           "app_id" => @app_id,
           "reserved" => @reserved1,
         }.compact.to_json(json)
+      end
+
+      def to_io(io, format)
+        flags = 0_u16
+        flags = flags | FLAG_CONTENT_TYPE     if @content_type
+        flags = flags | FLAG_CONTENT_ENCODING if @content_encoding
+        flags = flags | FLAG_HEADERS          if @headers
+        flags = flags | FLAG_DELIVERY_MODE    if @delivery_mode
+        flags = flags | FLAG_PRIORITY         if @priority
+        flags = flags | FLAG_CORRELATION_ID   if @correlation_id
+        flags = flags | FLAG_REPLY_TO         if @reply_to
+        flags = flags | FLAG_EXPIRATION       if @expiration
+        flags = flags | FLAG_MESSAGE_ID       if @message_id
+        flags = flags | FLAG_TIMESTAMP        if @timestamp
+        flags = flags | FLAG_TYPE             if @type
+        flags = flags | FLAG_USER_ID          if @user_id
+        flags = flags | FLAG_APP_ID           if @app_id
+        flags = flags | FLAG_RESERVED1        if @reserved1
+
+        io.write_bytes(flags, format)
+
+        io.write_bytes ShortString.new(@content_type.not_nil!), format     if @content_type
+        io.write_bytes ShortString.new(@content_encoding.not_nil!), format if @content_encoding
+        io.write_bytes Table.new(@headers.not_nil!), format                if @headers
+        io.write_byte @delivery_mode.not_nil!                              if @delivery_mode
+        io.write_byte @priority.not_nil!                                   if @priority
+        io.write_bytes ShortString.new(@correlation_id.not_nil!), format   if @correlation_id
+        io.write_bytes ShortString.new(@reply_to.not_nil!), format         if @reply_to
+        io.write_bytes ShortString.new(@expiration.not_nil!), format       if @expiration
+        io.write_bytes ShortString.new(@message_id.not_nil!), format       if @message_id
+        io.write_bytes @timestamp.not_nil!.epoch.to_i64, format            if @timestamp
+        io.write_bytes ShortString.new(@type.not_nil!), format             if @type
+        io.write_bytes ShortString.new(@user_id.not_nil!), format          if @user_id
+        io.write_bytes ShortString.new(@app_id.not_nil!), format           if @app_id
+        io.write_bytes ShortString.new(@reserved1.not_nil!), format        if @reserved1
       end
 
       def encode(io)

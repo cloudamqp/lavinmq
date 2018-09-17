@@ -18,22 +18,11 @@ module AvalancheMQ
         0_u16
       end
 
-      def wrap(io, body_size : Number? = nil)
+      def wrap(io, body_size : Number, format : ::IO::ByteFormat)
         io.write_byte @type.value
-        io.write_bytes @channel, ::IO::ByteFormat::NetworkEndian
-        if body_size
-          io.write_bytes body_size.to_u32, ::IO::ByteFormat::NetworkEndian
-          yield
-        else
-          size_pos = io.pos
-          io.write_bytes 0_u32, ::IO::ByteFormat::NetworkEndian
-          yield
-          after_body_pos = io.pos
-          body_size = after_body_pos.to_u32 - size_pos - sizeof(UInt32)
-          io.seek(size_pos)
-          io.write_bytes body_size, ::IO::ByteFormat::NetworkEndian
-          io.seek(after_body_pos)
-        end
+        io.write_bytes @channel, format
+        io.write_bytes body_size.to_u32, format
+        yield
         io.write_byte(206_u8)
       end
 
@@ -105,6 +94,10 @@ module AvalancheMQ
         @channel = 0_u16
       end
 
+      def to_io(io)
+        wrap(io, 0)
+      end
+
       def to_slice
         super(Bytes.empty)
       end
@@ -122,14 +115,10 @@ module AvalancheMQ
       abstract def class_id : UInt16
       abstract def method_id : UInt16
 
-      def encode(io)
-        io.write self.to_slice
-      end
-
-      def wrap(io)
-        super(io) do
-          io.write_bytes class_id, ::IO::ByteFormat::NetworkEndian
-          io.write_bytes method_id, ::IO::ByteFormat::NetworkEndian
+      def wrap(io, bytesize, format)
+        super(io, bytesize + sizeof(UInt16) + sizeof(UInt16), format) do
+          io.write_bytes class_id, format
+          io.write_bytes method_id, format
           yield
         end
       end
@@ -1184,13 +1173,13 @@ module AvalancheMQ
           super(channel)
         end
 
-        def encode(io)
-          wrap(io) do
-            ShortString.new(@consumer_tag).to_io(io)
-            @delivery_tag.to_io(io, ::IO::ByteFormat::NetworkEndian)
+        def to_io(io, format)
+          wrap(io, 1 + @consumer_tag.bytesize + sizeof(UInt64) + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize, format) do
+            io.write_bytes ShortString.new(@consumer_tag), format
+            io.write_bytes @delivery_tag, format
             io.write_byte @redelivered ? 1_u8 : 0_u8
-            ShortString.new(@exchange).to_io(io)
-            ShortString.new(@routing_key).to_io(io)
+            io.write_bytes ShortString.new(@exchange), format
+            io.write_bytes ShortString.new(@routing_key), format
           end
         end
 
@@ -1253,9 +1242,18 @@ module AvalancheMQ
           super(channel)
         end
 
+        def to_io(io, format)
+          wrap(io, 8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 4, format) do
+            io.write_bytes @delivery_tag, format
+            io.write_byte @redelivered ? 1_u8 : 0_u8
+            io.write_bytes ShortString.new(@exchange), format
+            io.write_bytes ShortString.new(@routing_key), format
+            io.write_bytes @message_count, format
+          end
+        end
+
         def to_slice
-          io = AMQP::MemoryIO.new(8 + 1 + 1 + @exchange.bytesize +
-                                  1 + @routing_key.bytesize + 4)
+          io = AMQP::MemoryIO.new(8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 4)
           io.write_int @delivery_tag
           io.write_bool @redelivered
           io.write_short_string @exchange
@@ -1278,6 +1276,12 @@ module AvalancheMQ
 
         def initialize(channel, @reserved1 = 0_u16)
           super(channel)
+        end
+
+        def to_io(io, format)
+          wrap(io, 2, format) do
+            io.write_bytes @reserved1, format
+          end
         end
 
         def to_slice
@@ -1500,6 +1504,15 @@ module AvalancheMQ
           super(channel)
         end
 
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @reply_text.bytesize + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize, format) do
+            io.write_bytes(@reply_code, format)
+            io.write_bytes ShortString.new(@reply_text), format
+            io.write_bytes ShortString.new(@exchange_name), format
+            io.write_bytes ShortString.new(@routing_key), format
+          end
+        end
+
         def to_slice
           io = MemoryIO.new(2 + 1 + @reply_text.bytesize +
                             1 + @exchange_name.bytesize +
@@ -1581,12 +1594,12 @@ module AvalancheMQ
         super(Type::Header, channel)
       end
 
-      def encode(io)
-        wrap(io) do
-          io.write_bytes @class_id, ::IO::ByteFormat::NetworkEndian
-          io.write_bytes @weight, ::IO::ByteFormat::NetworkEndian
-          io.write_bytes @body_size, ::IO::ByteFormat::NetworkEndian
-          io.write_bytes @properties, ::IO::ByteFormat::NetworkEndian
+      def to_io(io : ::IO, format : ::IO::ByteFormat)
+        wrap(io, sizeof(UInt16) + sizeof(UInt16) + sizeof(UInt64) + @properties.bytesize, format) do
+          io.write_bytes @class_id, format
+          io.write_bytes @weight, format
+          io.write_bytes @body_size, format
+          io.write_bytes @properties, format
         end
       end
 
@@ -1620,8 +1633,8 @@ module AvalancheMQ
         super(@body)
       end
 
-      def encode(io)
-        wrap(io, @body.size) do
+      def to_io(io, format)
+        wrap(io, @body.size, format) do
           io.write @body
         end
       end
