@@ -64,6 +64,8 @@ module AvalancheMQ
       end
     rescue ex : Errno
       abort "Unrecoverable error in listener: #{ex.to_s}"
+      puts "Fibers:"
+      Fiber.list { |f| puts f.inspect }
     ensure
       @listeners.delete(s)
     end
@@ -92,6 +94,8 @@ module AvalancheMQ
       end
     rescue ex : Errno | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.to_s}"
+      puts "Fibers:"
+      Fiber.list { |f| puts f.inspect }
     ensure
       @listeners.delete(s)
     end
