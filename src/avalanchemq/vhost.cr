@@ -178,10 +178,12 @@ module AvalancheMQ
       @save.send f unless loading
       case f
       when AMQP::Exchange::Declare
+        return if @exchanges.has_key? f.exchange_name
         e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Exchange::Delete
+        return unless @exchanges.has_key? f.exchange_name
         @exchanges.each_value do |ex|
           ex.bindings.each_value do |destination|
             destination.delete f.exchange_name
@@ -197,6 +199,7 @@ module AvalancheMQ
         x = @exchanges[f.destination]? || return
         source.unbind(x, f.routing_key, f.arguments)
       when AMQP::Queue::Declare
+        return if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] =
           if f.durable
             DurableQueue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments)
@@ -206,6 +209,7 @@ module AvalancheMQ
         @exchanges[""].bind(q, f.queue_name, f.arguments)
         apply_policies([q] of Queue) unless loading
       when AMQP::Queue::Delete
+        return unless @queues.has_key? f.queue_name
         q = @queues.delete(f.queue_name)
         @exchanges.each_value do |ex|
           ex.bindings.each_value do |destinations|
