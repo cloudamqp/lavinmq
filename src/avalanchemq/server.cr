@@ -1,6 +1,7 @@
 require "socket"
 require "logger"
 require "openssl"
+require "./stdlib_fixes"
 require "./amqp"
 require "./client/network_client"
 require "./vhost_store"
