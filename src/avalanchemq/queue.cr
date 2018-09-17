@@ -293,6 +293,7 @@ module AvalancheMQ
     private def expire_later(expire_in, meta, sp)
       @log.debug { "Expiring #{sp} in #{expire_in}ms" }
       sleep expire_in.milliseconds if expire_in > 0
+      return if @closed
       @ready_lock.synchronize do
         return unless @ready[0]? == sp
         @ready.shift
