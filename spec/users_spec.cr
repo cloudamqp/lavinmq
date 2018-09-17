@@ -10,9 +10,7 @@ describe AvalancheMQ::Server do
 
   it "rejects invalid user" do
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(username: "invalid",
-        password: "guest")) do |conn|
-      end
+      AMQP::Connection.start(AMQP::Config.new(username: "invalid", password: "guest")) { |_conn| }
     end
   end
 
@@ -22,8 +20,7 @@ describe AvalancheMQ::Server do
     Fiber.yield
     expect_raises(Channel::ClosedError) do
       AMQP::Connection.start(AMQP::Config.new(vhost: "v1", username: "guest",
-        password: "guest")) do |conn|
-      end
+        password: "guest")) { |_conn| }
     end
   ensure
     s.vhosts.delete("v1")
@@ -48,7 +45,7 @@ describe AvalancheMQ::Server do
     expect_raises(AMQP::ChannelClosed, /403/) do
       AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
         ch = conn.channel
-        x = ch.exchange("x1", "direct")
+        ch.exchange("x1", "direct")
       end
     end
   ensure
@@ -63,7 +60,7 @@ describe AvalancheMQ::Server do
     expect_raises(AMQP::ChannelClosed, /403/) do
       AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
         ch = conn.channel
-        x = ch.queue("q1")
+        ch.queue("q1")
       end
     end
   ensure
@@ -152,7 +149,7 @@ describe AvalancheMQ::Server do
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
     AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
       ch = conn.channel
-      q1 = ch.queue("q1", durable: false, auto_delete: true)
+      ch.queue("q1", durable: false, auto_delete: true)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
@@ -171,7 +168,7 @@ describe AvalancheMQ::Server do
     Fiber.yield
     AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
       ch = conn.channel
-      q1 = ch.queue("q1", durable: false, auto_delete: true)
+      ch.queue("q1", durable: false, auto_delete: true)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do

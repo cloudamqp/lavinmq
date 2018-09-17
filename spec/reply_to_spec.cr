@@ -38,7 +38,7 @@ describe AvalancheMQ::Server do
       AMQP::Connection.start do |conn|
         ch = conn.channel
         expect_raises(AMQP::ChannelClosed, /PRECONDITION_FAILED/) do
-          consumer_tag = ch.queue("amq.direct.reply-to").subscribe(no_ack: false) { }
+          ch.queue("amq.direct.reply-to").subscribe(no_ack: false) { }
         end
       end
     end

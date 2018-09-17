@@ -35,11 +35,10 @@ module AvalancheMQ
         when "password_hash"
           hash = pull.read_string
         when "permissions"
-          pull.read_object do |key|
-            vhost = key
+          pull.read_object do |vhost|
             config = read = write = /^$/
-            pull.read_object do |key|
-              case key
+            pull.read_object do |ikey|
+              case ikey
               when "config" then config = Regex.from_json(pull)
               when "read"   then read = Regex.from_json(pull)
               when "write"  then write = Regex.from_json(pull)

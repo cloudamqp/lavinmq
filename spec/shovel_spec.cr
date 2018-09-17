@@ -1,14 +1,14 @@
 require "./spec_helper"
 require "../src/avalanchemq/shovel"
 
-def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue, AMQP::Queue}
+def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
   ch = conn.channel
   x = ch.exchange("", "direct", passive: true)
   q1 = ch.queue("q1")
   q2 = ch.queue("q2")
   q1.purge
   q2.purge
-  {x, q1, q2}
+  {x, q2}
 end
 
 def publish(x, rk, msg)
@@ -33,7 +33,7 @@ describe AvalancheMQ::Shovel do
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
@@ -56,7 +56,7 @@ describe AvalancheMQ::Shovel do
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "a" * 10_000
       shovel.run
       wait_for { shovel.stopped? }
@@ -78,7 +78,7 @@ describe AvalancheMQ::Shovel do
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       shovel.run
       publish x, "q1", "shovel me"
       rmsg = nil
@@ -104,7 +104,7 @@ describe AvalancheMQ::Shovel do
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
       ack_mode: AvalancheMQ::Shovel::AckMode::OnPublish)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
@@ -127,7 +127,7 @@ describe AvalancheMQ::Shovel do
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
       ack_mode: AvalancheMQ::Shovel::AckMode::NoAck)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
@@ -150,7 +150,7 @@ describe AvalancheMQ::Shovel do
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x = setup_qs(conn).first
       100.times do
         publish x, "q1", "shovel me"
       end
@@ -175,7 +175,7 @@ describe AvalancheMQ::Shovel do
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
       shovel.run
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "shovel me"
       rmsg = nil
       until rmsg = q2.get(no_ack: true)
@@ -199,8 +199,8 @@ describe AvalancheMQ::Shovel do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
-      q1 = ch.queue("q1d", durable: true)
-      q2 = ch.queue("q2d", durable: true)
+      ch.queue("q1d", durable: true)
+      ch.queue("q2d", durable: true)
       props = AMQP::Protocol::Properties.new(delivery_mode: 2_u8)
       pmsg = AMQP::Message.new("shovel me", props)
       x.publish pmsg, "q1d"
@@ -212,7 +212,7 @@ describe AvalancheMQ::Shovel do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("", "direct", passive: true)
-      q1 = ch.queue("q1d", durable: true)
+      ch.queue("q1d", durable: true)
       q2 = ch.queue("q2d", durable: true)
       publish x, "q1d", "shovel me"
       msgs = [] of AMQP::Message
@@ -237,7 +237,7 @@ describe AvalancheMQ::Shovel do
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       shovel.run
       publish x, "q1", "shovel me"
       msgs = [] of AMQP::Message

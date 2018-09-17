@@ -3,7 +3,7 @@ require "../spec_helper"
 describe AvalancheMQ::ConnectionsController do
   describe "GET /api/connections" do
     it "should return network connections" do
-      AMQP::Connection.start do |conn|
+      AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -14,7 +14,7 @@ describe AvalancheMQ::ConnectionsController do
     it "should only show own connections for policymaker" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      AMQP::Connection.start do |conn|
+      AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/connections", headers: hdrs)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -27,7 +27,7 @@ describe AvalancheMQ::ConnectionsController do
     it "should only show all connections for monitoring" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::Monitoring])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      AMQP::Connection.start do |conn|
+      AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/connections", headers: hdrs)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -40,7 +40,7 @@ describe AvalancheMQ::ConnectionsController do
 
   describe "GET /api/vhosts/vhost/connections" do
     it "should return network connections" do
-      AMQP::Connection.start do |conn|
+      AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -60,7 +60,7 @@ describe AvalancheMQ::ConnectionsController do
 
   describe "GET /api/connections/name" do
     it "should return connection" do
-      AMQP::Connection.start do |conn|
+      AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -76,7 +76,7 @@ describe AvalancheMQ::ConnectionsController do
     end
 
     it "should return 401 if user doesn't have access" do
-      AMQP::Connection.start do |conn|
+      AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -91,7 +91,7 @@ describe AvalancheMQ::ConnectionsController do
   describe "GET /api/connections/name/channels" do
     it "should return channels for a connection" do
       AMQP::Connection.start do |conn|
-        ch = conn.channel
+        conn.channel
         response = get("http://localhost:8080/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)

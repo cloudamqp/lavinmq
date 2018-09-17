@@ -35,7 +35,7 @@ module AvalancheMQ
         context
       end
 
-      get "/api/whoami" do |context, params|
+      get "/api/whoami" do |context, _params|
         user(context).user_details.to_json(context.response)
         context
       end
@@ -52,12 +52,12 @@ module AvalancheMQ
             "test".to_slice)
           ok = @amqp_server.vhosts[vhost].publish(msg)
           env = @amqp_server.vhosts[vhost].queues["aliveness-test"].get(true)
-          ok = env && String.new(env.message.body) == "test"
+          ok = ok && env && String.new(env.message.body) == "test"
           {status: ok ? "ok" : "failed"}.to_json(context.response)
         end
       end
 
-      get "/api/shovels" do |context, params|
+      get "/api/shovels" do |context, _params|
         shovels = [] of Hash(String, String)
         vhosts(user(context)).each do |vhost|
           vhost.shovels.not_nil!.each do |shovel|
@@ -79,7 +79,7 @@ module AvalancheMQ
         context
       end
 
-      get "/api/federation-links" do |context, params|
+      get "/api/federation-links" do |context, _params|
         links = [] of Hash(String, String)
         vhosts(user(context)).each do |vhost|
           vhost.upstreams.not_nil!.each do |upstream|

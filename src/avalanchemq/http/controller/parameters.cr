@@ -55,7 +55,7 @@ module AvalancheMQ
             bad_request(context, "Field 'value' is required")
           end
           p = Parameter.new(component, name, value)
-          p = @amqp_server.vhosts[vhost].add_parameter(p)
+          @amqp_server.vhosts[vhost].add_parameter(p)
           context.response.status_code = 204
         end
       end
@@ -65,7 +65,7 @@ module AvalancheMQ
           refuse_unless_policymaker(context, user(context), vhost)
           component = URI.unescape(params["component"])
           name = URI.unescape(params["name"])
-          param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
+          param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
           @amqp_server.vhosts[vhost].delete_parameter(component, name)
           context.response.status_code = 204
         end
@@ -104,7 +104,7 @@ module AvalancheMQ
       delete "/api/global-parameters/:name" do |context, params|
         refuse_unless_policymaker(context, user(context))
         name = URI.unescape(params["name"])
-        param = param(context, @amqp_server.parameters, {nil, name})
+        param(context, @amqp_server.parameters, {nil, name})
         @amqp_server.delete_parameter(nil, name)
         context.response.status_code = 204
         context

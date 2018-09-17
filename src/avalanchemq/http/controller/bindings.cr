@@ -48,9 +48,9 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
-          e.bindings.select { |k, v| v.includes?(q) }
-                    .map { |k, _| e.binding_details(k, q) }
-                    .to_json(context.response)
+          e.bindings.select { |_k, v| v.includes?(q) }
+            .map { |k, _| e.binding_details(k, q) }
+            .to_json(context.response)
         end
       end
 
@@ -111,9 +111,9 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
-          source.bindings.select { |k, v| v.includes?(destination) }
-                         .map { |k, _| source.binding_details(k, destination) }
-                         .to_json(context.response)
+          source.bindings.select { |_k, v| v.includes?(destination) }
+            .map { |k, _| source.binding_details(k, destination) }
+            .to_json(context.response)
         end
       end
 

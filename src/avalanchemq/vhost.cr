@@ -56,7 +56,6 @@ module AvalancheMQ
     private def try_publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]?
       return false if ex.nil?
-      ok = false
 
       matches = ex.matches(msg.routing_key, msg.properties.headers)
       if cc = msg.properties.headers.try(&.fetch("CC", nil))
@@ -136,8 +135,8 @@ module AvalancheMQ
     end
 
     def message_details
-      ready = @queues.values.reduce(0) { |m, q| m += q.message_count }
-      unacked = @queues.values.reduce(0) { |m, q| m += q.unacked_count }
+      ready = @queues.values.reduce(0) { |m, q| m += q.message_count; m }
+      unacked = @queues.values.reduce(0) { |m, q| m += q.unacked_count; m }
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,
@@ -183,8 +182,8 @@ module AvalancheMQ
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Exchange::Delete
-        @exchanges.each_value do |e|
-          e.bindings.each_value do |destination|
+        @exchanges.each_value do |ex|
+          ex.bindings.each_value do |destination|
             destination.delete f.exchange_name
           end
         end
@@ -208,8 +207,8 @@ module AvalancheMQ
         apply_policies([q] of Queue) unless loading
       when AMQP::Queue::Delete
         q = @queues.delete(f.queue_name)
-        @exchanges.each_value do |e|
-          e.bindings.each_value do |destinations|
+        @exchanges.each_value do |ex|
+          ex.bindings.each_value do |destinations|
             destinations.delete q
           end
         end

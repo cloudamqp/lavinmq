@@ -69,11 +69,11 @@ describe AvalancheMQ::Server do
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
       x.publish pmsg, q.name
-      m1 = q.get(no_ack: false)
+      q.get(no_ack: false)
     end
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      x = ch.exchange("", "direct", passive: true)
+      ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
       m1 = q.get(no_ack: true)
       m1.to_s.should eq("m1")
@@ -130,7 +130,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acked = nil
-      ch.on_confirm do |tag, ack|
+      ch.on_confirm do |_tag, ack|
         acked = ack
       end
       x = ch.exchange("test_ad_exchange", "topic", durable: false, auto_delete: true)
@@ -227,7 +227,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       dlq = ch.queue("dlq2")
-      expq = ch.queue("exp")
+      ch.queue("exp")
 
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-dead-letter-exchange"] = ""
@@ -236,7 +236,7 @@ describe AvalancheMQ::Server do
       ch.exchange("", "direct", passive: true).publish msg, "exp"
 
       msgs = [] of AMQP::Message
-      dlq.subscribe { |msg| msgs << msg }
+      dlq.subscribe { |m| msgs << m }
       Fiber.yield
       msgs.size.should eq 1
       msgs.first.to_s.should eq("dead letter")
@@ -253,7 +253,7 @@ describe AvalancheMQ::Server do
         reply_code = code
         reply_msg = text
       end
-      ch.publish(pmsg, "amq.topic", "rk", mandatory = false, immediate = true)
+      ch.publish(pmsg, "amq.topic", "rk", mandatory: false, immediate: true)
       wait_for { reply_code == 313 }
       reply_code.should eq 313
     end
@@ -290,7 +290,7 @@ describe AvalancheMQ::Server do
       pmsg2 = AMQP::Message.new("m2", AMQP::Protocol::Properties.new(headers: hdrs))
       x.publish pmsg2, q.name
       msgs = [] of AMQP::Message
-      tag = q.subscribe { |msg| msgs << msg }
+      q.subscribe { |msg| msgs << msg }
       until msgs.size == 1
         Fiber.yield
       end
@@ -314,7 +314,7 @@ describe AvalancheMQ::Server do
       pmsg2 = AMQP::Message.new("m2", AMQP::Protocol::Properties.new(headers: hdrs))
       x.publish pmsg2, q.name
       msgs = [] of AMQP::Message
-      tag = q.subscribe { |msg| msgs << msg }
+      q.subscribe { |msg| msgs << msg }
       Fiber.yield
       msgs.size.should eq 2
     end
@@ -328,7 +328,7 @@ describe AvalancheMQ::Server do
       q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       x.publish pmsg1, q.name
       msgs = [] of AMQP::Message
-      tag = q.subscribe { |msg| msgs << msg }
+      q.subscribe { |msg| msgs << msg }
       Fiber.yield
       msgs.size.should eq 1
     end
@@ -354,7 +354,7 @@ describe AvalancheMQ::Server do
         cch.send({code, text})
       end
       ch.ack(999_u64)
-      code, text = cch.receive
+      code = cch.receive.first
       code.should eq 406
     end
   end
@@ -379,7 +379,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
-      ch.on_confirm do |tag, acked|
+      ch.on_confirm do |_tag, acked|
         acks += 1 if acked
       end
       args = AMQP::Protocol::Table.new
@@ -401,7 +401,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel.confirm
       acks = 0
       nacks = 0
-      ch.on_confirm do |tag, acked|
+      ch.on_confirm do |_tag, acked|
         acked ? (acks += 1) : (nacks += 1)
       end
       args = AMQP::Protocol::Table.new
@@ -453,7 +453,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("exlusive_consumer", auto_delete: true)
-      consumer_tag = q.subscribe(exclusive: true) { }
+      q.subscribe(exclusive: true) { }
 
       ch2 = conn.channel
       q2 = ch2.queue("exlusive_consumer", passive: true)
@@ -470,7 +470,7 @@ describe AvalancheMQ::Server do
   it "only allow one connection access an exlusive queues" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q = ch.queue("exlusive_queue", durable: true, exclusive: true)
+      ch.queue("exlusive_queue", durable: true, exclusive: true)
       AMQP::Connection.start do |conn2|
         ch2 = conn2.channel
         expect_raises(AMQP::ChannelClosed, /RESOURCE_LOCKED/) do
@@ -511,7 +511,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel.confirm
       acks = 0
       nacks = 0
-      ch.on_confirm do |tag, acked|
+      ch.on_confirm do |_tag, acked|
         acked ? (acks += 1) : (nacks += 1)
       end
 
@@ -552,7 +552,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       args = AMQP::Protocol::Table.new
       args["x-expires"] = 1
-      q = ch.queue("test", args: args)
+      ch.queue("test", args: args)
       sleep 5.milliseconds
       Fiber.yield
       s.vhosts["/"].queues.has_key?("test").should be_false

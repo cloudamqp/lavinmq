@@ -15,7 +15,7 @@ module AvalancheMQ
       get "/api/vhosts/:vhost/channels" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_management(context, user(context), vhost)
-          c = @amqp_server.connections.find { |c| c.vhost.name == vhost }
+          c = @amqp_server.connections.find { |conn| conn.vhost.name == vhost }
           if c
             c.channels.values.to_json(context.response)
           else
@@ -27,7 +27,7 @@ module AvalancheMQ
       get "/api/channels/:name" do |context, params|
         with_channel(context, params) do |channel|
           channel.details.merge({
-            consumer_details: channel.consumers
+            consumer_details: channel.consumers,
           }).to_json(context.response)
         end
       end

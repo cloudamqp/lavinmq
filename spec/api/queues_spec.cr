@@ -153,7 +153,7 @@ describe AvalancheMQ::QueuesController do
     it "should handle empty q" do
       AMQP::Connection.start do |conn|
         ch = conn.channel
-        q = ch.queue("q6")
+        ch.queue("q6")
         body = %({
           "count": 1,
           "ack_mode": "peek",

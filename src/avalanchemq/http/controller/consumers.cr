@@ -15,7 +15,7 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           user = user(context)
           refuse_unless_management(context, user, vhost)
-          c = connections(user).find { |c| c.vhost.name == vhost }
+          c = connections(user).find { |conn| conn.vhost.name == vhost }
           if c
             c.channels.values.flat_map { |ch| ch.consumers }.to_json(context.response)
           else

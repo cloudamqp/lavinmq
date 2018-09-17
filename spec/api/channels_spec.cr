@@ -5,7 +5,7 @@ describe AvalancheMQ::ChannelsController do
   describe "GET /api/channels" do
     it "should return all channels" do
       AMQP::Connection.start do |conn|
-        ch = conn.channel
+        conn.channel
         response = get("http://localhost:8080/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -27,7 +27,7 @@ describe AvalancheMQ::ChannelsController do
   describe "GET /api/vhosts/vhost/channels" do
     it "should return all channels for a vhost" do
       AMQP::Connection.start do |conn|
-        ch = conn.channel
+        conn.channel
         response = get("http://localhost:8080/api/vhosts/%2f/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -46,7 +46,7 @@ describe AvalancheMQ::ChannelsController do
   describe "GET /api/channels/channel" do
     it "should return channel" do
       AMQP::Connection.start do |conn|
-        ch = conn.channel
+        conn.channel
         response = get("http://localhost:8080/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)

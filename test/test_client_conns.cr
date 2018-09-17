@@ -18,17 +18,17 @@ msgs.to_i.times do |idx|
 
     exchange = channel.topic("amq.topic", durable: true)
     queue = channel.queue("test")
-    #queue.bind(exchange, "r.*")
-    #queue.subscribe do |msg|
-    #  puts "Received msg (1): #{msg.key} #{String.new(msg.body)}"
-    #  msg.ack
-    #end
-    #queue.subscribe do |msg|
-    #  puts "Received msg (2): #{msg.properties}"
-    #  msg.ack
-    #end
+    queue.bind(exchange, "r.*")
+    queue.subscribe do |msg|
+      puts "Received msg (1): #{msg.key} #{String.new(msg.body)}"
+      msg.ack
+    end
+    queue.subscribe do |msg|
+      puts "Received msg (2): #{msg.properties}"
+      msg.ack
+    end
 
-    msg = AMQP::Message.new("test message: #{idx+1}")
+    msg = AMQP::Message.new("test message: #{idx + 1}")
     exchange.publish(msg, "r.k")
   end
 end

@@ -67,7 +67,7 @@ module AvalancheMQ
     def negotiate_connection(channel_max, heartbeat, auth_mechanism)
       @socket.write AMQP::PROTOCOL_START.to_slice
       @socket.flush
-      start = AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
+      AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
 
       props = {} of String => AMQP::Field
       user = URI.unescape(@uri.user || "guest")
@@ -84,7 +84,7 @@ module AvalancheMQ
         response = "\u0000#{user}\u0000#{password}"
       end
       write AMQP::Connection::StartOk.new(props, auth_mechanism, response, "")
-      tune = AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
+      AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
       write AMQP::Connection::TuneOk.new(channel_max: channel_max,
         frame_max: 131072_u32, heartbeat: heartbeat)
       path = @uri.path || ""

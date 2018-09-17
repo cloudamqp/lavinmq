@@ -1,14 +1,14 @@
 require "./spec_helper"
 require "../src/avalanchemq/federation/upstream"
 
-def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue, AMQP::Queue}
+def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
   ch = conn.channel
   x = ch.exchange("", "direct", passive: true)
   q1 = ch.queue("q1")
   q2 = ch.queue("q2")
   q1.purge
   q2.purge
-  {x, q1, q2}
+  {x, q2}
 end
 
 def publish(x, rk, msg)
@@ -26,7 +26,7 @@ describe AvalancheMQ::Upstream do
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1")
 
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       msgs = [] of AMQP::Message
@@ -45,7 +45,7 @@ describe AvalancheMQ::Upstream do
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1")
 
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x = setup_qs(conn).first
       publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       sleep 0.05
@@ -63,7 +63,7 @@ describe AvalancheMQ::Upstream do
       ack_mode: AvalancheMQ::Upstream::AckMode::NoAck)
 
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       msgs = [] of AMQP::Message
@@ -83,7 +83,7 @@ describe AvalancheMQ::Upstream do
       ack_mode: AvalancheMQ::Upstream::AckMode::OnPublish)
 
     AMQP::Connection.start do |conn|
-      x, q1, q2 = setup_qs conn
+      x, q2 = setup_qs conn
       publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       msgs = [] of AMQP::Message

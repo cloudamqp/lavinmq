@@ -9,16 +9,16 @@ require "ini"
 config = ""
 data_dir = ""
 log_level = Logger::INFO
-bind = "::"
+# bind = "::"
 port = 5672
 tls_port = 5671
 cert_path = ""
 key_path = ""
-mgmt_bind = "::"
+# mgmt_bind = "::"
 mgmt_port = 15672
-mgmt_tls_port = 15671
-mgmt_cert_path = ""
-mgmt_key_path = ""
+# mgmt_tls_port = 15671
+# mgmt_cert_path = ""
+# mgmt_key_path = ""
 
 p = OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
@@ -55,18 +55,18 @@ unless config.empty?
       log_level = Logger::Severity.parse(main["log_level"]) if main.has_key? "log_level"
     end
     if amqp = ini["amqp"]
-      bind = amqp["bind"] if amqp.has_key? "bind"
+      # bind = amqp["bind"] if amqp.has_key? "bind"
       port = amqp["port"].to_i32 if amqp.has_key? "port"
       tls_port = amqp["tls_port"].to_i32 if amqp.has_key? "tls_port"
       cert_path = amqp["tls_cert"] if amqp.has_key? "tls_cert"
       key_path = amqp["tls_key"] if amqp.has_key? "tls_key"
     end
     if mgmt = ini["mgmt"]
-      mgmt_bind = mgmt["bind"] if mgmt.has_key? "bind"
+      # mgmt_bind = mgmt["bind"] if mgmt.has_key? "bind"
       mgmt_port = mgmt["port"].to_i32 if mgmt.has_key? "port"
-      mgmt_tls_port = mgmt["tls_port"].to_i32 if mgmt.has_key? "tls_port"
-      mgmt_cert_path = mgmt["tls_cert"] if mgmt.has_key? "tls_cert"
-      mgmt_key_path = mgmt["tls_key"] if mgmt.has_key? "tls_key"
+      # mgmt_tls_port = mgmt["tls_port"].to_i32 if mgmt.has_key? "tls_port"
+      # mgmt_cert_path = mgmt["tls_cert"] if mgmt.has_key? "tls_cert"
+      # mgmt_key_path = mgmt["tls_key"] if mgmt.has_key? "tls_key"
     end
   else
     abort "Config could not be found"
