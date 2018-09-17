@@ -75,7 +75,7 @@ module AvalancheMQ
       context = OpenSSL::SSL::Context::Server.new
       context.certificate_chain = cert_path
       context.private_key = key_path
-      context.ca_certificates = ca_path
+      context.ca_certificates = ca_path if ca_path
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         if client = s.accept?
