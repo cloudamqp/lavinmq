@@ -266,10 +266,10 @@ module AvalancheMQ
     private def metadata(sp) : MessageMetadata
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
-      ts = seg.read_int64
-      ex = seg.read_short_string
-      rk = seg.read_short_string
-      pr = AMQP::Properties.decode seg
+      ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
+      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
+      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
+      pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       MessageMetadata.new(ts, ex, rk, pr)
     end
 
