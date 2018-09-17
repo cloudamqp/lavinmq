@@ -22,24 +22,24 @@ mgmt_key_path = ""
 
 p = OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |d| data_dir = d }
-  parser.on("-c CONF", "--config=CONF", "Config file (INI format)") do |c|
-    config = c
+  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| data_dir = v }
+  parser.on("-c CONF", "--config=CONF", "Config file (INI format)") do |v|
+    config = v
   end
-  parser.on("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)") do |p|
-    port = p.to_i
+  parser.on("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)") do |v|
+    port = v.to_i
   end
-  parser.on("--tls-port=PORT", "AMQPS port to listen on (default: 5671)") do |p|
-    tls_port = p.to_i
+  parser.on("--tls-port=PORT", "AMQPS port to listen on (default: 5671)") do |v|
+    tls_port = v.to_i
   end
-  parser.on("--cert FILE", "TLS certificate (including chain)") do |f|
-    cert_path = f
+  parser.on("--cert FILE", "TLS certificate (including chain)") do |v|
+    cert_path = v
   end
-  parser.on("--key FILE", "Private key for the TLS certificate") do |f|
-    key_path = f
+  parser.on("--key FILE", "Private key for the TLS certificate") do |v|
+    key_path = v
   end
-  parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |l|
-    log_level = Logger::Severity.parse(l)
+  parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
+    log_level = Logger::Severity.parse(v)
   end
   parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
@@ -104,7 +104,7 @@ Signal::HUP.trap do
   puts "Reloading"
   Fiber.list { |f| puts f.inspect }
 end
-shutdown = ->(s : Signal) do
+shutdown = ->(_s : Signal) do
   puts "Shutting down gracefully..."
   http_server.close
   amqp_server.close
