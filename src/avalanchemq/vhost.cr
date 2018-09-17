@@ -90,12 +90,13 @@ module AvalancheMQ
         spawn gc_segments!, name: "GC Segments #{@name}"
       end
 
+      @log.debug { "Writing message: #{msg}" }
       sp = SegmentPosition.new(@segment, pos)
-      @wfile.write_int msg.timestamp
-      @wfile.write_short_string msg.exchange_name
-      @wfile.write_short_string msg.routing_key
-      @wfile.write_bytes msg.properties
-      @wfile.write_int msg.size
+      @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
+      @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::NetworkEndian
+      @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::NetworkEndian
+      @wfile.write_bytes msg.properties, IO::ByteFormat::NetworkEndian
+      @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
       @wfile.write msg.body
       @wfile.flush
       flush = msg.properties.delivery_mode == 2_u8

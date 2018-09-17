@@ -370,11 +370,11 @@ module AvalancheMQ
     private def read(sp : SegmentPosition) : Envelope
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
-      ts = seg.read_int64
-      ex = seg.read_short_string
-      rk = seg.read_short_string
-      pr = AMQP::Properties.decode seg
-      sz = seg.read_uint64
+      ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
+      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
+      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
+      pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
+      sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
       bd = Bytes.new(sz)
       seg.read_fully(bd)
       msg = Message.new(ts, ex, rk, pr, sz, bd)

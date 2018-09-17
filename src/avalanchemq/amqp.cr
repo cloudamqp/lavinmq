@@ -331,6 +331,27 @@ module AvalancheMQ
         io.seek(io.read_byte.to_i, ::IO::Seek::Current)     if flags & FLAG_RESERVED1 > 0
       end
 
+      def self.from_io(io, format)
+        flags = UInt16.from_io io, format
+        content_type = ShortString.from_io(io, format)     if flags & FLAG_CONTENT_TYPE > 0
+        content_encoding = ShortString.from_io(io, format) if flags & FLAG_CONTENT_ENCODING > 0
+        headers = Table.from_io(io, format)                if flags & FLAG_HEADERS > 0
+        delivery_mode = io.read_byte                       if flags & FLAG_DELIVERY_MODE > 0
+        priority = io.read_byte                            if flags & FLAG_PRIORITY > 0
+        correlation_id = ShortString.from_io(io, format)   if flags & FLAG_CORRELATION_ID > 0
+        reply_to = ShortString.from_io(io, format)         if flags & FLAG_REPLY_TO > 0
+        expiration = ShortString.from_io(io, format)       if flags & FLAG_EXPIRATION > 0
+        message_id = ShortString.from_io(io, format)       if flags & FLAG_MESSAGE_ID > 0
+        timestamp = Time.epoch(Int64.from_io(io, format))  if flags & FLAG_TIMESTAMP > 0
+        type = ShortString.from_io(io, format)             if flags & FLAG_TYPE > 0
+        user_id = ShortString.from_io(io, format)          if flags & FLAG_USER_ID > 0
+        app_id = ShortString.from_io(io, format)           if flags & FLAG_APP_ID > 0
+        reserved1 = ShortString.from_io(io, format)        if flags & FLAG_RESERVED1 > 0
+        Properties.new(content_type, content_encoding, headers, delivery_mode,
+                       priority, correlation_id, reply_to, expiration,
+                       message_id, timestamp, type, user_id, app_id, reserved1)
+      end
+
       def self.decode(io)
         flags = io.read_uint16
         content_type = io.read_short_string     if flags & FLAG_CONTENT_TYPE > 0
