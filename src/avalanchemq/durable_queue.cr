@@ -103,12 +103,12 @@ module AvalancheMQ
       acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
       loop do
         break if @ack.pos == @ack.size
-        acked << SegmentPosition.decode @ack
+        acked << SegmentPosition.from_io @ack
       end
       @enq.pos = 0
       loop do
         break if @enq.pos == @enq.size
-        sp = SegmentPosition.decode @enq
+        sp = SegmentPosition.from_io @enq
         @ready << sp unless acked.includes? sp
       end
       @log.info { "#{message_count} messages" }

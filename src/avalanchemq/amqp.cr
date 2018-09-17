@@ -132,7 +132,7 @@ module AvalancheMQ
           io.write_byte(value ? 1_u8 : 0_u8)
         when Int8
           io.write_byte 'b'.ord.to_u8
-          io.write_bytes(value)
+          io.write_bytes(value, format)
         when UInt8
           io.write_byte 'B'.ord.to_u8
           io.write_byte(value)
@@ -227,13 +227,14 @@ module AvalancheMQ
       end
 
       def to_io(io, format = nil)
-        raise ArgumentError.new("ShortString too long, max 255") if @str.bytesize > 255
+        raise ArgumentError.new("Short string too long, max #{UInt8::MAX}") if @str.bytesize > UInt8::MAX
         io.write_byte(@str.bytesize.to_u8)
         io.write(@str.to_slice)
       end
 
       def self.from_io(io, format) : String
-        sz = io.read_byte || raise ::IO::EOFError.new
+        sz = io.read_byte
+        raise ::IO::EOFError.new("Can't read short string") if sz.nil?
         io.read_string(sz.to_i32)
       end
     end
@@ -243,6 +244,7 @@ module AvalancheMQ
       end
 
       def to_io(io, format)
+        raise ArgumentError.new("Long string is too long, max #{UInt32::MAX}") if @str.bytesize > UInt32::MAX
         io.write_bytes(@str.bytesize.to_u32, format)
         io.write(@str.to_slice)
       end

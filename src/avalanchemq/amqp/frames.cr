@@ -1243,7 +1243,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 4, format) do
+          wrap(io, sizeof(UInt64) + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + sizeof(UInt32), format) do
             io.write_bytes @delivery_tag, format
             io.write_byte @redelivered ? 1_u8 : 0_u8
             io.write_bytes ShortString.new(@exchange), format

@@ -9,10 +9,8 @@ module AvalancheMQ
     end
 
     def to_io(io : IO, format)
-      buf = Bytes.new(8)
-      format.encode(@segment, buf[0, 4])
-      format.encode(@position, buf[4, 4])
-      io.write buf
+      io.write_bytes @segment, format
+      io.write_bytes @position, format
     end
 
     def <=>(other : self)
@@ -21,11 +19,9 @@ module AvalancheMQ
       position <=> other.position
     end
 
-    def self.decode(io : IO, format = IO::ByteFormat::SystemEndian)
-      buf = Bytes.new(8)
-      io.read_fully(buf)
-      seg = format.decode(UInt32, buf[0, 4])
-      pos = format.decode(UInt32, buf[4, 4])
+    def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
+      seg = UInt32.from_io(io, format)
+      pos = UInt32.from_io(io, format)
       self.new(seg, pos)
     end
 

@@ -10,7 +10,7 @@ module AvalancheMQ
       def write_short_string(str : String)
         raise "String too long" if str.bytesize > 255
         write_byte(str.bytesize.to_u8)
-        write_utf8(str.to_slice)
+        write(str.to_slice)
       end
 
       def write_bool(val : Bool)
@@ -19,7 +19,7 @@ module AvalancheMQ
 
       def write_long_string(str : String)
         write_bytes(str.bytesize.to_u32, ::IO::ByteFormat::NetworkEndian)
-        write_utf8(str.to_slice)
+        write(str.to_slice)
       end
 
       def write_table(hash : Hash(String, Field))
@@ -37,8 +37,8 @@ module AvalancheMQ
       end
 
       def read_short_string
-        size = read_byte.as(Int)
-        read_string(size)
+        size = read_byte
+        read_string(size.to_i32)
       end
 
       def read_bool
