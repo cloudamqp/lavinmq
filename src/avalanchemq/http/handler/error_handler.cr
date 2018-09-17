@@ -23,6 +23,8 @@ module AvalancheMQ
     rescue ex : Controller::HaltRequest
       @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
       context.response.close
+    rescue ex : Errno
+      @log.error "method=#{context.request.method} path=#{context.request.path}\n#{ex.inspect_with_backtrace}"
     rescue ex : Exception
       @log.error "method=#{context.request.method} path=#{context.request.path} status=500\n#{ex.inspect_with_backtrace}"
       context.response.status_code = 500
