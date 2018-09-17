@@ -18,7 +18,7 @@ module AvalancheMQ
       end
 
       def write_long_string(str : String)
-        size = write_bytes(str.bytesize.to_u32, ::IO::ByteFormat::NetworkEndian)
+        write_bytes(str.bytesize.to_u32, ::IO::ByteFormat::NetworkEndian)
         write_utf8(str.to_slice)
       end
 

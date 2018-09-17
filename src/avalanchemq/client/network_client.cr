@@ -37,7 +37,7 @@ module AvalancheMQ
       socket = ssl_client.nil? ? tcp_socket : ssl_client
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
-      bytes = socket.read_fully(proto.to_slice)
+      socket.read_fully(proto.to_slice)
       if proto != AMQP::PROTOCOL_START && proto != AMQP::PROTOCOL_START_ALT
         socket.write AMQP::PROTOCOL_START.to_slice
         socket.flush
@@ -171,7 +171,7 @@ module AvalancheMQ
     end
 
     private def delete_exchange(frame)
-      if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+      if @vhost.exchanges.has_key? frame.exchange_name
         if frame.exchange_name.starts_with? "amq."
           send_access_refused(frame, "Not allowed to use the amq. prefix")
           return

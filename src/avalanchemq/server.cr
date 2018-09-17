@@ -25,7 +25,7 @@ module AvalancheMQ
       @log = Logger.new(STDOUT)
       @log.level = log_level
       @log.progname = "amqpserver"
-      @log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
+      @log.formatter = Logger::Formatter.new do |severity, _datetime, progname, message, io|
         if log_prefix_systemd_level
           io << case severity
           when Logger::Severity::DEBUG then "<7>"

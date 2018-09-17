@@ -42,10 +42,12 @@ module AvalancheMQ
     end
 
     private def delete_exchange(frame)
-      if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+      if @vhost.exchanges.has_key? frame.exchange_name
         @vhost.apply(frame)
+        send AMQP::Exchange::DeleteOk.new(frame.channel)
+      else
+        send_not_found frame, "Exchange #{frame.exchange_name} not found"
       end
-      send AMQP::Exchange::DeleteOk.new(frame.channel)
     end
 
     private def delete_queue(frame)

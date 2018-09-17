@@ -369,7 +369,7 @@ module AvalancheMQ
       @log.debug "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
-        @exchanges.each do |name, e|
+        @exchanges.each do |_name, e|
           next unless e.durable
           next if e.auto_delete
           f = AMQP::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
@@ -377,14 +377,14 @@ module AvalancheMQ
             false, e.arguments)
           f.encode(io)
         end
-        @queues.each do |name, q|
+        @queues.each do |_name, q|
           next unless q.durable
           next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
           f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, q.arguments)
           f.encode(io)
         end
-        @exchanges.each do |name, e|
+        @exchanges.each do |_name, e|
           next unless e.durable
           next if e.auto_delete
           e.bindings.each do |bt, destinations|
@@ -423,7 +423,7 @@ module AvalancheMQ
           when AMQP::Queue::Bind, AMQP::Queue::Unbind
             next unless @exchanges[frame.exchange_name]?.try(&.durable)
             q = @queues[frame.queue_name]
-            next unless q.durable && !q.exclusive
+            next if !q.durable || q.exclusive
           when AMQP::Exchange::Bind, AMQP::Exchange::Unbind
             s = @exchanges[frame.source]
             next unless s.durable

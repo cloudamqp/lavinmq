@@ -6,7 +6,7 @@ struct Slice(T)
     builder.string Base64.encode(self)
   end
 
-  def self.from_json(json : JSON::PullParser)
-    bytes = Base64.decode_string json.read_string
+  def self.from_json(json : JSON::PullParser) : Bytes
+    Base64.decode_string json.read_string
   end
 end
