@@ -3,7 +3,7 @@ require "./queue"
 
 module AvalancheMQ
   class DurableQueue < Queue
-    MAX_ACK_FILE_SIZE = 16 * 1024**2
+    MAX_ACKS = 4 * 1024**2
     @durable = true
     @lock = Mutex.new
 
@@ -16,6 +16,7 @@ module AvalancheMQ
       Dir.mkdir_p @index_dir
       @enq = File.open(File.join(@index_dir, "enq"), "a+")
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
+      @acks = 0
       restore_index
     end
 
@@ -40,6 +41,7 @@ module AvalancheMQ
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
       @enq = File.open(File.join(@index_dir, "enq"), "a")
       @ack.truncate
+      @acks = 0
     end
 
     def close(deleting = false) : Nil
@@ -72,7 +74,7 @@ module AvalancheMQ
           @lock.synchronize do
             @ack.write_bytes env.segment_position
             @ack.flush if persistent
-            compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
+            compact_index! if (@acks += 1) > MAX_ACKS
           end
         end
       end
@@ -82,7 +84,7 @@ module AvalancheMQ
       @lock.synchronize do
         @ack.write_bytes sp
         @ack.flush if flush
-        compact_index! if @ack.pos >= MAX_ACK_FILE_SIZE
+        compact_index! if (@acks += 1) > MAX_ACKS
       end
       super
     end
@@ -92,6 +94,7 @@ module AvalancheMQ
       @lock.synchronize do
         @enq.truncate
         @ack.truncate
+        @acks = 0
       end
       super
     end
@@ -101,14 +104,17 @@ module AvalancheMQ
       @ack.pos = 0
       acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
       loop do
-        break if @ack.pos == @ack.size
         acked << SegmentPosition.from_io @ack
+        @acks += 1
+      rescue IO::EOFError
+        break
       end
       @enq.pos = 0
       loop do
-        break if @enq.pos == @enq.size
         sp = SegmentPosition.from_io @enq
         @ready << sp unless acked.includes? sp
+      rescue IO::EOFError
+        break
       end
       @log.info { "#{message_count} messages" }
     rescue ex : Errno
