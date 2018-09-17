@@ -164,6 +164,7 @@ module AvalancheMQ
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
           @consumers.push(c)
           q.add_consumer(c)
+          q.last_get_time = Time.utc_now.epoch_ms
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
