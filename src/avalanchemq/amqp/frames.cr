@@ -1604,12 +1604,7 @@ module AvalancheMQ
       end
 
       def to_slice
-        body = AMQP::MemoryIO.new(sizeof(UInt16) + sizeof(UInt16) + sizeof(UInt64) + @properties.bytesize)
-        body.write_int @class_id
-        body.write_int @weight
-        body.write_int @body_size
-        body.write_bytes @properties, ::IO::ByteFormat::NetworkEndian
-        super body.to_slice
+        raise "dont to_slice header frame"
       end
 
       def self.decode(channel, io)
