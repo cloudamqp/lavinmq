@@ -1717,5 +1717,7 @@ module AvalancheMQ
         raise NotImplemented.new(channel, CLASS_ID, method_id)
       end
     end
+
+    alias MessageFrame = BodyFrame | HeaderFrame | Basic::Publish
   end
 end

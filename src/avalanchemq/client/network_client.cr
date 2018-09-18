@@ -352,7 +352,7 @@ module AvalancheMQ
       i = 0
       loop do
         frame = AMQP::Frame.decode @socket
-        @log.debug { "Read #{frame.inspect}" } unless frame.is_a?(AvalancheMQ::AMQP::BodyFrame | AvalancheMQ::AMQP::HeaderFrame | AvalancheMQ::AMQP::Basic::Publish)
+        @log.debug { "Read #{frame.inspect}" } unless frame.is_a?(AMQP::MessageFrame)
         if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
           @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           next
@@ -423,7 +423,6 @@ module AvalancheMQ
     def deliver(frame, msg)
       @write_lock.synchronize do
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-        #@socket.write frame.to_slice
         header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         pos = 0
