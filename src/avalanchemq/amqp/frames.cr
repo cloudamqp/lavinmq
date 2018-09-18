@@ -36,29 +36,31 @@ module AvalancheMQ
         io.to_slice
       end
 
-      def self.decode(io)
-        arr = uninitialized UInt8[7]
-        buf = arr.to_slice
-        io.read_fully(buf)
-        type = Type.new(buf[0])
-        channel = ::IO::ByteFormat::NetworkEndian.decode(UInt16, buf[1, 2])
-        size = ::IO::ByteFormat::NetworkEndian.decode(UInt32, buf[3, 4])
-
-        payload = Bytes.new(size + 1)
-        io.read_fully(payload)
-
-        frame_end = payload.at(size)
+      def self.decode(io) : Frame
+        type = Type.new(io.read_byte || raise(::IO::EOFError.new))
+        channel = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+        size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
+        frame =
+          case type
+          when Type::Method
+            payload = Bytes.new(size)
+            io.read_fully(payload)
+            MethodFrame.decode(channel, payload)
+          when Type::Header
+            HeaderFrame.decode(channel, io)
+          when Type::Body
+            payload = Bytes.new(size)
+            io.read_fully(payload)
+            BodyFrame.new(channel, payload)
+          when Type::Heartbeat then HeartbeatFrame.decode
+          else
+            raise NotImplemented.new channel, 0_u16, 0_u16
+          end
+        frame_end = io.read_byte || raise FrameDecodeError.new("No frame ending")
         if frame_end != 206
           raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
         end
-        body = payload[0, size]
-        case type
-        when Type::Method    then MethodFrame.decode(channel, body)
-        when Type::Header    then HeaderFrame.decode(channel, body)
-        when Type::Body      then BodyFrame.new(channel, body)
-        when Type::Heartbeat then HeartbeatFrame.decode
-        else                      raise NotImplemented.new 0_u16, 0_u16, 0_u16
-        end
+        frame
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
       end
@@ -1608,11 +1610,10 @@ module AvalancheMQ
       end
 
       def self.decode(channel, io)
-        body = AMQP::MemoryIO.new(io, false)
-        class_id = body.read_uint16
-        weight = body.read_uint16
-        body_size = body.read_uint64
-        props = Properties.decode(body)
+        class_id = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+        weight = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+        body_size = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
+        props = Properties.from_io(io, ::IO::ByteFormat::NetworkEndian)
         self.new channel, class_id, weight, body_size, props
       end
     end
