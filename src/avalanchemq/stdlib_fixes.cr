@@ -7,24 +7,3 @@ class Fiber
     end
   end
 end
-
-abstract class Channel(T)
-  def close
-    @closed = true
-    Scheduler.enqueue @senders
-    @senders.clear
-    Scheduler.enqueue @receivers
-    @receivers.clear
-    nil
-  end
-end
-
-class Channel::Unbuffered(T) < Channel(T)
-  def close
-    super
-    if sender = @sender
-      Scheduler.enqueue sender
-      @sender = nil
-    end
-  end
-end
