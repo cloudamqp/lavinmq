@@ -1134,6 +1134,19 @@ module AvalancheMQ
           super(channel)
         end
 
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 1,
+            format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@exchange, format)
+            io.write_bytes ShortString.new(@routing_key, format)
+            bits = 0_u8
+            bits = bits | (1 << 0) if @mandatory
+            bits = bits | (1 << 1) if @immediate
+            io.write_byte(bits)
+          end
+        end
+
         def to_slice
           io = AMQP::MemoryIO.new(2 +
                                   1 + @exchange.bytesize +

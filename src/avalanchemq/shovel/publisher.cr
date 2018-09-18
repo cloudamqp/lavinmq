@@ -22,8 +22,7 @@ module AvalancheMQ
         exchange = @destination.exchange.not_nil!
         routing_key = @destination.exchange_key || frame.routing_key
         mandatory = @ack_mode == AckMode::OnConfirm
-        @socket.write AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
-          mandatory, false).to_slice
+        @socket.write_bytes AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key, mandatory, false), ::IO::ByteFormat::NetworkEndian
         case @ack_mode
         when AckMode::OnConfirm
           @message_count += 1
@@ -77,9 +76,9 @@ module AvalancheMQ
           when AMQP::Basic::Deliver
             send_basic_publish(frame)
           when AMQP::HeaderFrame
-            @socket.write frame.to_slice
+            @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           when AMQP::BodyFrame
-            @socket.write frame.to_slice
+            @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
             @socket.flush
           when nil
             break
