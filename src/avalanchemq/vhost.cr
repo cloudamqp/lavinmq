@@ -173,7 +173,7 @@ module AvalancheMQ
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false)
+    def apply(f, loading = false) : Bool?
       case f
       when AMQP::Exchange::Declare
         return if @exchanges.has_key? f.exchange_name
@@ -226,6 +226,7 @@ module AvalancheMQ
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
       @save.send f unless loading
+      true
     end
 
     def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
