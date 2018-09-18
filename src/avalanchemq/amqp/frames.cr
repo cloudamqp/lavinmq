@@ -1138,8 +1138,8 @@ module AvalancheMQ
           wrap(io, 2 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 1,
             format) do
             io.write_bytes @reserved1, format
-            io.write_bytes ShortString.new(@exchange, format)
-            io.write_bytes ShortString.new(@routing_key, format)
+            io.write_bytes ShortString.new(@exchange), format
+            io.write_bytes ShortString.new(@routing_key), format
             bits = 0_u8
             bits = bits | (1 << 0) if @mandatory
             bits = bits | (1 << 1) if @immediate
