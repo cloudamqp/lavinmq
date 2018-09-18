@@ -1630,7 +1630,7 @@ module AvalancheMQ
       end
 
       def to_slice
-        super(@body)
+        raise "Dont use this"
       end
 
       def to_io(io, format)
