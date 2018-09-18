@@ -36,7 +36,7 @@ module AvalancheMQ
       private def amqp_read_loop
         loop do
           Fiber.yield if @out.full?
-          frame = AMQP::Frame.decode(@socket)
+          frame = AMQP::Frame.decode(@socket, @buffer)
           @log.debug { "Read socket #{frame.inspect}" }
           case frame
           when AMQP::Basic::Nack
@@ -95,7 +95,7 @@ module AvalancheMQ
 
       private def set_confirm
         write AMQP::Confirm::Select.new(1_u16, false)
-        AMQP::Frame.decode(@socket).as(AMQP::Confirm::SelectOk)
+        AMQP::Frame.decode(@socket, @buffer).as(AMQP::Confirm::SelectOk)
       end
 
       private def with_multiple(delivery_tag)

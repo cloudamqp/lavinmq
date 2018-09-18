@@ -60,6 +60,7 @@ module AvalancheMQ
       else
         @socket = socket
       end
+      @buffer = IO::Memory.new
       negotiate_connection(channel_max, heartbeat, auth_mechanism)
       open_channel
     end
@@ -67,7 +68,7 @@ module AvalancheMQ
     def negotiate_connection(channel_max, heartbeat, auth_mechanism)
       @socket.write AMQP::PROTOCOL_START.to_slice
       @socket.flush
-      AMQP::Frame.decode(@socket).as(AMQP::Connection::Start)
+      AMQP::Frame.decode(@socket, @buffer).as(AMQP::Connection::Start)
 
       props = {} of String => AMQP::Field
       user = URI.unescape(@uri.user || "guest")
@@ -84,19 +85,19 @@ module AvalancheMQ
         response = "\u0000#{user}\u0000#{password}"
       end
       write AMQP::Connection::StartOk.new(props, auth_mechanism, response, "")
-      AMQP::Frame.decode(@socket).as(AMQP::Connection::Tune)
+      AMQP::Frame.decode(@socket, @buffer).as(AMQP::Connection::Tune)
       write AMQP::Connection::TuneOk.new(channel_max: channel_max,
         frame_max: 131072_u32, heartbeat: heartbeat)
       path = @uri.path || ""
       vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
       write AMQP::Connection::Open.new(vhost)
-      frame = AMQP::Frame.decode(@socket)
+      frame = AMQP::Frame.decode(@socket, @buffer)
       raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Connection::OpenOk)
     end
 
     def open_channel
       write AMQP::Channel::Open.new(1_u16)
-      AMQP::Frame.decode(@socket).as(AMQP::Channel::OpenOk)
+      AMQP::Frame.decode(@socket, @buffer).as(AMQP::Channel::OpenOk)
     end
 
     def close(msg = "Connection closed")

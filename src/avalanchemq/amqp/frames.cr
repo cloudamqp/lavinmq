@@ -36,23 +36,20 @@ module AvalancheMQ
         io.to_slice
       end
 
-      def self.decode(io) : Frame
+      def self.decode(io, buffer : ::IO::Memory) : Frame
         type = Type.new(io.read_byte || raise(::IO::EOFError.new))
         channel = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
         size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
         frame =
           case type
           when Type::Method
-            payload = Bytes.new(size)
-            io.read_fully(payload)
-            MethodFrame.decode(channel, payload)
-          when Type::Header
-            HeaderFrame.decode(channel, io)
+            ::IO.copy io, buffer, size
+            MethodFrame.decode(channel, buffer.to_slice)
           when Type::Body
-            payload = Bytes.new(size)
-            io.read_fully(payload)
-            BodyFrame.new(channel, payload)
-          when Type::Heartbeat then HeartbeatFrame.decode
+            ::IO.copy io, buffer, size
+            BodyFrame.new(channel, buffer.to_slice)
+          when Type::Header then HeaderFrame.decode(channel, io)
+          when Type::Heartbeat then HeartbeatFrame.new
           else
             raise NotImplemented.new channel, 0_u16, 0_u16
           end
@@ -63,6 +60,8 @@ module AvalancheMQ
         frame
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
+      ensure
+        buffer.clear
       end
     end
 

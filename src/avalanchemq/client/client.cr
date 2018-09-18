@@ -26,8 +26,9 @@ module AvalancheMQ
     @running = true
 
     def self.close_on_ok(socket, log)
+      buffer = IO::Memory.new
       loop do
-        frame = AMQP::Frame.decode(socket)
+        frame = AMQP::Frame.decode(socket, buffer)
         break frame if frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
         log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
       end
