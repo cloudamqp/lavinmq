@@ -4,8 +4,9 @@ require "../src/avalanchemq/connection"
 class TestConnection < AvalancheMQ::Connection
   def read_loop
     spawn do
+      buff = IO::Memory.new
       loop do
-        frame = AvalancheMQ::AMQP::Frame.decode(@socket)
+        frame = AvalancheMQ::AMQP::Frame.decode(@socket, buff)
         case frame
         when AvalancheMQ::AMQP::Connection::CloseOk
           @socket.close
