@@ -368,7 +368,7 @@ module AvalancheMQ
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : AMQP::FrameDecodeError
+    rescue ex : AMQP::FrameDecodeError | OpenSSL::SSL::Error
       @log.info "Lost connection, while reading (#{ex.cause})"
       cleanup
     rescue ex : Exception
