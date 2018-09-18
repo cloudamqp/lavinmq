@@ -4,7 +4,7 @@ require "../controller"
 module AvalancheMQ
   module ConnectionsHelper
     private def connections(user : User)
-      @amqp_server.connections.select { |c| can_access_connection?(c, user) }
+      @amqp_server.connections.select { |c| !c.closed? && can_access_connection?(c, user) }
     end
 
     private def can_access_connection?(c, user)
