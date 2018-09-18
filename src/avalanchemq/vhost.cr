@@ -89,7 +89,8 @@ module AvalancheMQ
         spawn gc_segments!, name: "GC Segments #{@name}"
       end
 
-      @log.debug { "Writing message: #{msg}" }
+      @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key}\
+                    size=#{msg.size}" }
       sp = SegmentPosition.new(@segment, pos)
       @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
       @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::NetworkEndian
