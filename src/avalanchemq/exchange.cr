@@ -1,4 +1,3 @@
-require "base64"
 require "logger"
 require "./policy"
 
@@ -67,11 +66,6 @@ module AvalancheMQ
       end
     end
 
-    def self.hash_key(key : Tuple(String, Hash(String, AMQP::Field)))
-      hsh = Base64.urlsafe_encode(key[1].to_s)
-      "#{key[0]}~#{hsh}"
-    end
-
     def match?(frame : AMQP::Frame)
       type == frame.exchange_type &&
         @durable == frame.durable &&
@@ -111,17 +105,7 @@ module AvalancheMQ
         destination_type: destination.is_a?(Queue) ? "queue" : "exchange",
         routing_key:      key[0],
         arguments:        key[1],
-        properties_key:   Exchange.hash_key(key),
       }
-    end
-
-    def unbind_prop(destination : Queue | Exchange, properties_key : String)
-      key = parse_key(properties_key)
-      unbind(destination, key[0], key[1]) if key
-    end
-
-    private def parse_key(properties_key : String)
-      @bindings.keys.find { |k| Exchange.hash_key(k) == properties_key }
     end
 
     private def after_unbind

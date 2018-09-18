@@ -1,3 +1,4 @@
+require "base64"
 require "uri"
 require "./queues"
 require "./exchanges"
@@ -8,19 +9,34 @@ module AvalancheMQ
   module BindingHelpers
     private def bindings(vhost)
       vhost.exchanges.values.flat_map do |e|
-        e.bindings_details
+        e.bindings_details.map { |b| map_binding(b) }
       end
+    end
+
+    private def map_binding(b)
+      key_tuple = {b[:routing_key].as(String), b[:arguments].as(Hash(String, AMQP::Field))}
+      b.merge({properties_key: hash_key(key_tuple)})
     end
 
     private def binding_for_props(context, source, destination, props)
       binding = source.bindings.select do |k, v|
-        v.includes?(destination) && Exchange.hash_key(k) == props
+        v.includes?(destination) && hash_key(k) == props
       end.first?
       unless binding
         type = destination.is_a?(Queue) ? "queue" : "exchange"
         not_found(context, "Binding '#{props}' on exchange '#{source.name}' -> #{type} '#{destination.name}' does not exist")
       end
       binding
+    end
+
+    private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)))
+      hsh = Base64.urlsafe_encode(key[1].to_s)
+      "#{key[0]}~#{hsh}"
+    end
+
+    private def unbind_prop(source : Queue | Exchange, destination : Queue | Exchange, key : String)
+      k = source.bindings.keys.find { |k| hash_key(k) == key }
+      source.unbind(destination, k[0], k[1]) if k
     end
   end
 
@@ -49,7 +65,7 @@ module AvalancheMQ
           e = exchange(context, params, vhost)
           q = queue(context, params, vhost, "queue")
           e.bindings.select { |_k, v| v.includes?(q) }
-            .map { |k, _| e.binding_details(k, q) }
+            .map { |k, _| map_binding(e.binding_details(k, q)) }
             .to_json(context.response)
         end
       end
@@ -71,8 +87,8 @@ module AvalancheMQ
           unless routing_key && arguments
             bad_request(context, "Fields 'routing_key' and 'arguments' are required")
           end
-          key = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-          props = Exchange.hash_key(key.not_nil!)
+          e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
+          props = hash_key({routing_key, arguments})
           context.response.headers["Location"] = context.request.path + "/" + props
           context.response.status_code = 201
         end
@@ -85,7 +101,7 @@ module AvalancheMQ
           q = queue(context, params, vhost, "queue")
           props = URI.unescape(params["props"])
           binding = binding_for_props(context, e, q, props)
-          e.binding_details(binding[0], q).to_json(context.response)
+          map_binding(e.binding_details(binding[0], q)).to_json(context.response)
         end
       end
 
@@ -101,7 +117,7 @@ module AvalancheMQ
             access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
           end
           props = URI.unescape(params["props"])
-          e.unbind_prop(q, props)
+          unbind_prop(e, q, props)
           context.response.status_code = 204
         end
       end
@@ -112,7 +128,7 @@ module AvalancheMQ
           source = exchange(context, params, vhost)
           destination = exchange(context, params, vhost, "destination")
           source.bindings.select { |_k, v| v.includes?(destination) }
-            .map { |k, _| source.binding_details(k, destination) }
+            .map { |k, _| map_binding(source.binding_details(k, destination)) }
             .to_json(context.response)
         end
       end
@@ -134,8 +150,8 @@ module AvalancheMQ
           unless routing_key && arguments
             bad_request(context, "Fields 'routing_key' and 'arguments' are required")
           end
-          key = source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-          props = Exchange.hash_key(key.not_nil!)
+          source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
+          props = hash_key({routing_key, arguments})
           context.response.headers["Location"] = context.request.path + "/" + props
           context.response.status_code = 201
         end
@@ -148,7 +164,7 @@ module AvalancheMQ
           destination = exchange(context, params, vhost, "destination")
           props = URI.unescape(params["props"])
           binding = binding_for_props(context, source, destination, props)
-          source.binding_details(binding[0], destination).to_json(context.response)
+          map_binding(source.binding_details(binding[0], destination)).to_json(context.response)
         end
       end
 
@@ -164,7 +180,7 @@ module AvalancheMQ
             access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
           end
           props = URI.unescape(params["props"])
-          source.unbind_prop(destination, props)
+          unbind_prop(source, destination, props)
           context.response.status_code = 204
         end
       end
