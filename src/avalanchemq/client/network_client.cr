@@ -353,7 +353,6 @@ module AvalancheMQ
       i = 0
       buffer = IO::Memory.new
       loop do
-        @log.debug { "Starting to read" }
         frame = AMQP::Frame.decode @socket, buffer
         @log.debug { "Read #{frame.inspect}" }
         if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
