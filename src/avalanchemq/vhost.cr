@@ -97,7 +97,7 @@ module AvalancheMQ
       @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::NetworkEndian
       @wfile.write_bytes msg.properties, IO::ByteFormat::NetworkEndian
       @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
-      @wfile.write msg.body
+      IO.copy(msg.body_io, @wfile, msg.size)
       @wfile.flush
       flush = msg.properties.delivery_mode == 2_u8
       return queues.map { |q| q.publish(sp, flush) }.any? || ok

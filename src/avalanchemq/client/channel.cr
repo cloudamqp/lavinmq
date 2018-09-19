@@ -88,7 +88,7 @@ module AvalancheMQ
       def add_content(frame)
         bytes = frame.body
         raise "No msg to write to" if @next_msg_body.nil?
-        @next_msg_body.not_nil!.write bytes
+        IO.copy(frame.body, @next_msg_body, frame.body_size)
         if @next_msg_body.not_nil!.pos == @next_msg_size.not_nil!
           finish_publish(frame)
         end
@@ -101,7 +101,7 @@ module AvalancheMQ
           @next_publish_routing_key.not_nil!,
           @next_msg_props.not_nil!,
           @next_msg_size.not_nil!,
-          @next_msg_body.not_nil!.to_slice)
+          @next_msg_body.not_nil!)
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
           @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|

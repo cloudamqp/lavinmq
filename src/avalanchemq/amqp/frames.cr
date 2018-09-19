@@ -47,7 +47,7 @@ module AvalancheMQ
             MethodFrame.decode(channel, buffer.to_slice)
           when Type::Body
             ::IO.copy io, buffer, size
-            BodyFrame.new(channel, buffer.to_slice)
+            BodyFrame.new(channel, size, buffer)
           when Type::Header then HeaderFrame.decode(channel, io)
           when Type::Heartbeat then HeartbeatFrame.new
           else
@@ -61,7 +61,7 @@ module AvalancheMQ
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
       ensure
-        buffer.clear
+        buffer.clear unless frame.is_a? BodyFrame
       end
     end
 
@@ -1631,9 +1631,9 @@ module AvalancheMQ
     end
 
     struct BodyFrame < Frame
-      getter body
+      getter body_size, body
 
-      def initialize(@channel : UInt16, @body : Bytes)
+      def initialize(@channel : UInt16, @body_size : UInt32, @body : ::IO)
         @type = Type::Body
       end
 
@@ -1642,15 +1642,15 @@ module AvalancheMQ
       end
 
       def to_io(io, format)
-        wrap(io, @body.size, format) do
-          io.write @body
+        wrap(io, @body_size, format) do
+          ::IO.copy(@body, io, @body_size)
         end
       end
 
       def inspect(io)
         io << self.class.name
         io << "("
-        io << "@body.size=" << @body.size
+        io << "@body_size=" << @body_size
         io << ")"
         io
       end

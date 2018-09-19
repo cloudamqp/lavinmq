@@ -375,9 +375,7 @@ module AvalancheMQ
       rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
-      bd = Bytes.new(sz)
-      seg.read_fully(bd)
-      msg = Message.new(ts, ex, rk, pr, sz, bd)
+      msg = Message.new(ts, ex, rk, pr, sz, seg)
       Envelope.new(sp, msg)
     end
 

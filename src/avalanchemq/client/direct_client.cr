@@ -220,7 +220,7 @@ module AvalancheMQ
     def deliver(frame, msg)
       send frame
       send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-      send AMQP::BodyFrame.new(frame.channel, msg.body)
+      send AMQP::BodyFrame.new(frame.channel, msg.size.to_u32, msg.body_io)
     end
   end
 end

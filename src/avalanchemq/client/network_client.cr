@@ -353,13 +353,15 @@ module AvalancheMQ
       i = 0
       buffer = IO::Memory.new
       loop do
+        @log.debug { "Starting to read" }
         frame = AMQP::Frame.decode @socket, buffer
-        @log.debug { "Read #{frame.inspect}" } unless frame.is_a?(AMQP::MessageFrame)
+        @log.debug { "Read #{frame.inspect}" }
         if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
           @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           next
         end
         ok = process_frame(frame)
+        buffer.clear if frame.is_a? AMQP::BodyFrame
         break unless ok
         Fiber.yield if (i += 1) % 1000 == 0
       end
@@ -429,10 +431,10 @@ module AvalancheMQ
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         pos = 0
         while pos < msg.size
-          length = Math.min(msg.size - pos, @max_frame_size - 8)
-          body_part = msg.body[pos, length]
+          length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
           @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
-          @socket.write_bytes AMQP::BodyFrame.new(frame.channel, body_part), ::IO::ByteFormat::NetworkEndian
+          body = AMQP::BodyFrame.new(frame.channel, length, msg.body_io)
+          body.to_io(@socket, ::IO::ByteFormat::NetworkEndian)
           pos += length
         end
         @socket.flush

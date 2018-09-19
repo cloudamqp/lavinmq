@@ -49,10 +49,10 @@ module AvalancheMQ
             "aliveness-test",
             AMQP::Properties.new,
             4_u64,
-            "test".to_slice)
+            IO::Memory.new("test"))
           ok = @amqp_server.vhosts[vhost].publish(msg)
           env = @amqp_server.vhosts[vhost].queues["aliveness-test"].get(true)
-          ok = ok && env && String.new(env.message.body) == "test"
+          ok = ok && env && env.message.body_io.to_s == "test"
           {status: ok ? "ok" : "failed"}.to_json(context.response)
         end
       end
