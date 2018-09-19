@@ -53,11 +53,12 @@ module AvalancheMQ
 
       def self.from_io(io, format, size : UInt32? = nil) : Hash(String, Field)
         size ||= UInt32.from_io(io, format)
-        end_pos = io.pos + size
+        pos = 0
         hash = Hash(String, Field).new
-        while io.pos < end_pos
+        while pos < size
           key = ShortString.from_io(io, format)
           val = read_field(io, format)
+          pos += 1 + key.bytesize + field_bytesize(val)
           hash[key] = val
         end
         hash
@@ -75,12 +76,12 @@ module AvalancheMQ
         size = 4_u32
         @hash.each do |key, value|
           size += 1_u32 + key.bytesize
-          size += field_bytesize(value)
+          size += Table.field_bytesize(value)
         end
         size
       end
 
-      private def field_bytesize(value : Field) : UInt32
+      def self.field_bytesize(value : Field) : UInt32
         size = 1_u32
         case value
         when Bool
@@ -166,7 +167,7 @@ module AvalancheMQ
           io.write value
         when Array
           io.write_byte 'A'.ord.to_u8
-          size = value.map { |v| field_bytesize(v) }.sum
+          size = value.map { |v| Table.field_bytesize(v) }.sum
           io.write_bytes(size.to_u32, format)
           value.each { |v| write_field(v, io, format) }
         when Time
