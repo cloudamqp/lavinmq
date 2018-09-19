@@ -371,7 +371,7 @@ module AvalancheMQ
         close_connection(ex, 540_u16, "Not implemented")
       end
     rescue ex : AMQP::FrameDecodeError | OpenSSL::SSL::Error
-      @log.info "Lost connection, while reading (#{ex.cause})"
+      @log.info "Lost connection, while reading (#{ex.inspect})"
       cleanup
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
@@ -399,11 +399,11 @@ module AvalancheMQ
       end
       true
     rescue ex : IO::Error | Errno
-      @log.info { "Lost connection, while sending (#{ex})" }
+      @log.info { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
     rescue ex : IO::Timeout
-      @log.info { "Timeout while sending (#{ex})" }
+      @log.info { "Timeout while sending (#{ex.inspect})" }
       @socket.close
       cleanup
       false
@@ -439,11 +439,11 @@ module AvalancheMQ
       end
       true
     rescue ex : IO::Error | Errno
-      @log.info { "Lost connection, while sending (#{ex})" }
+      @log.info { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
     rescue ex : IO::Timeout
-      @log.info { "Timeout while sending (#{ex})" }
+      @log.info { "Timeout while sending (#{ex.inspect})" }
       @socket.close
       cleanup
       false
