@@ -82,26 +82,29 @@ module AvalancheMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish(frame) if frame.body_size.zero?
+        finish_publish(@next_msg_body) if frame.body_size.zero?
       end
 
       def add_content(frame)
-        bytes = frame.body
-        raise "No msg to write to" if @next_msg_body.nil?
-        IO.copy(frame.body, @next_msg_body, frame.body_size)
-        if @next_msg_body.not_nil!.pos == @next_msg_size.not_nil!
-          finish_publish(frame)
+        if frame.body_size == @next_msg_size
+          finish_publish(frame.body)
+        else
+          IO.copy(frame.body, @next_msg_body, frame.body_size)
+        end
+        if @next_msg_body.pos == @next_msg_size
+          @next_msg_body.rewind
+          finish_publish(@next_msg_body)
         end
       end
 
-      private def finish_publish(frame)
+      private def finish_publish(message_body)
         delivered = false
         msg = Message.new(Time.utc_now.epoch_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
           @next_msg_props.not_nil!,
           @next_msg_size.not_nil!,
-          @next_msg_body.not_nil!)
+          message_body)
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
           @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
@@ -114,21 +117,21 @@ module AvalancheMQ
         delivered ||= @client.vhost.publish(msg, immediate: @next_publish_immediate)
         unless delivered
           if @next_publish_immediate
-            r_frame = AMQP::Basic::Return.new(frame.channel, 313_u16, "No consumers",
+            r_frame = AMQP::Basic::Return.new(@id, 313_u16, "No consumers",
               msg.exchange_name, msg.routing_key)
             deliver(r_frame, msg)
           elsif @next_publish_mandatory
-            r_frame = AMQP::Basic::Return.new(frame.channel, 312_u16, "No Route",
+            r_frame = AMQP::Basic::Return.new(@id, 312_u16, "No Route",
               msg.exchange_name, msg.routing_key)
             deliver(r_frame, msg)
           end
         end
         if @confirm
           @confirm_count += 1
-          @client.send AMQP::Basic::Ack.new(frame.channel, @confirm_count, false)
+          @client.send AMQP::Basic::Ack.new(@id, @confirm_count, false)
         end
       rescue e : Exception
-        @client.send AMQP::Basic::Nack.new(frame.channel, @confirm_count, false, false) if @confirm
+        @client.send AMQP::Basic::Nack.new(@id, @confirm_count, false, false) if @confirm
         raise e
       ensure
         @next_msg_body.not_nil!.clear

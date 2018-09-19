@@ -47,6 +47,7 @@ module AvalancheMQ
             MethodFrame.decode(channel, buffer.to_slice)
           when Type::Body
             ::IO.copy io, buffer, size
+            buffer.rewind
             BodyFrame.new(channel, size, buffer)
           when Type::Header then HeaderFrame.decode(channel, io)
           when Type::Heartbeat then HeartbeatFrame.new
