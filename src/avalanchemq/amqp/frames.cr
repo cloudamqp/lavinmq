@@ -42,17 +42,14 @@ module AvalancheMQ
         size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
         frame =
           case type
-          when Type::Method
-            copied = ::IO.copy io, buffer, size
-            raise FrameDecodeError.new("Could not read the full body") if copied != size
-            MethodFrame.decode(channel, buffer.to_slice)
+          when Type::Method   then MethodFrame.decode(channel, io)
+          when Type::Header    then HeaderFrame.decode(channel, io)
+          when Type::Heartbeat then HeartbeatFrame.new
           when Type::Body
             copied = ::IO.copy io, buffer, size
             raise FrameDecodeError.new("Could not read the full body") if copied != size
             buffer.rewind
             BodyFrame.new(channel, size, buffer)
-          when Type::Header    then HeaderFrame.decode(channel, io)
-          when Type::Heartbeat then HeartbeatFrame.new
           else
             raise NotImplemented.new channel, 0_u16, 0_u16
           end
@@ -137,17 +134,16 @@ module AvalancheMQ
         super(io.to_slice)
       end
 
-      def self.decode(channel, payload)
-        body = AMQP::MemoryIO.new(payload, false)
-        class_id = body.read_uint16
+      def self.decode(channel, io)
+        class_id = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
         case class_id
-        when 10_u16 then Connection.decode(channel, body)
-        when 20_u16 then Channel.decode(channel, body)
-        when 40_u16 then Exchange.decode(channel, body)
-        when 50_u16 then Queue.decode(channel, body)
-        when 60_u16 then Basic.decode(channel, body)
-        when 85_u16 then Confirm.decode(channel, body)
-        when 90_u16 then Tx.decode(channel, body)
+        when 10_u16 then Connection.decode(channel, io)
+        when 20_u16 then Channel.decode(channel, io)
+        when 40_u16 then Exchange.decode(channel, io)
+        when 50_u16 then Queue.decode(channel, io)
+        when 60_u16 then Basic.decode(channel, io)
+        when 85_u16 then Confirm.decode(channel, io)
+        when 90_u16 then Tx.decode(channel, io)
         else
           raise NotImplemented.new(channel, class_id, 0_u16)
         end
@@ -165,17 +161,17 @@ module AvalancheMQ
         super(0_u16)
       end
 
-      def self.decode(channel, body)
-        method_id = body.read_uint16
+      def self.decode(channel, io)
+        method_id = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
         case method_id
-        when 10_u16 then Start.decode(body)
-        when 11_u16 then StartOk.decode(body)
-        when 30_u16 then Tune.decode(body)
-        when 31_u16 then TuneOk.decode(body)
-        when 40_u16 then Open.decode(body)
-        when 41_u16 then OpenOk.decode(body)
-        when 50_u16 then Close.decode(body)
-        when 51_u16 then CloseOk.decode(body)
+        when 10_u16 then Start.decode(io)
+        when 11_u16 then StartOk.decode(io)
+        when 30_u16 then Tune.decode(io)
+        when 31_u16 then TuneOk.decode(io)
+        when 40_u16 then Open.decode(io)
+        when 41_u16 then OpenOk.decode(io)
+        when 50_u16 then Close.decode(io)
+        when 51_u16 then CloseOk.decode(io)
         else             raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
       end
@@ -220,11 +216,11 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          version_major = io.read_byte
-          version_minor = io.read_byte
-          server_properties = io.read_table
-          mech = io.read_long_string
-          locales = io.read_long_string
+          version_major = io.read_byte || raise ::IO::EOFError.new
+          version_minor = io.read_byte || raise ::IO::EOFError.new
+          server_properties = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          mech = LongString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          locales = LongString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(version_major, version_minor, server_properties, mech, locales)
         end
       end
@@ -255,10 +251,10 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          props = io.read_table
-          mech = io.read_short_string
-          auth = io.read_long_string
-          locale = io.read_short_string
+          props = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          mech = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          auth = LongString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          locale = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(props, mech, auth, locale)
         end
       end
@@ -284,9 +280,9 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          channel_max = io.read_uint16
-          frame_max = io.read_uint32
-          heartbeat = io.read_uint16
+          channel_max = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          frame_max = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          heartbeat = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(channel_max, frame_max, heartbeat)
         end
       end
@@ -312,9 +308,9 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          channel_max = io.read_uint16
-          frame_max = io.read_uint32
-          heartbeat = io.read_uint16
+          channel_max = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          frame_max = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          heartbeat = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(channel_max, frame_max, heartbeat)
         end
       end
@@ -341,9 +337,9 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          vhost = io.read_short_string
-          reserved1 = io.read_short_string
-          reserved2 = io.read_bool
+          vhost = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          reserved1 = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          reserved2 = io.read_byte.not_nil! > 0
           Open.new(vhost, reserved1, reserved2)
         end
       end
@@ -368,7 +364,7 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          reserved1 = io.read_short_string
+          reserved1 = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(reserved1)
         end
       end
@@ -396,10 +392,10 @@ module AvalancheMQ
         end
 
         def self.decode(io)
-          code = io.read_uint16
-          text = io.read_short_string
-          failing_class_id = io.read_uint16
-          failing_method_id = io.read_uint16
+          code = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          text = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          failing_class_id = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          failing_method_id = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(code, text, failing_class_id, failing_method_id)
         end
       end
@@ -429,7 +425,7 @@ module AvalancheMQ
       end
 
       def self.decode(channel, body)
-        method_id = body.read_uint16
+        method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         case method_id
         when 10_u16 then Open.decode(channel, body)
         when 11_u16 then OpenOk.decode(channel, body)
@@ -461,7 +457,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_short_string
+          reserved1 = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           Open.new channel, reserved1
         end
       end
@@ -486,7 +482,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_long_string
+          reserved1 = LongString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           OpenOk.new channel, reserved1
         end
       end
@@ -514,10 +510,10 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reply_code = io.read_uint16
-          reply_text = io.read_short_string
-          classid = io.read_uint16
-          methodid = io.read_uint16
+          reply_code = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          reply_text = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          classid = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          methodid = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           Close.new channel, reply_code, reply_text, classid, methodid
         end
       end
@@ -547,7 +543,7 @@ module AvalancheMQ
       end
 
       def self.decode(channel, body)
-        method_id = body.read_uint16
+        method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         case method_id
         when 10_u16 then Declare.decode(channel, body)
         when 11_u16 then DeclareOk.decode(channel, body)
@@ -592,16 +588,17 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          name = io.read_short_string
-          type = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          type = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte.not_nil!
           passive = bits.bit(0) == 1
           durable = bits.bit(1) == 1
           auto_delete = bits.bit(2) == 1
           internal = bits.bit(3) == 1
           no_wait = bits.bit(4) == 1
-          args = io.read_table
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
+
           self.new channel, reserved1, name, type, passive, durable, auto_delete, internal, no_wait, args
         end
       end
@@ -648,9 +645,9 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          name = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           if_unused = bits.bit(0) == 1
           no_wait = bits.bit(1) == 1
           self.new channel, reserved1, name, if_unused, no_wait
@@ -700,13 +697,13 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          destination = io.read_short_string
-          source = io.read_short_string
-          routing_key = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          destination = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          source = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           no_wait = bits.bit(0) == 1
-          args = io.read_table
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1, destination, source, routing_key, no_wait, args
         end
       end
@@ -754,13 +751,13 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          destination = io.read_short_string
-          source = io.read_short_string
-          routing_key = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          destination = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          source = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           no_wait = bits.bit(0) == 1
-          args = io.read_table
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1, destination, source, routing_key, no_wait, args
         end
       end
@@ -790,7 +787,7 @@ module AvalancheMQ
       end
 
       def self.decode(channel, body)
-        method_id = body.read_uint16
+        method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         case method_id
         when 10_u16 then Declare.decode(channel, body)
         when 11_u16 then DeclareOk.decode(channel, body)
@@ -837,15 +834,15 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          name = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           passive = bits.bit(0) == 1
           durable = bits.bit(1) == 1
           exclusive = bits.bit(2) == 1
           auto_delete = bits.bit(3) == 1
           no_wait = bits.bit(4) == 1
-          args = io.read_table
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1, name, passive, durable, exclusive, auto_delete, no_wait, args
         end
       end
@@ -872,9 +869,9 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          queue_name = io.read_short_string
-          message_count = io.read_uint32
-          consumer_count = io.read_uint32
+          queue_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          message_count = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          consumer_count = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, queue_name, message_count, consumer_count
         end
       end
@@ -906,13 +903,13 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          queue_name = io.read_short_string
-          exchange_name = io.read_short_string
-          routing_key = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          queue_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          exchange_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           no_wait = bits.bit(0) == 1
-          args = io.read_table
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1, queue_name, exchange_name, routing_key, no_wait, args
         end
       end
@@ -960,9 +957,9 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          name = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           if_unused = bits.bit(0) == 1
           if_empty = bits.bit(1) == 1
           no_wait = bits.bit(2) == 1
@@ -1018,11 +1015,11 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          queue_name = io.read_short_string
-          exchange_name = io.read_short_string
-          routing_key = io.read_short_string
-          args = io.read_table
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          queue_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          exchange_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1, queue_name, exchange_name, routing_key, args
         end
       end
@@ -1065,9 +1062,9 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          queue_name = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          queue_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           no_wait = bits.bit(0) == 1
           self.new channel, reserved1, queue_name, no_wait
         end
@@ -1104,7 +1101,7 @@ module AvalancheMQ
       end
 
       def self.decode(channel, body)
-        method_id = body.read_uint16
+        method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         case method_id
         when  10_u16 then Qos.decode(channel, body)
         when  11_u16 then QosOk.decode(channel, body)
@@ -1168,10 +1165,10 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          exchange = io.read_short_string
-          routing_key = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          exchange = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           mandatory = bits.bit(0) == 1
           immediate = bits.bit(1) == 1
           self.new channel, reserved1, exchange, routing_key, mandatory, immediate
@@ -1215,11 +1212,11 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          consumer_tag = io.read_short_string
-          delivery_tag = io.read_uint64
-          redelivered = io.read_bool
-          exchange = io.read_short_string
-          routing_key = io.read_short_string
+          consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          redelivered = io.read_byte.not_nil! > 0
+          exchange = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, consumer_tag, delivery_tag, redelivered, exchange, routing_key
         end
       end
@@ -1242,9 +1239,9 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          queue = io.read_short_string
-          no_ack = io.read_bool
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          queue = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          no_ack = io.read_byte.not_nil! > 0
           self.new channel, reserved1, queue, no_ack
         end
       end
@@ -1310,7 +1307,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1
         end
       end
@@ -1336,8 +1333,8 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          delivery_tag = io.read_uint64
-          multiple = io.read_bool
+          delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          multiple = io.read_byte.not_nil! > 0
           self.new channel, delivery_tag, multiple
         end
       end
@@ -1360,8 +1357,8 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          delivery_tag = io.read_uint64
-          requeue = io.read_bool
+          delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          requeue = io.read_byte.not_nil! > 0
           self.new channel, delivery_tag, requeue
         end
       end
@@ -1388,8 +1385,8 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          delivery_tag = io.read_uint64
-          bits = io.read_byte
+          delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           multiple = bits.bit(0) == 1
           requeue = bits.bit(1) == 1
           self.new channel, delivery_tag, multiple, requeue
@@ -1418,9 +1415,9 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          prefetch_size = io.read_uint32
-          prefetch_count = io.read_uint16
-          global = io.read_bool
+          prefetch_size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          prefetch_count = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          global = io.read_byte.not_nil! > 0
           self.new channel, prefetch_size, prefetch_count, global
         end
       end
@@ -1472,15 +1469,15 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reserved1 = io.read_uint16
-          queue = io.read_short_string
-          consumer_tag = io.read_short_string
-          bits = io.read_byte
+          reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          queue = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          bits = io.read_byte || raise ::IO::EOFError.new
           no_local = bits.bit(0) == 1
           no_ack = bits.bit(1) == 1
           exclusive = bits.bit(2) == 1
           no_wait = bits.bit(3) == 1
-          args = io.read_table
+          args = Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, reserved1, queue, consumer_tag, no_local, no_ack, exclusive, no_wait, args
         end
       end
@@ -1505,7 +1502,8 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          self.new(channel, io.read_short_string)
+          tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          self.new(channel, tag)
         end
       end
 
@@ -1544,10 +1542,10 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          reply_code = io.read_uint16
-          reply_text = io.read_short_string
-          exchange_name = io.read_short_string
-          routing_key = io.read_short_string
+          reply_code = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          reply_text = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          exchange_name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(channel, reply_code, reply_text, exchange_name, routing_key)
         end
       end
@@ -1573,8 +1571,8 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          consumer_tag = io.read_short_string
-          no_wait = io.read_bool
+          consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
+          no_wait = io.read_byte.not_nil! > 0
           self.new(channel, consumer_tag, no_wait)
         end
       end
@@ -1599,7 +1597,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          consumer_tag = io.read_short_string
+          consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(channel, consumer_tag)
         end
       end
@@ -1662,7 +1660,7 @@ module AvalancheMQ
       end
 
       def self.decode(channel, body)
-        method_id = body.read_uint16
+        method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         case method_id
         when 10_u16 then Select.decode(channel, body)
         when 11_u16 then SelectOk.decode(channel, body)
@@ -1684,7 +1682,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          self.new channel, io.read_bool
+          self.new channel, io.read_byte.not_nil! > 0
         end
 
         def to_slice
@@ -1719,7 +1717,7 @@ module AvalancheMQ
       end
 
       def self.decode(channel, body)
-        method_id = body.read_uint16
+        method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         raise NotImplemented.new(channel, CLASS_ID, method_id)
       end
     end
