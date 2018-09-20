@@ -14,7 +14,7 @@ module AvalancheMQ
     end
 
     private def map_binding(b)
-      key_tuple = {b[:routing_key].as(String), b[:arguments].as(Hash(String, AMQP::Field))}
+      key_tuple = {b[:routing_key].as(String), b[:arguments].as?(Hash(String, AMQP::Field))}
       b.merge({properties_key: hash_key(key_tuple)})
     end
 
@@ -29,7 +29,7 @@ module AvalancheMQ
       binding
     end
 
-    private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)))
+    private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)?))
       hsh = Base64.urlsafe_encode(key[1].to_s)
       "#{key[0]}~#{hsh}"
     end

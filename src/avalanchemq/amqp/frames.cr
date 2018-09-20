@@ -51,7 +51,7 @@ module AvalancheMQ
             raise FrameDecodeError.new("Could not read the full body") if copied != size
             buffer.rewind
             BodyFrame.new(channel, size, buffer)
-          when Type::Header then HeaderFrame.decode(channel, io)
+          when Type::Header    then HeaderFrame.decode(channel, io)
           when Type::Heartbeat then HeartbeatFrame.new
           else
             raise NotImplemented.new channel, 0_u16, 0_u16
@@ -69,6 +69,7 @@ module AvalancheMQ
     end
 
     class FrameDecodeError < Exception; end
+
     class FrameEncodeError < Exception; end
 
     class NotImplemented < Exception

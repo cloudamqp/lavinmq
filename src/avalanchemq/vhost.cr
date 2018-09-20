@@ -395,13 +395,14 @@ module AvalancheMQ
           next unless e.durable
           next if e.auto_delete
           e.bindings.each do |bt, destinations|
+            args = bt[1] || Hash(String, AMQP::Field).new
             destinations.each do |d|
               f =
                 case d
                 when Queue
-                  AMQP::Queue::Bind.new(0_u16, 0_u16, d.name, e.name, bt[0], false, bt[1])
+                  AMQP::Queue::Bind.new(0_u16, 0_u16, d.name, e.name, bt[0], false, args)
                 when Exchange
-                  AMQP::Exchange::Bind.new(0_u16, 0_u16, e.name, d.name, bt[0], false, bt[1])
+                  AMQP::Exchange::Bind.new(0_u16, 0_u16, e.name, d.name, bt[0], false, args)
                 else raise "Unknown destination type #{d.class}"
                 end
               io.write f.to_slice

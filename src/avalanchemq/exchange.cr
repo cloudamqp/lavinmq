@@ -15,7 +15,7 @@ module AvalancheMQ
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
                    @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(Tuple(String, Hash(String, AMQP::Field)), Set(Queue | Exchange)).new do |h, k|
+      @bindings = Hash(Tuple(String, Hash(String, AMQP::Field)?), Set(Queue | Exchange)).new do |h, k|
         h[k] = Set(Queue | Exchange).new
       end
       @log = @vhost.log.dup
@@ -121,9 +121,9 @@ module AvalancheMQ
 
     abstract def type : String
     abstract def bind(destination : Queue | Exchange, routing_key : String,
-                      headers : Hash(String, AMQP::Field)?) : {String, Hash(String, AMQP::Field)}
+                      headers : Hash(String, AMQP::Field)?)
     abstract def unbind(destination : Queue | Exchange, routing_key : String,
-                        headers : Hash(String, AMQP::Field)?) : Nil
+                        headers : Hash(String, AMQP::Field)?)
     abstract def matches(routing_key : String, headers : Hash(String, AMQP::Field)?) : Set(Queue | Exchange)
   end
 
@@ -133,18 +133,16 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      key = {routing_key, Hash(String, AMQP::Field).new}
-      @bindings[key] << destination
-      key
+      @bindings[{routing_key, nil}] << destination
     end
 
     def unbind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, Hash(String, AMQP::Field).new}].delete destination
+      @bindings[{routing_key, nil}].delete destination
       after_unbind
     end
 
     def matches(routing_key, headers = nil)
-      @bindings[{routing_key, Hash(String, AMQP::Field).new}]
+      @bindings[{routing_key, nil}]
     end
   end
 
@@ -154,18 +152,16 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      key = {"", Hash(String, AMQP::Field).new}
-      @bindings[key] << destination
-      key
+      @bindings[{"", nil}] << destination
     end
 
     def unbind(destination, routing_key, headers = nil)
-      @bindings[{"", Hash(String, AMQP::Field).new}].delete destination
+      @bindings[{"", nil}].delete destination
       after_unbind
     end
 
     def matches(routing_key, headers = nil)
-      @bindings[{"", Hash(String, AMQP::Field).new}]
+      @bindings[{"", nil}]
     end
   end
 
@@ -175,13 +171,11 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      key = {routing_key, Hash(String, AMQP::Field).new}
-      @bindings[key] << destination
-      key
+      @bindings[{routing_key, nil}] << destination
     end
 
     def unbind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, Hash(String, AMQP::Field).new}].delete destination
+      @bindings[{routing_key, nil}].delete destination
       after_unbind
     end
 
@@ -224,17 +218,15 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers)
-      args = @arguments.merge(headers)
+      args = headers ? @arguments.merge(headers) : @arguments
       unless (args.has_key?("x-match") && args.size >= 2) || args.size == 1
         raise ArgumentError.new("Arguments required")
       end
-      key = {"", args}
-      @bindings[key] << destination
-      key
+      @bindings[{"", args}] << destination
     end
 
     def unbind(destination, routing_key, headers)
-      args = @arguments.merge(headers)
+      args = headers ? @arguments.merge(headers) : @arguments
       @bindings[{"", args}].delete destination
       after_unbind
     end
@@ -244,6 +236,7 @@ module AvalancheMQ
       return matches unless headers
       @bindings.each do |bt, queues|
         args = bt[1]
+        next unless args
         case args["x-match"]
         when "any"
           if headers.any? { |k, v| k != "x-match" && args.has_key?(k) && args[k] == v }

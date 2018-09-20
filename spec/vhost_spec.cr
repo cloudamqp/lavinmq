@@ -46,6 +46,6 @@ describe AvalancheMQ::Server do
 
     close_servers
     TestHelpers.setup
-    s.vhosts["test"].exchanges["e"].bindings[{"q", {} of String => AvalancheMQ::AMQP::Field}].size.should eq 1
+    s.vhosts["test"].exchanges["e"].bindings[{"q", nil}].size.should eq 1
   end
 end
