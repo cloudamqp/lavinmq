@@ -18,27 +18,28 @@ module AvalancheMQ
       private def upstream_read_loop
         consume
         loop do
-          frame = AMQP::Frame.decode(@socket, @buffer)
-          @log.debug { "Read #{frame.inspect}" }
-          case frame
-          when AMQP::Basic::Deliver
-            @pub.send_basic_publish(frame, @federated_q.name)
-          when AMQP::HeaderFrame
-            @pub.write(frame)
-          when AMQP::BodyFrame
-            @pub.write(frame)
-          when AMQP::Connection::CloseOk
-            break
-          when AMQP::Connection::Close
-            write AMQP::Connection::CloseOk.new
-            raise UnexpectedFrame.new(frame)
-          when AMQP::Basic::Cancel
-            write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
-          when AMQP::Channel::Close
-            write AMQP::Channel::CloseOk.new(frame.channel)
-          else
-            raise UnexpectedFrame.new(frame)
-          end
+          AMQP::Frame.decode(@socket, @buffer) do |frame|
+            @log.debug { "Read #{frame.inspect}" }
+            case frame
+            when AMQP::Basic::Deliver
+              @pub.send_basic_publish(frame, @federated_q.name)
+            when AMQP::HeaderFrame
+              @pub.write(frame)
+            when AMQP::BodyFrame
+              @pub.write(frame)
+            when AMQP::Connection::CloseOk
+              false
+            when AMQP::Connection::Close
+              write AMQP::Connection::CloseOk.new
+              raise UnexpectedFrame.new(frame)
+            when AMQP::Basic::Cancel
+              write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            when AMQP::Channel::Close
+              write AMQP::Channel::CloseOk.new(frame.channel)
+            else
+              raise UnexpectedFrame.new(frame)
+            end
+          end || break
         end
       ensure
         @socket.close
@@ -46,7 +47,7 @@ module AvalancheMQ
 
       private def set_prefetch
         write AMQP::Basic::Qos.new(1_u16, 0_u32, @upstream.prefetch, false)
-        AMQP::Frame.decode(@socket, @buffer).as(AMQP::Basic::QosOk)
+        AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Basic::QosOk) }
       end
 
       private def consume
@@ -54,14 +55,12 @@ module AvalancheMQ
         write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
           false, true, true, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket, @buffer)
-        raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
+        frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Queue::DeclareOk) }.as(AMQP::Queue::DeclareOk)
         queue = frame.queue_name
         no_ack = @upstream.ack_mode == AckMode::NoAck
         write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "downstream_consumer",
           false, no_ack, false, false, {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket, @buffer)
-        raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Basic::ConsumeOk)
+        AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Basic::ConsumeOk) }
       end
 
       def ack(delivery_tag)

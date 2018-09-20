@@ -38,33 +38,34 @@ module AvalancheMQ
       private def amqp_read_loop
         loop do
           Fiber.yield if @out.full?
-          frame = AMQP::Frame.decode(@socket, @buffer)
-          @log.debug { "Read socket #{frame.inspect}" }
-          case frame
-          when AMQP::Basic::Nack
-            next unless @ack_mode == AckMode::OnConfirm
-            if frame.multiple
-              with_multiple(frame.delivery_tag) { |t| reject(t) }
+          AMQP::Frame.decode(@socket, @buffer) do |frame|
+            @log.debug { "Read socket #{frame.inspect}" }
+            case frame
+            when AMQP::Basic::Nack
+              next unless @ack_mode == AckMode::OnConfirm
+              if frame.multiple
+                with_multiple(frame.delivery_tag) { |t| reject(t) }
+              else
+                reject(@delivery_tags[frame.delivery_tag])
+              end
+            when AMQP::Basic::Return
+              reject(@message_count) if @ack_mode == AckMode::OnConfirm
+            when AMQP::Basic::Ack
+              next unless @ack_mode == AckMode::OnConfirm
+              if frame.multiple
+                with_multiple(frame.delivery_tag) { |t| ack(t) }
+              else
+                ack(@delivery_tags[frame.delivery_tag])
+              end
+            when AMQP::Connection::CloseOk
+              false
+            when AMQP::Connection::Close
+              write AMQP::Connection::CloseOk.new
+              false
             else
-              reject(@delivery_tags[frame.delivery_tag])
+              raise UnexpectedFrame.new(frame)
             end
-          when AMQP::Basic::Return
-            reject(@message_count) if @ack_mode == AckMode::OnConfirm
-          when AMQP::Basic::Ack
-            next unless @ack_mode == AckMode::OnConfirm
-            if frame.multiple
-              with_multiple(frame.delivery_tag) { |t| ack(t) }
-            else
-              ack(@delivery_tags[frame.delivery_tag])
-            end
-          when AMQP::Connection::CloseOk
-            break
-          when AMQP::Connection::Close
-            write AMQP::Connection::CloseOk.new
-            break
-          else
-            raise UnexpectedFrame.new(frame)
-          end
+          end || break
         end
       ensure
         @log.debug "Closing socket"
@@ -103,7 +104,7 @@ module AvalancheMQ
 
       private def set_confirm
         write AMQP::Confirm::Select.new(1_u16, false)
-        AMQP::Frame.decode(@socket, @buffer).as(AMQP::Confirm::SelectOk)
+        AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Confirm::SelectOk) }
       end
 
       private def with_multiple(delivery_tag)

@@ -28,9 +28,14 @@ module AvalancheMQ
     def self.close_on_ok(socket, log)
       buffer = IO::Memory.new
       loop do
-        frame = AMQP::Frame.decode(socket, buffer)
-        break frame if frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
-        log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+        AMQP::Frame.decode(socket, buffer) do |frame|
+          log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+          if frame.is_a?(AMQP::BodyFrame)
+            log.debug { "Skipping body" }
+            frame.body.seek(frame.body_size, IO::Seek::Current)
+          end
+          frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
+        end && break
       end
     rescue e : AMQP::FrameDecodeError
       log.warn { "#{e.inspect} when waiting for CloseOk" }
@@ -56,6 +61,10 @@ module AvalancheMQ
         yield ch
       else
         @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+        if frame.is_a?(AMQP::BodyFrame)
+          log.debug { "Skipping body" }
+          frame.body.seek(frame.body_size, IO::Seek::Current)
+        end
       end
     end
 

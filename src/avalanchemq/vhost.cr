@@ -351,7 +351,9 @@ module AvalancheMQ
         buffer = IO::Memory.new
         loop do
           begin
-            apply AMQP::Frame.decode(io, buffer), loading: true
+            AMQP::Frame.decode(io, buffer) do |frame|
+              apply frame, loading: true
+            end
           rescue ex : AMQP::FrameDecodeError
             break if ex.cause.is_a? IO::EOFError
             raise ex

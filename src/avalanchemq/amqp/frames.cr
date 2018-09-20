@@ -36,7 +36,7 @@ module AvalancheMQ
         io.to_slice
       end
 
-      def self.decode(io, buffer : ::IO::Memory) : Frame
+      def self.decode(io, buffer : ::IO::Memory, &block : Frame -> _)
         type = Type.new(io.read_byte || raise(::IO::EOFError.new))
         channel = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
         size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
@@ -45,23 +45,20 @@ module AvalancheMQ
           when Type::Method   then MethodFrame.decode(channel, io)
           when Type::Header    then HeaderFrame.decode(channel, io)
           when Type::Heartbeat then HeartbeatFrame.new
-          when Type::Body
-            copied = ::IO.copy io, buffer, size
-            raise FrameDecodeError.new("Could not read the full body") if copied != size
-            buffer.rewind
-            BodyFrame.new(channel, size, buffer)
+          when Type::Body      then BodyFrame.new(channel, size, io)
           else
             raise NotImplemented.new channel, 0_u16, 0_u16
           end
+        result = yield frame
         frame_end = io.read_byte || raise FrameDecodeError.new("No frame ending")
         if frame_end != 206
           raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
         end
-        frame
+        result
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
       ensure
-        buffer.clear unless frame.is_a? BodyFrame
+        buffer.clear
       end
     end
 

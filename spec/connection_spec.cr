@@ -6,12 +6,17 @@ class TestConnection < AvalancheMQ::Connection
     spawn do
       buff = IO::Memory.new
       loop do
-        frame = AvalancheMQ::AMQP::Frame.decode(@socket, buff)
-        case frame
-        when AvalancheMQ::AMQP::Connection::CloseOk
-          @socket.close
-          break
-        end
+        AvalancheMQ::AMQP::Frame.decode(@socket, buff) do |frame|
+          case frame
+          when AvalancheMQ::AMQP::BodyFrame
+            frame.body.seek(frame.body_size, IO::Seek::Current)
+            true
+          when AvalancheMQ::AMQP::Connection::CloseOk
+            @socket.close
+            false
+          else true
+          end
+        end || break
       end
     end
   end

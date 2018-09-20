@@ -26,27 +26,26 @@ module AvalancheMQ
         consume
         loop do
           Fiber.yield if @out.full?
-          frame = AMQP::Frame.decode(@socket, @buffer)
-          @log.debug { "Read socket #{frame.inspect}" }
-          case frame
-          when AMQP::HeaderFrame
-            @out.send(frame)
-          when AMQP::Basic::Deliver
-            @out.send(frame)
-          when AMQP::BodyFrame
-            @out.send(frame)
-            after_publish if @ack_mode == AckMode::NoAck
-          when AMQP::Connection::CloseOk
-            break
-          when AMQP::Connection::Close
-            raise UnexpectedFrame.new(frame) unless @out.closed?
-            write AMQP::Connection::CloseOk.new
-            break
-          else
-            raise UnexpectedFrame.new(frame)
-          end
-        ensure
-          @buffer.clear if frame.is_a? AMQP::BodyFrame
+          AMQP::Frame.decode(@socket, @buffer) do |frame|
+            @log.debug { "Read socket #{frame.inspect}" }
+            case frame
+            when AMQP::HeaderFrame
+              @out.send(frame)
+            when AMQP::Basic::Deliver
+              @out.send(frame)
+            when AMQP::BodyFrame
+              @out.send(frame)
+              after_publish if @ack_mode == AckMode::NoAck
+            when AMQP::Connection::CloseOk
+              false
+            when AMQP::Connection::Close
+              raise UnexpectedFrame.new(frame) unless @out.closed?
+              write AMQP::Connection::CloseOk.new
+              false
+            else
+              raise UnexpectedFrame.new(frame)
+            end
+          end || break
         end
       ensure
         @log.debug "Closing socket"
@@ -87,7 +86,7 @@ module AvalancheMQ
 
       private def set_prefetch
         write AMQP::Basic::Qos.new(1_u16, 0_u32, @source.prefetch, false)
-        AMQP::Frame.decode(@socket, @buffer).as(AMQP::Basic::QosOk)
+        AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Basic::QosOk) }
       end
 
       private def consume
@@ -96,7 +95,7 @@ module AvalancheMQ
         write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
           false, true, true, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket, @buffer)
+        frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Queue::DeclareOk) }
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
         queue = frame.queue_name
         @message_count = frame.message_count
@@ -106,14 +105,14 @@ module AvalancheMQ
             @source.exchange_key || "",
             false,
             {} of String => AMQP::Field)
-          frame = AMQP::Frame.decode(@socket, @buffer)
+          frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Queue::DeclareOk) }
           raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::BindOk)
         end
         no_ack = @ack_mode == AckMode::NoAck
         write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket, @buffer)
+        frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Basic::ConsumeOk) }
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Basic::ConsumeOk)
       end
     end
