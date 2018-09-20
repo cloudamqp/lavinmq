@@ -28,7 +28,7 @@ module AvalancheMQ
             when AMQP::BodyFrame
               @pub.write(frame)
             when AMQP::Connection::CloseOk
-              false
+              raise ClosedConnection.new
             when AMQP::Connection::Close
               write AMQP::Connection::CloseOk.new
               raise UnexpectedFrame.new(frame)
@@ -39,11 +39,15 @@ module AvalancheMQ
             else
               raise UnexpectedFrame.new(frame)
             end
-          end || break
+          end
         end
+      rescue ClosedConnection
+        nil
       ensure
         @socket.close
       end
+
+      class ClosedConnection < Exception; end
 
       private def set_prefetch
         write AMQP::Basic::Qos.new(1_u16, 0_u32, @upstream.prefetch, false)

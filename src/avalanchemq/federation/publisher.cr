@@ -16,8 +16,11 @@ module AvalancheMQ
         } of String => AMQP::Field
         @client = @upstream.vhost.direct_client(@out_ch, client_properties)
         set_confirm if @upstream.ack_mode == AckMode::OnConfirm
-        @message_count = 0_u32
+        @message_count = 0_u64
         @delivery_tags = Hash(UInt64, UInt64).new
+        @last_delivery_tag = 0_u64
+        @last_message_size = 0_u64
+        @last_message_pos = 0_u64
       end
 
       def start(@consumer : Consumer)
@@ -88,15 +91,25 @@ module AvalancheMQ
         @log.debug "Send #{pub_frame.inspect}"
         @client.write pub_frame
         if mandatory
-          @message_count += 1
-          @delivery_tags[@message_count.to_u64] = frame.delivery_tag
+          @delivery_tags[@message_count += 1] = frame.delivery_tag
         elsif @upstream.ack_mode == AckMode::OnPublish
-          @consumer.not_nil!.ack(frame.delivery_tag)
+          #@consumer.not_nil!.ack(frame.delivery_tag)
+          @last_delivery_tag = frame.delivery_tag
         end
       end
 
       def write(frame)
         @client.write(frame)
+        case frame
+        when AMQP::HeaderFrame
+          @last_message_size = frame.body_size
+          @last_message_pos = 0_u64
+        when AMQP::BodyFrame
+          @last_message_pos += frame.body_size
+          if @upstream.ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
+            @consumer.not_nil!.ack(@last_delivery_tag)
+          end
+        end
       end
 
       def close

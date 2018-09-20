@@ -48,15 +48,18 @@ module AvalancheMQ
               else
                 reject(@delivery_tags[frame.delivery_tag])
               end
+              true
             when AMQP::Basic::Return
               reject(@message_count) if @ack_mode == AckMode::OnConfirm
+              true
             when AMQP::Basic::Ack
-              next unless @ack_mode == AckMode::OnConfirm
+              next true unless @ack_mode == AckMode::OnConfirm
               if frame.multiple
                 with_multiple(frame.delivery_tag) { |t| ack(t) }
               else
                 ack(@delivery_tags[frame.delivery_tag])
               end
+              true
             when AMQP::Connection::CloseOk
               false
             when AMQP::Connection::Close

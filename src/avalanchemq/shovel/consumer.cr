@@ -31,11 +31,14 @@ module AvalancheMQ
             case frame
             when AMQP::HeaderFrame
               @out.send(frame)
+              true
             when AMQP::Basic::Deliver
               @out.send(frame)
+              true
             when AMQP::BodyFrame
               @out.send(frame)
               after_publish if @ack_mode == AckMode::NoAck
+              true
             when AMQP::Connection::CloseOk
               false
             when AMQP::Connection::Close

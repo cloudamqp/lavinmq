@@ -119,6 +119,7 @@ module AvalancheMQ
         end
         delivered ||= @client.vhost.publish(msg, immediate: @next_publish_immediate)
         unless delivered
+          message_body.skip(@next_msg_size.not_nil!)
           if @next_publish_immediate
             r_frame = AMQP::Basic::Return.new(@id, 313_u16, "No consumers",
               msg.exchange_name, msg.routing_key)
