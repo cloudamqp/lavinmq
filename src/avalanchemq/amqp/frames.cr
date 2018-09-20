@@ -339,7 +339,7 @@ module AvalancheMQ
         def self.decode(io)
           vhost = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           reserved1 = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          reserved2 = io.read_byte.not_nil! > 0
+          reserved2 = (io.read_byte || raise ::IO::EOFError.new) > 0
           Open.new(vhost, reserved1, reserved2)
         end
       end
@@ -591,7 +591,7 @@ module AvalancheMQ
           reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           name = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           type = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          bits = io.read_byte.not_nil!
+          bits = io.read_byte || raise ::IO::EOFError.new
           passive = bits.bit(0) == 1
           durable = bits.bit(1) == 1
           auto_delete = bits.bit(2) == 1
@@ -1214,7 +1214,7 @@ module AvalancheMQ
         def self.decode(channel, io)
           consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          redelivered = io.read_byte.not_nil! > 0
+          redelivered = (io.read_byte || raise ::IO::EOFError.new) > 0
           exchange = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           routing_key = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new channel, consumer_tag, delivery_tag, redelivered, exchange, routing_key
@@ -1241,7 +1241,7 @@ module AvalancheMQ
         def self.decode(channel, io)
           reserved1 = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
           queue = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          no_ack = io.read_byte.not_nil! > 0
+          no_ack = (io.read_byte || raise ::IO::EOFError.new) > 0
           self.new channel, reserved1, queue, no_ack
         end
       end
@@ -1334,7 +1334,7 @@ module AvalancheMQ
 
         def self.decode(channel, io)
           delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          multiple = io.read_byte.not_nil! > 0
+          multiple = (io.read_byte || raise ::IO::EOFError.new) > 0
           self.new channel, delivery_tag, multiple
         end
       end
@@ -1358,7 +1358,7 @@ module AvalancheMQ
 
         def self.decode(channel, io)
           delivery_tag = UInt64.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          requeue = io.read_byte.not_nil! > 0
+          requeue = (io.read_byte || raise ::IO::EOFError.new) > 0
           self.new channel, delivery_tag, requeue
         end
       end
@@ -1417,7 +1417,7 @@ module AvalancheMQ
         def self.decode(channel, io)
           prefetch_size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
           prefetch_count = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          global = io.read_byte.not_nil! > 0
+          global = (io.read_byte || raise ::IO::EOFError.new) > 0
           self.new channel, prefetch_size, prefetch_count, global
         end
       end
@@ -1572,7 +1572,7 @@ module AvalancheMQ
 
         def self.decode(channel, io)
           consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
-          no_wait = io.read_byte.not_nil! > 0
+          no_wait = (io.read_byte || raise ::IO::EOFError.new) > 0
           self.new(channel, consumer_tag, no_wait)
         end
       end
@@ -1682,7 +1682,7 @@ module AvalancheMQ
         end
 
         def self.decode(channel, io)
-          self.new channel, io.read_byte.not_nil! > 0
+          self.new channel, (io.read_byte || raise ::IO::EOFError.new) > 0
         end
 
         def to_slice
