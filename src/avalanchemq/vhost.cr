@@ -119,7 +119,9 @@ module AvalancheMQ
     private def open_wfile : MessageFile
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      MessageFile.open(File.join(@data_dir, filename), "a")
+      wfile = MessageFile.open(File.join(@data_dir, filename), "a")
+      wfile.seek(0, IO::Seek::End)
+      wfile
     end
 
     def to_json(json : JSON::Builder)
