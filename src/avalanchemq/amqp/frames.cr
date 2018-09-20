@@ -43,10 +43,12 @@ module AvalancheMQ
         frame =
           case type
           when Type::Method
-            ::IO.copy io, buffer, size
+            copied = ::IO.copy io, buffer, size
+            raise FrameDecodeError.new("Could not read the full body") if copied != size
             MethodFrame.decode(channel, buffer.to_slice)
           when Type::Body
-            ::IO.copy io, buffer, size
+            copied = ::IO.copy io, buffer, size
+            raise FrameDecodeError.new("Could not read the full body") if copied != size
             buffer.rewind
             BodyFrame.new(channel, size, buffer)
           when Type::Header then HeaderFrame.decode(channel, io)
@@ -67,6 +69,7 @@ module AvalancheMQ
     end
 
     class FrameDecodeError < Exception; end
+    class FrameEncodeError < Exception; end
 
     class NotImplemented < Exception
       getter channel, class_id, method_id
@@ -1644,7 +1647,8 @@ module AvalancheMQ
 
       def to_io(io, format)
         wrap(io, @body_size, format) do
-          ::IO.copy(@body, io, @body_size)
+          copied = ::IO.copy(@body, io, @body_size)
+          raise FrameEncodeError.new("Could not write the full body") if copied != @body_size
         end
       end
 
