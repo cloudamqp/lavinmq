@@ -1651,14 +1651,6 @@ module AvalancheMQ
           raise FrameEncodeError.new("Could not write the full body") if copied != @body_size
         end
       end
-
-      def inspect(io)
-        io << self.class.name
-        io << "("
-        io << "@body_size=" << @body_size
-        io << ")"
-        io
-      end
     end
 
     abstract struct Confirm < MethodFrame
