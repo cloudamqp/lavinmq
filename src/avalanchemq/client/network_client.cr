@@ -359,7 +359,7 @@ module AvalancheMQ
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             if frame.is_a?(AMQP::BodyFrame)
               log.debug { "Skipping body" }
-              frame.body.seek(frame.body_size, IO::Seek::Current)
+              frame.body.skip(frame.body_size)
             end
             next
           end

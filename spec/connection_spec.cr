@@ -9,7 +9,7 @@ class TestConnection < AvalancheMQ::Connection
         AvalancheMQ::AMQP::Frame.decode(@socket, buff) do |frame|
           case frame
           when AvalancheMQ::AMQP::BodyFrame
-            frame.body.seek(frame.body_size, IO::Seek::Current)
+            frame.body.skip(frame.body_size)
             true
           when AvalancheMQ::AMQP::Connection::CloseOk
             @socket.close
