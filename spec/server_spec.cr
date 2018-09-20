@@ -589,4 +589,18 @@ describe AvalancheMQ::Server do
       msgs.size.should eq 1
     end
   end
+
+  it "sets correct message timestamp" do
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("")
+      x = ch.exchange("", "direct")
+      t = Time.utc_now.epoch
+      x.publish AMQP::Message.new("m1"), q.name
+      msg = nil
+      q.subscribe(no_ack: true) { |m| msg = m }
+      wait_for { msg }
+      msg.not_nil!.properties.timestamp.epoch.should be_close(t, 1)
+    end
+  end
 end
