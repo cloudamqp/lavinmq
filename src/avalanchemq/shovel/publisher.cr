@@ -3,12 +3,15 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Publisher < Connection
-      def initialize(@destination : Destination, @in : Channel::Buffered(AMQP::Frame?),
-                     @out : Channel::Buffered(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
+      def initialize(@destination : Destination, @in : Channel(AMQP::Frame?),
+                     @out : Channel(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
         @log = log.dup
         @log.progname += " publisher"
         @message_count = 0_u64
         @delivery_tags = Hash(UInt64, UInt64).new
+        @last_delivery_tag = 0_u64
+        @last_message_size = 0_u64
+        @last_message_pos = 0_u64
         super(@destination.uri, @log)
         set_confirm if @ack_mode == AckMode::OnConfirm
       end
@@ -28,7 +31,7 @@ module AvalancheMQ
           @message_count += 1
           @delivery_tags[@message_count] = frame.delivery_tag
         when AckMode::OnPublish
-          ack(frame.delivery_tag)
+          @last_delivery_tag = frame.delivery_tag
         end
       end
 
@@ -76,10 +79,16 @@ module AvalancheMQ
           when AMQP::Basic::Deliver
             send_basic_publish(frame)
           when AMQP::HeaderFrame
+            @last_message_size = frame.body_size
+            @last_message_pos = 0_u64
             @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           when AMQP::BodyFrame
             @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
             @socket.flush
+            @last_message_pos += frame.body_size
+            if @ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
+              ack(@last_delivery_tag)
+            end
           when nil
             break
           else

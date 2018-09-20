@@ -3,8 +3,8 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Consumer < Connection
-      def initialize(@source : Source, @in : Channel::Buffered(AMQP::Frame?),
-                     @out : Channel::Buffered(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
+      def initialize(@source : Source, @in : Channel(AMQP::Frame?),
+                     @out : Channel(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
         @log = log.dup
         @log.progname += " consumer"
         @message_counter = 0_u32
@@ -45,6 +45,8 @@ module AvalancheMQ
           else
             raise UnexpectedFrame.new(frame)
           end
+        ensure
+          @buffer.clear if frame.is_a? AMQP::BodyFrame
         end
       ensure
         @log.debug "Closing socket"

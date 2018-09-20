@@ -20,8 +20,8 @@ module AvalancheMQ
                    @ack_mode = DEFAULT_ACK_MODE, @reconnect_delay = DEFUALT_RECONNECT_DELAY)
       @log = @vhost.log.dup
       @log.progname += " shovel=#{@name}"
-      @channel_a = Channel::Buffered(AMQP::Frame?).new(@source.prefetch.to_i32)
-      @channel_b = Channel::Buffered(AMQP::Frame?).new(@source.prefetch.to_i32)
+      @channel_a = Channel(AMQP::Frame?).new
+      @channel_b = Channel(AMQP::Frame?).new
     end
 
     def self.merge_defaults(config : JSON::Any)
@@ -45,7 +45,7 @@ module AvalancheMQ
         rescue ex
           unless stopped?
             @state -= 1
-            @log.warn "Shovel consumer failure: #{ex.message}"
+            @log.warn "Shovel consumer failure: #{ex.inspect_with_backtrace}"
           end
           sub.try &.close("Shovel stopped")
           break if stopped?
