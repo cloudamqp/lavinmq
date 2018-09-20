@@ -525,6 +525,8 @@ describe AvalancheMQ::Server do
       acks.should eq 2
       msgs.size.should eq 1
     end
+  ensure
+    s.vhosts["/"].delete_policy("ml")
   end
 
   it "supports alternate-exchange" do

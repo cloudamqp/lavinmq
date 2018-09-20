@@ -48,6 +48,7 @@ describe AvalancheMQ::VHost do
     vhost.add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 11_i8)
     Fiber.yield
     vhost.queues["test"].policy.not_nil!.name.should eq "ml"
+  ensure
     vhost.delete_policy("ml")
   end
 
