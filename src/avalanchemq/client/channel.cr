@@ -100,11 +100,12 @@ module AvalancheMQ
       private def finish_publish(message_body)
         delivered = false
         ts = Time.utc_now
-        @next_msg_props.not_nil!.timestamp = ts
+        props = @next_msg_props.not_nil!
+        props.timestamp = ts unless props.timestamp
         msg = Message.new(ts.epoch_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
-          @next_msg_props.not_nil!,
+          props,
           @next_msg_size.not_nil!,
           message_body)
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
