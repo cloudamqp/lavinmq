@@ -18,8 +18,9 @@ module AvalancheMQ
   end
 
   struct Envelope
-    getter segment_position, message
-    def initialize(@segment_position : SegmentPosition, @message : Message)
+    getter segment_position, message, redelivered
+
+    def initialize(@segment_position : SegmentPosition, @message : Message, @redelivered = false)
     end
   end
 end

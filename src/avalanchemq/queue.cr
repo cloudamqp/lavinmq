@@ -27,6 +27,7 @@ module AvalancheMQ
     @closed = false
     @deleted = false
     @exclusive_consumer = false
+    @requeued = Set(SegmentPosition).new
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers
     getter? closed
@@ -175,8 +176,9 @@ module AvalancheMQ
     private def deliver_to_consumer(c)
       @log.debug { "Getting a new message" }
       if env = get(c.no_ack)
-        @log.debug { "Delivering #{env.segment_position} to consumer" }
-        if c.deliver(env.message, env.segment_position, self)
+        sp = env.segment_position
+        @log.debug { "Delivering #{sp} to consumer" }
+        if c.deliver(env.message, sp, self, env.redelivered)
           @log.debug { "Delivery done" }
         else
           @log.debug { "Delivery failed" }
@@ -376,7 +378,9 @@ module AvalancheMQ
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
       msg = Message.new(ts, ex, rk, pr, sz, seg)
-      Envelope.new(sp, msg)
+      redelivered = @requeued.includes?(sp)
+      @requeued.delete(sp) if redelivered
+      Envelope.new(sp, msg, redelivered)
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
@@ -400,6 +404,7 @@ module AvalancheMQ
             i = @ready.index { |rsp| rsp > sp } || 0
             @ready.insert(i, sp)
           end
+          @requeued << sp
           @message_available.send nil unless @message_available.full?
         else
           expire_msg(sp, :rejected)
@@ -427,7 +432,8 @@ module AvalancheMQ
       if @consumers.delete consumer
         @exclusive_consumer = false if consumer.exclusive
         consumer.unacked.each { |sp| reject(sp, true) }
-        @log.debug { "Removing consumer (#{@consumers.size} left)" }
+        @log.debug { "Removing consumer with #{consumer.unacked.size} unacked messages \
+                      (#{@consumers.size} left)" }
         notify_observers(:rm_consumer, consumer)
         delete if @consumers.size == 0 && @auto_delete
       end

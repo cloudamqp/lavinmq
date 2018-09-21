@@ -186,7 +186,7 @@ module AvalancheMQ
           elsif env = q.get(frame.no_ack)
             delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
             get_ok = AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
-              false, env.message.exchange_name,
+              env.redelivered, env.message.exchange_name,
               env.message.routing_key, q.message_count)
             deliver(get_ok, env.message)
           else

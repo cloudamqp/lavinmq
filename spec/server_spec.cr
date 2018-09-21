@@ -59,6 +59,7 @@ describe AvalancheMQ::Server do
       m1.try { |m| m.reject(requeue: true) }
       m1 = q.get(no_ack: false)
       m1.to_s.should eq("m1")
+      m1.not_nil!.redelivered.should be_true
     end
   end
 
