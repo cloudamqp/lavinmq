@@ -358,10 +358,10 @@ module AvalancheMQ
           if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             if frame.is_a?(AMQP::BodyFrame)
-              log.debug { "Skipping body" }
+              @log.debug "Skipping body"
               frame.body.skip(frame.body_size)
             end
-            next
+            next true
           end
           process_frame(frame)
         end || break
@@ -428,8 +428,10 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       @write_lock.synchronize do
+        @log.debug { "Sending #{frame.inspect}" }
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+        @log.debug { "Sending #{header.inspect}" }
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         pos = 0
         while pos < msg.size
@@ -439,6 +441,7 @@ module AvalancheMQ
           body.to_io(@socket, ::IO::ByteFormat::NetworkEndian)
           pos += length
         end
+        @log.debug { "Flushing" }
         @socket.flush
       end
       true
@@ -451,6 +454,9 @@ module AvalancheMQ
       @socket.close
       cleanup
       false
+    rescue ex
+      @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
+      raise ex
     end
 
     private def heartbeat_loop

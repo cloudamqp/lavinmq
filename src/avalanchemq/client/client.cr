@@ -31,7 +31,7 @@ module AvalancheMQ
         AMQP::Frame.decode(socket, buffer) do |frame|
           log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           if frame.is_a?(AMQP::BodyFrame)
-            log.debug { "Skipping body" }
+            log.debug "Skipping body"
             frame.body.skip(frame.body_size)
           end
           frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
@@ -62,7 +62,7 @@ module AvalancheMQ
       else
         @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
         if frame.is_a?(AMQP::BodyFrame)
-          log.debug { "Skipping body" }
+          @log.debug "Skipping body"
           frame.body.skip(frame.body_size)
         end
       end

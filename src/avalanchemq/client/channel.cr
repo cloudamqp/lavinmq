@@ -65,6 +65,7 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
+        @log.debug { "Start publish #{frame.inspect}" }
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -72,6 +73,7 @@ module AvalancheMQ
       end
 
       def next_msg_headers(frame)
+        @log.debug { "Next msg headers: #{frame.inspect}" }
         if direct_reply_request?(frame.properties.reply_to)
           if @client.direct_reply_channel
             frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
@@ -86,18 +88,20 @@ module AvalancheMQ
       end
 
       def add_content(frame)
+        @log.debug { "Adding content #{frame.inspect}" }
         if frame.body_size == @next_msg_size
           finish_publish(frame.body)
         else
           IO.copy(frame.body, @next_msg_body, frame.body_size)
-        end
-        if @next_msg_body.pos == @next_msg_size
-          @next_msg_body.rewind
-          finish_publish(@next_msg_body)
+          if @next_msg_body.pos == @next_msg_size
+            @next_msg_body.rewind
+            finish_publish(@next_msg_body)
+          end
         end
       end
 
       private def finish_publish(message_body)
+        @log.debug { "Finishing publish #{message_body.inspect}" }
         delivered = false
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
@@ -106,7 +110,7 @@ module AvalancheMQ
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
           props,
-          @next_msg_size.not_nil!,
+          @next_msg_size,
           message_body)
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
@@ -119,26 +123,27 @@ module AvalancheMQ
         end
         delivered ||= @client.vhost.publish(msg, immediate: @next_publish_immediate)
         unless delivered
-          message_body.skip(@next_msg_size.not_nil!)
           if @next_publish_immediate
-            r_frame = AMQP::Basic::Return.new(@id, 313_u16, "No consumers",
-              msg.exchange_name, msg.routing_key)
-            deliver(r_frame, msg)
+            retrn = AMQP::Basic::Return.new(@id, 313_u16, "No consumers", msg.exchange_name, msg.routing_key)
+            deliver(retrn, msg)
           elsif @next_publish_mandatory
-            r_frame = AMQP::Basic::Return.new(@id, 312_u16, "No Route",
-              msg.exchange_name, msg.routing_key)
-            deliver(r_frame, msg)
+            retrn = AMQP::Basic::Return.new(@id, 312_u16, "No Route", msg.exchange_name, msg.routing_key)
+            deliver(retrn, msg)
+          else
+            @log.debug "Skipping body"
+            message_body.skip(@next_msg_size)
           end
         end
         if @confirm
           @confirm_count += 1
           @client.send AMQP::Basic::Ack.new(@id, @confirm_count, false)
         end
-      rescue e : Exception
+      rescue ex
         @client.send AMQP::Basic::Nack.new(@id, @confirm_count, false, false) if @confirm
-        raise e
+        raise ex
       ensure
-        @next_msg_body.not_nil!.clear
+        @next_msg_size = 0_u64
+        @next_msg_body.clear
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
       end
