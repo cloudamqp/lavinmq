@@ -26,9 +26,8 @@ module AvalancheMQ
     @running = true
 
     def self.close_on_ok(socket, log)
-      buffer = IO::Memory.new
       loop do
-        AMQP::Frame.decode(socket, buffer) do |frame|
+        AMQP::Frame.decode(socket) do |frame|
           log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           if frame.is_a?(AMQP::BodyFrame)
             log.debug "Skipping body"

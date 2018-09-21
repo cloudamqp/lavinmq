@@ -4,9 +4,8 @@ require "../src/avalanchemq/connection"
 class TestConnection < AvalancheMQ::Connection
   def read_loop
     spawn do
-      buff = IO::Memory.new
       loop do
-        AvalancheMQ::AMQP::Frame.decode(@socket, buff) do |frame|
+        AvalancheMQ::AMQP::Frame.decode(@socket) do |frame|
           case frame
           when AvalancheMQ::AMQP::BodyFrame
             frame.body.skip(frame.body_size)

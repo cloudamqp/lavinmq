@@ -26,7 +26,7 @@ module AvalancheMQ
         consume
         loop do
           Fiber.yield if @out.full?
-          AMQP::Frame.decode(@socket, @buffer) do |frame|
+          AMQP::Frame.decode(@socket) do |frame|
             @log.debug { "Read socket #{frame.inspect}" }
             case frame
             when AMQP::HeaderFrame
@@ -89,7 +89,7 @@ module AvalancheMQ
 
       private def set_prefetch
         write AMQP::Basic::Qos.new(1_u16, 0_u32, @source.prefetch, false)
-        AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Basic::QosOk) }
+        AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Basic::QosOk) }
       end
 
       private def consume
@@ -98,7 +98,7 @@ module AvalancheMQ
         write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
           false, true, true, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Queue::DeclareOk) }
+        frame = AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Queue::DeclareOk) }
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::DeclareOk)
         queue = frame.queue_name
         @message_count = frame.message_count
@@ -108,14 +108,14 @@ module AvalancheMQ
             @source.exchange_key || "",
             false,
             {} of String => AMQP::Field)
-          frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Queue::DeclareOk) }
+          frame = AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Queue::DeclareOk) }
           raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Queue::BindOk)
         end
         no_ack = @ack_mode == AckMode::NoAck
         write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket, @buffer) { |f| f.as(AMQP::Basic::ConsumeOk) }
+        frame = AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Basic::ConsumeOk) }
         raise UnexpectedFrame.new(frame) unless frame.is_a?(AMQP::Basic::ConsumeOk)
       end
     end

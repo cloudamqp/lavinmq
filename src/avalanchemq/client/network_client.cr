@@ -49,8 +49,7 @@ module AvalancheMQ
       start = AMQP::Connection::Start.new
       socket.write start.to_slice
       socket.flush
-      buffer = IO::Memory.new
-      start_ok = AMQP::Frame.decode(socket, buffer) { |f| f.as(AMQP::Connection::StartOk) }
+      start_ok = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::StartOk) }
 
       username = password = ""
       case start_ok.mechanism
@@ -87,8 +86,8 @@ module AvalancheMQ
         frame_max: 131072_u32,
         heartbeat: config["heartbeat"]).to_slice
       socket.flush
-      tune_ok = AMQP::Frame.decode(socket, buffer) { |f| f.as(AMQP::Connection::TuneOk) }
-      open = AMQP::Frame.decode(socket, buffer) { |f| f.as(AMQP::Connection::Open) }
+      tune_ok = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::TuneOk) }
+      open = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::Open) }
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
           socket.write AMQP::Connection::OpenOk.new.to_slice
@@ -351,9 +350,8 @@ module AvalancheMQ
 
     private def read_loop
       i = 0
-      buffer = IO::Memory.new
       loop do
-        AMQP::Frame.decode(@socket, buffer) do |frame|
+        AMQP::Frame.decode(@socket) do |frame|
           @log.debug { "Read #{frame.inspect}" }
           if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }

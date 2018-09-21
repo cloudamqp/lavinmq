@@ -348,10 +348,9 @@ module AvalancheMQ
 
     private def load_definitions!
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
-        buffer = IO::Memory.new
         loop do
           begin
-            AMQP::Frame.decode(io, buffer) do |frame|
+            AMQP::Frame.decode(io) do |frame|
               apply frame, loading: true
             end
           rescue ex : AMQP::FrameDecodeError

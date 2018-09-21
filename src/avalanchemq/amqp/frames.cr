@@ -36,7 +36,7 @@ module AvalancheMQ
         io.to_slice
       end
 
-      def self.decode(io, buffer : ::IO::Memory, &block : Frame -> _)
+      def self.decode(io, &block : Frame -> _)
         type = Type.new(io.read_byte || raise(::IO::EOFError.new))
         channel = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
         size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
@@ -57,8 +57,6 @@ module AvalancheMQ
         result
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
-      ensure
-        buffer.clear
       end
     end
 
