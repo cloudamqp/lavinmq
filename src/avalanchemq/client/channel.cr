@@ -118,11 +118,10 @@ module AvalancheMQ
             deliver = AMQP::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
               msg.exchange_name, msg.routing_key)
             ch.deliver(deliver, msg)
-            delivered = true
+            return true
           end
         end
-        delivered ||= @client.vhost.publish(msg, immediate: @next_publish_immediate)
-        unless delivered
+        unless @client.vhost.publish(msg, immediate: @next_publish_immediate)
           if @next_publish_immediate
             retrn = AMQP::Basic::Return.new(@id, 313_u16, "No consumers", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)

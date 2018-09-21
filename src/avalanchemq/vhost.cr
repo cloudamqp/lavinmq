@@ -50,37 +50,52 @@ module AvalancheMQ
     end
 
     def publish(msg : Message, immediate = false) : Bool
-      try_publish(msg, immediate) || send_to_alternate_exchange?(msg, immediate)
+      ex = @exchanges[msg.exchange_name]? || return false
+      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers)
+      return false if queues.empty?
+      return false if immediate && !queues.any? { |q| q.immediate_delivery? }
+      sp = write_to_disk(msg)
+      flush = msg.properties.delivery_mode == 2_u8
+      queues.each { |q| q.publish(sp, flush) }
+      true
     end
 
-    private def try_publish(msg : Message, immediate = false) : Bool
-      ex = @exchanges[msg.exchange_name]?
-      return false if ex.nil?
-
-      matches = ex.matches(msg.routing_key, msg.properties.headers)
-      if cc = msg.properties.headers.try(&.fetch("CC", nil))
+    private def find_all_queues(ex : Exchange, routing_key : String, headers : Hash(String, AvalancheMQ::AMQP::Field)?, visited = Set(Exchange).new, queues = Set(Queue).new) : Set(Queue)
+      matches = ex.matches(routing_key, headers)
+      if cc = headers.try(&.fetch("CC", nil))
         cc.as(Array(AMQP::Field)).each do |rk|
-          matches.concat(ex.matches(rk.as(String), msg.properties.headers))
+          matches.concat(ex.matches(rk.as(String), headers))
         end
       end
-      if bcc = msg.properties.headers.try(&.delete("BCC"))
+      if bcc = headers.try(&.delete("BCC"))
         bcc.as(Array(AMQP::Field)).each do |rk|
-          matches.concat(ex.matches(rk.as(String), msg.properties.headers))
+          matches.concat(ex.matches(rk.as(String), headers))
         end
       end
 
-      return false if matches.empty?
+      queues.concat matches.compact_map { |m| m.as? Queue }
       exchanges = matches.compact_map { |m| m.as? Exchange }
-      queues = matches.compact_map { |m| m.as? Queue }
-      ok = exchanges.map do |e|
-        emsg = msg.dup
-        emsg.exchange_name = e.name
-        publish(emsg, immediate).as Bool
-      end.any?
-      return ok if immediate && (queues.empty? || queues.any? { |q| !q.immediate_delivery? })
 
+      exchanges.each do |e2e|
+        visited.add(ex)
+        unless visited.includes? e2e
+          find_all_queues(e2e, routing_key, headers, visited, queues)
+        end
+      end
+
+      if queues.empty? && ex.alternate_exchange
+        if ae = @exchanges[ex.alternate_exchange]?
+          visited.add(ex)
+          unless visited.includes?(ae)
+            find_all_queues(ae, routing_key, headers, visited, queues)
+          end
+        end
+      end
+      queues
+    end
+
+    private def write_to_disk(msg) : SegmentPosition
       pos = @wfile.pos.to_u32
-
       if pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
@@ -91,7 +106,6 @@ module AvalancheMQ
 
       @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                     size=#{msg.size}" }
-      sp = SegmentPosition.new(@segment, pos)
       @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
       @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::NetworkEndian
       @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::NetworkEndian
@@ -99,21 +113,7 @@ module AvalancheMQ
       @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
       IO.copy(msg.body_io, @wfile, msg.size)
       @wfile.flush
-      flush = msg.properties.delivery_mode == 2_u8
-      return queues.map { |q| q.publish(sp, flush) }.any? || ok
-    end
-
-    private def send_to_alternate_exchange?(msg, immediate = false, visited = [] of String)
-      if ae = @exchanges[msg.exchange_name]?.try &.alternate_exchange
-        visited.push(msg.exchange_name)
-        unless visited.includes?(ae)
-          ae_msg = msg.dup
-          ae_msg.exchange_name = ae
-          ok = publish(ae_msg, immediate)
-          return send_to_alternate_exchange?(ae_msg, immediate, visited) unless ok
-        end
-      end
-      return false
+      SegmentPosition.new(@segment, pos)
     end
 
     private def open_wfile : MessageFile
