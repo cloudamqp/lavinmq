@@ -106,7 +106,7 @@ module AvalancheMQ
     end
 
     def write(frame)
-      @socket.write(frame.to_slice)
+      @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
       @socket.flush
     end
 

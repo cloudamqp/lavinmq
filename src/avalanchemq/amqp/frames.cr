@@ -8,7 +8,7 @@ module AvalancheMQ
       def initialize(@type : Type, @channel : UInt16)
       end
 
-      abstract def to_slice : Bytes
+      abstract def to_io(io, format)
 
       def method_id
         0_u16
@@ -24,16 +24,6 @@ module AvalancheMQ
         io.write_bytes body_size.to_u32, format
         yield
         io.write_byte(206_u8)
-      end
-
-      def to_slice(body : Bytes)
-        io = MemoryIO.new(8 + body.bytesize)
-        io.write_byte @type.value
-        io.write_int @channel
-        io.write_int body.bytesize.to_u32
-        io.write body
-        io.write_byte(206_u8)
-        io.to_slice
       end
 
       def self.decode(io, &block : Frame -> _)
@@ -92,12 +82,8 @@ module AvalancheMQ
         @channel = 0_u16
       end
 
-      def to_io(io)
-        wrap(io, 0)
-      end
-
-      def to_slice
-        super(Bytes.empty)
+      def to_io(io, format)
+        wrap(io, 0, format) { }
       end
 
       def self.decode
@@ -119,14 +105,6 @@ module AvalancheMQ
           io.write_bytes method_id, format
           yield
         end
-      end
-
-      def to_slice(body : Bytes)
-        io = MemoryIO.new(4 + body.bytesize)
-        io.write_int class_id
-        io.write_int method_id
-        io.write body
-        super(io.to_slice)
       end
 
       def self.decode(channel, io)
@@ -178,35 +156,33 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
-          body = AMQP::MemoryIO.new(1 + 1 +
-                                    4 + @mechanisms.bytesize +
-                                    4 + @locales.bytesize)
-          body.write_byte(@version_major)
-          body.write_byte(@version_minor)
-          body.write_table(@server_properties)
-          body.write_long_string(@mechanisms)
-          body.write_long_string(@locales)
-          super(body.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + 1 + 4 + @mechanisms.bytesize + 4 + @locales.bytesize, format) do
+            io.write_byte(@version_major)
+            io.write_byte(@version_minor)
+            io.write_bytes Table.new(@server_properties), format
+            io.write_bytes LongString.new(@mechanisms), format
+            io.write_bytes LongString.new(@locales), format
+          end
         end
 
         getter server_properties
 
         def initialize(@version_major = 0_u8, @version_minor = 9_u8,
                        @server_properties = {
-                         "product"      => "AvalancheMQ",
-                         "version"      => VERSION,
-                         "platform"     => "",
-                         "capabilities" => {
-                           "publisher_confirms"           => true,
-                           "exchange_exchange_bindings"   => true,
-                           "basic.nack"                   => true,
-                           "per_consumer_qos"             => true,
-                           "authentication_failure_close" => true,
-                           "consumer_cancel_notify"       => true,
-                         } of String => Field,
-                       } of String => Field,
-                       @mechanisms = "PLAIN", @locales = "en_US")
+          "product"      => "AvalancheMQ",
+          "version"      => VERSION,
+          "platform"     => "",
+          "capabilities" => {
+            "publisher_confirms"           => true,
+            "exchange_exchange_bindings"   => true,
+            "basic.nack"                   => true,
+            "per_consumer_qos"             => true,
+            "authentication_failure_close" => true,
+            "consumer_cancel_notify"       => true,
+          } of String => Field,
+        } of String => Field,
+        @mechanisms = "PLAIN", @locales = "en_US")
           super()
         end
 
@@ -234,15 +210,13 @@ module AvalancheMQ
           super()
         end
 
-        def to_slice
-          body = AMQP::MemoryIO.new(1 + @mechanism.bytesize +
-                                    4 + @response.bytesize +
-                                    1 + @locale.bytesize)
-          body.write_table(@client_properties)
-          body.write_short_string(@mechanism)
-          body.write_long_string(@response)
-          body.write_short_string(@locale)
-          super(body.to_slice)
+        def to_io(io, format)
+          wrap(io, Table.new(@client_properties).bytesize + 1 + @mechanism.bytesize + 4 + @response.bytesize + 1 + @locale.bytesize, format) do
+            io.write_bytes Table.new(@client_properties), format
+            io.write_bytes ShortString.new(@mechanism), format
+            io.write_bytes LongString.new(@response), format
+            io.write_bytes ShortString.new(@locale), format
+          end
         end
 
         def self.decode(io)
@@ -266,12 +240,12 @@ module AvalancheMQ
           super()
         end
 
-        def to_slice
-          body = AMQP::MemoryIO.new(2 + 4 + 2)
-          body.write_int(@channel_max)
-          body.write_int(@frame_max)
-          body.write_int(@heartbeat)
-          super(body.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 4 + 2, format) do
+            io.write_bytes(@channel_max, format)
+            io.write_bytes(@frame_max, format)
+            io.write_bytes(@heartbeat, format)
+          end
         end
 
         def self.decode(io)
@@ -294,12 +268,12 @@ module AvalancheMQ
           super()
         end
 
-        def to_slice
-          body = AMQP::MemoryIO.new(2 + 4 + 2)
-          body.write_int(@channel_max)
-          body.write_int(@frame_max)
-          body.write_int(@heartbeat)
-          super(body.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 4 + 2, format) do
+            io.write_bytes(@channel_max, format)
+            io.write_bytes(@frame_max, format)
+            io.write_bytes(@heartbeat, format)
+          end
         end
 
         def self.decode(io)
@@ -322,13 +296,12 @@ module AvalancheMQ
           super()
         end
 
-        def to_slice
-          body = AMQP::MemoryIO.new(1 + @vhost.bytesize +
-                                    1 + @reserved1.bytesize + 1)
-          body.write_short_string(@vhost)
-          body.write_short_string(@reserved1)
-          body.write_bool(@reserved2)
-          super(body.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @vhost.bytesize + 1 + @reserved1.bytesize + 1, format) do
+            io.write_bytes ShortString.new(@vhost), format
+            io.write_bytes ShortString.new(@reserved1), format
+            io.write_bool(@reserved2)
+          end
         end
 
         def self.decode(io)
@@ -352,10 +325,10 @@ module AvalancheMQ
           super()
         end
 
-        def to_slice
-          body = AMQP::MemoryIO.new(1 + @reserved1.bytesize)
-          body.write_short_string(@reserved1)
-          super(body.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @reserved1.bytesize, format) do
+            io.write_bytes ShortString.new(@reserved1), format
+          end
         end
 
         def self.decode(io)
@@ -377,13 +350,13 @@ module AvalancheMQ
           super()
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(2 + 1 + @reply_text.bytesize + 2 + 2)
-          io.write_int(@reply_code)
-          io.write_short_string(@reply_text)
-          io.write_int(@failing_class_id)
-          io.write_int(@failing_method_id)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @reply_text.bytesize + 2 + 2, format) do
+            io.write_bytes(@reply_code, format)
+            io.write_bytes ShortString.new(@reply_text), format
+            io.write_bytes(@failing_class_id, format)
+            io.write_bytes(@failing_method_id, format)
+          end
         end
 
         def self.decode(io)
@@ -402,7 +375,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -445,10 +418,10 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(1 + @reserved1.bytesize)
-          io.write_short_string @reserved1
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @reserved1.bytesize, format) do
+            io.write_bytes ShortString.new(@reserved1), format
+          end
         end
 
         def self.decode(channel, io)
@@ -470,10 +443,10 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(1 + @reserved1.bytesize)
-          io.write_long_string @reserved1
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @reserved1.bytesize, format) do
+            io.write_bytes LongString.new(@reserved1), format
+          end
         end
 
         def self.decode(channel, io)
@@ -495,13 +468,13 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(2 + 1 + @reply_text.bytesize + 2 + 2)
-          io.write_int(@reply_code)
-          io.write_short_string(@reply_text)
-          io.write_int(@classid)
-          io.write_int(@methodid)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @reply_text.bytesize + 2 + 2, format) do
+            io.write_bytes(@reply_code, format)
+            io.write_bytes ShortString.new(@reply_text), format
+            io.write_bytes(@classid, format)
+            io.write_bytes(@methodid, format)
+          end
         end
 
         def self.decode(channel, io)
@@ -520,7 +493,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -566,20 +539,20 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @exchange_name
-          io.write_short_string @exchange_type
-          bits = 0_u8
-          bits = bits | (1 << 0) if @passive
-          bits = bits | (1 << 1) if @durable
-          bits = bits | (1 << 2) if @auto_delete
-          bits = bits | (1 << 3) if @internal
-          bits = bits | (1 << 4) if @no_wait
-          io.write_byte(bits)
-          io.write_table @arguments
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 2 + 1 + @exchange_name.bytesize + 1 + @exchange_type.bytesize + 1 + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@exchange_name), format
+            io.write_bytes ShortString.new(@exchange_type), format
+            bits = 0_u8
+            bits = bits | (1 << 0) if @passive
+            bits = bits | (1 << 1) if @durable
+            bits = bits | (1 << 2) if @auto_delete
+            bits = bits | (1 << 3) if @internal
+            bits = bits | (1 << 4) if @no_wait
+            io.write_byte(bits)
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -605,7 +578,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -628,15 +601,15 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(2 + 1 + @exchange_name.bytesize + 1)
-          io.write_int @reserved1
-          io.write_short_string @exchange_name
-          bits = 0_u8
-          bits = bits | (1 << 0) if @if_unused
-          bits = bits | (1 << 1) if @no_wait
-          io.write_byte(bits)
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @exchange_name.bytesize + 1, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@exchange_name), format
+            bits = 0_u8
+            bits = bits | (1 << 0) if @if_unused
+            bits = bits | (1 << 1) if @no_wait
+            io.write_byte(bits)
+          end
         end
 
         def self.decode(channel, io)
@@ -656,7 +629,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -680,15 +653,15 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @destination
-          io.write_short_string @source
-          io.write_short_string @routing_key
-          io.write_bool @no_wait
-          io.write_table @arguments
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 2 + 1 + @destination.bytesize + 1 + @source.bytesize + 1 + @routing_key.bytesize + 1 + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@destination), format
+            io.write_bytes ShortString.new(@source), format
+            io.write_bytes ShortString.new(@routing_key), format
+            io.write_bool @no_wait
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -710,7 +683,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -734,15 +707,15 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @destination
-          io.write_short_string @source
-          io.write_short_string @routing_key
-          io.write_bool @no_wait
-          io.write_table @arguments
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @destination.bytesize + 1 + @source.bytesize + 1 + @routing_key.bytesize + 1 + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@destination), format
+            io.write_bytes ShortString.new(@source), format
+            io.write_bytes ShortString.new(@routing_key), format
+            io.write_bool @no_wait
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -764,7 +737,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -813,19 +786,19 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @queue_name
-          bits = 0_u8
-          bits = bits | (1 << 0) if @passive
-          bits = bits | (1 << 1) if @durable
-          bits = bits | (1 << 2) if @exclusive
-          bits = bits | (1 << 3) if @auto_delete
-          bits = bits | (1 << 4) if @no_wait
-          io.write_byte(bits)
-          io.write_table @arguments
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @queue_name.bytesize + 1 + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@queue_name), format
+            bits = 0_u8
+            bits = bits | (1 << 0) if @passive
+            bits = bits | (1 << 1) if @durable
+            bits = bits | (1 << 2) if @exclusive
+            bits = bits | (1 << 3) if @auto_delete
+            bits = bits | (1 << 4) if @no_wait
+            io.write_byte(bits)
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -855,12 +828,12 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(1 + @queue_name.bytesize + 4 + 4)
-          io.write_short_string @queue_name
-          io.write_int @message_count
-          io.write_int @consumer_count
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 1 + @queue_name.bytesize + 4 + 4, format) do
+            io.write_bytes ShortString.new(@queue_name), format
+            io.write_bytes @message_count, format
+            io.write_bytes @consumer_count, format
+          end
         end
 
         def self.decode(channel, io)
@@ -886,15 +859,15 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @queue_name
-          io.write_short_string @exchange_name
-          io.write_short_string @routing_key
-          io.write_bool @no_wait
-          io.write_table @arguments
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @queue_name.bytesize + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + 1 + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@queue_name), format
+            io.write_bytes ShortString.new(@exchange_name), format
+            io.write_bytes ShortString.new(@routing_key), format
+            io.write_bool @no_wait
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -916,7 +889,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -939,16 +912,16 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(2 + 1 + @queue_name.bytesize + 1)
-          io.write_int @reserved1
-          io.write_short_string @queue_name
-          bits = 0_u8
-          bits = bits | (1 << 0) if @if_unused
-          bits = bits | (1 << 1) if @if_empty
-          bits = bits | (1 << 2) if @no_wait
-          io.write_byte(bits)
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @queue_name.bytesize + 1, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@queue_name), format
+            bits = 0_u8
+            bits = bits | (1 << 0) if @if_unused
+            bits = bits | (1 << 1) if @if_empty
+            bits = bits | (1 << 2) if @no_wait
+            io.write_byte(bits)
+          end
         end
 
         def self.decode(channel, io)
@@ -973,10 +946,10 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(4)
-          io.write_int @message_count
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 4, format) do
+            io.write_bytes @message_count, format
+          end
         end
 
         def self.decode(channel, io)
@@ -999,14 +972,14 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @queue_name
-          io.write_short_string @exchange_name
-          io.write_short_string @routing_key
-          io.write_table @arguments
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @queue_name.bytesize + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@queue_name), format
+            io.write_bytes ShortString.new(@exchange_name), format
+            io.write_bytes ShortString.new(@routing_key), format
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -1026,7 +999,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -1048,12 +1021,12 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(2 + 1 + @queue_name.bytesize + 1)
-          io.write_int @reserved1
-          io.write_short_string @queue_name
-          io.write_bool @no_wait
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @queue_name.bytesize + 1, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@queue_name), format
+            io.write_bool @no_wait
+          end
         end
 
         def self.decode(channel, io)
@@ -1076,10 +1049,10 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(4)
-          io.write_int @message_count
-          super io.to_slice
+        def to_io(io, format)
+          wrap(io, 4, format) do
+            io.write_bytes @message_count, format
+          end
         end
 
         def self.decode(channel, io)
@@ -1133,7 +1106,7 @@ module AvalancheMQ
 
         def to_io(io, format)
           wrap(io, 2 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 1,
-            format) do
+               format) do
             io.write_bytes @reserved1, format
             io.write_bytes ShortString.new(@exchange), format
             io.write_bytes ShortString.new(@routing_key), format
@@ -1144,19 +1117,16 @@ module AvalancheMQ
           end
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(2 +
-                                  1 + @exchange.bytesize +
-                                  1 + @routing_key.bytesize +
-                                  1)
-          io.write_int @reserved1
-          io.write_short_string @exchange
-          io.write_short_string @routing_key
-          bits = 0_u8
-          bits = bits | (1 << 0) if @mandatory
-          bits = bits | (1 << 1) if @immediate
-          io.write_byte(bits)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 1, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@exchange), format
+            io.write_bytes ShortString.new(@routing_key), format
+            bits = 0_u8
+            bits = bits | (1 << 0) if @mandatory
+            bits = bits | (1 << 1) if @immediate
+            io.write_byte(bits)
+          end
         end
 
         def self.decode(channel, io)
@@ -1194,16 +1164,14 @@ module AvalancheMQ
           end
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(1 + @consumer_tag.bytesize + 8 + 1 +
-                                  1 + @exchange.bytesize +
-                                  1 + @routing_key.bytesize)
-          io.write_short_string @consumer_tag
-          io.write_int @delivery_tag
-          io.write_bool @redelivered
-          io.write_short_string @exchange
-          io.write_short_string @routing_key
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @consumer_tag.bytesize + 8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize, format) do
+            io.write_bytes ShortString.new(@consumer_tag), format
+            io.write_bytes @delivery_tag, format
+            io.write_bool @redelivered
+            io.write_bytes ShortString.new(@exchange), format
+            io.write_bytes ShortString.new(@routing_key), format
+          end
         end
 
         def self.decode(channel, io)
@@ -1229,7 +1197,7 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
+        def to_io(io, format)
           raise NotImplemented.new(@channel, class_id, method_id)
         end
 
@@ -1263,14 +1231,14 @@ module AvalancheMQ
           end
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 4)
-          io.write_int @delivery_tag
-          io.write_bool @redelivered
-          io.write_short_string @exchange
-          io.write_short_string @routing_key
-          io.write_int @message_count
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 4, format) do
+            io.write_bytes @delivery_tag, format
+            io.write_bool @redelivered
+            io.write_bytes ShortString.new(@exchange), format
+            io.write_bytes ShortString.new(@routing_key), format
+            io.write_bytes @message_count, format
+          end
         end
 
         def self.decode(channel, io)
@@ -1295,10 +1263,10 @@ module AvalancheMQ
           end
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(2)
-          io.write_int @reserved1
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 2, format) do
+            io.write_bytes @reserved1, format
+          end
         end
 
         def self.decode(channel, io)
@@ -1320,11 +1288,11 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(8 + 1)
-          io.write_int(@delivery_tag)
-          io.write_bool(@multiple)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 8 + 1, format) do
+            io.write_bytes(@delivery_tag, format)
+            io.write_bool(@multiple)
+          end
         end
 
         def self.decode(channel, io)
@@ -1347,7 +1315,7 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
+        def to_io(io, format)
           raise NotImplemented.new(@channel, class_id, method_id)
         end
 
@@ -1371,12 +1339,12 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(10)
-          io.write_int(@delivery_tag)
-          io.write_bool(@multiple)
-          io.write_bool(@requeue)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 10, format) do
+            io.write_bytes(@delivery_tag, format)
+            io.write_bool(@multiple)
+            io.write_bool(@requeue)
+          end
         end
 
         def self.decode(channel, io)
@@ -1401,12 +1369,12 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(4 + 2 + 1)
-          io.write_int @prefetch_size
-          io.write_int @prefetch_count
-          io.write_bool @global
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 4 + 2 + 1, format) do
+            io.write_bytes @prefetch_size, format
+            io.write_bytes @prefetch_count, format
+            io.write_bool @global
+          end
         end
 
         def self.decode(channel, io)
@@ -1424,7 +1392,7 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
+        def to_io(io, format)
           super Bytes.empty
         end
 
@@ -1448,19 +1416,19 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new
-          io.write_int @reserved1
-          io.write_short_string @queue
-          io.write_short_string @consumer_tag
-          bits = 0_u8
-          bits = bits | (1 << 0) if @no_local
-          bits = bits | (1 << 1) if @no_ack
-          bits = bits | (1 << 2) if @exclusive
-          bits = bits | (1 << 3) if @no_wait
-          io.write_byte(bits)
-          io.write_table @arguments
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @queue.bytesize + 1 + @consumer_tag.bytesize + 1 + Table.new(@arguments).bytesize, format) do
+            io.write_bytes @reserved1, format
+            io.write_bytes ShortString.new(@queue), format
+            io.write_bytes ShortString.new(@consumer_tag), format
+            bits = 0_u8
+            bits = bits | (1 << 0) if @no_local
+            bits = bits | (1 << 1) if @no_ack
+            bits = bits | (1 << 2) if @exclusive
+            bits = bits | (1 << 3) if @no_wait
+            io.write_byte(bits)
+            io.write_bytes Table.new(@arguments), format
+          end
         end
 
         def self.decode(channel, io)
@@ -1490,10 +1458,10 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = AMQP::MemoryIO.new(1 + @consumer_tag.bytesize)
-          io.write_short_string @consumer_tag
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @consumer_tag.bytesize, format) do
+            io.write_bytes ShortString.new(@consumer_tag), format
+          end
         end
 
         def self.decode(channel, io)
@@ -1525,15 +1493,13 @@ module AvalancheMQ
           end
         end
 
-        def to_slice
-          io = MemoryIO.new(2 + 1 + @reply_text.bytesize +
-                            1 + @exchange_name.bytesize +
-                            1 + @routing_key.bytesize)
-          io.write_int(@reply_code)
-          io.write_short_string(@reply_text)
-          io.write_short_string(@exchange_name)
-          io.write_short_string(@routing_key)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 2 + 1 + @reply_text.bytesize + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize, format) do
+            io.write_bytes(@reply_code, format)
+            io.write_bytes ShortString.new(@reply_text), format
+            io.write_bytes ShortString.new(@exchange_name), format
+            io.write_bytes ShortString.new(@routing_key), format
+          end
         end
 
         def self.decode(channel, io)
@@ -1558,11 +1524,11 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(1 + @consumer_tag.bytesize + 1)
-          io.write_short_string(@consumer_tag)
-          io.write_bool(@no_wait)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @consumer_tag.bytesize + 1, format) do
+            io.write_bytes ShortString.new(@consumer_tag), format
+            io.write_bool(@no_wait)
+          end
         end
 
         def self.decode(channel, io)
@@ -1585,10 +1551,10 @@ module AvalancheMQ
           super(channel)
         end
 
-        def to_slice
-          io = MemoryIO.new(1 + @consumer_tag.bytesize)
-          io.write_short_string(@consumer_tag)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1 + @consumer_tag.bytesize, format) do
+            io.write_bytes ShortString.new(@consumer_tag), format
+          end
         end
 
         def self.decode(channel, io)
@@ -1615,7 +1581,7 @@ module AvalancheMQ
         end
       end
 
-      def to_slice
+      def to_io(io, format)
         raise "dont to_slice header frame"
       end
 
@@ -1635,7 +1601,7 @@ module AvalancheMQ
         @type = Type::Body
       end
 
-      def to_slice
+      def to_io(io, format)
         raise "Dont use this"
       end
 
@@ -1680,10 +1646,10 @@ module AvalancheMQ
           self.new channel, (io.read_byte || raise ::IO::EOFError.new) > 0
         end
 
-        def to_slice
-          io = MemoryIO.new(1)
-          io.write_bool(@no_wait)
-          super(io.to_slice)
+        def to_io(io, format)
+          wrap(io, 1, format) do
+            io.write_bool(@no_wait)
+          end
         end
       end
 
@@ -1694,8 +1660,8 @@ module AvalancheMQ
           METHOD_ID
         end
 
-        def to_slice
-          super Bytes.empty
+        def to_io(io, format)
+          wrap(io, 0) { }
         end
 
         def self.decode(channel, io)
