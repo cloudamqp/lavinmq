@@ -47,7 +47,7 @@ module AvalancheMQ
       end
 
       start = AMQP::Connection::Start.new
-      socket.write start.to_slice
+      socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
       socket.flush
       start_ok = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::StartOk) }
 
@@ -72,9 +72,9 @@ module AvalancheMQ
         props = start_ok.client_properties
         capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
         if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
-          socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
+          socket.write_bytes AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
             start_ok.class_id,
-            start_ok.method_id).to_slice
+            start_ok.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
           close_on_ok(socket, log)
         else
@@ -82,29 +82,29 @@ module AvalancheMQ
         end
         return
       end
-      socket.write AMQP::Connection::Tune.new(channel_max: 0_u16,
+      socket.write_bytes AMQP::Connection::Tune.new(channel_max: 0_u16,
         frame_max: 131072_u32,
-        heartbeat: config["heartbeat"]).to_slice
+        heartbeat: config["heartbeat"]), IO::ByteFormat::NetworkEndian
       socket.flush
       tune_ok = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::TuneOk) }
       open = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::Open) }
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
-          socket.write AMQP::Connection::OpenOk.new.to_slice
+          socket.write_bytes AMQP::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
           socket.flush
           return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
-          socket.write AMQP::Connection::Close.new(530_u16, reply_text,
-            open.class_id, open.method_id).to_slice
+          socket.write_bytes AMQP::Connection::Close.new(530_u16, reply_text,
+            open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
           close_on_ok(socket, log)
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
-        socket.write AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
-          open.class_id, open.method_id).to_slice
+        socket.write_bytes AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
+          open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
         close_on_ok(socket, log)
       end
@@ -387,9 +387,8 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       @log.debug { "Send #{frame.inspect}" }
-      bytes = frame.to_slice
       @write_lock.synchronize do
-        @socket.write bytes
+        @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
         @socket.flush
       end
       case frame

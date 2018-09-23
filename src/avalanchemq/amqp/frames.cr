@@ -157,7 +157,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 1 + 1 + 4 + @mechanisms.bytesize + 4 + @locales.bytesize, format) do
+          wrap(io, 1 + 1 + Table.new(@server_properties).bytesize + 4 + @mechanisms.bytesize + 4 + @locales.bytesize, format) do
             io.write_byte(@version_major)
             io.write_byte(@version_minor)
             io.write_bytes Table.new(@server_properties), format
@@ -300,7 +300,7 @@ module AvalancheMQ
           wrap(io, 1 + @vhost.bytesize + 1 + @reserved1.bytesize + 1, format) do
             io.write_bytes ShortString.new(@vhost), format
             io.write_bytes ShortString.new(@reserved1), format
-            io.write_bool(@reserved2)
+            io.write_byte @reserved2 ? 1_u8 : 0_u8
           end
         end
 
@@ -376,7 +376,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(io)
@@ -444,7 +444,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 1 + @reserved1.bytesize, format) do
+          wrap(io, 4 + @reserved1.bytesize, format) do
             io.write_bytes LongString.new(@reserved1), format
           end
         end
@@ -494,7 +494,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(channel, io)
@@ -579,7 +579,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(io)
@@ -630,7 +630,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(io)
@@ -659,7 +659,7 @@ module AvalancheMQ
             io.write_bytes ShortString.new(@destination), format
             io.write_bytes ShortString.new(@source), format
             io.write_bytes ShortString.new(@routing_key), format
-            io.write_bool @no_wait
+            io.write_byte @no_wait ? 1_u8 : 0_u8
             io.write_bytes Table.new(@arguments), format
           end
         end
@@ -684,7 +684,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(channel, io)
@@ -713,7 +713,7 @@ module AvalancheMQ
             io.write_bytes ShortString.new(@destination), format
             io.write_bytes ShortString.new(@source), format
             io.write_bytes ShortString.new(@routing_key), format
-            io.write_bool @no_wait
+            io.write_byte @no_wait ? 1_u8 : 0_u8
             io.write_bytes Table.new(@arguments), format
           end
         end
@@ -738,7 +738,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(channel, io)
@@ -865,7 +865,7 @@ module AvalancheMQ
             io.write_bytes ShortString.new(@queue_name), format
             io.write_bytes ShortString.new(@exchange_name), format
             io.write_bytes ShortString.new(@routing_key), format
-            io.write_bool @no_wait
+            io.write_byte @no_wait ? 1_u8 : 0_u8
             io.write_bytes Table.new(@arguments), format
           end
         end
@@ -890,7 +890,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(channel, io)
@@ -1000,7 +1000,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(channel, io)
@@ -1025,7 +1025,7 @@ module AvalancheMQ
           wrap(io, 2 + 1 + @queue_name.bytesize + 1, format) do
             io.write_bytes @reserved1, format
             io.write_bytes ShortString.new(@queue_name), format
-            io.write_bool @no_wait
+            io.write_byte @no_wait ? 1_u8 : 0_u8
           end
         end
 
@@ -1168,7 +1168,7 @@ module AvalancheMQ
           wrap(io, 1 + @consumer_tag.bytesize + 8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize, format) do
             io.write_bytes ShortString.new(@consumer_tag), format
             io.write_bytes @delivery_tag, format
-            io.write_bool @redelivered
+            io.write_byte @redelivered ? 1_u8 : 0_u8
             io.write_bytes ShortString.new(@exchange), format
             io.write_bytes ShortString.new(@routing_key), format
           end
@@ -1234,7 +1234,7 @@ module AvalancheMQ
         def to_io(io, format)
           wrap(io, 8 + 1 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 4, format) do
             io.write_bytes @delivery_tag, format
-            io.write_bool @redelivered
+            io.write_byte @redelivered ? 1_u8 : 0_u8
             io.write_bytes ShortString.new(@exchange), format
             io.write_bytes ShortString.new(@routing_key), format
             io.write_bytes @message_count, format
@@ -1291,7 +1291,7 @@ module AvalancheMQ
         def to_io(io, format)
           wrap(io, 8 + 1, format) do
             io.write_bytes(@delivery_tag, format)
-            io.write_bool(@multiple)
+            io.write_byte @multiple ? 1_u8 : 0_u8
           end
         end
 
@@ -1342,8 +1342,8 @@ module AvalancheMQ
         def to_io(io, format)
           wrap(io, 10, format) do
             io.write_bytes(@delivery_tag, format)
-            io.write_bool(@multiple)
-            io.write_bool(@requeue)
+            io.write_byte @multiple ? 1_u8 : 0_u8
+            io.write_byte @requeue ? 1_u8 : 0_u8
           end
         end
 
@@ -1373,7 +1373,7 @@ module AvalancheMQ
           wrap(io, 4 + 2 + 1, format) do
             io.write_bytes @prefetch_size, format
             io.write_bytes @prefetch_count, format
-            io.write_bool @global
+            io.write_byte @global ? 1_u8 : 0_u8
           end
         end
 
@@ -1393,7 +1393,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          super Bytes.empty
+          wrap(io, 0, format) {}
         end
 
         def self.decode(channel, io)
@@ -1527,7 +1527,7 @@ module AvalancheMQ
         def to_io(io, format)
           wrap(io, 1 + @consumer_tag.bytesize + 1, format) do
             io.write_bytes ShortString.new(@consumer_tag), format
-            io.write_bool(@no_wait)
+            io.write_byte @no_wait ? 1_u8 : 0_u8
           end
         end
 
@@ -1648,7 +1648,7 @@ module AvalancheMQ
 
         def to_io(io, format)
           wrap(io, 1, format) do
-            io.write_bool(@no_wait)
+            io.write_byte @no_wait ? 1_u8 : 0_u8
           end
         end
       end
@@ -1661,7 +1661,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0) { }
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
