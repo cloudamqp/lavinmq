@@ -48,14 +48,14 @@ end
 
 describe AvalancheMQ::AMQP::Properties do
   it "can be encoded and decoded" do
-    io = AvalancheMQ::AMQP::MemoryIO.new
+    io = IO::Memory.new
     h = Hash(String, AvalancheMQ::AMQP::Field){"s" => "båäö€", "i32" => 123, "u" => 0_u8}
     t = Time.epoch(Time.utc_now.epoch)
     props = AvalancheMQ::AMQP::Properties.new("application/json", "gzip", h, 1_u8, 9_u8, "correlation_id", "reply_to", "1000", "message_id", t, "type", "user_id", "app_id", "reserved1")
     io.write_bytes props, IO::ByteFormat::NetworkEndian
     io.pos.should eq props.bytesize
     io.pos = 0
-    props2 = AvalancheMQ::AMQP::Properties.decode(io)
+    props2 = AvalancheMQ::AMQP::Properties.from_io(io, IO::ByteFormat::NetworkEndian)
     props2.should eq props
   end
 end

@@ -1,6 +1,5 @@
 require "json"
 require "logger"
-require "./amqp/io"
 require "./segment_position"
 require "./policy"
 require "./parameter_store"
@@ -12,16 +11,12 @@ require "digest/sha1"
 
 module AvalancheMQ
   class VHost
-    class MessageFile < File
-      include AMQP::IO
-    end
-
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
       direct_reply_channels, upstreams
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
-    @wfile : MessageFile
+    @wfile : File
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
@@ -116,10 +111,10 @@ module AvalancheMQ
       SegmentPosition.new(@segment, pos)
     end
 
-    private def open_wfile : MessageFile
+    private def open_wfile : File
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      MessageFile.open(File.join(@data_dir, filename), "a").tap do |f|
+      File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.seek(0, IO::Seek::End)
       end
     end

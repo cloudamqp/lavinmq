@@ -1,6 +1,5 @@
 require "logger"
 require "digest/sha1"
-require "./amqp/io"
 require "./segment_position"
 require "./policy"
 require "./observable"
@@ -9,10 +8,6 @@ module AvalancheMQ
   class Queue
     include PolicyTarget
     include Observable
-
-    class QueueFile < File
-      include AMQP::IO
-    end
 
     alias ArgumentNumber = UInt16 | Int32 | Int64
 
@@ -45,9 +40,9 @@ module AvalancheMQ
       @unacked = Deque(SegmentPosition).new
       @ready = Deque(SegmentPosition).new
       @ready_lock = Mutex.new
-      @segments = Hash(UInt32, QueueFile).new do |h, seg|
+      @segments = Hash(UInt32, File).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
-        h[seg] = QueueFile.open(path, "r")
+        h[seg] = File.open(path, "r")
       end
       @last_get_time = Time.now.epoch_ms # reset when redecalred
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
