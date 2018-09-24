@@ -39,14 +39,15 @@ module AvalancheMQ
           else
             raise NotImplemented.new channel, 0_u16, 0_u16
           end
-        result = yield frame
-        frame_end = io.read_byte || raise FrameDecodeError.new("No frame ending")
-        if frame_end != 206
-          raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
-        end
-        result
+        yield frame
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
+      ensure
+        if !io.closed?
+          if (frame_end = io.read_byte) && frame_end != 206
+            raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
+          end
+        end
       end
     end
 

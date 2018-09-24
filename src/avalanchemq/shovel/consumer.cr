@@ -98,9 +98,7 @@ module AvalancheMQ
         write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
           false, true, true, false,
           {} of String => AMQP::Field)
-        AMQP::Frame.decode(@socket) do |f|
-          raise UnexpectedFrame.new(f) unless f.is_a?(AMQP::Queue::DeclareOk)
-        end
+        frame = AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Queue::DeclareOk) || raise UnexpectedFrame.new(f) }
         queue = frame.queue_name
         @message_count = frame.message_count
         if @source.exchange
