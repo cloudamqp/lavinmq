@@ -3,7 +3,7 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Publisher < Connection
-      def initialize(@destination : Destination, @ack_mode : AckMode, log : Logger)
+      def initialize(@destination : Destination, @ack_mode : AckMode, log : Logger, @done : Channel(Bool))
         @log = log.dup
         @log.progname += " publisher"
         @message_count = 0_u64
@@ -59,8 +59,9 @@ module AvalancheMQ
             end
           end || break
         end
-      rescue ex : IO::Error | Errno
+      rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
         @log.info "Publishers closed due to: #{ex.inspect}"
+        @done.send true
       ensure
         @log.debug "Closing socket"
         @socket.close

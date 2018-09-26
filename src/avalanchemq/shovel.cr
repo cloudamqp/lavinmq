@@ -46,11 +46,11 @@ module AvalancheMQ
       @state = 0
       loop do
         break if stopped?
-        @publisher = Publisher.new(@destination, @ack_mode, @log)
-        @consumer = Consumer.new(@source, @ack_mode, @log)
+        done = Channel(Bool).new
+        @publisher = Publisher.new(@destination, @ack_mode, @log, done)
+        @consumer = Consumer.new(@source, @ack_mode, @log, done)
         p = @publisher.not_nil!
         c = @consumer.not_nil!
-        c.on_done { delete }
         c.on_frame do |f|
           p.forward f
         end
@@ -60,7 +60,9 @@ module AvalancheMQ
         p.run
         c.run
         @state = State::Running
-        sleep
+        next if done.receive
+        delete
+        break
       rescue ex
         unless stopped?
           @state = State::Starting

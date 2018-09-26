@@ -3,16 +3,12 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Consumer < Connection
-      def initialize(@source : Source, @ack_mode : AckMode, log : Logger)
+      def initialize(@source : Source, @ack_mode : AckMode, log : Logger, @done : Channel(Bool))
         @log = log.dup
         @log.progname += " consumer"
         @message_counter = 0_u32
         @message_count = 0_u32
         super(@source.uri, @log)
-      end
-
-      def on_done(&blk)
-        @on_done = blk
       end
 
       @on_frame : Proc(AMQP::Frame, Nil)?
@@ -47,9 +43,11 @@ module AvalancheMQ
                 write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
               end
               write AMQP::Connection::Close.new(320_u16, "Consumer cancelled", 0_u16, 0_u16)
+              true
             when AMQP::Connection::Close
               @on_frame.try &.call(frame)
               write AMQP::Connection::CloseOk.new
+              true
             when AMQP::Connection::CloseOk
               false
             else
@@ -57,8 +55,9 @@ module AvalancheMQ
             end
           end || break
         end
-      rescue ex : IO::Error | Errno
-        @log.info "Publishers closed due to: #{ex.inspect}"
+      rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
+        @log.info "Consumer closed due to: #{ex.inspect}"
+        @done.send true
       ensure
         @log.debug "Closing socket"
         @socket.close
@@ -81,8 +80,11 @@ module AvalancheMQ
 
       private def after_publish
         @message_counter += 1
-        if @source.delete_after == DeleteAfter::QueueLength && @message_count <= @message_counter
-          @on_done.try &.call
+        if @source.delete_after == DeleteAfter::QueueLength &&
+           @message_count <= @message_counter
+          write AMQP::Connection::Close.new(320_u16, "Shovel done",
+                                            0_u16, 0_u16)
+          @done.send false
         end
       end
 
