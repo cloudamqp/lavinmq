@@ -47,6 +47,7 @@ module AvalancheMQ
     def publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers)
+      @log.debug { "publish queues#found=#{queues.size}" }
       return false if queues.empty?
       return false if immediate && !queues.any? { |q| q.immediate_delivery? }
       sp = write_to_disk(msg)

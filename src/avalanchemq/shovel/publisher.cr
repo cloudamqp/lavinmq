@@ -3,8 +3,7 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Publisher < Connection
-      def initialize(@destination : Destination, @in : Channel(AMQP::Frame?),
-                     @out : Channel(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
+      def initialize(@destination : Destination, @ack_mode : AckMode, log : Logger)
         @log = log.dup
         @log.progname += " publisher"
         @message_count = 0_u64
@@ -13,34 +12,32 @@ module AvalancheMQ
         @last_message_size = 0_u64
         @last_message_pos = 0_u64
         super(@destination.uri, @log)
+      end
+
+      @on_frame : Proc(AMQP::Frame, Nil)?
+
+      def on_frame(&blk : AMQP::Frame -> Nil)
+        @on_frame = blk
+      end
+
+      def run
         set_confirm if @ack_mode == AckMode::OnConfirm
+        spawn(read_loop, name: "Shovel publisher #{@destination.uri.host}#read_loop")
       end
 
-      def start
-        spawn(channel_read_loop, name: "Shovel publisher #{@destination.uri.host}#channel_read_loop")
-        amqp_read_loop
-      end
-
-      private def send_basic_publish(frame)
-        exchange = @destination.exchange.not_nil!
-        routing_key = @destination.exchange_key || frame.routing_key
-        mandatory = @ack_mode == AckMode::OnConfirm
-        @socket.write_bytes AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key, mandatory, false), ::IO::ByteFormat::NetworkEndian
-        case @ack_mode
-        when AckMode::OnConfirm
-          @message_count += 1
-          @delivery_tags[@message_count] = frame.delivery_tag
-        when AckMode::OnPublish
-          @last_delivery_tag = frame.delivery_tag
-        end
-      end
-
-      private def amqp_read_loop
+      private def read_loop
         loop do
-          Fiber.yield if @out.full?
           AMQP::Frame.decode(@socket) do |frame|
-            @log.debug { "Read socket #{frame.inspect}" }
+            @log.debug { "Read from socket #{frame.inspect}" }
             case frame
+            when AMQP::Basic::Ack
+              next true unless @ack_mode == AckMode::OnConfirm
+              if frame.multiple
+                with_multiple(frame.delivery_tag) { |t| ack(t) }
+              else
+                ack(@delivery_tags[frame.delivery_tag])
+              end
+              true
             when AMQP::Basic::Nack
               next unless @ack_mode == AckMode::OnConfirm
               if frame.multiple
@@ -52,61 +49,66 @@ module AvalancheMQ
             when AMQP::Basic::Return
               reject(@message_count) if @ack_mode == AckMode::OnConfirm
               true
-            when AMQP::Basic::Ack
-              next true unless @ack_mode == AckMode::OnConfirm
-              if frame.multiple
-                with_multiple(frame.delivery_tag) { |t| ack(t) }
-              else
-                ack(@delivery_tags[frame.delivery_tag])
-              end
+            when AMQP::Connection::Close
+              @on_frame.try &.call(frame)
+              write AMQP::Connection::CloseOk.new
               true
             when AMQP::Connection::CloseOk
               false
-            when AMQP::Connection::Close
-              write AMQP::Connection::CloseOk.new
-              false
-            else
-              raise UnexpectedFrame.new(frame)
+            else true
             end
           end || break
         end
+      rescue ex : IO::Error | Errno
+        @log.info "Publishers closed due to: #{ex.inspect}"
       ensure
         @log.debug "Closing socket"
         @socket.close
       end
 
-      private def channel_read_loop
-        loop do
-          frame = @in.receive
-          @log.debug { "Read internal #{frame.inspect}" }
-          case frame
-          when AMQP::Basic::Deliver
-            send_basic_publish(frame)
-          when AMQP::HeaderFrame
-            @last_message_size = frame.body_size
-            @last_message_pos = 0_u64
-            @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-          when AMQP::BodyFrame
-            @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-            @socket.flush
-            @last_message_pos += frame.body_size
-            if @ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
-              ack(@last_delivery_tag)
-            end
-          when nil
-            break
-          else
-            @log.warn { "Unexpected frame: #{frame.inspect}" }
+      def forward(frame)
+        case frame
+        when AMQP::Basic::Deliver
+          send_basic_publish(frame)
+        when AMQP::HeaderFrame
+          @last_message_size = frame.body_size
+          @last_message_pos = 0_u64
+          @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+        when AMQP::BodyFrame
+          @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+          @socket.flush
+          @last_message_pos += frame.body_size
+          if @ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
+            ack(@last_delivery_tag)
           end
+        else
+          @log.warn { "Unexpected frame: #{frame.inspect}" }
         end
-      rescue ex
-        @log.debug { "#channel_read_loop closed: #{ex.inspect_with_backtrace}" }
-      ensure
-        close("Shovel stopped")
+      end
+
+      private def send_basic_publish(frame)
+        exchange = @destination.exchange.not_nil!
+        routing_key = @destination.exchange_key || frame.routing_key
+        mandatory = @ack_mode == AckMode::OnConfirm
+        pframe = AMQP::Basic::Publish.new(frame.channel,
+                                          0_u16,
+                                          exchange,
+                                          routing_key,
+                                          mandatory,
+                                          false)
+        @socket.write_bytes pframe, ::IO::ByteFormat::NetworkEndian
+        case @ack_mode
+        when AckMode::OnConfirm
+          @message_count += 1
+          @delivery_tags[@message_count] = frame.delivery_tag
+        when AckMode::OnPublish
+          @last_delivery_tag = frame.delivery_tag
+        end
       end
 
       private def set_confirm
         write AMQP::Confirm::Select.new(1_u16, false)
+        @socket.flush
         AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Confirm::SelectOk) }
       end
 
@@ -119,11 +121,11 @@ module AvalancheMQ
       end
 
       private def ack(delivery_tag)
-        @out.send AMQP::Basic::Ack.new(1_u16, delivery_tag, false)
+        @on_frame.try &.call(AMQP::Basic::Ack.new(1_u16, delivery_tag, false))
       end
 
       private def reject(delivery_tag)
-        @out.send AMQP::Basic::Reject.new(1_u16, delivery_tag, false)
+        @on_frame.try &.call(AMQP::Basic::Reject.new(1_u16, delivery_tag, false))
       end
     end
   end

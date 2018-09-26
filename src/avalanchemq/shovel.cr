@@ -20,8 +20,7 @@ module AvalancheMQ
                    @ack_mode = DEFAULT_ACK_MODE, @reconnect_delay = DEFUALT_RECONNECT_DELAY)
       @log = @vhost.log.dup
       @log.progname += " shovel=#{@name}"
-      @channel_a = Channel(AMQP::Frame?).new
-      @channel_b = Channel(AMQP::Frame?).new
+      @state = State::Starting
     end
 
     def self.merge_defaults(config : JSON::Any)
@@ -33,55 +32,54 @@ module AvalancheMQ
       JSON::Any.new(c)
     end
 
+    def state
+      @state.to_s
+    end
+
     def run
-      @state = 0
-      spawn(name: "Shovel consumer #{@source.uri.host}") do
-        loop do
-          break if stopped?
-          sub = Consumer.new(@source, @channel_b, @channel_a, @ack_mode, @log)
-          sub.on_done { delete }
-          @state += 1
-          sub.start
-        rescue ex
-          unless stopped?
-            @state -= 1
-            @log.warn "Shovel consumer failure: #{ex.inspect_with_backtrace}"
-          end
-          sub.try &.close("Shovel stopped")
-          break if stopped?
-          @channel_b.send(nil)
-          sleep @reconnect_delay.seconds
-        end
-        @log.info { "Consumer stopped" }
-      end
-      spawn(name: "Shovel publisher #{@destination.uri.host}") do
-        loop do
-          break if stopped?
-          pub = Publisher.new(@destination, @channel_a, @channel_b, @ack_mode, @log)
-          @state += 1
-          pub.start
-        rescue ex
-          unless stopped?
-            @state -= 1
-            @log.warn "Shovel publisher failure: #{ex.message}"
-          end
-          pub.try &.close("Shovel stopped")
-          break if stopped?
-          @channel_a.send(nil)
-          sleep @reconnect_delay.seconds
-        end
-        @log.info { "Publisher stopped" }
-      end
       @log.info { "Starting" }
+      spawn(run_loop, name: "Shovel #{@vhost}/#{@name}")
       Fiber.yield
+    end
+
+    def run_loop
+      @state = 0
+      loop do
+        break if stopped?
+        @publisher = Publisher.new(@destination, @ack_mode, @log)
+        @consumer = Consumer.new(@source, @ack_mode, @log)
+        p = @publisher.not_nil!
+        c = @consumer.not_nil!
+        c.on_done { delete }
+        c.on_frame do |f|
+          p.forward f
+        end
+        p.on_frame do |f|
+          c.forward f
+        end
+        p.run
+        c.run
+        @state = State::Running
+        sleep
+      rescue ex
+        unless stopped?
+          @state = State::Starting
+          @log.warn "Shovel failure: #{ex.inspect_with_backtrace}"
+        end
+        @consumer.try &.close("Shovel stopped")
+        @publisher.try &.close("Shovel stopped")
+        break if stopped?
+        sleep @reconnect_delay.seconds
+      end
+      @log.info { "Shovel stopped" }
     end
 
     # Does not trigger reconnect, but a graceful close
     def stop
       @log.info { "Stopping" }
-      @state = -1
-      @channel_a.close
-      @channel_b.close
+      @state = State::Terminated
+      @consumer.try &.close("Shovel stopped")
+      @publisher.try &.close("Shovel stopped")
     end
 
     def delete
@@ -90,22 +88,13 @@ module AvalancheMQ
     end
 
     def stopped?
-      @channel_a.closed? || @channel_b.closed?
+      @state == State::Terminated
     end
 
-    STARTING   = "starting"
-    RUNNING    = "running"
-    TERMINATED = "terminated"
-
-    def state
-      case @state
-      when 0, 1
-        STARTING
-      when 2
-        RUNNING
-      else
-        TERMINATED
-      end
+    enum State
+      Starting
+      Running
+      Terminated
     end
 
     enum DeleteAfter

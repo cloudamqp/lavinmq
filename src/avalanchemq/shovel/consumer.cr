@@ -3,86 +3,85 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Consumer < Connection
-      def initialize(@source : Source, @in : Channel(AMQP::Frame?),
-                     @out : Channel(AMQP::Frame?), @ack_mode : AckMode, log : Logger)
+      def initialize(@source : Source, @ack_mode : AckMode, log : Logger)
         @log = log.dup
         @log.progname += " consumer"
         @message_counter = 0_u32
         @message_count = 0_u32
         super(@source.uri, @log)
-        set_prefetch
       end
 
       def on_done(&blk)
         @on_done = blk
       end
 
-      def start
-        spawn(channel_read_loop, name: "Shovel consumer #{@source.uri.host}#channel_read_loop")
-        consume_loop
+      @on_frame : Proc(AMQP::Frame, Nil)?
+
+      def on_frame(&blk : AMQP::Frame -> Nil)
+        @on_frame = blk
       end
 
-      private def consume_loop
+      def run
+        set_prefetch
         consume
+        spawn(read_loop, name: "Shovel consumer #{@source.uri.host}#read_loop")
+      end
+
+      private def read_loop
         loop do
-          Fiber.yield if @out.full?
           AMQP::Frame.decode(@socket) do |frame|
             @log.debug { "Read socket #{frame.inspect}" }
             case frame
             when AMQP::HeaderFrame
-              @out.send(frame)
+              @on_frame.try &.call(frame)
               true
             when AMQP::Basic::Deliver
-              @out.send(frame)
+              @on_frame.try &.call(frame)
               true
             when AMQP::BodyFrame
-              @out.send(frame)
-              after_publish if @ack_mode == AckMode::NoAck
+              @on_frame.try &.call(frame)
+              after_publish unless @ack_mode == AckMode::OnConfirm
               true
-            when AMQP::Connection::CloseOk
-              false
+            when AMQP::Basic::Cancel
+              unless frame.no_wait
+                write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+              end
+              write AMQP::Connection::Close.new(320_u16, "Consumer cancelled", 0_u16, 0_u16)
             when AMQP::Connection::Close
-              raise UnexpectedFrame.new(frame) unless @out.closed?
+              @on_frame.try &.call(frame)
               write AMQP::Connection::CloseOk.new
+            when AMQP::Connection::CloseOk
               false
             else
               raise UnexpectedFrame.new(frame)
             end
           end || break
         end
+      rescue ex : IO::Error | Errno
+        @log.info "Publishers closed due to: #{ex.inspect}"
       ensure
         @log.debug "Closing socket"
         @socket.close
       end
 
-      private def channel_read_loop
-        loop do
-          frame = @in.receive
-          @log.debug { "Read internal #{frame.inspect}" }
-          case frame
-          when AMQP::Basic::Ack
-            unless @ack_mode == AckMode::NoAck
-              write frame
-            end
-            after_publish
-          when AMQP::Basic::Reject
+      def forward(frame)
+        @log.debug { "Read internal #{frame.inspect}" }
+        case frame
+        when AMQP::Basic::Ack
+          unless @ack_mode == AckMode::NoAck
             write frame
-          when nil
-            break
-          else
-            @log.warn { "Unexpected frame: #{frame.inspect}" }
           end
+          after_publish
+        when AMQP::Basic::Reject
+          write frame
+        else
+          @log.warn { "Unexpected frame: #{frame.inspect}" }
         end
-      rescue ex
-        @log.debug { "#channel_read_loop closed: #{Fiber.current.hash} #{ex.inspect_with_backtrace}" }
-      ensure
-        close("Shovel stopped")
       end
 
       private def after_publish
         @message_counter += 1
         if @source.delete_after == DeleteAfter::QueueLength && @message_count <= @message_counter
-          write AMQP::Connection::Close.new(200_u16, "Shovel done", 0_u16, 0_u16)
           @on_done.try &.call
         end
       end
@@ -107,17 +106,13 @@ module AvalancheMQ
             @source.exchange_key || "",
             false,
             {} of String => AMQP::Field)
-          AMQP::Frame.decode(@socket) do |f|
-            raise UnexpectedFrame.new(f) unless f.is_a?(AMQP::Queue::BindOk)
-          end
+          AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Queue::BindOk) || raise UnexpectedFrame.new(f) }
         end
         no_ack = @ack_mode == AckMode::NoAck
         write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,
           {} of String => AMQP::Field)
-        AMQP::Frame.decode(@socket) do |f|
-          raise UnexpectedFrame.new(f) unless f.is_a?(AMQP::Basic::ConsumeOk)
-        end
+        AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Basic::ConsumeOk) || raise UnexpectedFrame.new(f) }
       end
     end
   end

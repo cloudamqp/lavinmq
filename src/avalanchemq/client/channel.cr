@@ -129,7 +129,7 @@ module AvalancheMQ
             retrn = AMQP::Basic::Return.new(@id, 312_u16, "No Route", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
           else
-            @log.debug "Skipping body"
+            @log.debug "Skipping body because wasn't written to disk"
             message_body.skip(@next_msg_size)
           end
         end
