@@ -32,22 +32,25 @@ module AvalancheMQ
         size = UInt32.from_io(io, ::IO::ByteFormat::NetworkEndian)
         frame =
           case type
-          when Type::Method   then MethodFrame.decode(channel, io)
+          when Type::Method    then MethodFrame.decode(channel, io)
           when Type::Header    then HeaderFrame.decode(channel, io)
-          when Type::Heartbeat then HeartbeatFrame.new
           when Type::Body      then BodyFrame.new(channel, size, io)
+          when Type::Heartbeat then HeartbeatFrame.new
           else
             raise NotImplemented.new channel, 0_u16, 0_u16
           end
-        result = yield frame
-        if !io.closed?
-          if (frame_end = io.read_byte) && frame_end != 206
-            raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
-          end
-        end
-        result
+        yield frame
       rescue ex : ::IO::Error | Errno
         raise FrameDecodeError.new(ex.message, ex)
+      ensure
+        begin
+          if !io.closed?
+            if (frame_end = io.read_byte) && frame_end != 206
+              raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
+            end
+          end
+        rescue ex : ::IO::Error | Errno
+        end
       end
     end
 
