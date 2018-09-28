@@ -1,5 +1,6 @@
 require "../controller"
 require "./connections"
+require "../../client/channel/consumer"
 
 module AvalancheMQ
   class ConsumersController < Controller
@@ -15,12 +16,12 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           user = user(context)
           refuse_unless_management(context, user, vhost)
-          c = connections(user).find { |conn| conn.vhost.name == vhost }
-          if c
-            c.channels.values.flat_map { |ch| ch.consumers }.to_json(context.response)
-          else
-            context.response.print("[]")
+          conns = connections(user).select { |conn| conn.vhost.name == vhost }
+          consumers = Array(Client::Channel::Consumer).new
+          conns.each do |conn|
+            conn.channels.values.flat_map(&.consumers).each { |c| consumers << c }
           end
+          consumers.to_json(context.response)
         end
       end
     end
