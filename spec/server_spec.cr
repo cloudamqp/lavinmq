@@ -126,21 +126,20 @@ describe AvalancheMQ::Server do
     end
   end
 
-  # TODO: Publish should yield Channel::Close beacuse exchange should be deleted on unbind.
   it "can auto delete exchange" do
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
-      acked = nil
-      ch.on_confirm do |_tag, ack|
-        acked = ack
+      code = 0
+      ch.on_close do |c, _reply|
+        code = c
       end
       x = ch.exchange("test_ad_exchange", "topic", durable: false, auto_delete: true)
       q = ch.queue("test_ad_exchange", auto_delete: true, durable: false, exclusive: false)
       q.bind(x)
       q.unbind(x)
       x.publish(AMQP::Message.new("m1"), q.name)
-      wait_for { acked == true }
-      acked.should be_true
+      wait_for { code == 404 }
+      ch.closed.should be_true
     end
   end
 

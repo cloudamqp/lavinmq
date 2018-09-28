@@ -70,6 +70,10 @@ module AvalancheMQ
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
         @next_publish_immediate = frame.immediate
+        unless @client.vhost.exchanges[@next_publish_exchange_name]?
+          msg = "no exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}'"
+          @client.send_not_found(frame, msg)
+        end
       end
 
       def next_msg_headers(frame)
@@ -138,6 +142,7 @@ module AvalancheMQ
           @client.send AMQP::Basic::Ack.new(@id, @confirm_count, false)
         end
       rescue ex
+        @log.warn { "Could not handle message #{ex.inspect}" }
         @client.send AMQP::Basic::Nack.new(@id, @confirm_count, false, false) if @confirm
         raise ex
       ensure

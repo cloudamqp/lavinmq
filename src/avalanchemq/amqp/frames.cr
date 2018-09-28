@@ -46,7 +46,7 @@ module AvalancheMQ
         begin
           if !io.closed?
             if (frame_end = io.read_byte) && frame_end != 206
-              raise InvalidFrameEnd.new("Frame-end was #{frame_end.to_s}, expected 206")
+              raise InvalidFrameEnd.new("#{frame.class}-end was #{frame_end.to_s}, expected 206")
             end
           end
         rescue ex : ::IO::Error | Errno
@@ -174,19 +174,19 @@ module AvalancheMQ
 
         def initialize(@version_major = 0_u8, @version_minor = 9_u8,
                        @server_properties = {
-          "product"      => "AvalancheMQ",
-          "version"      => VERSION,
-          "platform"     => "",
-          "capabilities" => {
-            "publisher_confirms"           => true,
-            "exchange_exchange_bindings"   => true,
-            "basic.nack"                   => true,
-            "per_consumer_qos"             => true,
-            "authentication_failure_close" => true,
-            "consumer_cancel_notify"       => true,
-          } of String => Field,
-        } of String => Field,
-        @mechanisms = "PLAIN", @locales = "en_US")
+                         "product"      => "AvalancheMQ",
+                         "version"      => VERSION,
+                         "platform"     => "",
+                         "capabilities" => {
+                           "publisher_confirms"           => true,
+                           "exchange_exchange_bindings"   => true,
+                           "basic.nack"                   => true,
+                           "per_consumer_qos"             => true,
+                           "authentication_failure_close" => true,
+                           "consumer_cancel_notify"       => true,
+                         } of String => Field,
+                       } of String => Field,
+                       @mechanisms = "PLAIN", @locales = "en_US")
           super()
         end
 
@@ -380,7 +380,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(io)
@@ -498,7 +498,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
@@ -583,7 +583,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(io)
@@ -634,7 +634,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(io)
@@ -688,7 +688,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
@@ -742,7 +742,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
@@ -894,7 +894,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
@@ -1004,7 +1004,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
@@ -1110,7 +1110,7 @@ module AvalancheMQ
 
         def to_io(io, format)
           wrap(io, 2 + 1 + @exchange.bytesize + 1 + @routing_key.bytesize + 1,
-               format) do
+            format) do
             io.write_bytes @reserved1, format
             io.write_bytes ShortString.new(@exchange), format
             io.write_bytes ShortString.new(@routing_key), format
@@ -1397,7 +1397,7 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          wrap(io, 0, format) {}
+          wrap(io, 0, format) { }
         end
 
         def self.decode(channel, io)
