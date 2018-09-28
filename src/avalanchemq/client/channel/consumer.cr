@@ -19,11 +19,11 @@ module AvalancheMQ
           @channel.prefetch_count.zero? || @unacked.size < @channel.prefetch_count
         end
 
-        def deliver(msg, sp, queue, redelivered = false)
+        def deliver(msg, sp, redelivered = false)
           @unacked << sp unless @no_ack
 
           @log.debug { "Getting delivery tag" }
-          delivery_tag = @channel.next_delivery_tag(queue, sp, @no_ack, self)
+          delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
           @log.debug { "Sending BasicDeliver" }
           deliver = AMQP::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
@@ -45,6 +45,18 @@ module AvalancheMQ
           if idx
             @unacked.delete_at(idx)
             @log.debug { "Rejecting #{sp}. Unacked: #{@unacked.size}" }
+          end
+        end
+
+        def recover(requeue)
+          @unacked.each do |sp|
+            if requeue
+              @queue.reject(sp, requeue: true)
+            else
+              # redeliver to the original recipient
+              env = @queue.read(sp)
+              deliver(env.message, sp, redelivered: true)
+            end
           end
         end
 

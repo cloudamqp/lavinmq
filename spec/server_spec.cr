@@ -603,4 +603,32 @@ describe AvalancheMQ::Server do
       msg.not_nil!.properties.timestamp.epoch.should be_close(t, 1)
     end
   end
+
+  it "supports recover requeue" do
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("")
+      x = ch.exchange("", "direct")
+      x.publish AMQP::Message.new("m1"), q.name
+      delivered = 0
+      q.subscribe(no_ack: false) { |m| delivered += 1 }
+      ch.recover(requeue: true)
+      Fiber.yield
+      delivered.should eq 2
+    end
+  end
+
+  it "supports recover redeliver" do
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("")
+      x = ch.exchange("", "direct")
+      x.publish AMQP::Message.new("m1"), q.name
+      msg = nil
+      q.subscribe(no_ack: false) { |m| msg = m }
+      ch.recover(requeue: true)
+      Fiber.yield
+      msg.not_nil!.redelivered.should be_true
+    end
+  end
 end

@@ -130,6 +130,8 @@ module AvalancheMQ
         with_channel frame, &.cancel_consumer(frame)
       when AMQP::Basic::Qos
         with_channel frame, &.basic_qos(frame)
+      when AMQP::Basic::Recover
+        with_channel frame, &.basic_recover(frame)
       when AMQP::HeartbeatFrame
         # send AMQP::HeartbeatFrame.new
       else

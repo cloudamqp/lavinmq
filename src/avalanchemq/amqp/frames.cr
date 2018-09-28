@@ -1075,20 +1075,23 @@ module AvalancheMQ
       def self.decode(channel, body)
         method_id = UInt16.from_io(body, ::IO::ByteFormat::NetworkEndian)
         case method_id
-        when  10_u16 then Qos.decode(channel, body)
-        when  11_u16 then QosOk.decode(channel, body)
-        when  20_u16 then Consume.decode(channel, body)
-        when  21_u16 then ConsumeOk.decode(channel, body)
-        when  30_u16 then Cancel.decode(channel, body)
-        when  31_u16 then CancelOk.decode(channel, body)
-        when  40_u16 then Publish.decode(channel, body)
-        when  50_u16 then Return.decode(channel, body)
-        when  60_u16 then Deliver.decode(channel, body)
-        when  70_u16 then Get.decode(channel, body)
-        when  71_u16 then GetOk.decode(channel, body)
-        when  72_u16 then GetEmpty.decode(channel, body)
-        when  80_u16 then Ack.decode(channel, body)
-        when  90_u16 then Reject.decode(channel, body)
+        when 10_u16 then Qos.decode(channel, body)
+        when 11_u16 then QosOk.decode(channel, body)
+        when 20_u16 then Consume.decode(channel, body)
+        when 21_u16 then ConsumeOk.decode(channel, body)
+        when 30_u16 then Cancel.decode(channel, body)
+        when 31_u16 then CancelOk.decode(channel, body)
+        when 40_u16 then Publish.decode(channel, body)
+        when 50_u16 then Return.decode(channel, body)
+        when 60_u16 then Deliver.decode(channel, body)
+        when 70_u16 then Get.decode(channel, body)
+        when 71_u16 then GetOk.decode(channel, body)
+        when 72_u16 then GetEmpty.decode(channel, body)
+        when 80_u16 then Ack.decode(channel, body)
+        when 90_u16 then Reject.decode(channel, body)
+          # when 100_u16 then RecoverAsync.decode(channel, body)
+        when 110_u16 then Recover.decode(channel, body)
+        when 111_u16 then RecoverOk.decode(channel, body)
         when 120_u16 then Nack.decode(channel, body)
         else              raise NotImplemented.new(channel, CLASS_ID, method_id)
         end
@@ -1564,6 +1567,47 @@ module AvalancheMQ
         def self.decode(channel, io)
           consumer_tag = ShortString.from_io(io, ::IO::ByteFormat::NetworkEndian)
           self.new(channel, consumer_tag)
+        end
+      end
+
+      struct Recover < Basic
+        METHOD_ID = 110_u16
+
+        def method_id
+          METHOD_ID
+        end
+
+        getter requeue
+
+        def initialize(channel : UInt16, @requeue : Bool)
+          super(channel)
+        end
+
+        def to_io(io, format)
+          wrap(io, 1, format) do
+            io.write_byte @requeue ? 1_u8 : 0_u8
+          end
+        end
+
+        def self.decode(channel, io)
+          requeue = (io.read_byte || raise ::IO::EOFError.new) > 0
+          self.new(channel, requeue)
+        end
+      end
+
+      struct RecoverOk < Basic
+        METHOD_ID = 111_u16
+
+        def method_id
+          METHOD_ID
+        end
+
+        def to_io(io, format)
+          wrap(io, 0, format) { }
+        end
+
+        def self.decode(channel, io)
+          self.new(channel)
         end
       end
     end

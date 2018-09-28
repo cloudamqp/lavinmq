@@ -173,7 +173,7 @@ module AvalancheMQ
       if env = get(c.no_ack)
         sp = env.segment_position
         @log.debug { "Delivering #{sp} to consumer" }
-        if c.deliver(env.message, sp, self, env.redelivered)
+        if c.deliver(env.message, sp, env.redelivered)
           @log.debug { "Delivery done" }
         else
           @log.debug { "Delivery failed" }
@@ -364,7 +364,7 @@ module AvalancheMQ
       Array.new(length) { |i| @ready[i]?.try { |sp| read(sp) } }.compact
     end
 
-    private def read(sp : SegmentPosition) : Envelope
+    def read(sp : SegmentPosition) : Envelope
       seg = @segments[sp.segment]
       seg.seek(sp.position, IO::Seek::Set)
       ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian

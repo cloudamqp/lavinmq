@@ -66,7 +66,7 @@ module AvalancheMQ
             bad_request(context, "Not allowed to use the amq. prefix")
           else
             @amqp_server.vhosts[vhost]
-                        .declare_queue(name, durable, auto_delete, arguments)
+              .declare_queue(name, durable, auto_delete, arguments)
             context.response.status_code = 204
           end
         end
@@ -119,13 +119,10 @@ module AvalancheMQ
             access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
           end
           body = parse_body(context)
-          count = body["count"]?.try(&.as_i)
+          count = body["count"]?.try(&.as_i) || 1
           ack_mode = body["ack_mode"]?.try(&.as_s)
-          encoding = body["encoding"]?.try(&.as_s)
+          encoding = body["encoding"]?.try(&.as_s) || "auto"
           truncate = body["truncate"]?.try(&.as_i)
-          unless count && ack_mode && encoding
-            bad_request(context, "Fields 'count', 'ack_mode' and 'encoding' are required")
-          end
           case ack_mode
           when "ack_requeue_true", "reject_requeue_true", "peek"
             msgs = q.peek(count)
@@ -134,7 +131,13 @@ module AvalancheMQ
             msgs = Array.new(count) { q.get(true) }
             redelivered = false
           else
-            bad_request(context, "Unknown encoding #{encoding}")
+            if body["requeue"]?
+              msgs = q.peek(count)
+              redelivered = true
+            else
+              msgs = Array.new(count) { q.get(true) }
+              redelivered = false
+            end
           end
           msgs ||= [] of Envelope
           count = q.message_count

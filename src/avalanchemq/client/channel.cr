@@ -272,6 +272,11 @@ module AvalancheMQ
         @client.send AMQP::Basic::QosOk.new(frame.channel)
       end
 
+      def basic_recover(frame)
+        @consumers.each { |c| c.recover(frame.requeue) }
+        @client.send AMQP::Basic::RecoverOk.new(frame.channel)
+      end
+
       def close
         @log.debug { "Closing" }
         @running = false
