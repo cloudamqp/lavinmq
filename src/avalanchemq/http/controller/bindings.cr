@@ -2,44 +2,11 @@ require "base64"
 require "uri"
 require "./queues"
 require "./exchanges"
+require "../bindings_helper"
 require "../controller"
 require "../resource_helper"
 
 module AvalancheMQ
-  module BindingHelpers
-    private def bindings(vhost)
-      vhost.exchanges.values.flat_map do |e|
-        e.bindings_details.map { |b| map_binding(b) }
-      end
-    end
-
-    private def map_binding(b)
-      key_tuple = {b[:routing_key].as(String), b[:arguments].as?(Hash(String, AMQP::Field))}
-      b.merge({properties_key: hash_key(key_tuple)})
-    end
-
-    private def binding_for_props(context, source, destination, props)
-      binding = source.bindings.select do |k, v|
-        v.includes?(destination) && hash_key(k) == props
-      end.first?
-      unless binding
-        type = destination.is_a?(Queue) ? "queue" : "exchange"
-        not_found(context, "Binding '#{props}' on exchange '#{source.name}' -> #{type} '#{destination.name}' does not exist")
-      end
-      binding
-    end
-
-    private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)?))
-      hsh = Base64.urlsafe_encode(key[1].to_s)
-      "#{key[0]}~#{hsh}"
-    end
-
-    private def unbind_prop(source : Queue | Exchange, destination : Queue | Exchange, key : String)
-      k = source.bindings.keys.find { |k| hash_key(k) == key }
-      source.unbind(destination, k[0], k[1]) if k
-    end
-  end
-
   class BindingsController < Controller
     include ResourceHelper
     include BindingHelpers

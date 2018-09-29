@@ -144,7 +144,7 @@
       }
       updateExchange()
 
-      const tableOptions = { url: exchangeUrl + '/bindings/destination', keyColumns: ['properties_key'], interval: 5000 }
+      const tableOptions = { url: exchangeUrl + '/bindings/source', keyColumns: ['properties_key'], interval: 5000 }
       const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
         if (!all) return
         if (item.source === '') {

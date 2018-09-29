@@ -152,16 +152,16 @@ module AvalancheMQ
     end
 
     def bind(destination, routing_key, headers = nil)
-      @bindings[{"", nil}] << destination
+      @bindings[{routing_key, nil}] << destination
     end
 
     def unbind(destination, routing_key, headers = nil)
-      @bindings[{"", nil}].delete destination
+      @bindings[{routing_key, nil}].delete destination
       after_unbind
     end
 
     def matches(routing_key, headers = nil)
-      @bindings[{"", nil}]
+      @bindings.values.reduce { |acc, i| acc.concat(i) }
     end
   end
 
@@ -219,15 +219,12 @@ module AvalancheMQ
 
     def bind(destination, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      unless (args.has_key?("x-match") && args.size >= 2) || args.size == 1
-        raise ArgumentError.new("Arguments required")
-      end
-      @bindings[{"", args}] << destination
+      @bindings[{routing_key, args}] << destination
     end
 
     def unbind(destination, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @bindings[{"", args}].delete destination
+      @bindings[{routing_key, args}].delete destination
       after_unbind
     end
 

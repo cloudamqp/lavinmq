@@ -1,6 +1,7 @@
 require "uri"
 require "../controller"
 require "../resource_helper"
+require "../bindings_helper"
 
 module AvalancheMQ
   module ExchangeHelpers
@@ -16,6 +17,7 @@ module AvalancheMQ
   class ExchangesController < Controller
     include ResourceHelper
     include ExchangeHelpers
+    include BindingHelpers
 
     private def register_routes
       get "/api/exchanges" do |context, _params|
@@ -65,7 +67,7 @@ module AvalancheMQ
             bad_request(context, "Not allowed to use the amq. prefix")
           else
             @amqp_server.vhosts[vhost]
-                        .declare_exchange(name, type, durable, auto_delete, internal, arguments)
+              .declare_exchange(name, type, durable, auto_delete, internal, arguments)
             context.response.status_code = 204
           end
         end
@@ -91,7 +93,7 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
-          e.bindings_details.to_json(context.response)
+          e.bindings_details.map { |b| map_binding(b) }.to_json(context.response)
         end
       end
 
@@ -100,7 +102,8 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           e = exchange(context, params, vhost)
           all_bindings = e.vhost.exchanges.values.flat_map(&.bindings_details)
-          all_bindings.select { |b| b[:destination] == e.name }.to_json(context.response)
+          all_bindings.select { |b| b[:destination] == e.name }
+            .map { |b| map_binding(b) }.to_json(context.response)
         end
       end
 
