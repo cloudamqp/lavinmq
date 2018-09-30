@@ -120,23 +120,19 @@ module AvalancheMQ
           end
           body = parse_body(context)
           count = body["count"]?.try(&.as_i) || 1
-          ack_mode = body["ack_mode"]?.try(&.as_s)
+          ack_mode = body["ack_mode"]?.try(&.as_s) || body["ackmode"]?.try(&.as_s)
           encoding = body["encoding"]?.try(&.as_s) || "auto"
           truncate = body["truncate"]?.try(&.as_i)
           case ack_mode
           when "ack_requeue_true", "reject_requeue_true", "peek"
             msgs = q.peek(count)
-            redelivered = true
           when "ack_requeue_false", "reject_requeue_false", "get"
             msgs = Array.new(count) { q.get(true) }
-            redelivered = false
           else
             if body["requeue"]?
               msgs = q.peek(count)
-              redelivered = true
             else
               msgs = Array.new(count) { q.get(true) }
-              redelivered = false
             end
           end
           msgs ||= [] of Envelope
@@ -160,7 +156,7 @@ module AvalancheMQ
             end
             {
               "payload_bytes":    env.message.size,
-              "redelivered":      redelivered,
+              "redelivered":      env.redelivered,
               "exchange":         env.message.exchange_name,
               "routing_key":      env.message.routing_key,
               "message_count":    count,
