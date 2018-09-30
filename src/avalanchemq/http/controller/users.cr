@@ -95,7 +95,11 @@ module AvalancheMQ
       get "/api/users/:name/permissions" do |context, params|
         refuse_unless_administrator(context, user(context))
         u = user(context, params)
-        u.permissions_details.to_json(context.response)
+        if vhost = params["vhost"]
+          u.permissions_details.find { |p| p[:vhost] == vhost }.to_json(context.response)
+        else
+          u.permissions_details.to_json(context.response)
+        end
         context
       end
     end
