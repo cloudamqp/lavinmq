@@ -23,7 +23,7 @@ module AvalancheMQ
       get "/api/users/without-permissions" do |context, _params|
         refuse_unless_administrator(context, user(context))
         @amqp_server.users.select { |u| u.permissions.empty? }
-                          .map(&.user_details).to_json(context.response)
+          .map(&.user_details).to_json(context.response)
         context
       end
 
