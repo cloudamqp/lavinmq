@@ -77,7 +77,7 @@ module AvalancheMQ
         end
         @consumer.try &.close("Shovel stopped")
         @publisher.try &.close("Shovel stopped")
-        done.close
+        done.try &.close
         break if stopped?
         sleep @reconnect_delay.seconds
       end
