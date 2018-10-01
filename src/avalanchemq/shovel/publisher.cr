@@ -75,6 +75,12 @@ module AvalancheMQ
           @last_message_size = frame.body_size
           @last_message_pos = 0_u64
           @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+          if @last_message_size.zero?
+            @socket.flush
+            if @ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
+              ack(@last_delivery_tag)
+            end
+          end
         when AMQP::BodyFrame
           @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           @socket.flush
