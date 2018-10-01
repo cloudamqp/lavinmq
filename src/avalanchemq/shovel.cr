@@ -38,15 +38,15 @@ module AvalancheMQ
 
     def run
       @log.info { "Starting" }
-      spawn(run_loop, name: "Shovel #{@vhost}/#{@name}")
+      spawn(run_loop, name: "Shovel #{@vhost.name}/#{@name}")
       Fiber.yield
     end
 
     def run_loop
-      @state = 0
       loop do
         break if stopped?
         done = Channel(Bool).new
+        @state = State::Starting
         @publisher = Publisher.new(@destination, @ack_mode, @log, done)
         @consumer = Consumer.new(@source, @ack_mode, @log, done)
         p = @publisher.not_nil!
@@ -60,16 +60,24 @@ module AvalancheMQ
         p.run
         c.run
         @state = State::Running
-        next if done.receive
-        delete
-        break
+        continue = done.receive
+        done.close
+        if continue
+          c.close("Shovel failure")
+          p.close("Shovel failure")
+        else
+          delete
+          break
+        end
       rescue ex
-        unless stopped?
-          @state = State::Starting
-          @log.warn "Shovel failure: #{ex.inspect_with_backtrace}"
+        if ex.is_a? AMQP::FrameDecodeError
+          @log.warn { "Shovel failure: #{ex.cause.inspect}" }
+        else
+          @log.warn { "Shovel failure: #{ex.inspect_with_backtrace}" }
         end
         @consumer.try &.close("Shovel stopped")
         @publisher.try &.close("Shovel stopped")
+        done.close
         break if stopped?
         sleep @reconnect_delay.seconds
       end
