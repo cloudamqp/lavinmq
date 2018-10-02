@@ -23,15 +23,6 @@ module AvalancheMQ
       @state = State::Starting
     end
 
-    def self.merge_defaults(config : JSON::Any)
-      c = config.as_h
-      c["src-delete-after"] ||= JSON::Any.new("never")
-      c["ack-mode"] ||= JSON::Any.new("on-confirm")
-      c["reconnect-delay"] ||= JSON::Any.new(DEFUALT_RECONNECT_DELAY.to_i64)
-      c["src-prefetch-count"] ||= JSON::Any.new(DEFAULT_PREFETCH.to_i64)
-      JSON::Any.new(c)
-    end
-
     def state
       @state.to_s
     end
