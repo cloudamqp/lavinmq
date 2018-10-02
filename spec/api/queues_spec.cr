@@ -112,7 +112,7 @@ describe AvalancheMQ::QueuesController do
         keys = ["payload_bytes", "redelivered", "exchange", "routing_key", "message_count",
                 "properties", "payload", "payload_encoding"]
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-        s.vhosts["/"].queues["q3"].message_count.should eq 1
+        s.vhosts["/"].queues["q3"].message_count.should be > 0
       end
     end
   end

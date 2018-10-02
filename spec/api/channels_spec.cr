@@ -15,14 +15,6 @@ describe AvalancheMQ::ChannelsController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
-
-    it "should return empty array if no connections" do
-      expected = s.connections.size
-      response = get("http://localhost:8080/api/channels")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body.as_a.size.should eq expected
-    end
   end
 
   describe "GET /api/vhosts/vhost/channels" do
@@ -37,11 +29,13 @@ describe AvalancheMQ::ChannelsController do
     end
 
     it "should return empty array if no connections" do
-      expected = s.connections.size
-      response = get("http://localhost:8080/api/vhosts/%2f/channels")
+      s.vhosts.create("no-conns")
+      response = get("http://localhost:8080/api/vhosts/no-conns/channels")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
-      body.as_a.size.should eq expected
+      body.as_a.empty?.should be_true
+    ensure
+      s.vhosts.delete("no-conns")
     end
   end
 
