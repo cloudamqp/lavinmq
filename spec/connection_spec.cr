@@ -34,7 +34,7 @@ describe AvalancheMQ::Connection do
     conn = TestConnection.new(URI.parse("amqp://localhost"), log)
     conn.closed?.should be_false
   ensure
-    conn.try &.cleanup
+    conn.try &.close
   end
 
   it "should close" do
@@ -49,53 +49,46 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support heartbeat query param" do
-    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqp://localhost?heartbeat=19"), log)
     Fiber.yield
-    s.connections.size.should eq 1
-    s.connections.first.as(AvalancheMQ::NetworkClient).heartbeat.should eq 19
+    s.connections.last.as(AvalancheMQ::NetworkClient).heartbeat.should eq 19
   ensure
-    conn.try &.cleanup
+    conn.try &.close
   end
 
   it "should support channel_max query param" do
-    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqp://localhost?channel_max=19"), log)
     Fiber.yield
-    s.connections.size.should eq 1
-    s.connections.first.as(AvalancheMQ::NetworkClient).channel_max.should eq 19
+    s.connections.last.as(AvalancheMQ::NetworkClient).channel_max.should eq 19
   ensure
-    conn.try &.cleanup
+    conn.try &.close
   end
 
   it "should support auth_mechanism query param" do
-    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqp://localhost?auth_mechanism=AMQPLAIN"), log)
     Fiber.yield
-    s.connections.size.should eq 1
+    s.connections.last.as(AvalancheMQ::NetworkClient).auth_mechanism.should eq "AMQPLAIN"
   ensure
-    conn.try &.cleanup
+    conn.try &.close
   end
 
   it "should support amqps verify=none" do
-    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqps://localhost?verify=none"), log)
     Fiber.yield
-    s.connections.size.should eq 1
+    conn.verify_mode.should eq OpenSSL::SSL::VerifyMode::NONE
   ensure
-    conn.try &.cleanup
+    conn.try &.close
   end
 
   it "should support amqps certfile/keyfile" do
-    s.connections.each(&.close)
     cert = Dir.current + "/spec/resources/client_certificate.pem"
     key = Dir.current + "/spec/resources/client_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
     uri = URI.parse("amqps://localhost?certfile=#{cert}&keyfile=#{key}&cacertfile=#{ca}")
     conn = TestConnection.new(uri, log)
     Fiber.yield
-    s.connections.size.should eq 1
+    s.connections.empty?.should be_false
   ensure
-    conn.try &.cleanup
+    conn.try &.close
   end
 end

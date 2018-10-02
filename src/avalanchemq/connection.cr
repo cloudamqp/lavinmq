@@ -7,6 +7,9 @@ require "./amqp"
 module AvalancheMQ
   abstract class Connection
     @socket : TCPSocket | OpenSSL::SSL::Socket::Client
+    @verify_mode = OpenSSL::SSL::VerifyMode::PEER
+
+    getter verify_mode
 
     def initialize(@uri : URI, @log : Logger)
       host = @uri.host || "localhost"
@@ -45,7 +48,8 @@ module AvalancheMQ
           when "verify"
             case value
             when "none"
-              context.verify_mode = OpenSSL::SSL::VerifyMode::None
+              @verify_mode = OpenSSL::SSL::VerifyMode::NONE
+              context.verify_mode = @verify_mode
             end
           when "cacertfile"
             context.ca_certificates = value
