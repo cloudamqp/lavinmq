@@ -199,7 +199,7 @@ describe AvalancheMQ::Server do
       msg = AMQP::Message.new("expired",
         AMQP::Protocol::Properties.new(expiration: "0"))
       x.publish msg, q.name
-      sleep 0.01
+      sleep 0.05
       msg = q.get(no_ack: true)
       msg.to_s.should be ""
     end
@@ -217,7 +217,7 @@ describe AvalancheMQ::Server do
       dlq = ch.queue("dlq")
       msg = AMQP::Message.new("queue dlx")
       x.publish msg, q.name
-      sleep 0.01
+      sleep 0.05
       msg = dlq.get(no_ack: true)
       msg.to_s.should eq("queue dlx")
     end

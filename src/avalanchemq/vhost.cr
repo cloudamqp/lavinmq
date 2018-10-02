@@ -301,8 +301,7 @@ module AvalancheMQ
     def delete
       close
       Fiber.yield
-      Dir.children(@data_dir).each { |f| File.delete File.join(@data_dir, f) }
-      Dir.rmdir @data_dir
+      FileUtils.rm_rf @data_dir
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)

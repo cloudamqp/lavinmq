@@ -49,6 +49,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support heartbeat query param" do
+    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqp://localhost?heartbeat=19"), log)
     Fiber.yield
     s.connections.size.should eq 1
@@ -58,6 +59,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support channel_max query param" do
+    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqp://localhost?channel_max=19"), log)
     Fiber.yield
     s.connections.size.should eq 1
@@ -67,6 +69,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support auth_mechanism query param" do
+    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqp://localhost?auth_mechanism=AMQPLAIN"), log)
     Fiber.yield
     s.connections.size.should eq 1
@@ -75,6 +78,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support amqps verify=none" do
+    s.connections.each(&.close)
     conn = TestConnection.new(URI.parse("amqps://localhost?verify=none"), log)
     Fiber.yield
     s.connections.size.should eq 1
@@ -83,6 +87,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support amqps certfile/keyfile" do
+    s.connections.each(&.close)
     cert = Dir.current + "/spec/resources/client_certificate.pem"
     key = Dir.current + "/spec/resources/client_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"

@@ -17,6 +17,7 @@ describe AvalancheMQ::ChannelsController do
     end
 
     it "should return empty array if no connections" do
+      s.connections.each(&.close)
       response = get("http://localhost:8080/api/channels")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -36,6 +37,7 @@ describe AvalancheMQ::ChannelsController do
     end
 
     it "should return empty array if no connections" do
+      s.connections.each(&.close)
       response = get("http://localhost:8080/api/vhosts/%2f/channels")
       response.status_code.should eq 200
       body = JSON.parse(response.body)

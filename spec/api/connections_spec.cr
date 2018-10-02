@@ -14,6 +14,7 @@ describe AvalancheMQ::ConnectionsController do
     it "should only show own connections for policymaker" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      s.connections.each(&.close)
       AMQP::Connection.start do |_conn|
         response = get("http://localhost:8080/api/connections", headers: hdrs)
         response.status_code.should eq 200

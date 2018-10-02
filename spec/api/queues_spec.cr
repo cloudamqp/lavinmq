@@ -99,6 +99,7 @@ describe AvalancheMQ::QueuesController do
         q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
         x = ch.exchange("", "direct")
         x.publish AMQP::Message.new("m1"), q.name
+        sleep 0.05
         body = %({
           "count": 1,
           "ack_mode": "peek",
@@ -114,13 +115,16 @@ describe AvalancheMQ::QueuesController do
         s.vhosts["/"].queues["q3"].message_count.should eq 1
       end
     end
+  end
 
+  describe "POST /api/queues/vhost/name/get" do
     it "should get messages" do
       AMQP::Connection.start do |conn|
         ch = conn.channel
         q = ch.queue("q4")
         x = ch.exchange("", "direct")
         x.publish AMQP::Message.new("m1"), q.name
+        sleep 0.05
         body = %({
           "count": 1,
           "ack_mode": "get",
@@ -140,6 +144,7 @@ describe AvalancheMQ::QueuesController do
         q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
         x = ch.exchange("", "direct")
         x.publish AMQP::Message.new("m1"), q.name
+        sleep 0.05
         body = %({
           "count": 2,
           "ack_mode": "peek",
@@ -172,6 +177,7 @@ describe AvalancheMQ::QueuesController do
         q = ch.queue("q7")
         x = ch.exchange("", "direct")
         x.publish AMQP::Message.new("m1"), q.name
+        sleep 0.05
         body = %({
           "count": 1,
           "ack_mode": "peek",
