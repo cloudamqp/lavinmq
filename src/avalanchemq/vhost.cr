@@ -287,6 +287,7 @@ module AvalancheMQ
     end
 
     def close
+      @log.info("Closing")
       stop_shovels
       Fiber.yield
       stop_upstream_links

@@ -71,7 +71,6 @@ describe AvalancheMQ::Server do
   it "prohibits publish if user doesn't have access" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /.*/, /^$/)
-    # s.permissions.create("u1", "v1", /.*/, /.*/, /.*/)
     expect_raises(AMQP::ChannelClosed, /403/) do
       AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
         ch = conn.channel

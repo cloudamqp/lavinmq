@@ -326,6 +326,7 @@ describe AvalancheMQ::Server do
       pmsg1 = AMQP::Message.new("m" * (2**17 + 1))
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q.purge
       x.publish pmsg1, q.name
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }

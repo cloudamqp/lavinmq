@@ -20,7 +20,6 @@ module AvalancheMQ
                    @ack_mode = DEFAULT_ACK_MODE, @reconnect_delay = DEFUALT_RECONNECT_DELAY)
       @log = @vhost.log.dup
       @log.progname += " shovel=#{@name}"
-      @state = State::Starting
     end
 
     def state
@@ -29,6 +28,7 @@ module AvalancheMQ
 
     def run
       @log.info { "Starting" }
+      @state = State::Starting
       spawn(run_loop, name: "Shovel #{@vhost.name}/#{@name}")
       Fiber.yield
     end
