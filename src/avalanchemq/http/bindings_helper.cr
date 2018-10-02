@@ -33,11 +33,9 @@ module AvalancheMQ
 
     private def unbind_prop(source : Queue | Exchange, destination : Queue | Exchange, key : String)
       k = source.bindings.keys.find do |k|
-        puts "match? #{k} #{hash_key(k)} #{key}"
         hash_key(k) == key
       end
       source.unbind(destination, k[0], k[1]) if k
-      puts "unbind #{k} #{key} #{source.name} #{destination.name}"
     end
   end
 end
