@@ -57,7 +57,7 @@ module AvalancheMQ
         end
       rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
         @log.info "Consumer closed due to: #{ex.inspect}"
-        @done.send true
+        @done.send(true) unless @done.closed?
       ensure
         @log.debug "Closing socket"
         @socket.close
@@ -83,8 +83,8 @@ module AvalancheMQ
         if @source.delete_after == DeleteAfter::QueueLength &&
            @message_count <= @message_counter
           write AMQP::Connection::Close.new(320_u16, "Shovel done",
-                                            0_u16, 0_u16)
-          @done.send false
+            0_u16, 0_u16)
+          @done.send(false) unless @done.closed?
         end
       end
 

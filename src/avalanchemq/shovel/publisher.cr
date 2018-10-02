@@ -61,7 +61,7 @@ module AvalancheMQ
         end
       rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
         @log.info "Publishers closed due to: #{ex.inspect}"
-        @done.send true
+        @done.send(true) unless @done.closed?
       ensure
         @log.debug "Closing socket"
         @socket.close
@@ -98,11 +98,11 @@ module AvalancheMQ
         routing_key = @destination.exchange_key || frame.routing_key
         mandatory = @ack_mode == AckMode::OnConfirm
         pframe = AMQP::Basic::Publish.new(frame.channel,
-                                          0_u16,
-                                          exchange,
-                                          routing_key,
-                                          mandatory,
-                                          false)
+          0_u16,
+          exchange,
+          routing_key,
+          mandatory,
+          false)
         @socket.write_bytes pframe, ::IO::ByteFormat::NetworkEndian
         case @ack_mode
         when AckMode::OnConfirm
