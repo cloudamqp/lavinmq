@@ -48,6 +48,8 @@ module TestHelpers
         raise "Execuction expired"
       end
     end
+  rescue e
+    puts "\n#{e.inspect_with_backtrace}"
   end
 
   def test_headers(headers = nil)
