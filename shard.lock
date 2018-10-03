@@ -2,7 +2,7 @@ version: 1.0
 shards:
   amqp:
     github: cloudamqp/amqp.cr
-    commit: 1c8831807a75fd6f37500876ea4a7990c09347b4
+    commit: 7918d230ffac1ebd70bb346dbe5b648e060a78b0
 
   baked_file_system:
     github: schovi/baked_file_system

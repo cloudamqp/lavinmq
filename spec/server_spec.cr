@@ -5,7 +5,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       q.bind(x, "#")
       pmsg = AMQP::Message.new("test message")
       x.publish pmsg, q.name
@@ -18,7 +18,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       q.delete
@@ -26,7 +26,7 @@ describe AvalancheMQ::Server do
 
       ch = conn.channel
       pmsg = AMQP::Message.new("m2")
-      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       msg = q.get
@@ -38,7 +38,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       m1 = q.get(no_ack: false)
@@ -52,7 +52,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       m1 = q.get(no_ack: false)
@@ -89,7 +89,7 @@ describe AvalancheMQ::Server do
       ch.qos(0, 2, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       x.publish pmsg, q.name
       x.publish pmsg, q.name
       x.publish pmsg, q.name
@@ -106,7 +106,7 @@ describe AvalancheMQ::Server do
       ch.qos(0, 1, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       4.times { x.publish pmsg, q.name }
       c = 0
       q.subscribe do |msg|
@@ -138,7 +138,7 @@ describe AvalancheMQ::Server do
         code = c
       end
       x = ch.exchange("test_ad_exchange", "topic", durable: false, auto_delete: true)
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       q.bind(x)
       q.unbind(x)
       x.publish(AMQP::Message.new("m1"), q.name)
@@ -154,7 +154,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
-      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("")
       4.times { x.publish pmsg, q.name }
       q.purge.should eq 4
     end
@@ -172,7 +172,7 @@ describe AvalancheMQ::Server do
       ch.confirm
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
-      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("")
       x.publish pmsg, q.name
       ch.confirm
       x.publish pmsg, q.name
@@ -285,7 +285,7 @@ describe AvalancheMQ::Server do
   it "supports header exchange all" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-match"] = "all"
       hdrs["org"] = "84codes"
@@ -309,7 +309,7 @@ describe AvalancheMQ::Server do
   it "supports header exchange any" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-match"] = "any"
       hdrs["org"] = "84codes"
@@ -333,7 +333,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       pmsg1 = AMQP::Message.new("m" * (2**17 + 1))
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       q.purge
       x.publish pmsg1, q.name
       msgs = [] of AMQP::Message
@@ -348,7 +348,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       pmsg1 = AMQP::Message.new("a" * 8133)
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("")
       x.publish pmsg1, q.name
       msg = q.get
       msg.to_s.should eq pmsg1.to_s
