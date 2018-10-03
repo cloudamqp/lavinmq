@@ -40,13 +40,12 @@ module TestHelpers
     TestHelpers.h.not_nil!
   end
 
-  def wait_for(t = 2.seconds)
+  def wait_for(t = 10.seconds)
     timeout = Time.now + t
     until yield
       Fiber.yield
       if Time.now > timeout
-        puts "\nExecuction expired"
-        return
+        raise "Execuction expired"
       end
     end
   end
