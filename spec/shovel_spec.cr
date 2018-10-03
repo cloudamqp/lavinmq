@@ -1,17 +1,17 @@
 require "./spec_helper"
 require "../src/avalanchemq/shovel"
 
-def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
+def setup_qs(conn, prefix = "") : {AMQP::Exchange, AMQP::Queue}
   ch = conn.channel
   x = ch.exchange("", "direct", passive: true)
-  q1 = ch.queue("q1")
-  q2 = ch.queue("q2")
+  q1 = ch.queue("#{prefix}q1")
+  q2 = ch.queue("#{prefix}q2")
   {x, q2}
 end
 
-def cleanup
-  s.vhosts["/"].delete_queue("q1")
-  s.vhosts["/"].delete_queue("q2")
+def cleanup(prefix = "")
+  s.vhosts["/"].delete_queue("#{prefix}q1")
+  s.vhosts["/"].delete_queue("#{prefix}q2")
 end
 
 def publish(x, rk, msg)
@@ -145,31 +145,31 @@ describe AvalancheMQ::Shovel do
     shovel.try &.stop
   end
 
-  it "should shovel with past prefetch" do
+  it "should shovel past prefetch" do
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
-      "q1",
+      "prefetch_q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
       prefetch: 1_u16
     )
     dest = AvalancheMQ::Shovel::Destination.new(
       "amqp://guest:guest@localhost",
-      "q2"
+      "prefetch_q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
     AMQP::Connection.start do |conn|
-      x = setup_qs(conn).first
+      x = setup_qs(conn, "prefetch_").first
       100.times do
-        publish x, "q1", "shovel me"
+        publish x, "prefetch_q1", "shovel me"
       end
-      wait_for { s.vhosts["/"].queues["q1"].message_count == 100 }
+      wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
       shovel.run
       wait_for { shovel.stopped? }
-      s.vhosts["/"].queues["q1"].message_count.should eq 0
-      s.vhosts["/"].queues["q2"].message_count.should eq 100
+      s.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
+      s.vhosts["/"].queues["prefetch_q2"].message_count.should eq 100
     end
   ensure
-    cleanup
+    cleanup("prefetch_")
     shovel.try &.stop
   end
 
