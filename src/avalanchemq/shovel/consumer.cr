@@ -82,6 +82,7 @@ module AvalancheMQ
         @message_counter += 1
         if @source.delete_after == DeleteAfter::QueueLength &&
            @message_count <= @message_counter
+          @log.debug { "Queue length #{@message_count} reached (#{@message_counter}), closing" }
           write AMQP::Connection::Close.new(320_u16, "Shovel done",
             0_u16, 0_u16)
           @done.send(false) unless @done.closed?
@@ -102,6 +103,7 @@ module AvalancheMQ
         frame = AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Queue::DeclareOk) || raise UnexpectedFrame.new(f) }
         queue = frame.queue_name
         @message_count = frame.message_count
+        @log.debug { "Consuming #{@message_count} from #{queue_name}" }
         if @source.exchange
           write AMQP::Queue::Bind.new(1_u16, 0_u16, frame.queue_name,
             @source.exchange.not_nil!,
