@@ -588,8 +588,8 @@ describe AvalancheMQ::Server do
   it "should deliver to all matching queues" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q1 = ch.queue("q1676")
-      q2 = ch.queue("q1w45")
+      q1 = ch.queue("")
+      q2 = ch.queue("")
       x1 = ch.exchange("x122", "topic")
       q1.bind(x1, "rk")
       q2.bind(x1, "rk")
@@ -602,8 +602,6 @@ describe AvalancheMQ::Server do
     end
   ensure
     s.vhosts["/"].delete_exchange("x122")
-    s.vhosts["/"].delete_queue("q1676")
-    s.vhosts["/"].delete_queue("q1w45")
   end
 
   it "supports auto ack consumers" do

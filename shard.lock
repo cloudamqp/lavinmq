@@ -2,7 +2,7 @@ version: 1.0
 shards:
   amqp:
     github: cloudamqp/amqp.cr
-    commit: 4f6b5f6a125a54e85bd1f5aee33e2fb69f147f62
+    commit: 1c8831807a75fd6f37500876ea4a7990c09347b4
 
   baked_file_system:
     github: schovi/baked_file_system
@@ -14,5 +14,5 @@ shards:
 
   router:
     github: tbrand/router.cr
-    version: 0.2.3
+    version: 0.2.4
 
