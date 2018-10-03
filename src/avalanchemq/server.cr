@@ -10,6 +10,7 @@ require "./exchange"
 require "./queue"
 require "./durable_queue"
 require "./parameter"
+require "./chained_logger"
 
 module AvalancheMQ
   class Server
@@ -23,7 +24,8 @@ module AvalancheMQ
 
     def initialize(@data_dir : String, log_level, log_prefix_systemd_level = false,
                    config = Hash(String, ConfigValue).new)
-      @log = Logger.new(STDOUT)
+      # @log = Logger.new(STDOUT)
+      @log = ChainedLogger.new(STDOUT)
       @log.level = log_level
       @log.progname = "amqpserver"
       @log.formatter = Logger::Formatter.new do |severity, _datetime, progname, message, io|

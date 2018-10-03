@@ -148,6 +148,7 @@ describe AvalancheMQ::Shovel do
   end
 
   it "should shovel past prefetch" do
+    s.log.level = Logger::DEBUG
     source = AvalancheMQ::Shovel::Source.new(
       "amqp://guest:guest@localhost",
       "prefetch_q1",
@@ -171,6 +172,7 @@ describe AvalancheMQ::Shovel do
       s.vhosts["/"].queues["prefetch_q2"].message_count.should eq 100
     end
   ensure
+    s.log.level = Logger::ERROR
     ShovelSpecHelpers.cleanup("prefetch_")
     shovel.try &.stop
   end
