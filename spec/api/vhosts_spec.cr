@@ -31,10 +31,8 @@ describe AvalancheMQ::VHostsController do
       body.as_a.any? { |v| v["name"].as_s == "/" }.should be_true
       body.as_a.any? { |v| v["name"].as_s == "test" }.should be_true
     ensure
-      s.try do |s|
-        s.vhosts.delete("test")
-        s.users.delete("arnold")
-      end
+      s.vhosts.delete("test")
+      s.users.delete("arnold")
     end
   end
 
@@ -61,6 +59,8 @@ describe AvalancheMQ::VHostsController do
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("http://localhost:8080/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
+    ensure
+      s.users.delete("arnold")
     end
   end
 
@@ -76,6 +76,8 @@ describe AvalancheMQ::VHostsController do
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = delete("http://localhost:8080/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
+    ensure
+      s.users.delete("arnold")
     end
   end
 

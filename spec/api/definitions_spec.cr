@@ -104,6 +104,8 @@ describe AvalancheMQ::HTTPServer do
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
       s.users["u1"].permissions["/"][:write].should eq(/w/)
+    ensure
+      s.users.delete("u1")
     end
 
     it "imports policies" do

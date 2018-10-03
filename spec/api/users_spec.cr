@@ -16,6 +16,8 @@ describe AvalancheMQ::UsersController do
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("http://localhost:8080/api/users", headers: hdrs)
       response.status_code.should eq 401
+    ensure
+      s.users.delete("arnold")
     end
   end
 
@@ -26,6 +28,8 @@ describe AvalancheMQ::UsersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
+    ensure
+      s.users.delete("alan")
     end
   end
 
@@ -38,6 +42,9 @@ describe AvalancheMQ::UsersController do
       })
       response = post("http://localhost:8080/api/users/bulk-delete", body: body)
       response.status_code.should eq 204
+    ensure
+      s.users.delete("alan1")
+      s.users.delete("alan2")
     end
   end
 
@@ -46,12 +53,13 @@ describe AvalancheMQ::UsersController do
       s.users.create("alan", "alan")
       response = get("http://localhost:8080/api/users/alan")
       response.status_code.should eq 200
+    ensure
+      s.users.delete("alan")
     end
   end
 
   describe "PUT /api/users/name" do
     it "should create user with password" do
-      s.users.delete("alan")
       body = %({
         "password": "test"
       })
@@ -60,10 +68,11 @@ describe AvalancheMQ::UsersController do
       u = s.users["alan"]
       ok = u.not_nil!.password == "test"
       ok.should be_true
+    ensure
+      s.users.delete("alan")
     end
 
     it "should create user with password_hash" do
-      s.users.delete("alan")
       body = %({
         "password_hash": "kI3GCqW5JLMJa4iX1lo7X4D6XbYqlLgxIs30+P6tENUV2POR"
       })
@@ -72,10 +81,11 @@ describe AvalancheMQ::UsersController do
       u = s.users["alan"]
       ok = u.not_nil!.password == "test12"
       ok.should be_true
+    ensure
+      s.users.delete("alan")
     end
 
     it "should create user with empty password_hash" do
-      s.users.delete("alan")
       body = %({
         "password_hash": ""
       })
@@ -84,6 +94,8 @@ describe AvalancheMQ::UsersController do
       hrds = HTTP::Headers{"Authorization" => "Basic YWxhbjo="} # alan:
       response = get("http://localhost:8080/api/users/alan", headers: hrds)
       response.status_code.should eq 401
+    ensure
+      s.users.delete("alan")
     end
   end
 

@@ -16,6 +16,8 @@ describe AvalancheMQ::PermissionsController do
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("http://localhost:8080/api/permissions", headers: hdrs)
       response.status_code.should eq 401
+    ensure
+      s.users.delete("arnold")
     end
   end
 
