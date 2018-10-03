@@ -154,6 +154,7 @@ describe AvalancheMQ::Shovel do
       100.times do
         publish x, "q1", "shovel me"
       end
+      wait_for { s.vhosts["/"].queues["q1"].message_count == 100 }
       shovel.run
       wait_for { shovel.stopped? }
       s.vhosts["/"].queues["q1"].message_count.should eq 0
