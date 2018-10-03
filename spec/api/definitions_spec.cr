@@ -44,38 +44,40 @@ describe AvalancheMQ::HTTPServer do
     end
 
     it "imports queues" do
-      s.vhosts["/"].delete_queue("q1")
-      body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+      body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].queues.has_key?("q1").should be_true
+      s.vhosts["/"].queues.has_key?("import_q1").should be_true
+    ensure
+      s.vhosts["/"].delete_queue("import_q1")
     end
 
     it "imports exchanges" do
-      s.vhosts["/"].delete_exchange("x1")
-      body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
+      body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges.has_key?("x1").should be_true
+      s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+    ensure
+      s.vhosts["/"].delete_exchange("import_x1")
     end
 
     it "imports bindings" do
-      s.vhosts["/"].declare_exchange("x1", "direct", false, true)
-      s.vhosts["/"].declare_exchange("x2", "fanout", false, true)
-      s.vhosts["/"].declare_queue("q1", false, true)
+      s.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
+      s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
+      s.vhosts["/"].declare_queue("import_q1", false, true)
       body = %({ "bindings": [
         {
-          "source": "x1",
+          "source": "import_x1",
           "vhost": "/",
-          "destination": "x2",
+          "destination": "import_x2",
           "destination_type": "exchange",
           "routing_key": "r.k2",
           "arguments": {}
         },
         {
-          "source": "x1",
+          "source": "import_x1",
           "vhost": "/",
-          "destination": "q1",
+          "destination": "import_q1",
           "destination_type": "queue",
           "routing_key": "rk",
           "arguments": {}
@@ -83,11 +85,14 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges["x1"].matches("r.k2", nil).map(&.name).includes?("x2").should be_true
-      s.vhosts["/"].exchanges["x1"].matches("rk", nil).map(&.name).includes?("q1").should be_true
-      s.vhosts["/"].delete_queue("q1")
-      s.vhosts["/"].delete_exchange("x1")
-      s.vhosts["/"].delete_exchange("x2")
+      s.vhosts["/"].exchanges["import_x1"].matches("r.k2", nil).map(&.name)
+        .includes?("import_x2").should be_true
+      s.vhosts["/"].exchanges["import_x1"].matches("rk", nil).map(&.name)
+        .includes?("import_q1").should be_true
+    ensure
+      s.vhosts["/"].delete_queue("import_q1")
+      s.vhosts["/"].delete_exchange("import_x1")
+      s.vhosts["/"].delete_exchange("import_x2")
     end
 
     it "imports permissions" do
@@ -111,7 +116,7 @@ describe AvalancheMQ::HTTPServer do
     it "imports policies" do
       body = %({ "policies": [
         {
-          "name": "p1",
+          "name": "import_p1",
           "vhost": "/",
           "apply-to": "queues",
           "priority": 1,
@@ -123,13 +128,15 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true
+      s.vhosts["/"].policies.any? { |p| p.name == "import_p1" }.should be_true
+    ensure
+      s.vhosts["/"].delete_policy("import_p1")
     end
 
     it "imports parameters" do
       body = %({ "parameters": [
         {
-          "name": "p1",
+          "name": "import_shovel_param",
           "component": "shovel",
           "vhost": "/",
           "value": {
@@ -142,21 +149,26 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
+      s.vhosts["/"].parameters.any? { |p| p.parameter_name == "import_shovel_param" }
+        .should be_true
+    ensure
       s.stop_shovels
-      s.vhosts["/"].parameters.any? { |p| p.parameter_name == "p1" }.should be_true
+      s.vhosts["/"].delete_parameter("shovel", "import_shovel_param")
     end
 
     it "imports global parameters" do
-      body = %({ "global-parameters": [
+      body = %({ "global_parameters": [
         {
-          "name": "p1",
+          "name": "global_p1",
           "value": {}
         }
       ]})
       response = post("http://localhost:8080/api/definitions", body: body)
       response.status_code.should eq 200
       s.stop_shovels
-      s.parameters.any? { |p| p.parameter_name == "p1" }.should be_true
+      s.parameters.any? { |p| p.parameter_name == "global_p1" }.should be_true
+    ensure
+      s.delete_parameter(nil, "global_p1")
     end
   end
 
@@ -180,35 +192,42 @@ describe AvalancheMQ::HTTPServer do
     end
 
     it "exports queues" do
-      s.vhosts["/"].declare_queue("q1", false, false)
+      s.vhosts["/"].declare_queue("export_q1", false, false)
       response = get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
       keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
       body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_queue("export_q1")
     end
 
     it "exports exchanges" do
-      s.vhosts["/"].declare_exchange("e1", "topic", false, false)
+      s.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
       response = get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
       body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_exchange("export_e1")
     end
 
     it "exports bindings" do
-      s.vhosts["/"].declare_exchange("x1", "direct", false, true)
-      s.vhosts["/"].declare_queue("q1", false, true)
-      s.vhosts["/"].bind_queue("q1", "x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
+      s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
+      s.vhosts["/"].declare_queue("export_q1", false, true)
+      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
       response = get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
       body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_queue("export_q1")
+      s.vhosts["/"].delete_exchange("export_x1")
     end
 
     it "exports permissions" do
@@ -222,107 +241,122 @@ describe AvalancheMQ::HTTPServer do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
+      s.vhosts["/"].add_policy("export_p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       response = get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
       body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_policy("export_p1")
     end
 
     it "exports parameters" do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
-      p = AvalancheMQ::Parameter.new("c1", "p1", d)
+      p = AvalancheMQ::Parameter.new("c1", "p11", d)
       s.add_parameter(p)
       response = get("http://localhost:8080/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "component", "value"]
-      body["parameters"].as_a.empty?.should be_false
-      body["parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["global_parameters"].as_a.empty?.should be_false
+      body["global_parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.delete_parameter("c1", "p11")
     end
   end
 
   describe "GET /api/definitions/vhost" do
     it "exports queues" do
-      s.vhosts["/"].declare_queue("q1", false, false)
+      s.vhosts["/"].declare_queue("export_q2", false, false)
       response = get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
       keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
       body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_queue("export_q2")
     end
 
     it "exports exchanges" do
-      s.vhosts["/"].declare_exchange("e1", "topic", false, false)
+      s.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
       response = get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
       body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_exchange("export_e2")
     end
 
     it "exports bindings" do
-      s.vhosts["/"].declare_exchange("x1", "direct", false, true)
-      s.vhosts["/"].declare_queue("q1", false, true)
-      s.vhosts["/"].bind_queue("q1", "x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
+      s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
+      s.vhosts["/"].declare_queue("export_q1", false, true)
+      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
       response = get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
       body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_queue("export_q1")
+      s.vhosts["/"].delete_exchange("export_x1")
     end
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
+      s.vhosts["/"].add_policy("export_p2", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
       response = get("http://localhost:8080/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
       body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_policy("export_p2")
     end
   end
 
   describe "POST /api/definitions/vhost" do
     it "imports queues" do
-      s.vhosts["/"].delete_queue("q1")
-      body = %({ "queues": [{ "name": "q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+      body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = post("http://localhost:8080/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].queues.has_key?("q1").should be_true
+      s.vhosts["/"].queues.has_key?("import_q1").should be_true
+    ensure
+      s.vhosts["/"].delete_queue("import_q1")
     end
 
     it "imports exchanges" do
-      s.vhosts["/"].delete_exchange("x1")
-      body = %({ "exchanges": [{ "name": "x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
+      body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
       response = post("http://localhost:8080/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges.has_key?("x1").should be_true
+      s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+    ensure
+      s.vhosts["/"].delete_exchange("import_x1")
     end
 
     it "imports bindings" do
-      s.vhosts["/"].declare_exchange("x1", "direct", false, true)
-      s.vhosts["/"].declare_exchange("x2", "fanout", false, true)
-      s.vhosts["/"].declare_queue("q1", false, true)
+      s.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
+      s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
+      s.vhosts["/"].declare_queue("import_q1", false, true)
       body = %({ "bindings": [
         {
-          "source": "x1",
+          "source": "import_x1",
           "vhost": "/",
-          "destination": "x2",
+          "destination": "import_x2",
           "destination_type": "exchange",
           "routing_key": "r.k2",
           "arguments": {}
         },
         {
-          "source": "x1",
+          "source": "import_x1",
           "vhost": "/",
-          "destination": "q1",
+          "destination": "import_q1",
           "destination_type": "queue",
           "routing_key": "rk",
           "arguments": {}
@@ -330,17 +364,20 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("http://localhost:8080/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges["x1"].matches("r.k2", nil).map(&.name).includes?("x2").should be_true
-      s.vhosts["/"].exchanges["x1"].matches("rk", nil).map(&.name).includes?("q1").should be_true
-      s.vhosts["/"].delete_queue("q1")
-      s.vhosts["/"].delete_exchange("x1")
-      s.vhosts["/"].delete_exchange("x2")
+      s.vhosts["/"].exchanges["import_x1"].matches("r.k2", nil).map(&.name).includes?("import_x2")
+        .should be_true
+      s.vhosts["/"].exchanges["import_x1"].matches("rk", nil).map(&.name).includes?("import_q1")
+        .should be_true
+    ensure
+      s.vhosts["/"].delete_queue("import_q1")
+      s.vhosts["/"].delete_exchange("import_x1")
+      s.vhosts["/"].delete_exchange("import_x2")
     end
 
     it "imports policies" do
       body = %({ "policies": [
         {
-          "name": "p1",
+          "name": "import_p1",
           "vhost": "/",
           "apply-to": "queues",
           "priority": 1,
@@ -352,7 +389,9 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("http://localhost:8080/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].policies.any? { |p| p.name == "p1" }.should be_true
+      s.vhosts["/"].policies.any? { |p| p.name == "import_p1" }.should be_true
+    ensure
+      s.vhosts["/"].delete_policy("import_p1")
     end
   end
 end

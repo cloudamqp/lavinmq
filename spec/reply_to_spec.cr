@@ -8,6 +8,8 @@ describe AvalancheMQ::Server do
         q = ch.queue("amq.direct.reply-to")
         q.name.should eq "amq.direct.reply-to"
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.direct.reply-to")
     end
 
     it "should allow amq.rabbitmq.reply-to to be declared" do
@@ -16,6 +18,8 @@ describe AvalancheMQ::Server do
         q = ch.queue("amq.rabbitmq.reply-to")
         q.name.should eq "amq.rabbitmq.reply-to"
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.rabbitmq.reply-to")
     end
 
     it "should be able to consume amq.direct.reply-to" do
@@ -24,6 +28,8 @@ describe AvalancheMQ::Server do
         consumer_tag = ch.queue("amq.direct.reply-to").subscribe("tag", no_ack: true) { }
         consumer_tag.should eq "tag"
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.direct.reply-to")
     end
 
     it "should be able to consume amq.rabbitmq.reply-to" do
@@ -32,6 +38,8 @@ describe AvalancheMQ::Server do
         consumer_tag = ch.queue("amq.rabbitmq.reply-to").subscribe("tag", no_ack: true) { }
         consumer_tag.should eq "tag"
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.rabbitmq.reply-to")
     end
 
     it "should require consumer to be in no-ack mode" do
@@ -41,6 +49,8 @@ describe AvalancheMQ::Server do
           ch.queue("amq.direct.reply-to").subscribe(no_ack: false) { }
         end
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.direct.reply-to")
     end
 
     it "should set reply-to" do
@@ -57,6 +67,9 @@ describe AvalancheMQ::Server do
         wait_for { reply_to }
         reply_to.should match /^amq\.direct\.reply-to\..+$/
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.direct.reply-to")
+      s.vhosts["/"].delete_queue("test")
     end
 
     it "should reject publish if no amq.direct.reply-to consumer" do
@@ -71,6 +84,9 @@ describe AvalancheMQ::Server do
           ch.confirm
         end
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.direct.reply-to")
+      s.vhosts["/"].delete_queue("test")
     end
 
     it "should be ok to declare reply-to queue to check if consumer is connected" do
@@ -81,6 +97,8 @@ describe AvalancheMQ::Server do
         resp = queue.declare
         resp[1].should eq 0
       end
+    ensure
+      s.vhosts["/"].delete_queue("amq.direct.reply-to.random")
     end
 
     it "should return on mandatory publish to a reply routing key" do

@@ -31,6 +31,7 @@ describe AvalancheMQ::ConsumersController do
         ch = conn.channel
         q = ch.queue("")
         q.subscribe { }
+        sleep 0.1
         response = get("http://localhost:8080/api/consumers/%2f")
         response.status_code.should eq 200
         body = JSON.parse(response.body)

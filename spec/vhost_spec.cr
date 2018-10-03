@@ -4,12 +4,16 @@ describe AvalancheMQ::Server do
   it "should be able to create vhosts" do
     s.vhosts.create("test")
     s.vhosts["test"]?.should_not be_nil
+  ensure
+    s.vhosts.delete("test")
   end
 
   it "should be able to delete vhosts" do
     s.vhosts.create("test")
     s.vhosts.delete("test")
     s.vhosts["test"]?.should be_nil
+  ensure
+    s.vhosts.delete("test")
   end
 
   it "should be able to persist vhosts" do
@@ -17,6 +21,8 @@ describe AvalancheMQ::Server do
     close_servers
     TestHelpers.setup
     s.vhosts["test"]?.should_not be_nil
+  ensure
+    s.vhosts.delete("test")
   end
 
   it "should be able to persist durable exchanges" do
@@ -26,6 +32,8 @@ describe AvalancheMQ::Server do
     close_servers
     TestHelpers.setup
     s.vhosts["test"].exchanges["e"].should_not be_nil
+  ensure
+    s.vhosts.delete("test")
   end
 
   it "should be able to persist durable queues" do
@@ -35,6 +43,8 @@ describe AvalancheMQ::Server do
     close_servers
     TestHelpers.setup
     s.vhosts["test"].queues["q"].should_not be_nil
+  ensure
+    s.vhosts.delete("test")
   end
 
   it "should be able to persist bindings" do
@@ -47,5 +57,7 @@ describe AvalancheMQ::Server do
     close_servers
     TestHelpers.setup
     s.vhosts["test"].exchanges["e"].bindings[{"q", nil}].size.should eq 1
+  ensure
+    s.vhosts.delete("test")
   end
 end

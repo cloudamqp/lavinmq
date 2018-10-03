@@ -6,9 +6,12 @@ def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
   x = ch.exchange("", "direct", passive: true)
   q1 = ch.queue("q1")
   q2 = ch.queue("q2")
-  q1.purge
-  q2.purge
   {x, q2}
+end
+
+def cleanup
+  s.vhosts["/"].delete_queue("q1")
+  s.vhosts["/"].delete_queue("q2")
 end
 
 def publish(x, rk, msg)
@@ -36,6 +39,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
+    cleanup
     upstream.not_nil!.close
   end
 
@@ -53,6 +57,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q2"].message_count.should eq 0
     end
   ensure
+    cleanup
     upstream.not_nil!.close
   end
 
@@ -73,6 +78,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
+    cleanup
     upstream.not_nil!.close
   end
 
@@ -93,6 +99,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
+    cleanup
     upstream.not_nil!.close
   end
 end

@@ -3,7 +3,7 @@ require "../spec_helper"
 describe AvalancheMQ::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
-      s.vhosts["/"].declare_queue("q0", false, false)
+      s.vhosts["/"].declare_queue("", false, false)
       response = get("http://localhost:8080/api/queues")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -17,7 +17,7 @@ describe AvalancheMQ::QueuesController do
 
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
-      s.vhosts["/"].declare_queue("q0", false, false)
+      s.vhosts["/"].declare_queue("", false, false)
       response = get("http://localhost:8080/api/queues/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -30,6 +30,8 @@ describe AvalancheMQ::QueuesController do
       s.vhosts["/"].declare_queue("q0", false, false)
       response = get("http://localhost:8080/api/queues/%2f/q0")
       response.status_code.should eq 200
+    ensure
+      s.vhosts["/"].delete_queue("q0")
     end
 
     it "should return 404 if queue does not exist" do
@@ -47,24 +49,25 @@ describe AvalancheMQ::QueuesController do
           "max-length": 10
         }
       })
-      s.vhosts["/"].delete_queue("putqueue")
       response = put("http://localhost:8080/api/queues/%2f/putqueue", body: body)
       response.status_code.should eq 204
       response = get("http://localhost:8080/api/queues/%2f/putqueue")
       response.status_code.should eq 200
+    ensure
+      s.vhosts["/"].delete_queue("putqueue")
     end
 
     it "should not require any body" do
-      s.vhosts["/"].delete_queue("okq")
       response = put("http://localhost:8080/api/queues/%2f/okq", body: %({}))
       response.status_code.should eq 204
+    ensure
+      s.vhosts["/"].delete_queue("okq")
     end
 
     it "should require durable to be the same when overwriting" do
       body = %({
         "durable": true
       })
-      s.vhosts["/"].delete_queue("q1")
       response = put("http://localhost:8080/api/queues/%2f/q1", body: body)
       response.status_code.should eq 204
       body = %({
@@ -72,6 +75,8 @@ describe AvalancheMQ::QueuesController do
       })
       response = put("http://localhost:8080/api/queues/%2f/q1", body: body)
       response.status_code.should eq 400
+    ensure
+      s.vhosts["/"].delete_queue("q1")
     end
 
     it "should not be possible to declare amq. prefixed queues" do
@@ -91,6 +96,8 @@ describe AvalancheMQ::QueuesController do
       s.vhosts["/"].declare_queue("delq", false, false)
       response = delete("http://localhost:8080/api/queues/%2f/delq")
       response.status_code.should eq 204
+    ensure
+      s.vhosts["/"].declare_queue("delq", false, false)
     end
 
     it "should not delete queue if it has messasge when query param if-unused is set" do
@@ -114,6 +121,8 @@ describe AvalancheMQ::QueuesController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
         s.vhosts["/"].queues["q3"].message_count.should be > 0
       end
+    ensure
+      s.vhosts["/"].delete_queue("q3")
     end
   end
 
@@ -136,6 +145,8 @@ describe AvalancheMQ::QueuesController do
         body.as_a.empty?.should be_false
         s.vhosts["/"].queues["q4"].empty?.should be_true
       end
+    ensure
+      s.vhosts["/"].delete_queue("q4")
     end
 
     it "should handle count > message_count" do
@@ -153,6 +164,8 @@ describe AvalancheMQ::QueuesController do
         response = post("http://localhost:8080/api/queues/%2f/q5/get", body: body)
         response.status_code.should eq 200
       end
+    ensure
+      s.vhosts["/"].delete_queue("q5")
     end
 
     it "should handle empty q" do
@@ -169,6 +182,8 @@ describe AvalancheMQ::QueuesController do
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_true
       end
+    ensure
+      s.vhosts["/"].delete_queue("q6")
     end
 
     it "should handle base64 encoding" do
@@ -188,6 +203,8 @@ describe AvalancheMQ::QueuesController do
         body = JSON.parse(response.body)
         Base64.decode_string(body[0]["payload"].as_s).should eq "m1"
       end
+    ensure
+      s.vhosts["/"].delete_queue("q7")
     end
   end
 end

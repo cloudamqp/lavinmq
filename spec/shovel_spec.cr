@@ -6,9 +6,12 @@ def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
   x = ch.exchange("", "direct", passive: true)
   q1 = ch.queue("q1")
   q2 = ch.queue("q2")
-  q1.purge
-  q2.purge
   {x, q2}
+end
+
+def cleanup
+  s.vhosts["/"].delete_queue("q1")
+  s.vhosts["/"].delete_queue("q2")
 end
 
 def publish(x, rk, msg)
@@ -41,6 +44,7 @@ describe AvalancheMQ::Shovel do
       s.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -63,6 +67,7 @@ describe AvalancheMQ::Shovel do
       q2.get(no_ack: true).to_s.bytesize.should eq 10_000
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -88,6 +93,7 @@ describe AvalancheMQ::Shovel do
       rmsg.to_s.should eq "shovel me"
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -111,6 +117,7 @@ describe AvalancheMQ::Shovel do
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -134,6 +141,7 @@ describe AvalancheMQ::Shovel do
       q2.get(no_ack: true).to_s.should eq "shovel me"
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -161,6 +169,7 @@ describe AvalancheMQ::Shovel do
       s.vhosts["/"].queues["q2"].message_count.should eq 100
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -185,6 +194,7 @@ describe AvalancheMQ::Shovel do
       rmsg.to_s.should eq "shovel me"
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 
@@ -223,8 +233,9 @@ describe AvalancheMQ::Shovel do
       msgs.size.should eq 2
     end
   ensure
+    s.vhosts["/"].delete_queue("q1d")
+    s.vhosts["/"].delete_queue("q2d")
     s.vhosts["/"].delete_parameter("shovel", "shovel")
-    sleep 0.05
   end
 
   it "should shovel over amqps" do
@@ -247,6 +258,7 @@ describe AvalancheMQ::Shovel do
       msgs[0]?.to_s.should eq "shovel me"
     end
   ensure
+    cleanup
     shovel.try &.stop
   end
 end

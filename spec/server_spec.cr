@@ -18,7 +18,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       q.delete
@@ -26,7 +26,7 @@ describe AvalancheMQ::Server do
 
       ch = conn.channel
       pmsg = AMQP::Message.new("m2")
-      q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       msg = q.get
@@ -52,7 +52,7 @@ describe AvalancheMQ::Server do
     AMQP::Connection.start do |conn|
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("q4", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       m1 = q.get(no_ack: false)
@@ -79,6 +79,8 @@ describe AvalancheMQ::Server do
       m1 = q.get(no_ack: true)
       m1.to_s.should eq("m1")
     end
+  ensure
+    s.vhosts["/"].delete_queue("q5")
   end
 
   it "respects prefetch" do
@@ -124,6 +126,8 @@ describe AvalancheMQ::Server do
       x = ch.exchange("test_delete_exchange", "topic", durable: true)
       x.delete.should be x
     end
+  ensure
+    s.vhosts["/"].delete_exchange("test_delete_exchange")
   end
 
   it "can auto delete exchange" do
@@ -134,13 +138,15 @@ describe AvalancheMQ::Server do
         code = c
       end
       x = ch.exchange("test_ad_exchange", "topic", durable: false, auto_delete: true)
-      q = ch.queue("test_ad_exchange", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       q.bind(x)
       q.unbind(x)
       x.publish(AMQP::Message.new("m1"), q.name)
       wait_for { code == 404 }
       ch.closed.should be_true
     end
+  ensure
+    s.vhosts["/"].delete_exchange("test_ad_exchange")
   end
 
   it "can purge a queue" do
@@ -148,7 +154,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
-      q = ch.queue("test_purge", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       4.times { x.publish pmsg, q.name }
       q.purge.should eq 4
     end
@@ -166,7 +172,7 @@ describe AvalancheMQ::Server do
       ch.confirm
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
-      q = ch.queue("test_confirms", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       x.publish pmsg, q.name
       ch.confirm
       x.publish pmsg, q.name
@@ -194,7 +200,7 @@ describe AvalancheMQ::Server do
   it "expires messages" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q = ch.queue("exp1")
+      q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
       msg = AMQP::Message.new("expired",
         AMQP::Protocol::Properties.new(expiration: "0"))
@@ -221,12 +227,14 @@ describe AvalancheMQ::Server do
       msg = dlq.get(no_ack: true)
       msg.to_s.should eq("queue dlx")
     end
+  ensure
+    s.vhosts["/"].delete_queue("dlq")
   end
 
   it "dead-letter expired messages" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      dlq = ch.queue("dlq2")
+      dlq = ch.queue("")
       ch.queue("exp")
 
       hdrs = AMQP::Protocol::Table.new
@@ -264,7 +272,7 @@ describe AvalancheMQ::Server do
       ch = conn.channel
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
-      q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
+      q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       x.publish pmsg, q.name
       msgs = [] of AMQP::Message
       tag = q.subscribe { |msg| msgs << msg }
@@ -277,7 +285,7 @@ describe AvalancheMQ::Server do
   it "supports header exchange all" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q = ch.queue("q-header-ex", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-match"] = "all"
       hdrs["org"] = "84codes"
@@ -301,7 +309,7 @@ describe AvalancheMQ::Server do
   it "supports header exchange any" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q = ch.queue("q-header-ex2", auto_delete: true, durable: false, exclusive: false)
+      q = ch.queue("", auto_delete: true, durable: false, exclusive: false)
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-match"] = "any"
       hdrs["org"] = "84codes"
@@ -374,6 +382,10 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should eq("test message")
     end
+  ensure
+    s.vhosts["/"].delete_exchange("x1")
+    s.vhosts["/"].delete_exchange("x2")
+    s.vhosts["/"].delete_queue("e2e")
   end
 
   it "supports x-max-length drop-head" do
@@ -387,10 +399,10 @@ describe AvalancheMQ::Server do
       args["x-max-length"] = 1_i64
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
-      x.publish AMQP::Message.new("m1"), q.name
-      x.publish AMQP::Message.new("m2"), q.name
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }
+      x.publish AMQP::Message.new("m1"), q.name
+      x.publish AMQP::Message.new("m2"), q.name
       wait_for { msgs.size == 1 }
       acks.should eq 2
       msgs.size.should eq 1
@@ -410,10 +422,10 @@ describe AvalancheMQ::Server do
       args["x-overflow"] = "reject-publish"
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
-      x.publish AMQP::Message.new("m1"), q.name
-      x.publish AMQP::Message.new("m2"), q.name
       msgs = [] of AMQP::Message
       q.subscribe { |msg| msgs << msg }
+      x.publish AMQP::Message.new("m1"), q.name
+      x.publish AMQP::Message.new("m2"), q.name
       wait_for { msgs.size == 1 }
       acks.should eq 2
       nacks.should eq 0
@@ -466,6 +478,8 @@ describe AvalancheMQ::Server do
       q = ch.queue("exlusive_consumer", auto_delete: true)
       q.subscribe { }
     end
+  ensure
+    s.vhosts["/"].delete_queue("exlusive_consumer")
   end
 
   it "only allow one connection access an exlusive queues" do
@@ -479,6 +493,8 @@ describe AvalancheMQ::Server do
         end
       end
     end
+  ensure
+    s.vhosts["/"].delete_queue("exlusive_consumer")
   end
 
   it "it persists transient msgs between restarts" do
@@ -493,16 +509,18 @@ describe AvalancheMQ::Server do
         x.publish(msg, q.name)
       end
     end
+    wait_for { s.vhosts["/"].queues["durable_queue"].message_count == 1000 }
     close_servers
     TestHelpers.setup
-
-    Fiber.yield
+    sleep 0.05
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete
       deleted_msgs.should eq(1000)
     end
+  ensure
+    s.vhosts["/"].delete_queue("durable_queue")
   end
 
   it "supports max-length" do
@@ -543,6 +561,9 @@ describe AvalancheMQ::Server do
       msg = q.get(no_ack: true)
       msg.to_s.should eq("m1")
     end
+  ensure
+    s.vhosts["/"].delete_exchange("x1")
+    s.vhosts["/"].delete_exchange("ae")
   end
 
   it "supports heartbeats" do
@@ -560,22 +581,29 @@ describe AvalancheMQ::Server do
       Fiber.yield
       s.vhosts["/"].queues.has_key?("test").should be_false
     end
+  ensure
+    s.vhosts["/"].delete_queue("test")
   end
 
   it "should deliver to all matching queues" do
     AMQP::Connection.start do |conn|
       ch = conn.channel
-      q1 = ch.queue("q699")
-      q2 = ch.queue("q700")
+      q1 = ch.queue("q1676")
+      q2 = ch.queue("q1w45")
       x1 = ch.exchange("x122", "topic")
       q1.bind(x1, "rk")
       q2.bind(x1, "rk")
       x1.publish(AMQP::Message.new("m1"), "rk")
+      sleep 0.05
       msg_q1 = q1.get(no_ack: true)
       msg_q2 = q2.get(no_ack: true)
       msg_q1.to_s.should eq("m1")
       msg_q2.to_s.should eq("m1")
     end
+  ensure
+    s.vhosts["/"].delete_exchange("x122")
+    s.vhosts["/"].delete_queue("q1676")
+    s.vhosts["/"].delete_queue("q1w45")
   end
 
   it "supports auto ack consumers" do

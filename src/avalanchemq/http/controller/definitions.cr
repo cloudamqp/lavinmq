@@ -89,7 +89,7 @@ module AvalancheMQ
         "bindings":            export_bindings(@amqp_server.vhosts),
         "permissions":         export_permissions,
         "policies":            @amqp_server.vhosts.flat_map(&.policies.values),
-        "global-parameters":   @amqp_server.parameters.values,
+        "global_parameters":   @amqp_server.parameters.values,
         "parameters":          export_parameters,
       }.to_json(response)
     end
@@ -226,7 +226,7 @@ module AvalancheMQ
     end
 
     private def import_global_parameters(body)
-      return unless parameters = body["global-parameters"]? || nil
+      return unless parameters = body["global_parameters"]? || nil
       parameters.as_a.each do |p|
         param = Parameter.new(nil, p["name"].as_s, p["value"])
         @amqp_server.add_parameter(param)
