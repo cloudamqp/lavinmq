@@ -15,6 +15,7 @@ describe AvalancheMQ::ParametersController do
       keys = ["name", "component", "vhost", "value"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
+      s.vhosts["/"].delete_parameter("test", "name")
       s.users.delete("arnold")
     end
 
@@ -37,6 +38,8 @@ describe AvalancheMQ::ParametersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
+    ensure
+      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -48,6 +51,8 @@ describe AvalancheMQ::ParametersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
+    ensure
+      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -57,17 +62,20 @@ describe AvalancheMQ::ParametersController do
       s.vhosts["/"].add_parameter(p)
       response = get("http://localhost:8080/api/parameters/test/%2f/name")
       response.status_code.should eq 200
+    ensure
+      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
   describe "PUT /api/parameters/component/vhost/name" do
     it "should create parameters for a component on vhost" do
-      s.vhosts["/"].delete_parameter("test", "name")
       body = %({
         "value": {}
       })
       response = put("http://localhost:8080/api/parameters/test/%2f/name", body: body)
       response.status_code.should eq 204
+    ensure
+      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -77,6 +85,8 @@ describe AvalancheMQ::ParametersController do
       s.vhosts["/"].add_parameter(p)
       response = delete("http://localhost:8080/api/parameters/test/%2f/name")
       response.status_code.should eq 204
+    ensure
+      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -90,6 +100,8 @@ describe AvalancheMQ::ParametersController do
       body.as_a.empty?.should be_false
       keys = ["name", "value"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.delete_parameter(nil, "name")
     end
   end
 
@@ -99,6 +111,8 @@ describe AvalancheMQ::ParametersController do
       s.add_parameter(p)
       response = get("http://localhost:8080/api/global-parameters/name")
       response.status_code.should eq 200
+    ensure
+      s.delete_parameter(nil, "name")
     end
   end
 
@@ -110,6 +124,8 @@ describe AvalancheMQ::ParametersController do
       })
       response = put("http://localhost:8080/api/global-parameters/name", body: body)
       response.status_code.should eq 204
+    ensure
+      s.delete_parameter(nil, "name")
     end
   end
 
@@ -119,6 +135,8 @@ describe AvalancheMQ::ParametersController do
       s.add_parameter(p)
       response = delete("http://localhost:8080/api/global-parameters/name")
       response.status_code.should eq 204
+    ensure
+      s.delete_parameter(nil, "name")
     end
   end
 
@@ -135,6 +153,8 @@ describe AvalancheMQ::ParametersController do
       body.as_a.empty?.should be_false
       keys = ["name", "vhost", "definition", "priority", "apply-to"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_policy("test")
     end
   end
 
@@ -149,6 +169,8 @@ describe AvalancheMQ::ParametersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
+    ensure
+      s.vhosts["/"].delete_policy("test")
     end
   end
 
@@ -161,12 +183,13 @@ describe AvalancheMQ::ParametersController do
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
       response = get("http://localhost:8080/api/policies/%2f/test")
       response.status_code.should eq 200
+    ensure
+      s.vhosts["/"].delete_policy("test")
     end
   end
 
   describe "PUT /api/policies/vhost/name" do
     it "should create policy" do
-      s.vhosts["/"].delete_policy("name")
       body = %({
         "apply-to": "queues",
         "priority": 4,
@@ -175,6 +198,8 @@ describe AvalancheMQ::ParametersController do
       })
       response = put("http://localhost:8080/api/policies/%2f/name", body: body)
       response.status_code.should eq 204
+    ensure
+      s.vhosts["/"].delete_policy("name")
     end
   end
 
@@ -187,6 +212,8 @@ describe AvalancheMQ::ParametersController do
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
       response = delete("http://localhost:8080/api/policies/%2f/test")
       response.status_code.should eq 204
+    ensure
+      s.vhosts["/"].delete_policy("test")
     end
   end
 end

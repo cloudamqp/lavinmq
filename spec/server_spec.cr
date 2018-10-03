@@ -389,7 +389,6 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length drop-head" do
-    s.log.level = Logger::DEBUG
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
@@ -409,12 +408,9 @@ describe AvalancheMQ::Server do
       acks.should eq 2
       msgs.size.should eq 1
     end
-  ensure
-    s.log.level = Logger::ERROR
   end
 
   it "supports x-max-length reject-publish" do
-    s.log.level = Logger::DEBUG
     AMQP::Connection.start do |conn|
       ch = conn.channel.confirm
       acks = 0
@@ -437,8 +433,6 @@ describe AvalancheMQ::Server do
       nacks.should eq 0
       msgs.size.should eq 1
     end
-  ensure
-    s.log.level = Logger::ERROR
   end
 
   it "disallows creating queues starting with amq." do
@@ -506,7 +500,6 @@ describe AvalancheMQ::Server do
   end
 
   it "it persists transient msgs between restarts" do
-    s.log.level = Logger::DEBUG
     AMQP::Connection.start do |conn|
       ch = conn.channel
       q = ch.queue("durable_queue", durable: true)
@@ -529,7 +522,6 @@ describe AvalancheMQ::Server do
       deleted_msgs.should eq(1000)
     end
   ensure
-    s.log.level = Logger::ERROR
     s.vhosts["/"].delete_queue("durable_queue")
   end
 
