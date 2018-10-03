@@ -1,22 +1,24 @@
 require "./spec_helper"
 require "../src/avalanchemq/federation/upstream"
 
-def setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
-  ch = conn.channel
-  x = ch.exchange("", "direct", passive: true)
-  q1 = ch.queue("q1")
-  q2 = ch.queue("q2")
-  {x, q2}
-end
+module UpstreamSpecHelpers
+  def self.setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
+    ch = conn.channel
+    x = ch.exchange("", "direct", passive: true)
+    q1 = ch.queue("q1")
+    q2 = ch.queue("q2")
+    {x, q2}
+  end
 
-def cleanup
-  s.vhosts["/"].delete_queue("q1")
-  s.vhosts["/"].delete_queue("q2")
-end
+  def self.cleanup
+    s.vhosts["/"].delete_queue("q1")
+    s.vhosts["/"].delete_queue("q2")
+  end
 
-def publish(x, rk, msg)
-  pmsg = AMQP::Message.new(msg)
-  x.publish pmsg, rk
+  def self.publish(x, rk, msg)
+    pmsg = AMQP::Message.new(msg)
+    x.publish pmsg, rk
+  end
 end
 
 describe AvalancheMQ::Upstream do
@@ -29,8 +31,8 @@ describe AvalancheMQ::Upstream do
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1")
 
     AMQP::Connection.start do |conn|
-      x, q2 = setup_qs conn
-      publish x, "q1", "federate me"
+      x, q2 = UpstreamSpecHelpers.setup_qs conn
+      UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       msgs = [] of AMQP::Message
       q2.subscribe { |msg| msgs << msg }
@@ -39,7 +41,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
-    cleanup
+    UpstreamSpecHelpers.cleanup
     upstream.not_nil!.close
   end
 
@@ -49,15 +51,15 @@ describe AvalancheMQ::Upstream do
     upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", uri, "q1")
 
     AMQP::Connection.start do |conn|
-      x = setup_qs(conn).first
-      publish x, "q1", "federate me"
+      x = UpstreamSpecHelpers.setup_qs(conn).first
+      UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       sleep 0.05
       vhost.queues["q1"].message_count.should eq 1
       vhost.queues["q2"].message_count.should eq 0
     end
   ensure
-    cleanup
+    UpstreamSpecHelpers.cleanup
     upstream.not_nil!.close
   end
 
@@ -68,8 +70,8 @@ describe AvalancheMQ::Upstream do
       ack_mode: AvalancheMQ::Upstream::AckMode::NoAck)
 
     AMQP::Connection.start do |conn|
-      x, q2 = setup_qs conn
-      publish x, "q1", "federate me"
+      x, q2 = UpstreamSpecHelpers.setup_qs conn
+      UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       msgs = [] of AMQP::Message
       q2.subscribe { |msg| msgs << msg }
@@ -78,7 +80,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
-    cleanup
+    UpstreamSpecHelpers.cleanup
     upstream.not_nil!.close
   end
 
@@ -89,8 +91,8 @@ describe AvalancheMQ::Upstream do
       ack_mode: AvalancheMQ::Upstream::AckMode::OnPublish)
 
     AMQP::Connection.start do |conn|
-      x, q2 = setup_qs conn
-      publish x, "q1", "federate me"
+      x, q2 = UpstreamSpecHelpers.setup_qs conn
+      UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
       msgs = [] of AMQP::Message
       q2.subscribe { |msg| msgs << msg }
@@ -99,7 +101,7 @@ describe AvalancheMQ::Upstream do
       vhost.queues["q1"].message_count.should eq 0
     end
   ensure
-    cleanup
+    UpstreamSpecHelpers.cleanup
     upstream.not_nil!.close
   end
 end
