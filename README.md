@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/84codes/avalanchemq.svg?token=rfwynuMNGnX9tuyspVud&branch=master)](https://travis-ci.com/84codes/avalanchemq)
+
 <img src="avalanche.png" align="right" />
 
 # AvalancheMQ
