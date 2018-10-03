@@ -399,10 +399,11 @@ describe AvalancheMQ::Server do
       args["x-max-length"] = 1_i64
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
-      msgs = [] of AMQP::Message
-      q.subscribe { |msg| msgs << msg }
       x.publish AMQP::Message.new("m1"), q.name
       x.publish AMQP::Message.new("m2"), q.name
+      sleep 0.05
+      msgs = [] of AMQP::Message
+      q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       acks.should eq 2
       msgs.size.should eq 1
@@ -422,10 +423,11 @@ describe AvalancheMQ::Server do
       args["x-overflow"] = "reject-publish"
       q = ch.queue("", args: args)
       x = ch.exchange("", "direct")
-      msgs = [] of AMQP::Message
-      q.subscribe { |msg| msgs << msg }
       x.publish AMQP::Message.new("m1"), q.name
       x.publish AMQP::Message.new("m2"), q.name
+      sleep 0.05
+      msgs = [] of AMQP::Message
+      q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       acks.should eq 2
       nacks.should eq 0
