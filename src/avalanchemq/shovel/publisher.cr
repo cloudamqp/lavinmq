@@ -50,9 +50,8 @@ module AvalancheMQ
               reject(@message_count) if @ack_mode == AckMode::OnConfirm
               true
             when AMQP::Connection::Close
-              @on_frame.try &.call(frame)
               write AMQP::Connection::CloseOk.new
-              true
+              false
             when AMQP::Connection::CloseOk
               false
             else true
@@ -60,10 +59,11 @@ module AvalancheMQ
           end || break
         end
       rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
-        @log.info "Publishers closed due to: #{ex.inspect}"
-        @done.send(true) unless @done.closed?
+        @log.info "Closed due to: #{ex.inspect}"
       ensure
         @log.debug "Closing socket"
+        # @done will be closed if the shovel is actually done, so we can always try to send true
+        @done.send(true) unless @done.closed?
         @socket.close
       end
 

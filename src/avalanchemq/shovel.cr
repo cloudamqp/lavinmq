@@ -33,7 +33,7 @@ module AvalancheMQ
       Fiber.yield
     end
 
-    def run_loop
+    private def run_loop
       loop do
         break if stopped?
         done = Channel(Bool).new
@@ -42,12 +42,8 @@ module AvalancheMQ
         @consumer = Consumer.new(@source, @ack_mode, @log, done)
         p = @publisher.not_nil!
         c = @consumer.not_nil!
-        c.on_frame do |f|
-          p.forward f
-        end
-        p.on_frame do |f|
-          c.forward f
-        end
+        c.on_frame { |f| p.forward f }
+        p.on_frame { |f| c.forward f }
         p.run
         c.run
         @state = State::Running

@@ -12,42 +12,97 @@ module AvalancheMQ
 
       @publisher : Publisher?
       @consumer : Consumer?
+      @state = 0_u8
+      @consumer_available = Channel(Nil).new
+      @done = Channel(Nil).new
 
       def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
-        @log.progname += " link queue=#{@federated_q.name}:"
+        @log.progname += " link=#{@federated_q.name}"
         @federated_q.register_observer(self)
+        @consumer_available.send(nil) if @federated_q.immediate_delivery?
+      end
+
+      def state
+        @state.to_s
       end
 
       def on(event, data)
         @log.debug { "event=#{event} data=#{data}" }
         case event
         when :delete, :close
-          @upstream.close_link(@federated_q)
+          @upstream.stop_link(@federated_q)
+        when :add_consumer
+          @consumer_available.send(nil) unless @consumer_available.closed?
         when :rm_consumer
-          @upstream.close_link(@federated_q) unless @federated_q.consumer_count > 0
+          @upstream.stop_link(@federated_q) unless @federated_q.consumer_count > 0
         end
       end
 
-      def start
-        @log.debug { "start=#{@federated_q.immediate_delivery?}" }
-        return false unless @federated_q.immediate_delivery?
-        @consumer.try &.close
-        @publisher.try &.close
-        @publisher = Publisher.new(@upstream)
-        @consumer = Consumer.new(@upstream, @publisher.not_nil!, @federated_q)
-        @publisher.not_nil!.start(@consumer.not_nil!)
-        @connected_at = Time.utc_now
-        @consumer.not_nil!.start
-        @log.debug "link started"
+      def run
+        @log.info { "Starting" }
+        spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{@federated_q.name}")
+        Fiber.yield
+      end
+
+      private def run_loop
+        loop do
+          break if stopped?
+          @state = State::Starting
+          if !@federated_q.immediate_delivery?
+            @log.debug { "Waiting for consumers" }
+            @consumer_available.receive
+          end
+          @publisher = Publisher.new(@upstream, @federated_q)
+          @consumer = Consumer.new(@upstream)
+          p = @publisher.not_nil!
+          c = @consumer.not_nil!
+          c.on_frame { |f| p.forward f }
+          p.on_frame { |f| c.forward f }
+          p.run
+          c.run
+          @state = State::Running
+          @connected_at = Time.utc_now
+          @done.receive
+          break
+        rescue ex
+          @connected_at = nil
+          case ex
+          when AMQP::FrameDecodeError, Connection::UnexpectedFrame
+            @log.warn { "Federation link failure: #{ex.cause.inspect}" }
+          else
+            @log.warn { "Federation link: #{ex.inspect_with_backtrace}" }
+          end
+          @consumer.try &.close("Federation link stopped")
+          @publisher.try &.close("SFederation link stopped")
+          break if stopped?
+          sleep @upstream.reconnect_delay.seconds
+        end
+        @log.info { "Federation link stopped" }
       ensure
+        @done.close
+        @consumer_available.close
         @connected_at = nil
       end
 
-      def close
-        @log.debug "close link"
+      # Does not trigger reconnect, but a graceful close
+      def stop
+        @log.info { "Stopping" }
+        @state = State::Terminated
         @federated_q.unregister_observer(self)
-        @consumer.try &.close
-        @publisher.try &.close
+        @consumer.try &.close("Federation link stopped")
+        @publisher.try &.close("Federation link stopped")
+        @consumer_available.close
+        @done.send(nil) unless @done.closed?
+      end
+
+      def stopped?
+        @state == State::Terminated
+      end
+
+      enum State
+        Starting
+        Running
+        Terminated
       end
     end
   end

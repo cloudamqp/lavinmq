@@ -243,14 +243,11 @@ module AvalancheMQ
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
     end
 
-    def direct_client(outbox : Channel::Buffered(AMQP::Frame),
-                      client_properties : Hash(String, AMQP::Field)) : DirectClient
-      client = DirectClient.new(outbox, self, client_properties)
+    def add_connection(client : Client)
       @connection_events.send({client, :connected})
       client.on_close do |c|
         @connection_events.send({c, :disconnected})
       end
-      client
     end
 
     SHOVEL                  = "shovel"

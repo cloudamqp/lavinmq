@@ -12,8 +12,8 @@ module AvalancheMQ
     abstract def to_json(json : JSON::Builder)
     abstract def connection_details
     abstract def deliver(frame : AMQP::Frame, msg : Message)
-    abstract def close_socket
     abstract def channel_name_prefix
+    private abstract def cleanup
 
     setter direct_reply_consumer_tag
     getter vhost, channels, log, exclusive_queues,
@@ -80,7 +80,6 @@ module AvalancheMQ
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
         @log.debug { "Closing socket" }
-        close_socket
         cleanup
         return false
       when AMQP::Channel::Open

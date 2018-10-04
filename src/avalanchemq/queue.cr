@@ -86,7 +86,7 @@ module AvalancheMQ
     def clear_policy
       handle_arguments
       @policy = nil
-      @vhost.upstreams.try &.close_link(self)
+      @vhost.upstreams.try &.stop_link(self)
     end
 
     private def handle_arguments

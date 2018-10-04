@@ -1,12 +1,14 @@
 require "./client"
 
 module AvalancheMQ
-  class DirectClient < Client
-    def initialize(@socket : ::Channel::Buffered(AMQP::Frame), vhost : VHost,
-                   client_properties : Hash(String, AMQP::Field))
+  abstract class DirectClient < Client
+    abstract def handle_frame(frame : Frame)
+
+    def initialize(vhost : VHost, client_properties : Hash(String, AMQP::Field))
       log = vhost.log.dup
       log.progname += " direct=#{self.hash}"
       name = "localhost:#{self.hash}"
+      vhost.add_connection(self)
       super(name, vhost, log, client_properties)
     end
 
@@ -19,12 +21,16 @@ module AvalancheMQ
         vhost:             @vhost.name,
         protocol:          "Direct 0-9-1",
         name:              @name,
-        state:             @socket.closed? ? "closed" : "running",
+        state:             @running ? "running" : "closed",
       }.to_json(json)
     end
 
     def channel_name_prefix
       @name
+    end
+
+    private def cleanup
+      # noop
     end
 
     private def declare_exchange(frame)
@@ -160,17 +166,12 @@ module AvalancheMQ
       with_channel frame, &.basic_get(frame)
     end
 
-    private def close_socket
-      @socket.close
-    end
-
     private def ensure_open_channel(frame)
       return if @channels[frame.channel]?.try(&.running?)
       @channels[frame.channel] = Client::Channel.new(self, frame.channel)
     end
 
     def write(frame : AMQP::Frame)
-      return if @socket.closed?
       ensure_open_channel(frame)
       process_frame(frame)
     rescue ex : AMQP::NotImplemented
@@ -190,14 +191,11 @@ module AvalancheMQ
     end
 
     def send(frame : AMQP::Frame)
-      return if @socket.closed?
-      ensure_open_channel(frame)
       @log.debug { "Send #{frame.inspect}" }
-      @socket.send frame
+      handle_frame(frame)
       case frame
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
-        @socket.close
         cleanup
         return false
       end

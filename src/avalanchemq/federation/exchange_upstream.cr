@@ -13,7 +13,7 @@ module AvalancheMQ
       super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode)
     end
 
-    def close_link(federated_exchange : Exchange)
+    def stop_link(federated_exchange : Exchange)
       @links.delete(federated_exchange.name).try(&.close)
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
