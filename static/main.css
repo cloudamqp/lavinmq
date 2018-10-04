@@ -62,7 +62,7 @@ main {
 }
 
 .card {
-  overflow: scroll;
+  overflow: auto;
   padding: 1.5rem;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
