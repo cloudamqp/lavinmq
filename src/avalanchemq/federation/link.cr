@@ -13,10 +13,13 @@ module AvalancheMQ
       @publisher : Publisher?
       @consumer : Consumer?
       @state = 0_u8
+      @consumer_available = Channel(Nil).new
+      @done = Channel(Nil).new
 
       def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
-        @log.progname += " link queue=#{@federated_q.name}:"
+        @log.progname += " link=#{@federated_q.name}"
         @federated_q.register_observer(self)
+        @consumer_available.send(nil) if @federated_q.immediate_delivery?
       end
 
       def state
@@ -28,6 +31,8 @@ module AvalancheMQ
         case event
         when :delete, :close
           @upstream.stop_link(@federated_q)
+        when :add_consumer
+          @consumer_available.send(nil) unless @consumer_available.closed?
         when :rm_consumer
           @upstream.stop_link(@federated_q) unless @federated_q.consumer_count > 0
         end
@@ -45,8 +50,7 @@ module AvalancheMQ
           @state = State::Starting
           if !@federated_q.immediate_delivery?
             @log.debug { "Waiting for consumers" }
-            Fiber.yield
-            next
+            @consumer_available.receive
           end
           @publisher = Publisher.new(@upstream, @federated_q)
           @consumer = Consumer.new(@upstream)
@@ -58,9 +62,8 @@ module AvalancheMQ
           c.run
           @state = State::Running
           @connected_at = Time.utc_now
-          while !stopped?
-            sleep @upstream.reconnect_delay.seconds
-          end
+          @done.receive
+          break
         rescue ex
           @connected_at = nil
           case ex
@@ -74,17 +77,22 @@ module AvalancheMQ
           break if stopped?
           sleep @upstream.reconnect_delay.seconds
         end
-        @log.info { "Shovel stopped" }
+        @log.info { "Federation link stopped" }
       ensure
+        @done.close
+        @consumer_available.close
         @connected_at = nil
       end
 
       # Does not trigger reconnect, but a graceful close
       def stop
         @log.info { "Stopping" }
+        @state = State::Terminated
         @federated_q.unregister_observer(self)
         @consumer.try &.close("Federation link stopped")
         @publisher.try &.close("Federation link stopped")
+        @consumer_available.close
+        @done.send(nil) unless @done.closed?
       end
 
       def stopped?
