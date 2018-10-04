@@ -63,6 +63,9 @@ module AvalancheMQ
           write(frame)
           @last_message_size = frame.body_size
           @last_message_pos = 0_u64
+          if @last_message_size.zero? && @upstream.ack_mode == AckMode::OnPublish
+            ack(@last_delivery_tag)
+          end
         when AMQP::BodyFrame
           write(frame)
           @last_message_pos += frame.body_size
