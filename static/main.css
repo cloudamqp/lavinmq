@@ -114,6 +114,10 @@ aside::after {
   z-index: -1;
 }
 
+#amq-logo {
+  width: 100%;
+}
+
 footer {
   margin: 0 20px;
   border-top-left-radius: 4px;

@@ -1,7 +1,7 @@
 (function () {
   document.getElementsByTagName('aside')[0].innerHTML = `
     <h1>
-      AvalancheMQ
+      <img id="amq-logo" src="/img/logo-avalanche-mq.png">
       <small id="version"></small>
     </h1>
     <ul>
