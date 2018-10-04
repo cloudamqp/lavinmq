@@ -43,9 +43,10 @@ module AvalancheMQ
         loop do
           break if stopped?
           @state = State::Starting
-          while !@federated_q.immediate_delivery?
+          if !@federated_q.immediate_delivery?
             @log.debug { "Waiting for consumers" }
-            sleep @upstream.reconnect_delay.seconds
+            Fiber.yield
+            next
           end
           @publisher = Publisher.new(@upstream, @federated_q)
           @consumer = Consumer.new(@upstream)
