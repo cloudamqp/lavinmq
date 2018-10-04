@@ -28,10 +28,7 @@ module AvalancheMQ
           AMQP::Frame.decode(@socket) do |frame|
             @log.debug { "Read socket #{frame.inspect}" }
             case frame
-            when AMQP::HeaderFrame
-              @on_frame.try &.call(frame)
-              true
-            when AMQP::Basic::Deliver
+            when AMQP::Basic::Deliver, AMQP::HeaderFrame
               @on_frame.try &.call(frame)
               true
             when AMQP::BodyFrame
@@ -45,9 +42,8 @@ module AvalancheMQ
               write AMQP::Connection::Close.new(320_u16, "Consumer cancelled", 0_u16, 0_u16)
               true
             when AMQP::Connection::Close
-              @on_frame.try &.call(frame)
               write AMQP::Connection::CloseOk.new
-              true
+              false
             when AMQP::Connection::CloseOk
               false
             else
@@ -83,8 +79,7 @@ module AvalancheMQ
         if @source.delete_after == DeleteAfter::QueueLength &&
            @message_count <= @message_counter
           @log.debug { "Queue length #{@message_count} reached (#{@message_counter}), closing" }
-          write AMQP::Connection::Close.new(320_u16, "Shovel done",
-            0_u16, 0_u16)
+          write AMQP::Connection::Close.new(320_u16, "Shovel done", 0_u16, 0_u16)
           @done.send(false) unless @done.closed?
         end
       end
@@ -100,7 +95,7 @@ module AvalancheMQ
         write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
           false, true, true, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Queue::DeclareOk) || raise UnexpectedFrame.new(f) }
+        frame = AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Queue::DeclareOk) }
         queue = frame.queue_name
         @message_count = frame.message_count
         @log.debug { "Consuming #{@message_count} from #{queue_name}" }
@@ -110,13 +105,13 @@ module AvalancheMQ
             @source.exchange_key || "",
             false,
             {} of String => AMQP::Field)
-          AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Queue::BindOk) || raise UnexpectedFrame.new(f) }
+          AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Queue::BindOk) }
         end
         no_ack = @ack_mode == AckMode::NoAck
         write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,
           {} of String => AMQP::Field)
-        AMQP::Frame.decode(@socket) { |f| f.as?(AMQP::Basic::ConsumeOk) || raise UnexpectedFrame.new(f) }
+        AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Basic::ConsumeOk) }
       end
     end
   end

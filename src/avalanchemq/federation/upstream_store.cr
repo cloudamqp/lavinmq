@@ -59,17 +59,17 @@ module AvalancheMQ
       @upstreams[name]?.try &.as(ExchangeUpstream).link(resource)
     end
 
-    def close_link(resource : Queue)
+    def stop_link(resource : Queue)
       each do |upstream|
         next if upstream.is_a?(ExchangeUpstream)
-        upstream.as(QueueUpstream).close_link(resource)
+        upstream.as(QueueUpstream).stop_link(resource)
       end
     end
 
-    def close_link(resource : Exchange)
+    def stop_link(resource : Exchange)
       each do |upstream|
         next if upstream.is_a?(QueueUpstream)
-        upstream.as(ExchangeUpstream).close_link(resource)
+        upstream.as(ExchangeUpstream).stop_link(resource)
       end
     end
 

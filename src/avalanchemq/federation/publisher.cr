@@ -3,76 +3,92 @@ require "../client/direct_client"
 
 module AvalancheMQ
   class Upstream
-    class Publisher
-      @client : DirectClient
+    class Publisher < DirectClient
       @log : Logger
 
-      def initialize(@upstream : Upstream)
+      def initialize(@upstream : Upstream, @federated_q : Queue)
         @log = @upstream.log.dup
         @log.progname += " publisher"
-        @out_ch = Channel::Buffered(AMQP::Frame).new(@upstream.prefetch.to_i32)
         client_properties = {
           "connection_name" => "Federation #{@upstream.name}",
         } of String => AMQP::Field
-        @client = @upstream.vhost.direct_client(@out_ch, client_properties)
-        set_confirm if @upstream.ack_mode == AckMode::OnConfirm
         @message_count = 0_u64
         @delivery_tags = Hash(UInt64, UInt64).new
         @last_delivery_tag = 0_u64
         @last_message_size = 0_u64
         @last_message_pos = 0_u64
+        super(@upstream.vhost, client_properties)
       end
 
-      def start(@consumer : Consumer)
-        client_read_loop
+      @on_frame : Proc(AMQP::Frame, Nil)?
+
+      def on_frame(&blk : AMQP::Frame -> Nil)
+        @on_frame = blk
       end
 
-      private def client_read_loop
-        spawn(name: "Upstream publisher #{@upstream.name}#client_read_loop") do
-          loop do
-            Fiber.yield if @out_ch.empty?
-            frame = @out_ch.receive
-            @log.debug { "Read #{frame.inspect}" }
-            case frame
-            when AMQP::Basic::Nack
-              next unless @upstream.ack_mode == AckMode::OnConfirm
-              if frame.multiple
-                with_multiple(frame.delivery_tag) { |t| @consumer.not_nil!.reject(t) }
-              else
-                @consumer.not_nil!.reject(@delivery_tags[frame.delivery_tag])
-              end
-            when AMQP::Basic::Return
-              @consumer.not_nil!.reject(@message_count) if @upstream.ack_mode == AckMode::OnConfirm
-            when AMQP::Basic::Ack
-              next unless @upstream.ack_mode == AckMode::OnConfirm
-              if frame.multiple
-                with_multiple(frame.delivery_tag) { |t| @consumer.not_nil!.ack(t) }
-              else
-                @consumer.not_nil!.ack(@delivery_tags[frame.delivery_tag])
-              end
-            when AMQP::Connection::CloseOk
-              break
-            when AMQP::Connection::Close
-              @client.write AMQP::Connection::CloseOk.new
-              break
-            when AMQP::Basic::Cancel
-              @client.write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
-            when AMQP::Channel::Close
-              @client.write AMQP::Channel::CloseOk.new(frame.channel)
-            else
-              @log.warn { "Unexpected frame #{frame}" }
-            end
-          rescue ex : Channel::ClosedError
-            @log.debug { "#client_read_loop closed" }
-            close
-            break
+      def run
+        set_confirm if @upstream.ack_mode == AckMode::OnConfirm
+      end
+
+      def handle_frame(frame)
+        case frame
+        when AMQP::Basic::Ack
+          return unless @upstream.ack_mode == AckMode::OnConfirm
+          if frame.multiple
+            with_multiple(frame.delivery_tag) { |t| ack(t) }
+          else
+            ack(@delivery_tags[frame.delivery_tag])
           end
+        when AMQP::Basic::Nack
+          return unless @upstream.ack_mode == AckMode::OnConfirm
+          if frame.multiple
+            with_multiple(frame.delivery_tag) { |t| reject(t) }
+          else
+            reject(@delivery_tags[frame.delivery_tag])
+          end
+        when AMQP::Basic::Return
+          reject(@message_count) if @upstream.ack_mode == AckMode::OnConfirm
+        when AMQP::Connection::Close
+          write AMQP::Connection::CloseOk.new
+        else
+          @log.debug { "No action for #{frame.inspect}" }
+        end
+      end
+
+      def forward(frame)
+        case frame
+        when AMQP::Basic::Deliver
+          send_basic_publish(frame, @federated_q.name)
+        when AMQP::HeaderFrame
+          write(frame)
+          @last_message_size = frame.body_size
+          @last_message_pos = 0_u64
+        when AMQP::BodyFrame
+          write(frame)
+          @last_message_pos += frame.body_size
+          if @upstream.ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
+            ack(@last_delivery_tag)
+          end
+        else
+          @log.warn { "Unexpected frame: #{frame.inspect}" }
+        end
+      end
+
+      def send_basic_publish(frame, routing_key = nil)
+        exchange = ""
+        mandatory = @upstream.ack_mode == AckMode::OnConfirm
+        pframe = AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
+          mandatory, false)
+        write pframe
+        if mandatory
+          @delivery_tags[@message_count += 1] = frame.delivery_tag
+        elsif @upstream.ack_mode == AckMode::OnPublish
+          @last_delivery_tag = frame.delivery_tag
         end
       end
 
       private def set_confirm
-        @client.write AMQP::Confirm::Select.new(1_u16, false)
-        @out_ch.receive.as(AMQP::Confirm::SelectOk)
+        write AMQP::Confirm::Select.new(1_u16, false)
       end
 
       private def with_multiple(delivery_tag)
@@ -83,38 +99,12 @@ module AvalancheMQ
         end
       end
 
-      def send_basic_publish(frame, routing_key = nil)
-        exchange = ""
-        mandatory = @upstream.ack_mode == AckMode::OnConfirm
-        pub_frame = AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
-          mandatory, false)
-        @log.debug "Send #{pub_frame.inspect}"
-        @client.write pub_frame
-        if mandatory
-          @delivery_tags[@message_count += 1] = frame.delivery_tag
-        elsif @upstream.ack_mode == AckMode::OnPublish
-          #@consumer.not_nil!.ack(frame.delivery_tag)
-          @last_delivery_tag = frame.delivery_tag
-        end
+      private def ack(delivery_tag)
+        @on_frame.try &.call(AMQP::Basic::Ack.new(1_u16, delivery_tag, false))
       end
 
-      def write(frame)
-        @client.write(frame)
-        case frame
-        when AMQP::HeaderFrame
-          @last_message_size = frame.body_size
-          @last_message_pos = 0_u64
-        when AMQP::BodyFrame
-          @last_message_pos += frame.body_size
-          if @upstream.ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
-            @consumer.not_nil!.ack(@last_delivery_tag)
-          end
-        end
-      end
-
-      def close
-        return if @client.closed?
-        @client.write AMQP::Connection::Close.new(320_u16, "Federation stopped", 0_u16, 0_u16)
+      private def reject(delivery_tag)
+        @on_frame.try &.call(AMQP::Basic::Reject.new(1_u16, delivery_tag, false))
       end
     end
   end

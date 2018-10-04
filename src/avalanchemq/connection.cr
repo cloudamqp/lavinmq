@@ -110,6 +110,7 @@ module AvalancheMQ
     end
 
     def write(frame)
+      return if @socket.closed?
       @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
       @socket.flush
     end

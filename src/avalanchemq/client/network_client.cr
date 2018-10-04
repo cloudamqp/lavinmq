@@ -122,6 +122,11 @@ module AvalancheMQ
       @remote_address.to_s
     end
 
+    private def cleanup
+      @socket.close
+      super
+    end
+
     def to_json(json : JSON::Builder)
       {
         channels:          @channels.size,
@@ -379,10 +384,6 @@ module AvalancheMQ
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
-    end
-
-    private def close_socket
-      @socket.close
     end
 
     def send(frame : AMQP::Frame)

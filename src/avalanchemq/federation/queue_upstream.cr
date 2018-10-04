@@ -12,8 +12,8 @@ module AvalancheMQ
       super(vhost, name, uri, prefetch.to_u16, reconnect_delay, ack_mode)
     end
 
-    def close_link(federated_q : Queue)
-      @links.delete(federated_q.name).try(&.close)
+    def stop_link(federated_q : Queue)
+      @links.delete(federated_q.name).try(&.stop)
     end
 
     # When federated_q has a consumer the connections are estabished.
@@ -21,27 +21,10 @@ module AvalancheMQ
     # When the policy or the upstream is removed the link is also removed.
     def link(federated_q : Queue)
       return if @links[federated_q.name]?
-      @log.debug "link #{federated_q.name}"
       @queue ||= federated_q.name
       link = Link.new(self, federated_q, @log.dup)
       @links[federated_q.name] = link
-      spawn(name: "Upstream #{@uri.host}/#{@queue}") do
-        sleep 0.05
-        loop do
-          unless link.start # blocking
-            @log.debug { "Waiting for consumers" }
-            sleep @reconnect_delay.seconds
-          end
-          break unless @links[federated_q.name]?
-        rescue ex
-          break unless @links[federated_q.name]?
-          @log.warn "Failure: #{ex.inspect}"
-          sleep @reconnect_delay.seconds
-        end
-        @log.debug { "Link stopped" }
-      end
-      @log.info { "Link starting" }
-      Fiber.yield
+      link.run
     end
   end
 end

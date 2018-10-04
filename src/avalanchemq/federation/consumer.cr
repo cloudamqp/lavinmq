@@ -3,51 +3,68 @@ require "../connection"
 module AvalancheMQ
   class Upstream
     class Consumer < Connection
-      def initialize(@upstream : QueueUpstream, @pub : Publisher, @federated_q : Queue)
+      def initialize(@upstream : QueueUpstream)
         @log = @upstream.log.dup
         @log.progname += " consumer"
         super(@upstream.uri, @log)
+      end
+
+      @on_frame : Proc(AMQP::Frame, Nil)?
+
+      def on_frame(&blk : AMQP::Frame -> Nil)
+        @on_frame = blk
+      end
+
+      def run
         set_prefetch
-      end
-
-      def start
-        return unless @federated_q.immediate_delivery?
-        upstream_read_loop
-      end
-
-      private def upstream_read_loop
         consume
+        spawn(read_loop, name: "Upstream consumer #{@upstream.uri.host}#read_loop")
+      end
+
+      private def read_loop
         loop do
           AMQP::Frame.decode(@socket) do |frame|
-            @log.debug { "Read #{frame.inspect}" }
+            @log.debug { "Read socket #{frame.inspect}" }
             case frame
-            when AMQP::Basic::Deliver
-              @pub.send_basic_publish(frame, @federated_q.name)
-            when AMQP::HeaderFrame
-              @pub.write(frame)
-            when AMQP::BodyFrame
-              @pub.write(frame)
-            when AMQP::Connection::CloseOk
-              raise ClosedConnection.new
+            when AMQP::Basic::Deliver, AMQP::HeaderFrame, AMQP::BodyFrame
+              @on_frame.try &.call(frame)
+              true
+            when AMQP::Basic::Cancel
+              unless frame.no_wait
+                write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+              end
+              write AMQP::Connection::Close.new(320_u16, "Consumer cancelled", 0_u16, 0_u16)
+              true
             when AMQP::Connection::Close
               write AMQP::Connection::CloseOk.new
-              raise UnexpectedFrame.new(frame)
-            when AMQP::Basic::Cancel
-              write AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
-            when AMQP::Channel::Close
-              write AMQP::Channel::CloseOk.new(frame.channel)
+              false
+            when AMQP::Connection::CloseOk
+              false
             else
               raise UnexpectedFrame.new(frame)
             end
-          end
+          end || break
         end
-      rescue ClosedConnection
-        nil
+      rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
+        @log.info "Consumer closed due to: #{ex.inspect}"
       ensure
+        @log.debug "Closing socket"
         @socket.close
       end
 
-      class ClosedConnection < Exception; end
+      def forward(frame)
+        @log.debug { "Read internal #{frame.inspect}" }
+        case frame
+        when AMQP::Basic::Ack
+          unless @upstream.ack_mode == AckMode::NoAck
+            write frame
+          end
+        when AMQP::Basic::Reject
+          write frame
+        else
+          @log.warn { "Unexpected frame: #{frame.inspect}" }
+        end
+      end
 
       private def set_prefetch
         write AMQP::Basic::Qos.new(1_u16, 0_u32, @upstream.prefetch, false)
@@ -59,7 +76,7 @@ module AvalancheMQ
         write AMQP::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
           false, true, true, false,
           {} of String => AMQP::Field)
-        frame = AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Queue::DeclareOk) }.as(AMQP::Queue::DeclareOk)
+        frame = AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Queue::DeclareOk) }
         queue = frame.queue_name
         no_ack = @upstream.ack_mode == AckMode::NoAck
         write AMQP::Basic::Consume.new(1_u16, 0_u16, queue, "downstream_consumer",

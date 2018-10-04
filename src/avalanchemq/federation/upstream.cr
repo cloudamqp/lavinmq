@@ -20,7 +20,7 @@ module AvalancheMQ
     @log : Logger
     @links = Hash(String, Link).new
 
-    getter name, log, vhost, out_ch, links
+    getter name, log, vhost, links
     property uri, prefetch, reconnect_delay, ack_mode
 
     def initialize(@vhost : VHost, @name : String, raw_uri : String, @prefetch = DEFAULT_PREFETCH,
@@ -31,7 +31,7 @@ module AvalancheMQ
     end
 
     def close
-      @links.values.each(&.close)
+      @links.values.each(&.stop)
       @links.clear
     end
   end
