@@ -8,7 +8,7 @@ module AvalancheMQ
       log = vhost.log.dup
       log.progname += " direct=#{self.hash}"
       name = "localhost:#{self.hash}"
-      vhost.direct_client(self)
+      vhost.add_connection(self)
       super(name, vhost, log, client_properties)
     end
 

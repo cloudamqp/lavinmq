@@ -243,7 +243,7 @@ module AvalancheMQ
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
     end
 
-    def direct_client(client : DirectClient)
+    def add_connection(client : Client)
       @connection_events.send({client, :connected})
       client.on_close do |c|
         @connection_events.send({c, :disconnected})
