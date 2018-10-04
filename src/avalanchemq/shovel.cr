@@ -58,8 +58,10 @@ module AvalancheMQ
         end
       rescue ex
         case ex
-        when AMQP::FrameDecodeError, Connection::UnexpectedFrame
+        when AMQP::FrameDecodeError
           @log.warn { "Shovel failure: #{ex.cause.inspect}" }
+        when Connection::UnexpectedFrame
+          @log.warn { "Shovel failure: #{ex.inspect}" }
         else
           @log.warn { "Shovel failure: #{ex.inspect_with_backtrace}" }
         end

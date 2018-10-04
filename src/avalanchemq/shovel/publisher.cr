@@ -60,9 +60,10 @@ module AvalancheMQ
         end
       rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
         @log.info "Closed due to: #{ex.inspect}"
-        @done.send(true) unless @done.closed?
       ensure
         @log.debug "Closing socket"
+        # @done will be closed if the shovel is actually done, so we can always try to send true
+        @done.send(true) unless @done.closed?
         @socket.close
       end
 
