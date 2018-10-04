@@ -44,6 +44,11 @@ header {
   padding: 5px 20px;
 }
 
+header a, header a:visited {
+  color: #FFF;
+  text-decoration: none;
+}
+
 header h2 {
   align-self: center;
   margin: 0 0 0 20px;
@@ -116,6 +121,11 @@ aside::after {
 
 #amq-logo {
   width: 100%;
+}
+
+#user-menu {
+  text-align: center;
+  padding: 20px 0;
 }
 
 footer {
@@ -191,7 +201,7 @@ aside h1 small {
   content: "v";
 }
 
-.user-menu {
+.user-signout {
   grid-column: 2;
   align-self: center;
   display: grid;
@@ -199,33 +209,7 @@ aside h1 small {
   grid-template-columns: auto auto;
 }
 
-.user-menu .slide-in-area {
-  overflow: hidden;
-  width: 100%;
-}
-
-.user-menu ul {
-  list-style-type: none;
-  margin-right: 20px;
-  position: relative;
-  transition: all 0.1s linear;
-  right: -100%;
-}
-
-.user-menu ul li {
-  display: inline-block;
-  margin: 0 5px;
-}
-
-.user-menu button, .user-menu select {
-  box-shadow: none;
-}
-
-.user-menu ul.show {
-  right: 0;
-}
-
-.user-menu label span {
+#user-menu label span {
   margin-right: 10px;
   line-height: 29px;
 }
@@ -233,25 +217,10 @@ aside h1 small {
 #user-info {
   margin-left: 10px;
   color: #FFF;
-  cursor: pointer;
-  justify-self: end;
-  align-self: center;
-  z-index: 10;
-}
-
-#user-info .head {
-  height: 30px;
-  width: 30px;
-  line-height: 30px;
-  background-color: #FFF;
-  border-radius: 50%;
-  display: inline-block;
-  text-align: center;
-  margin-right: 15px;
 }
 
 aside > ul {
-  margin-top: 40px;
+  margin-top: 20px;
 }
 
 aside ul {

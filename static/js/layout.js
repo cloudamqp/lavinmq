@@ -4,6 +4,15 @@
       <img id="amq-logo" src="/img/logo-avalanche-mq.png">
       <small id="version"></small>
     </h1>
+    <div id="user-menu">
+      <div id="username"></div>
+      <form id="user-vhost">
+        <label>
+          <span>VHost:</span>
+          <select id="userMenuVhost" name="vhost" onchange="avalanchemq.auth.selectVhost(this)"></select>
+        </label>
+      </form>
+    </div>
     <ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/connections">Connections</a></li>
@@ -72,39 +81,12 @@
   }
 
   document.getElementsByTagName('header')[0].insertAdjacentHTML('beforeend', `
-    <div class="user-menu">
-      <div class="slide-in-area">
-        <ul>
-          <li>
-            <form id="user-vhost">
-              <label>
-                <span>Virtual host:</span>
-                <select id="userMenuVhost" name="vhost" onchange="avalanchemq.auth.selectVhost(this)"></select>
-              </label>
-            </form>
-          </li>
-          <li><button onclick="avalanchemq.auth.signOut()">Logout</button></li>
-        </ul>
-      </div>
-      <a id="user-info">
-        <span class="head">👤</span><span id="username"></span>
-        <span id="vhost"></span>
+    <div class="user-signout">
+      <a href="#" onclick="avalanchemq.auth.signOut()">
+        <span class="head">🙈</span>&nbsp; Sign out</span>
       </a>
     </div>
   `)
-
-  document.getElementById('user-info').addEventListener('click', (evt) => {
-    evt.stopPropagation()
-    document.querySelector('.user-menu ul').classList.toggle('show')
-  })
-  document.querySelector('.user-menu').addEventListener('click', (evt) => {
-    evt.stopPropagation()
-  })
-  window.addEventListener('click', (evt) => {
-    if (!evt.target.closest('.user-menu')) {
-      document.querySelector('.user-menu ul').classList.remove('show')
-    }
-  })
 
   document.getElementsByTagName('footer')[0].innerHTML = `
     AvalancheMQ is open source and developed by
