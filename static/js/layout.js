@@ -4,15 +4,6 @@
       <a href="/"><img id="amq-logo" src="/img/logo-avalanche-mq.png"></a>
       <small id="version"></small>
     </h1>
-    <div id="user-menu">
-      <div id="username"></div>
-      <form id="user-vhost">
-        <label>
-          <span>VHost:</span>
-          <select id="userMenuVhost" name="vhost" onchange="avalanchemq.auth.selectVhost(this)"></select>
-        </label>
-      </form>
-    </div>
     <ul>
       <li><a href="/">Overview</a></li>
       <li><a href="/connections">Connections</a></li>
@@ -81,10 +72,21 @@
   }
 
   document.getElementsByTagName('header')[0].insertAdjacentHTML('beforeend', `
-    <div class="user-signout">
-      <a href="#" onclick="avalanchemq.auth.signOut()">
-        <span class="head">🙈</span>&nbsp; Sign out</span>
-      </a>
+     <ul id="user-menu">
+      <li><span id="username"></span></li>
+      <li>
+        <form id="user-vhost">
+          <label>
+            <span>vhost:</span>
+            <select id="userMenuVhost" name="vhost" onchange="avalanchemq.auth.selectVhost(this)"></select>
+          </label>
+        </form>
+      </li>
+      <li>
+        <a href="#" onclick="avalanchemq.auth.signOut()">
+          <span class="head">🙈</span>&nbsp; Sign out</span>
+        </a>
+      </li>
     </div>
   `)
 

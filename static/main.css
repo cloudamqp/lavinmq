@@ -123,19 +123,6 @@ aside::after {
   width: 100%;
 }
 
-#user-menu {
-  text-align: center;
-  padding: 20px 0;
-}
-
-#user-menu select {
-  box-shadow: none;
-}
-
-#user-menu > * {
-  padding-top: 10px;
-}
-
 footer {
   margin: 0 20px;
   border-top-left-radius: 4px;
@@ -209,21 +196,25 @@ aside h1 small {
   content: "v";
 }
 
-.user-signout {
-  grid-column: 2;
+#user-menu {
   align-self: center;
-  display: grid;
   justify-self: end;
-  grid-template-columns: auto auto;
+  list-style-type: none;
+  margin-right: 20px;
 }
 
-.user-signout a:hover {
+#user-menu a:hover {
   transform: scale(1.1);
 }
 
-#user-menu label span {
-  margin-right: 10px;
-  line-height: 29px;
+#user-menu select {
+  box-shadow: none;
+  height: initial;
+}
+
+#user-menu li {
+  display: inline-block;
+  margin: 0 5px;
 }
 
 #user-info {
