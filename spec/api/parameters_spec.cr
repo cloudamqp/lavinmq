@@ -8,7 +8,7 @@ describe AvalancheMQ::ParametersController do
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
-      response = get("http://localhost:8080/api/parameters", headers: hdrs)
+      response = get("/api/parameters", headers: hdrs)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -23,7 +23,7 @@ describe AvalancheMQ::ParametersController do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::Management, AvalancheMQ::Tag::Monitoring])
       s.users.rm_permission("arnold", "/")
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      response = get("http://localhost:8080/api/parameters", headers: hdrs)
+      response = get("/api/parameters", headers: hdrs)
       response.status_code.should eq 401
     ensure
       s.users.delete("arnold")
@@ -34,7 +34,7 @@ describe AvalancheMQ::ParametersController do
     it "should return all parameters for a component" do
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
-      response = get("http://localhost:8080/api/parameters/test")
+      response = get("/api/parameters/test")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -47,7 +47,7 @@ describe AvalancheMQ::ParametersController do
     it "should return all parameters for a component on vhost" do
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
-      response = get("http://localhost:8080/api/parameters/test/%2f")
+      response = get("/api/parameters/test/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -60,7 +60,7 @@ describe AvalancheMQ::ParametersController do
     it "should return parameter" do
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
-      response = get("http://localhost:8080/api/parameters/test/%2f/name")
+      response = get("/api/parameters/test/%2f/name")
       response.status_code.should eq 200
     ensure
       s.vhosts["/"].delete_parameter("test", "name")
@@ -72,7 +72,7 @@ describe AvalancheMQ::ParametersController do
       body = %({
         "value": {}
       })
-      response = put("http://localhost:8080/api/parameters/test/%2f/name", body: body)
+      response = put("/api/parameters/test/%2f/name", body: body)
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_parameter("test", "name")
@@ -83,7 +83,7 @@ describe AvalancheMQ::ParametersController do
     it "should delete parameter for a component on vhost" do
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
-      response = delete("http://localhost:8080/api/parameters/test/%2f/name")
+      response = delete("/api/parameters/test/%2f/name")
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_parameter("test", "name")
@@ -94,7 +94,7 @@ describe AvalancheMQ::ParametersController do
     it "should return all global parameters" do
       p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
       s.add_parameter(p)
-      response = get("http://localhost:8080/api/global-parameters")
+      response = get("/api/global-parameters")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -109,7 +109,7 @@ describe AvalancheMQ::ParametersController do
     it "should return parameter" do
       p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
       s.add_parameter(p)
-      response = get("http://localhost:8080/api/global-parameters/name")
+      response = get("/api/global-parameters/name")
       response.status_code.should eq 200
     ensure
       s.delete_parameter(nil, "name")
@@ -122,7 +122,7 @@ describe AvalancheMQ::ParametersController do
       body = %({
         "value": {}
       })
-      response = put("http://localhost:8080/api/global-parameters/name", body: body)
+      response = put("/api/global-parameters/name", body: body)
       response.status_code.should eq 204
     ensure
       s.delete_parameter(nil, "name")
@@ -133,7 +133,7 @@ describe AvalancheMQ::ParametersController do
     it "should delete parameter" do
       p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
       s.add_parameter(p)
-      response = delete("http://localhost:8080/api/global-parameters/name")
+      response = delete("/api/global-parameters/name")
       response.status_code.should eq 204
     ensure
       s.delete_parameter(nil, "name")
@@ -147,7 +147,7 @@ describe AvalancheMQ::ParametersController do
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
-      response = get("http://localhost:8080/api/policies")
+      response = get("/api/policies")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -165,7 +165,7 @@ describe AvalancheMQ::ParametersController do
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
-      response = get("http://localhost:8080/api/policies/%2f")
+      response = get("/api/policies/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -181,7 +181,7 @@ describe AvalancheMQ::ParametersController do
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
-      response = get("http://localhost:8080/api/policies/%2f/test")
+      response = get("/api/policies/%2f/test")
       response.status_code.should eq 200
     ensure
       s.vhosts["/"].delete_policy("test")
@@ -196,7 +196,7 @@ describe AvalancheMQ::ParametersController do
         "definition": { "max-length": 10 },
         "pattern": ".*"
       })
-      response = put("http://localhost:8080/api/policies/%2f/name", body: body)
+      response = put("/api/policies/%2f/name", body: body)
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_policy("name")
@@ -210,7 +210,7 @@ describe AvalancheMQ::ParametersController do
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
       s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
-      response = delete("http://localhost:8080/api/policies/%2f/test")
+      response = delete("/api/policies/%2f/test")
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_policy("test")

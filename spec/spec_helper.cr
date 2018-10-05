@@ -16,6 +16,13 @@ FileUtils.rm_rf("/tmp/spec")
   LOG_LEVEL = Logger::ERROR
 {% end %}
 
+AMQP_PORT      = ENV.fetch("AMQP_PORT", "5672").to_i
+AMQPS_PORT     = ENV.fetch("AMQPS_PORT", "5671").to_i
+AMQP_BASE_URL  = "amqp://localhost:#{AMQP_PORT}"
+AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
+HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
+BASE_URL       = "http://localhost:#{HTTP_PORT}"
+
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
 module TestHelpers
@@ -23,11 +30,11 @@ module TestHelpers
 
   def self.setup
     create_servers
-    spawn { @@s.try &.listen(5672) }
+    spawn { @@s.try &.listen(AMQP_PORT) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
-    spawn { @@s.try &.listen_tls(5671, cert, key, ca) }
+    spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
     spawn { @@h.try &.listen }
     Fiber.yield
   end
@@ -38,6 +45,18 @@ module TestHelpers
 
   def h
     TestHelpers.h.not_nil!
+  end
+
+  def with_channel(**args)
+    config = AMQP::Config.new(**args.merge(port: AMQP_PORT))
+    AMQP::Connection.start(config) do |conn|
+      ch = conn.channel
+      yield ch
+    end
+  end
+
+  def with_ssl_channel(**args)
+    with_channel(args) { |ch| yield ch }
   end
 
   def wait_for(t = 10.seconds)
@@ -66,23 +85,23 @@ module TestHelpers
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     @@s = AvalancheMQ::Server.new(dir, level)
-    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, 8080)
+    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, HTTP_PORT)
   end
 
-  def get(url, headers = nil)
-    HTTP::Client.get(url, headers: test_headers(headers))
+  def get(path, headers = nil)
+    HTTP::Client.get("#{BASE_URL}#{path}", headers: test_headers(headers))
   end
 
-  def post(url, headers = nil, body = nil)
-    HTTP::Client.post(url, headers: test_headers(headers), body: body)
+  def post(path, headers = nil, body = nil)
+    HTTP::Client.post("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
   end
 
-  def put(url, headers = nil, body = nil)
-    HTTP::Client.put(url, headers: test_headers(headers), body: body)
+  def put(path, headers = nil, body = nil)
+    HTTP::Client.put("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
   end
 
-  def delete(url, headers = nil, body = nil)
-    HTTP::Client.delete(url, headers: test_headers(headers), body: body)
+  def delete(path, headers = nil, body = nil)
+    HTTP::Client.delete("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
   end
 end
 

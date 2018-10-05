@@ -3,7 +3,7 @@ require "../spec_helper"
 describe AvalancheMQ::ExchangesController do
   describe "GET /api/exchanges" do
     it "should return all exchanges" do
-      response = get("http://localhost:8080/api/exchanges")
+      response = get("/api/exchanges")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -14,7 +14,7 @@ describe AvalancheMQ::ExchangesController do
 
   describe "GET /api/exchanges/vhost" do
     it "should return all exchanges for a vhost" do
-      response = get("http://localhost:8080/api/exchanges/%2f")
+      response = get("/api/exchanges/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -23,12 +23,12 @@ describe AvalancheMQ::ExchangesController do
 
   describe "GET /api/exchanges/vhost/name" do
     it "should return exchange" do
-      response = get("http://localhost:8080/api/exchanges/%2f/amq.topic")
+      response = get("/api/exchanges/%2f/amq.topic")
       response.status_code.should eq 200
     end
 
     it "should return 404 if exchange does not exist" do
-      response = get("http://localhost:8080/api/exchanges/%2f/404")
+      response = get("/api/exchanges/%2f/404")
       response.status_code.should eq 404
     end
   end
@@ -44,9 +44,9 @@ describe AvalancheMQ::ExchangesController do
           "alternate-exchange": "spexchange"
         }
       })
-      response = put("http://localhost:8080/api/exchanges/%2f/spechange", body: body)
+      response = put("/api/exchanges/%2f/spechange", body: body)
       response.status_code.should eq 204
-      response = get("http://localhost:8080/api/exchanges/%2f/spechange")
+      response = get("/api/exchanges/%2f/spechange")
       response.status_code.should eq 200
     ensure
       s.vhosts["/"].delete_exchange("spechange")
@@ -54,7 +54,7 @@ describe AvalancheMQ::ExchangesController do
 
     it "should require type" do
       body = %({})
-      response = put("http://localhost:8080/api/exchanges/%2f/faulty", body: body)
+      response = put("/api/exchanges/%2f/faulty", body: body)
       response.status_code.should eq 400
     ensure
       s.vhosts["/"].delete_exchange("faulty")
@@ -68,7 +68,7 @@ describe AvalancheMQ::ExchangesController do
           "alternate-exchange": "tjotjo"
         }
       })
-      response = put("http://localhost:8080/api/exchanges/%2f/spechange", body: body)
+      response = put("/api/exchanges/%2f/spechange", body: body)
       response.status_code.should eq 204
       body = %({
         "type": "topic",
@@ -77,7 +77,7 @@ describe AvalancheMQ::ExchangesController do
           "alternate-exchange": "tjotjo"
         }
       })
-      response = put("http://localhost:8080/api/exchanges/%2f/spechange", body: body)
+      response = put("/api/exchanges/%2f/spechange", body: body)
       response.status_code.should eq 400
     ensure
       s.vhosts["/"].delete_exchange("spechange")
@@ -87,7 +87,7 @@ describe AvalancheMQ::ExchangesController do
       body = %({
         "type": "topic"
       })
-      response = put("http://localhost:8080/api/exchanges/%2f/amq.test", body: body)
+      response = put("/api/exchanges/%2f/amq.test", body: body)
       response.status_code.should eq 400
     end
 
@@ -96,7 +96,7 @@ describe AvalancheMQ::ExchangesController do
         "type": "topic"
       })
       hdrs = HTTP::Headers{"Authorization" => "Basic dGVzdF9wZXJtOnB3"}
-      response = put("http://localhost:8080/api/exchanges/%2f/test_perm", headers: hdrs, body: body)
+      response = put("/api/exchanges/%2f/test_perm", headers: hdrs, body: body)
       response.status_code.should eq 401
     end
   end
@@ -104,7 +104,7 @@ describe AvalancheMQ::ExchangesController do
   describe "DELETE /api/exchanges/vhost/name" do
     it "should delete exchange" do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      response = delete("http://localhost:8080/api/exchanges/%2f/spechange")
+      response = delete("/api/exchanges/%2f/spechange")
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_exchange("spechange")
@@ -114,7 +114,7 @@ describe AvalancheMQ::ExchangesController do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_queue("ex_q1", false, false)
       s.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
-      response = delete("http://localhost:8080/api/exchanges/%2f/spechange?if-unused=true")
+      response = delete("/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
     ensure
       s.vhosts["/"].delete_exchange("spechange")
@@ -125,7 +125,7 @@ describe AvalancheMQ::ExchangesController do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
       s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
-      response = delete("http://localhost:8080/api/exchanges/%2f/spechange?if-unused=true")
+      response = delete("/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
     ensure
       s.vhosts["/"].delete_exchange("spechange")
@@ -138,7 +138,7 @@ describe AvalancheMQ::ExchangesController do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_queue("ex_q1", false, false)
       s.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
-      response = get("http://localhost:8080/api/exchanges/%2f/spechange/bindings/source")
+      response = get("/api/exchanges/%2f/spechange/bindings/source")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.size.should eq 1
@@ -153,7 +153,7 @@ describe AvalancheMQ::ExchangesController do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
       s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
-      response = get("http://localhost:8080/api/exchanges/%2f/spechange/bindings/destination")
+      response = get("/api/exchanges/%2f/spechange/bindings/destination")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.size.should eq 1
@@ -174,7 +174,7 @@ describe AvalancheMQ::ExchangesController do
         "payload": "test",
         "payload_encoding": "string"
       })
-      response = post("http://localhost:8080/api/exchanges/%2f/spechange/publish", body: body)
+      response = post("/api/exchanges/%2f/spechange/publish", body: body)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["routed"].as_bool.should be_true
@@ -187,7 +187,7 @@ describe AvalancheMQ::ExchangesController do
     it "should require all args" do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       body = %({})
-      response = post("http://localhost:8080/api/exchanges/%2f/spechange/publish", body: body)
+      response = post("/api/exchanges/%2f/spechange/publish", body: body)
       response.status_code.should eq 400
     ensure
       s.vhosts["/"].delete_exchange("spechange")
@@ -200,12 +200,11 @@ describe AvalancheMQ::ExchangesController do
         "payload": "test",
         "payload_encoding": "string"
       })
-      AMQP::Connection.start do |conn|
-        ch = conn.channel
+      with_channel do |ch|
         q = ch.queue("q2", durable: false)
         x = ch.exchange("str_enc", "topic", passive: false)
         q.bind(x, "*")
-        response = post("http://localhost:8080/api/exchanges/%2f/str_enc/publish", body: body)
+        response = post("/api/exchanges/%2f/str_enc/publish", body: body)
         response.status_code.should eq 200
         msgs = [] of AMQP::Message
         q.subscribe { |msg| msgs << msg }
@@ -225,12 +224,11 @@ describe AvalancheMQ::ExchangesController do
         "payload": "#{payload}",
         "payload_encoding": "base64"
       })
-      AMQP::Connection.start do |conn|
-        ch = conn.channel
+      with_channel do |ch|
         q = ch.queue("q2", durable: false)
         x = ch.exchange("str_enc", "topic", passive: false)
         q.bind(x, "*")
-        response = post("http://localhost:8080/api/exchanges/%2f/str_enc/publish", body: body)
+        response = post("/api/exchanges/%2f/str_enc/publish", body: body)
         response.status_code.should eq 200
         msgs = [] of AMQP::Message
         q.subscribe { |msg| msgs << msg }

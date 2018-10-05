@@ -3,14 +3,13 @@ require "./spec_helper"
 describe AvalancheMQ::Server do
   it "rejects invalid password" do
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(username: "guest",
-        password: "invalid")) { }
+      with_channel(username: "guest", password: "invalid") { }
     end
   end
 
   it "rejects invalid user" do
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(username: "invalid", password: "guest")) { |_conn| }
+      with_channel(username: "invalid", password: "guest") { }
     end
   end
 
@@ -19,8 +18,7 @@ describe AvalancheMQ::Server do
     s.users.rm_permission("guest", "v1")
     Fiber.yield
     expect_raises(Channel::ClosedError) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1", username: "guest",
-        password: "guest")) { |_conn| }
+      with_channel(vhost: "v1", username: "guest", password: "guest") { }
     end
   ensure
     s.vhosts.delete("v1")
@@ -30,7 +28,8 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.create("u1", "p1")
     s.users.add_permission("u1", "v1", /.*/, /.*/, /.*/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1", username: "u1", password: "p1")) do |conn|
+    config = AMQP::Config.new(vhost: "v1", username: "u1", password: "p1", port: AMQP_PORT)
+    AMQP::Connection.start(config) do |conn|
       conn.config.vhost.should eq "v1"
       conn.config.username.should eq "u1"
     end
@@ -43,8 +42,7 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         ch.exchange("x1", "direct")
       end
     end
@@ -58,8 +56,7 @@ describe AvalancheMQ::Server do
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     Fiber.yield
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         ch.queue("q1")
       end
     end
@@ -72,8 +69,7 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /.*/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         x = ch.exchange("", "direct")
         q = ch.queue("")
         x.publish AMQP::Message.new("msg"), q.name
@@ -89,8 +85,7 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         q = ch.queue("")
         q.subscribe(no_ack: true) { }
       end
@@ -104,8 +99,7 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         q = ch.queue("")
         q.get(no_ack: true)
       end
@@ -119,8 +113,7 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /^$/, /.*/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         q = ch.queue("")
         q.purge
       end
@@ -133,8 +126,7 @@ describe AvalancheMQ::Server do
   it "allows declaring exchanges passivly even without config perms" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       x = ch.exchange("amq.topic", "topic", passive: true)
       x.is_a?(AMQP::Exchange).should be_true
     end
@@ -146,13 +138,11 @@ describe AvalancheMQ::Server do
   it "allows declaring queues passivly even without config perms" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       ch.queue("q1", durable: false, auto_delete: true)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       q1 = ch.queue("q1", passive: true)
       q1.is_a?(AMQP::Queue).should be_true
     end
@@ -165,14 +155,12 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       ch.queue("q1", durable: false, auto_delete: true)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         q1 = ch.queue("q1", passive: true)
         q1.delete
       end
@@ -185,14 +173,12 @@ describe AvalancheMQ::Server do
   it "disallows deleting exchanges without config perms" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       ch.exchange("x1", "direct", durable: false)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         x1 = ch.exchange("x1", "direct", passive: true)
         x1.delete
       end
@@ -206,15 +192,13 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       ch.exchange("x1", "direct", durable: false)
       ch.queue("q1", durable: false)
     end
     s.users.add_permission("guest", "v1", /^$/, /.*/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         x1 = ch.exchange("x1", "direct", passive: true)
         q1 = ch.queue("q1", passive: true)
         q1.bind(x1, "")
@@ -228,15 +212,13 @@ describe AvalancheMQ::Server do
   it "binding queue required read perm on exchange" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       ch.exchange("x1", "direct", durable: false)
       ch.queue("q1", durable: false)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /.*/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         x1 = ch.exchange("x1", "direct", passive: true)
         q1 = ch.queue("q1", passive: true)
         q1.bind(x1, "")
@@ -251,16 +233,14 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /.*/, /.*/)
     Fiber.yield
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       x1 = ch.exchange("x1", "direct", durable: false)
       q1 = ch.queue("q1", durable: false)
       q1.bind(x1, "")
     end
     s.users.add_permission("guest", "v1", /^$/, /.*/, /^$/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         x1 = ch.exchange("x1", "direct", passive: true)
         q1 = ch.queue("q1", passive: true)
         q1.unbind(x1, "")
@@ -274,16 +254,14 @@ describe AvalancheMQ::Server do
   it "unbinding queue required read perm on exchange" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /.*/, /.*/)
-    AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-      ch = conn.channel
+    with_channel(vhost: "v1") do |ch|
       x1 = ch.exchange("x1", "direct", durable: false)
       q1 = ch.queue("q1", durable: false)
       q1.bind(x1, "")
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /.*/)
     expect_raises(AMQP::ChannelClosed, /403/) do
-      AMQP::Connection.start(AMQP::Config.new(vhost: "v1")) do |conn|
-        ch = conn.channel
+      with_channel(vhost: "v1") do |ch|
         x1 = ch.exchange("x1", "direct", passive: true)
         q1 = ch.queue("q1", passive: true)
         q1.unbind(x1, "")

@@ -4,9 +4,8 @@ require "uri"
 describe AvalancheMQ::ChannelsController do
   describe "GET /api/channels" do
     it "should return all channels" do
-      AMQP::Connection.start do |conn|
-        conn.channel
-        response = get("http://localhost:8080/api/channels")
+      with_channel do |ch|
+        response = get("/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
@@ -19,9 +18,8 @@ describe AvalancheMQ::ChannelsController do
 
   describe "GET /api/vhosts/vhost/channels" do
     it "should return all channels for a vhost" do
-      AMQP::Connection.start do |conn|
-        conn.channel
-        response = get("http://localhost:8080/api/vhosts/%2f/channels")
+      with_channel do |ch|
+        response = get("/api/vhosts/%2f/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.size.should eq 1
@@ -30,7 +28,7 @@ describe AvalancheMQ::ChannelsController do
 
     it "should return empty array if no connections" do
       s.vhosts.create("no-conns")
-      response = get("http://localhost:8080/api/vhosts/no-conns/channels")
+      response = get("/api/vhosts/no-conns/channels")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true
@@ -41,13 +39,12 @@ describe AvalancheMQ::ChannelsController do
 
   describe "GET /api/channels/channel" do
     it "should return channel" do
-      AMQP::Connection.start do |conn|
-        conn.channel
-        response = get("http://localhost:8080/api/channels")
+      with_channel do |ch|
+        response = get("/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         name = URI.escape(body[0]["name"].as_s)
-        response = get("http://localhost:8080/api/channels/#{name}")
+        response = get("/api/channels/#{name}")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         expected_keys = ["consumer_details"]

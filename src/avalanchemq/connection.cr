@@ -31,7 +31,8 @@ module AvalancheMQ
           auth_mechanism = "AMQPLAIN" if value =~ /AMQPLAIN/i
         end
       end
-      port = @uri.port || tls ? 5671 : 5672
+      port = @uri.port || (tls ? 5671 : 5672)
+      @log.debug { "Connecting on #{port} with #{@uri.scheme}" }
       socket = TCPSocket.new(host, port, connect_timeout: connect_timeout)
       socket.keepalive = true
       socket.tcp_nodelay = true

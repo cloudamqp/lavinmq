@@ -25,7 +25,7 @@ describe AvalancheMQ::HTTPServer do
           "hashing_algorithm":"rabbit_password_hashing_md5","tags":""
         }]
       })
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.users.select { |u| ["sha256", "sha512", "bcrypt", "md5"].includes? u.name }.all? do |u|
         u.should be_a(AvalancheMQ::User)
@@ -37,7 +37,7 @@ describe AvalancheMQ::HTTPServer do
     it "imports vhosts" do
       s.vhosts.delete("def")
       body = %({ "vhosts":[{ "name":"def" }] })
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       vhost = s.vhosts["def"]? || nil
       vhost.should be_a(AvalancheMQ::VHost)
@@ -45,7 +45,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "imports queues" do
       body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("import_q1").should be_true
     ensure
@@ -54,7 +54,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "imports exchanges" do
       body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
     ensure
@@ -83,7 +83,7 @@ describe AvalancheMQ::HTTPServer do
           "arguments": {}
         }
       ]})
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges["import_x1"].matches("r.k2", nil).map(&.name)
         .includes?("import_x2").should be_true
@@ -106,7 +106,7 @@ describe AvalancheMQ::HTTPServer do
           "read": "r"
         }
       ]})
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.users["u1"].permissions["/"][:write].should eq(/w/)
     ensure
@@ -126,7 +126,7 @@ describe AvalancheMQ::HTTPServer do
           }
         }
       ]})
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.any? { |p| p.name == "import_p1" }.should be_true
     ensure
@@ -140,14 +140,14 @@ describe AvalancheMQ::HTTPServer do
           "component": "shovel",
           "vhost": "/",
           "value": {
-            "src-uri": "amqp://guest:guest@localhost",
+            "src-uri": "#{AMQP_BASE_URL}",
             "src-queue": "q1",
-            "dest-uri": "amqp://guest:guest@localhost",
+            "dest-uri": "#{AMQP_BASE_URL}",
             "dest-queue": "q2"
           }
         }
       ]})
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].parameters.any? { |p| p.parameter_name == "import_shovel_param" }
         .should be_true
@@ -163,7 +163,7 @@ describe AvalancheMQ::HTTPServer do
           "value": {}
         }
       ]})
-      response = post("http://localhost:8080/api/definitions", body: body)
+      response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.stop_shovels
       s.parameters.any? { |p| p.parameter_name == "global_p1" }.should be_true
@@ -174,7 +174,7 @@ describe AvalancheMQ::HTTPServer do
 
   describe "GET /api/definitions" do
     it "exports users" do
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["users"].as_a.empty?.should be_false
@@ -183,7 +183,7 @@ describe AvalancheMQ::HTTPServer do
     end
 
     it "exports vhosts" do
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["vhosts"].as_a.empty?.should be_false
@@ -193,7 +193,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "exports queues" do
       s.vhosts["/"].declare_queue("export_q1", false, false)
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
@@ -205,7 +205,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "exports exchanges" do
       s.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
@@ -219,7 +219,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
       s.vhosts["/"].declare_queue("export_q1", false, true)
       s.vhosts["/"].bind_queue("export_q1", "export_x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
@@ -231,7 +231,7 @@ describe AvalancheMQ::HTTPServer do
     end
 
     it "exports permissions" do
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["user", "vhost", "configure", "read", "write"]
@@ -242,7 +242,7 @@ describe AvalancheMQ::HTTPServer do
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
       s.vhosts["/"].add_policy("export_p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
@@ -256,7 +256,7 @@ describe AvalancheMQ::HTTPServer do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
       p = AvalancheMQ::Parameter.new("c1", "p11", d)
       s.add_parameter(p)
-      response = get("http://localhost:8080/api/definitions")
+      response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "component", "value"]
@@ -270,7 +270,7 @@ describe AvalancheMQ::HTTPServer do
   describe "GET /api/definitions/vhost" do
     it "exports queues" do
       s.vhosts["/"].declare_queue("export_q2", false, false)
-      response = get("http://localhost:8080/api/definitions/%2f")
+      response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["queues"].as_a.empty?.should be_false
@@ -282,7 +282,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "exports exchanges" do
       s.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
-      response = get("http://localhost:8080/api/definitions/%2f")
+      response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
@@ -296,7 +296,7 @@ describe AvalancheMQ::HTTPServer do
       s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
       s.vhosts["/"].declare_queue("export_q1", false, true)
       s.vhosts["/"].bind_queue("export_q1", "export_x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
-      response = get("http://localhost:8080/api/definitions/%2f")
+      response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
@@ -310,7 +310,7 @@ describe AvalancheMQ::HTTPServer do
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
       s.vhosts["/"].add_policy("export_p2", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
-      response = get("http://localhost:8080/api/definitions/%2f")
+      response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
@@ -324,7 +324,7 @@ describe AvalancheMQ::HTTPServer do
   describe "POST /api/definitions/vhost" do
     it "imports queues" do
       body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
-      response = post("http://localhost:8080/api/definitions/%2f", body: body)
+      response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("import_q1").should be_true
     ensure
@@ -333,7 +333,7 @@ describe AvalancheMQ::HTTPServer do
 
     it "imports exchanges" do
       body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
-      response = post("http://localhost:8080/api/definitions/%2f", body: body)
+      response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
     ensure
@@ -362,7 +362,7 @@ describe AvalancheMQ::HTTPServer do
           "arguments": {}
         }
       ]})
-      response = post("http://localhost:8080/api/definitions/%2f", body: body)
+      response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges["import_x1"].matches("r.k2", nil).map(&.name).includes?("import_x2")
         .should be_true
@@ -387,7 +387,7 @@ describe AvalancheMQ::HTTPServer do
           }
         }
       ]})
-      response = post("http://localhost:8080/api/definitions/%2f", body: body)
+      response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.any? { |p| p.name == "import_p1" }.should be_true
     ensure

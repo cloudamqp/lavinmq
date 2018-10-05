@@ -2,8 +2,7 @@ require "./spec_helper"
 require "../src/avalanchemq/shovel"
 
 module ShovelSpecHelpers
-  def self.setup_qs(conn, prefix = "") : {AMQP::Exchange, AMQP::Queue}
-    ch = conn.channel
+  def self.setup_qs(ch, prefix = "") : {AMQP::Exchange, AMQP::Queue}
     x = ch.exchange("", "direct", passive: true)
     ch.queue("#{prefix}q1")
     q2 = ch.queue("#{prefix}q2")
@@ -28,17 +27,17 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel and stop when queue length is met" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-    AMQP::Connection.start do |conn|
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+    with_channel do |ch|
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
@@ -52,17 +51,17 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel large messages" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-    AMQP::Connection.start do |conn|
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+    with_channel do |ch|
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       ShovelSpecHelpers.publish x, "q1", "a" * 10_000
       shovel.run
       wait_for { shovel.stopped? }
@@ -75,17 +74,17 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel forever" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::Never
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-    AMQP::Connection.start do |conn|
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+    with_channel do |ch|
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       shovel.run
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       rmsg = nil
@@ -101,18 +100,18 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel with ack mode on-publish" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
       ack_mode: AvalancheMQ::Shovel::AckMode::OnPublish)
-    AMQP::Connection.start do |conn|
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+    with_channel do |ch|
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
@@ -125,18 +124,18 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel with ack mode no-ack" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
       ack_mode: AvalancheMQ::Shovel::AckMode::NoAck)
-    AMQP::Connection.start do |conn|
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+    with_channel do |ch|
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
@@ -149,18 +148,18 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel past prefetch" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "prefetch_q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
       prefetch: 1_u16
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "prefetch_q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-    AMQP::Connection.start do |conn|
-      x = ShovelSpecHelpers.setup_qs(conn, "prefetch_").first
+    with_channel do |ch|
+      x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
       100.times do
         ShovelSpecHelpers.publish x, "prefetch_q1", "shovel me"
       end
@@ -177,17 +176,17 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel once qs are declared" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q1"
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqp://guest:guest@localhost",
+      "#{AMQP_BASE_URL}",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-    AMQP::Connection.start do |conn|
+    with_channel do |ch|
       shovel.run
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       rmsg = nil
       until rmsg = q2.get(no_ack: true)
@@ -203,14 +202,13 @@ describe AvalancheMQ::Shovel do
   it "should reconnect and continue" do
     p = AvalancheMQ::Parameter.new("shovel", "shovel",
       JSON::Any.new({
-        "src-uri"    => JSON::Any.new("amqp://guest:guest@localhost"),
+        "src-uri"    => JSON::Any.new("#{AMQP_BASE_URL}"),
         "src-queue"  => JSON::Any.new("q1d"),
-        "dest-uri"   => JSON::Any.new("amqp://guest:guest@localhost"),
+        "dest-uri"   => JSON::Any.new("#{AMQP_BASE_URL}"),
         "dest-queue" => JSON::Any.new("q2d"),
       } of String => JSON::Any))
     s.vhosts["/"].add_parameter(p)
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       x = ch.exchange("", "direct", passive: true)
       ch.queue("q1d", durable: true)
       ch.queue("q2d", durable: true)
@@ -222,8 +220,7 @@ describe AvalancheMQ::Shovel do
     TestHelpers.setup
 
     Fiber.yield
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       x = ch.exchange("", "direct", passive: true)
       ch.queue("q1d", durable: true)
       q2 = ch.queue("q2d", durable: true)
@@ -242,16 +239,16 @@ describe AvalancheMQ::Shovel do
 
   it "should shovel over amqps" do
     source = AvalancheMQ::Shovel::Source.new(
-      "amqps://guest:guest@localhost?verify=none",
+      "#{AMQP_BASE_URL}?verify=none",
       "q1"
     )
     dest = AvalancheMQ::Shovel::Destination.new(
-      "amqps://guest:guest@localhost?verify=none",
+      "#{AMQP_BASE_URL}?verify=none",
       "q2"
     )
     shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
-    AMQP::Connection.start do |conn|
-      x, q2 = ShovelSpecHelpers.setup_qs conn
+    with_channel do |ch|
+      x, q2 = ShovelSpecHelpers.setup_qs ch
       shovel.run
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       msgs = [] of AMQP::Message

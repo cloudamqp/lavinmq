@@ -3,7 +3,7 @@ require "../spec_helper"
 describe AvalancheMQ::UsersController do
   describe "GET /api/users" do
     it "should return all users" do
-      response = get("http://localhost:8080/api/users")
+      response = get("/api/users")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -14,7 +14,7 @@ describe AvalancheMQ::UsersController do
     it "should refuse non administrators" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      response = get("http://localhost:8080/api/users", headers: hdrs)
+      response = get("/api/users", headers: hdrs)
       response.status_code.should eq 401
     ensure
       s.users.delete("arnold")
@@ -24,7 +24,7 @@ describe AvalancheMQ::UsersController do
   describe "GET /api/users/without-permissions" do
     it "should return users without access to any vhost" do
       s.users.create("alan", "alan")
-      response = get("http://localhost:8080/api/users/without-permissions")
+      response = get("/api/users/without-permissions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
@@ -40,7 +40,7 @@ describe AvalancheMQ::UsersController do
       body = %({
         "users": ["alan1", "alan2"]
       })
-      response = post("http://localhost:8080/api/users/bulk-delete", body: body)
+      response = post("/api/users/bulk-delete", body: body)
       response.status_code.should eq 204
     ensure
       s.users.delete("alan1")
@@ -51,7 +51,7 @@ describe AvalancheMQ::UsersController do
   describe "GET /api/users/name" do
     it "should return user" do
       s.users.create("alan", "alan")
-      response = get("http://localhost:8080/api/users/alan")
+      response = get("/api/users/alan")
       response.status_code.should eq 200
     ensure
       s.users.delete("alan")
@@ -63,7 +63,7 @@ describe AvalancheMQ::UsersController do
       body = %({
         "password": "test"
       })
-      response = put("http://localhost:8080/api/users/alan", body: body)
+      response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
       u = s.users["alan"]
       ok = u.not_nil!.password == "test"
@@ -76,7 +76,7 @@ describe AvalancheMQ::UsersController do
       body = %({
         "password_hash": "kI3GCqW5JLMJa4iX1lo7X4D6XbYqlLgxIs30+P6tENUV2POR"
       })
-      response = put("http://localhost:8080/api/users/alan", body: body)
+      response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
       u = s.users["alan"]
       ok = u.not_nil!.password == "test12"
@@ -89,10 +89,10 @@ describe AvalancheMQ::UsersController do
       body = %({
         "password_hash": ""
       })
-      response = put("http://localhost:8080/api/users/alan", body: body)
+      response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
       hrds = HTTP::Headers{"Authorization" => "Basic YWxhbjo="} # alan:
-      response = get("http://localhost:8080/api/users/alan", headers: hrds)
+      response = get("/api/users/alan", headers: hrds)
       response.status_code.should eq 401
     ensure
       s.users.delete("alan")
@@ -101,7 +101,7 @@ describe AvalancheMQ::UsersController do
 
   describe "GET /api/users/user/permissions" do
     it "should return permissions for user" do
-      response = get("http://localhost:8080/api/users/guest/permissions")
+      response = get("/api/users/guest/permissions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false

@@ -3,11 +3,10 @@ require "../spec_helper"
 describe AvalancheMQ::ConsumersController do
   describe "GET /api/consumers" do
     it "should return all consumers" do
-      AMQP::Connection.start do |conn|
-        ch = conn.channel
+      with_channel do |ch|
         q = ch.queue("")
         q.subscribe { }
-        response = get("http://localhost:8080/api/consumers")
+        response = get("/api/consumers")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
@@ -18,7 +17,7 @@ describe AvalancheMQ::ConsumersController do
     end
 
     it "should return empty array if no consumers" do
-      response = get("http://localhost:8080/api/consumers")
+      response = get("/api/consumers")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true
@@ -27,12 +26,11 @@ describe AvalancheMQ::ConsumersController do
 
   describe "GET /api/consumers/vhost" do
     it "should return all consumers for a vhost" do
-      AMQP::Connection.start do |conn|
-        ch = conn.channel
+      with_channel do |ch|
         q = ch.queue("")
         q.subscribe { }
         sleep 0.1
-        response = get("http://localhost:8080/api/consumers/%2f")
+        response = get("/api/consumers/%2f")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.size.should eq 1
@@ -40,7 +38,7 @@ describe AvalancheMQ::ConsumersController do
     end
 
     it "should return empty array if no consumers" do
-      response = get("http://localhost:8080/api/consumers/%2f")
+      response = get("/api/consumers/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true

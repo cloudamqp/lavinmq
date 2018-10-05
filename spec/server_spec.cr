@@ -2,8 +2,7 @@ require "./spec_helper"
 
 describe AvalancheMQ::Server do
   it "accepts connections" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
       q = ch.queue("")
       q.bind(x, "#")
@@ -15,28 +14,27 @@ describe AvalancheMQ::Server do
   end
 
   it "can delete queue" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
-      q = ch.queue("")
+      q = ch.queue("del_q")
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       q.delete
-      ch.close
-
-      ch = conn.channel
+    end
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m2")
-      q = ch.queue("")
+      q = ch.queue("del_q")
       x = ch.exchange("", "direct", passive: true)
       x.publish pmsg, q.name
       msg = q.get
       msg.to_s.should eq("m2")
     end
+  ensure
+    s.vhosts["/"].delete_queue("del_q")
   end
 
   it "can reject message" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
@@ -49,8 +47,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can reject and requeue message" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
@@ -64,16 +61,14 @@ describe AvalancheMQ::Server do
   end
 
   it "rejects all unacked msgs when disconnecting" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
       x.publish pmsg, q.name
       q.get(no_ack: false)
     end
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       ch.exchange("", "direct", passive: true)
       q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
       m1 = q.get(no_ack: true)
@@ -84,8 +79,7 @@ describe AvalancheMQ::Server do
   end
 
   it "respects prefetch" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       ch.qos(0, 2, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
@@ -101,8 +95,7 @@ describe AvalancheMQ::Server do
   end
 
   it "respects prefetch and acks" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       ch.qos(0, 1, false)
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
@@ -121,8 +114,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can delete exchange" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       x = ch.exchange("test_delete_exchange", "topic", durable: true)
       x.delete.should be x
     end
@@ -131,8 +123,8 @@ describe AvalancheMQ::Server do
   end
 
   it "can auto delete exchange" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel.confirm
+    with_channel do |ch|
+      ch.confirm
       code = 0
       ch.on_close do |c, _reply|
         code = c
@@ -150,8 +142,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can purge a queue" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", durable: true)
       q = ch.queue("")
@@ -161,8 +152,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports publisher confirms" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       acked = false
       delivery_tag = 0
       ch.on_confirm do |tag, ack|
@@ -183,8 +173,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports mandatory publish flag" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       ch1 = Channel(Tuple(UInt16, String)).new
       ch.on_return do |code, text|
@@ -198,8 +187,7 @@ describe AvalancheMQ::Server do
   end
 
   it "expires messages" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       x = ch.exchange("", "direct", passive: true)
       msg = AMQP::Message.new("expired",
@@ -212,8 +200,7 @@ describe AvalancheMQ::Server do
   end
 
   it "expires messages with message TTL on queue declaration" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       x = ch.exchange("", "direct", passive: true)
       args = AMQP::Protocol::Table.new
       args["x-message-ttl"] = 1
@@ -232,8 +219,7 @@ describe AvalancheMQ::Server do
   end
 
   it "dead-letter expired messages" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       dlq = ch.queue("")
       ch.queue("exp")
 
@@ -252,8 +238,7 @@ describe AvalancheMQ::Server do
   end
 
   it "handle immediate flag" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       reply_code = 0
       reply_msg = nil
@@ -268,8 +253,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can cancel consumers" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg = AMQP::Message.new("m1")
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
@@ -283,8 +267,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange all" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-match"] = "all"
@@ -307,8 +290,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports header exchange any" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       hdrs = AMQP::Protocol::Table.new
       hdrs["x-match"] = "any"
@@ -329,8 +311,7 @@ describe AvalancheMQ::Server do
   end
 
   it "splits frames into max frame sizes" do
-    AMQP::Connection.start(AMQP::Config.new(port: 5672, frame_max: 4096_u32)) do |conn|
-      ch = conn.channel
+    with_channel(port: 5672, frame_max: 4096_u32) do |ch|
       pmsg1 = AMQP::Message.new("m" * (2**17 + 1))
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("")
@@ -344,8 +325,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can receive and deliver large messages" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       pmsg1 = AMQP::Message.new("a" * 8133)
       x = ch.exchange("", "direct", passive: true)
       q = ch.queue("")
@@ -356,8 +336,7 @@ describe AvalancheMQ::Server do
   end
 
   it "acking an invalid delivery tag should close the channel" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       cch = Channel(Tuple(UInt16, String)).new
       ch.on_close do |code, text|
         cch.send({code, text})
@@ -369,8 +348,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can bind exchanges to exchanges" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       x1 = ch.exchange("x1", "direct")
       x2 = ch.exchange("x2", "direct")
       x2.bind(x1, "e2e")
@@ -389,8 +367,8 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length drop-head" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel.confirm
+    with_channel do |ch|
+      ch.confirm
       acks = 0
       ch.on_confirm do |_tag, acked|
         acks += 1 if acked
@@ -411,8 +389,8 @@ describe AvalancheMQ::Server do
   end
 
   it "supports x-max-length reject-publish" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel.confirm
+    with_channel do |ch|
+      ch.confirm
       acks = 0
       nacks = 0
       ch.on_confirm do |_tag, acked|
@@ -436,47 +414,45 @@ describe AvalancheMQ::Server do
   end
 
   it "disallows creating queues starting with amq." do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
-      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+    expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+      with_channel do |ch|
         ch.queue("amq.test")
       end
     end
   end
 
   it "disallows deleting exchanges named amq.*" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
-      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+    expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+      with_channel do |ch|
         ch.exchange("amq.topic", "topic", passive: true).delete
       end
-      ch = conn.channel
+    end
+    with_channel do |ch|
       ch.exchange("amq.topic", "topic", passive: true).should_not be_nil
     end
   end
 
   it "disallows creating new exchanges named amq.*" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
-      expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+    expect_raises(AMQP::ChannelClosed, /REFUSED/) do
+      with_channel do |ch|
         ch.exchange("amq.topic2", "topic")
       end
     end
   end
 
   it "only allow one consumer on when exlusive consumers flag is set" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("exlusive_consumer", auto_delete: true)
       q.subscribe(exclusive: true) { }
 
-      ch2 = conn.channel
-      q2 = ch2.queue("exlusive_consumer", passive: true)
       expect_raises(AMQP::ChannelClosed, /ACCESS_REFUSED/) do
-        q2.subscribe { }
+        with_channel do |ch2|
+          q2 = ch2.queue("exlusive_consumer", passive: true)
+          q2.subscribe { }
+        end
       end
-      ch.close
-      ch = conn.channel
+    end
+    with_channel do |ch|
       q = ch.queue("exlusive_consumer", auto_delete: true)
       q.subscribe { }
     end
@@ -485,12 +461,10 @@ describe AvalancheMQ::Server do
   end
 
   it "only allow one connection access an exlusive queues" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       ch.queue("exlusive_queue", durable: true, exclusive: true)
-      AMQP::Connection.start do |conn2|
-        ch2 = conn2.channel
-        expect_raises(AMQP::ChannelClosed, /RESOURCE_LOCKED/) do
+      expect_raises(AMQP::ChannelClosed, /RESOURCE_LOCKED/) do
+        with_channel do |ch2|
           ch2.queue("exlusive_queue", passive: true)
         end
       end
@@ -500,8 +474,7 @@ describe AvalancheMQ::Server do
   end
 
   it "it persists transient msgs between restarts" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("durable_queue", durable: true)
       x = ch.exchange("", "direct", passive: true)
       1000.times do |i|
@@ -515,8 +488,7 @@ describe AvalancheMQ::Server do
     close_servers
     TestHelpers.setup
     wait_for { s.vhosts["/"].queues["durable_queue"].message_count == 1000 }
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete
       deleted_msgs.should eq(1000)
@@ -528,8 +500,8 @@ describe AvalancheMQ::Server do
   it "supports max-length" do
     definitions = {"max-length" => JSON::Any.new(1_i64)}
     s.vhosts["/"].add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
-    AMQP::Connection.start do |conn|
-      ch = conn.channel.confirm
+    with_channel do |ch|
+      ch.confirm
       acks = 0
       nacks = 0
       ch.on_confirm do |_tag, acked|
@@ -551,8 +523,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports alternate-exchange" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       args = AMQP::Protocol::Table.new
       args["x-alternate-exchange"] = "ae"
       x1 = ch.exchange("x1", "topic", args: args)
@@ -574,8 +545,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports expires" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       args = AMQP::Protocol::Table.new
       args["x-expires"] = 1
       ch.queue("test", args: args)
@@ -588,8 +558,7 @@ describe AvalancheMQ::Server do
   end
 
   it "should deliver to all matching queues" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q1 = ch.queue("")
       q2 = ch.queue("")
       x1 = ch.exchange("x122", "topic")
@@ -607,8 +576,7 @@ describe AvalancheMQ::Server do
   end
 
   it "supports auto ack consumers" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       x = ch.exchange("", "direct")
       x.publish AMQP::Message.new("m1"), q.name
@@ -620,8 +588,7 @@ describe AvalancheMQ::Server do
   end
 
   it "sets correct message timestamp" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       x = ch.exchange("", "direct")
       t = Time.utc_now.epoch
@@ -634,36 +601,36 @@ describe AvalancheMQ::Server do
   end
 
   it "supports recover requeue" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       x = ch.exchange("", "direct")
       x.publish AMQP::Message.new("m1"), q.name
       delivered = 0
       q.subscribe(no_ack: false) { |_m| delivered += 1 }
+      sleep 0.05
       ch.recover(requeue: true)
-      Fiber.yield
+      sleep 0.05
       delivered.should eq 2
     end
   end
 
   it "supports recover redeliver" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("")
       x = ch.exchange("", "direct")
       x.publish AMQP::Message.new("m1"), q.name
       msg = nil
       q.subscribe(no_ack: false) { |m| msg = m }
+      wait_for { msg }
+      msg = nil
       ch.recover(requeue: true)
-      Fiber.yield
+      wait_for { msg }
       msg.not_nil!.redelivered.should be_true
     end
   end
 
   pending "compacts queue index correctly" do
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("durable_queue_index", durable: true)
       x = ch.exchange("", "direct", passive: true)
       (AvalancheMQ::DurableQueue::MAX_ACKS + 1).times do |i|
@@ -678,8 +645,7 @@ describe AvalancheMQ::Server do
     close_servers
     TestHelpers.setup
     wait_for { s.vhosts["/"].queues["durable_queue_index"].message_count == 1 }
-    AMQP::Connection.start do |conn|
-      ch = conn.channel
+    with_channel do |ch|
       q = ch.queue("durable_queue_index", durable: true)
       deleted_msgs = q.delete
       deleted_msgs.should eq(1)
