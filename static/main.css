@@ -449,11 +449,17 @@ a[data-tag] {
 }
 
 button {
-  font-size: 1.17em;
+  font-size: 1.16em;
   line-height: 2em;
 }
 
+select {
+  height: 32px;
+  background-color: #FFF;
+}
+
 input, select, textarea, button {
+  font-size: 1.1em;
   box-sizing: border-box;
   border: 1px solid #C2C2C2;
   box-shadow: 1px 1px 4px #EBEBEB;
