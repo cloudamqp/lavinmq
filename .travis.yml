@@ -10,7 +10,6 @@ jobs:
     addons:
       apt:
         packages:
-        - dpkg-deb
         - fakeroot
         - help2man
     script: build/deb 1
