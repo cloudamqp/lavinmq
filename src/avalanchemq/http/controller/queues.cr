@@ -1,6 +1,7 @@
 require "uri"
 require "../controller"
-require "../resource_helper"
+require "../resource_helpers"
+require "../binding_helpers"
 
 module AvalancheMQ
   module QueueHelpers
@@ -13,7 +14,8 @@ module AvalancheMQ
   end
 
   class QueuesController < Controller
-    include ResourceHelper
+    include ResourceHelpers
+    include BindingHelpers
     include QueueHelpers
 
     private def register_routes
@@ -91,7 +93,8 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           queue = queue(context, params, vhost)
           all_bindings = queue.vhost.exchanges.values.flat_map(&.bindings_details)
-          all_bindings.select { |b| b[:destination] == queue.name }.to_json(context.response)
+          all_bindings.select { |b| b[:destination] == queue.name }
+            .map { |b| map_binding(b) }.to_json(context.response)
         end
       end
 

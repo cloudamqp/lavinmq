@@ -1,7 +1,7 @@
 require "uri"
 require "../controller"
-require "../resource_helper"
-require "../bindings_helper"
+require "../resource_helpers"
+require "../binding_helpers"
 
 module AvalancheMQ
   module ExchangeHelpers
@@ -15,7 +15,7 @@ module AvalancheMQ
   end
 
   class ExchangesController < Controller
-    include ResourceHelper
+    include ResourceHelpers
     include ExchangeHelpers
     include BindingHelpers
 

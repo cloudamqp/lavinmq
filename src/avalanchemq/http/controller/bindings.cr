@@ -2,13 +2,13 @@ require "base64"
 require "uri"
 require "./queues"
 require "./exchanges"
-require "../bindings_helper"
+require "../binding_helpers"
 require "../controller"
-require "../resource_helper"
+require "../resource_helpers"
 
 module AvalancheMQ
   class BindingsController < Controller
-    include ResourceHelper
+    include ResourceHelpers
     include BindingHelpers
     include QueueHelpers
     include ExchangeHelpers
