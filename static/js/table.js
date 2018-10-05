@@ -7,6 +7,7 @@
     const url = options.url
     const keyColumns = options.keyColumns
     const interval = options.interval
+    let timer = null
 
     makeHeadersSortable()
 
@@ -17,7 +18,7 @@
       }
       fetchAndUpdate()
       if (interval) {
-        setInterval(fetchAndUpdate, interval)
+        timer = setInterval(fetchAndUpdate, interval)
       }
     }
 
@@ -65,8 +66,14 @@
         }
         updateTable(response)
       }).catch(function (e) {
-        tableError.textContent = 'Error fetching data: ' + e.body
-        console.error(e)
+        if (e.body) {
+          tableError.textContent = 'Error fetching data: ' + e.body
+        } else {
+          console.error(e)
+          if (timer) {
+            clearInterval(timer)
+          }
+        }
       })
     }
 
