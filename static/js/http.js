@@ -66,8 +66,10 @@
   function standardErrorHandler (e) {
     if (e.status === 404) {
       avalanchemq.http.redirect('/404')
-    } else {
+    } else if (e.body) {
       alert(e.body)
+    } else {
+      console.error(e)
     }
   }
 
