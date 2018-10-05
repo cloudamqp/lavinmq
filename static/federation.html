@@ -132,7 +132,7 @@
               avalanchemq.dom.removeNodes(tr)
             }).catch(e => console.error(e))
         }
-        avalanchemq.table.renderCell(tr, 7, btn)
+        avalanchemq.table.renderCell(tr, 7, btn, 'right')
       })
 
       const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }

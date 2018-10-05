@@ -40,9 +40,9 @@
           <thead>
             <tr>
               <th>Virtual host</th>
-              <th>Configure regexp</th>
-              <th>Write regexp</th>
-              <th>Read regexp</th>
+              <th class="left">Configure regexp</th>
+              <th class="left">Write regexp</th>
+              <th class="left">Read regexp</th>
               <th></th>
             </tr>
           </thead>
@@ -138,7 +138,7 @@
               }).catch(e => console.error(e))
           }
           avalanchemq.table.renderCell(tr, 0, item.vhost)
-          avalanchemq.table.renderCell(tr, 4, btn)
+          avalanchemq.table.renderCell(tr, 4, btn, 'right')
         }
       })
 

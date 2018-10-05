@@ -280,13 +280,13 @@
             const p = encodeURIComponent(item.properties_key)
             const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
             avalanchemq.http.request('DELETE', url)
-              .then(() => console.log('binding removed'))
+              .then(() => { avalanchemq.dom.removeNodes(tr) })
               .catch(e => console.error(e))
           }
           avalanchemq.table.renderCell(tr, 0, item.source)
           avalanchemq.table.renderCell(tr, 1, item.routing_key)
           avalanchemq.table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments) + '</pre>')
-          avalanchemq.table.renderCell(tr, 3, btn)
+          avalanchemq.table.renderCell(tr, 3, btn, 'right')
         }
       })
 
