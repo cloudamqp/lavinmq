@@ -217,6 +217,10 @@ aside h1 small {
   grid-template-columns: auto auto;
 }
 
+.user-signout a:hover {
+  transform: scale(1.1);
+}
+
 #user-menu label span {
   margin-right: 10px;
   line-height: 29px;
@@ -252,12 +256,12 @@ aside ul ul li a:hover {
   background-color: rgba(0, 0, 0, 0.2);
 }
 
-aside a, aside a:visited {
+aside ul a, aside ul a:visited {
   color: var(--font-color);
   text-decoration: none;
 }
 
-aside a:hover {
+aside ul a:hover {
   background-color: var(--highlight-color);
 }
 
