@@ -122,6 +122,7 @@
           .then(() => {
             queuesTable.fetchAndUpdate()
             evt.target.reset()
+            avalanchemq.dom.toast("Queue " + queue + " created")
           }).catch(e => console.error(e))
       })
     </script>

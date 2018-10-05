@@ -132,6 +132,7 @@
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {
             exchangeTable.fetchAndUpdate()
+            avalanchemq.dom.toast("Exchange " + exchange + " created")
             evt.target.reset()
           }).catch(e => console.error(e))
       })
