@@ -127,7 +127,7 @@
             document.getElementById('ch-mode').textContent = mode
             document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
           }
-        }).catch(e => console.error(e))
+        }).catch(avalanchemq.http.standardErrorHandler)
       }
       updateChannel(true)
       setInterval(updateChannel, 5000)

@@ -90,8 +90,7 @@
           .then(() => {
             usersTable.fetchAndUpdate()
             evt.target.reset()
-          })
-          .catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#tags').onclick = e => {

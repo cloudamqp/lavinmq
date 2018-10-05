@@ -94,7 +94,7 @@
           .then(() => {
             vhostTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
     </script>
   </body>

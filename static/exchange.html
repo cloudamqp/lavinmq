@@ -134,7 +134,7 @@
             policyLink.textContent = item.policy
             avalanchemq.dom.setChild('#e-policy', policyLink)
           }
-        }).catch(e => console.error(e))
+        }).catch(avalanchemq.http.standardErrorHandler)
       }
       updateExchange()
 
@@ -155,8 +155,7 @@
             avalanchemq.http.request('DELETE', url)
               .then(() => {
                 avalanchemq.dom.removeNodes(tr)
-              })
-              .catch(e => console.error(e))
+              }).catch(avalanchemq.http.standardErrorHandler)
           }
           avalanchemq.table.renderCell(tr, 0, item.destination_type)
           avalanchemq.table.renderCell(tr, 1, item.source)
@@ -181,8 +180,7 @@
           .then(() => {
             bindingsTable.fetchAndUpdate()
             evt.target.reset()
-          })
-          .catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -200,7 +198,7 @@
         }
         avalanchemq.http.request('POST', url, { body })
           .then(() => { avalanchemq.dom.toast("Published message to " + exchange) })
-          .catch(e => console.error(e))
+          .catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
@@ -209,7 +207,7 @@
         if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/exchanges' })
-            .catch(e => console.error(e))
+            .catch(avalanchemq.http.standardErrorHandler)
         }
       })
     </script>

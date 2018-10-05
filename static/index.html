@@ -94,9 +94,7 @@
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-    }).catch(function (e) {
-      console.error(e)
-    })
+    }).catch(avalanchemq.http.standardErrorHandler)
   })
 
 </script>

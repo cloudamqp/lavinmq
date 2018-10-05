@@ -115,7 +115,7 @@
             const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
             avalanchemq.http.request('DELETE', url)
               .then(() => { avalanchemq.dom.removeNodes(tr) })
-              .catch(e => console.error(e))
+              .catch(avalanchemq.http.standardErrorHandler)
           }
           const userLink = document.createElement('a')
           userLink.href = '/user?name=' + encodeURIComponent(item.user)
@@ -150,8 +150,7 @@
           .then(() => {
             permissionsTable.fetchAndUpdate()
             evt.target.reset()
-          })
-          .catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
@@ -160,7 +159,7 @@
         if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/vhosts' })
-            .catch(e => console.error(e))
+            .catch(avalanchemq.http.standardErrorHandler)
         }
       })
     </script>

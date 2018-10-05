@@ -101,7 +101,7 @@
           avalanchemq.http.request('DELETE', url)
             .then(() => {
               avalanchemq.dom.removeNodes(tr)
-            }).catch(e => console.error(e))
+            }).catch(avalanchemq.http.standardErrorHandler)
         }
         avalanchemq.table.renderCell(tr, 7, btn, 'right')
       })
@@ -122,7 +122,7 @@
           .then(() => {
             policiesTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(e => alert(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
     </script>
   </body>

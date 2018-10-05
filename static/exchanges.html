@@ -134,7 +134,7 @@
             exchangeTable.fetchAndUpdate()
             avalanchemq.dom.toast("Exchange " + exchange + " created")
             evt.target.reset()
-          }).catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
     </script>
   </body>

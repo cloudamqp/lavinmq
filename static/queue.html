@@ -259,7 +259,7 @@
               avalanchemq.dom.setChild('#q-policy', policyLink)
             }
           }
-        }).catch(e => console.error(e))
+        }).catch(avalanchemq.http.standardErrorHandler)
       }
       updateQueue(true)
       setInterval(updateQueue, 5000)
@@ -280,7 +280,7 @@
             const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
             avalanchemq.http.request('DELETE', url)
               .then(() => { avalanchemq.dom.removeNodes(tr) })
-              .catch(e => console.error(e))
+              .catch(avalanchemq.http.standardErrorHandler)
           }
           avalanchemq.table.renderCell(tr, 0, item.source)
           avalanchemq.table.renderCell(tr, 1, item.routing_key)
@@ -302,7 +302,7 @@
         avalanchemq.http.request('POST', url, { body })
           .then(() => {
             bindingsTable.fetchAndUpdate()
-          }).catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -322,7 +322,7 @@
           .then(() => {
             avalanchemq.dom.toast("Published message to " + queue)
             updateQueue(false)
-          }).catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -359,7 +359,7 @@
               msgNode.classList.remove('hide')
               messagesContainer.appendChild(msgNode)
             }
-          }).catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
@@ -383,8 +383,7 @@
           .then(() => {
             evt.target.reset()
             avalanchemq.dom.toast("Moving messages to " + dest)
-          })
-          .catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
@@ -393,7 +392,7 @@
         if (confirm("Are you sure? Messages cannot be recovered after purging.")) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { avalanchemq.dom.toast("Queue purged!") })
-            .catch(e => console.error(e))
+            .catch(avalanchemq.http.standardErrorHandler)
         }
       })
 
@@ -403,7 +402,7 @@
         if (confirm("Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.")) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/queues' })
-            .catch(e => console.error(e))
+            .catch(avalanchemq.http.standardErrorHandler)
         }
       })
     </script>

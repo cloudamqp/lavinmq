@@ -181,7 +181,7 @@
           avalanchemq.http.request('DELETE', url)
             .then(() => {
               avalanchemq.dom.removeNodes(tr)
-            }).catch(e => console.error(e))
+            }).catch(avalanchemq.http.standardErrorHandler)
         }
         avalanchemq.table.renderCell(tr, 11, btn, 'right')
       })
@@ -245,7 +245,7 @@
           .then(() => {
             updateShovelsTable()
             evt.target.reset()
-          }).catch(e => console.error(e))
+          }).catch(avalanchemq.http.standardErrorHandler)
       })
     </script>
   </body>

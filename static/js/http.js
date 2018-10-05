@@ -48,36 +48,34 @@
     }
     return fetch(path, opts)
       .then(function (response) {
-        if (response.status === 401) {
-          if (location.pathname !== '/401') {
-            redirect('/401')
-          } else {
-            redirect('/login')
-          }
-        }
-        return response
-      })
-      .then(function (response) {
         return response.json().then(json => {
-          if (response.status === 404) {
-            alert(json.reason || "Resource not found")
-          }
           if (!response.ok) {
-            throw new Error(json.reason)
+            throw { status: response.status, body: json }
           }
           return json
         }).catch(function (e) {
           // not json
+          if (!response.ok) {
+            throw { status: response.status, body: response.statusText }
+          }
           return e
         })
       })
+  }
+
+  function standardErrorHandler (e) {
+    if (e.status === 404) {
+      avalanchemq.http.redirect('/404')
+    } else {
+      alert(e.body)
+    }
   }
 
   testLoggedIn()
 
   Object.assign(window.avalanchemq, {
     http: {
-      request, redirect
+      request, redirect, standardErrorHandler
     }
   })
 })()
