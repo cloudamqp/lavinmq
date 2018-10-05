@@ -475,7 +475,7 @@ fieldset {
   border-width: 1px;
   border-radius: 3px;
   border-style: solid;
-  border-color: var(--theme-color-light);
+  border-color: var(--separator-color);
   color: var(--font-color-dark);
 }
 
@@ -532,4 +532,9 @@ a, a:visited {
 
 pre {
   white-space: pre-wrap;
+}
+
+fieldset.inline {
+  max-width: 468px;
+  margin: 20px 0 20px 10px;
 }
