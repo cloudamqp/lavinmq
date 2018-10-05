@@ -34,15 +34,6 @@
           </tr>
         </table>
       </section>
-      <section class="card cols-4">
-        <h3>Actions</h3>
-        <form method="delete" id="deleteExchange" class="form">
-          <label>
-            <span>Delete exchange</span>
-            <button type="submit" class="btn-danger">Delete</button>
-          </label>
-        </form>
-      </section>
       <section class="card">
         <h3>
           Bindings
@@ -107,6 +98,9 @@
           <textarea name="payload"></textarea>
         </label>
         <button type="submit" class="btn-primary">Publish message</button>
+      </form>
+      <form method="delete" id="deleteExchange" class="cols-12">
+        <button type="submit" class="btn-danger">Delete exchange</button>
       </form>
     </main>
     <footer></footer>

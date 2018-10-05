@@ -36,14 +36,6 @@
           </tr>
         </table>
       </section>
-      <section class="card cols-4">
-        <form method="delete" id="deleteVhost" class="form">
-          <label>
-            <span>Delete vhost</span>
-            <button type="submit" class="btn-danger">Delete</button>
-          </label>
-        </form>
-      </section>
       <section class="card">
         <h3>
           Permissions
@@ -82,6 +74,9 @@
           <input type="text" name="read" required value=".*">
         </label>
         <button type="submit" class="btn-primary">Set permission</button>
+      </form>
+      <form method="delete" id="deleteVhost" class="cols-12">
+        <button type="submit" class="btn-danger">Delete</button>
       </form>
     </main>
     <footer></footer>

@@ -55,21 +55,6 @@
           </tr>
         </table>
       </section>
-      <section class="card cols-4">
-        <h3>Actions</h3>
-        <form method="delete" id="purgeQueue" class="form">
-          <label>
-            <span>Purge queue</span>
-            <button type="submit" class="btn-danger">Purge</button>
-          </label>
-        </form>
-        <form method="delete" id="deleteQueue" class="form">
-          <label>
-            <span>Delete queue</span>
-            <button type="submit" class="btn-danger">Delete</button>
-          </label>
-        </form>
-      </section>
       <section class="card">
         <h3>
           Consumers
@@ -215,6 +200,12 @@
           <input type="text" name="shovel-destination">
         </label>
         <button type="submit" class="btn-primary">Move messages</button>
+      </form>
+      <form method="delete" id="purgeQueue" class="cols-12">
+        <button type="submit" class="btn-danger">Purge queue</button>
+      </form>
+      <form method="delete" id="deleteQueue" class="cols-12">
+        <button type="submit" class="btn-danger">Delete queue</button>
       </form>
     </main>
     <footer></footer>
