@@ -106,7 +106,6 @@ module AvalancheMQ
 
       private def finish_publish(message_body)
         @log.debug { "Finishing publish #{message_body.inspect}" }
-        delivered = false
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
         props.timestamp = ts unless props.timestamp
