@@ -660,4 +660,31 @@ describe AvalancheMQ::Server do
       msg.not_nil!.redelivered.should be_true
     end
   end
+
+  pending "compacts queue index correctly" do
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("durable_queue_index", durable: true)
+      x = ch.exchange("", "direct", passive: true)
+      (AvalancheMQ::DurableQueue::MAX_ACKS + 1).times do |i|
+        msg = AMQP::Message.new(i.to_s)
+        x.publish(msg, q.name)
+      end
+      AvalancheMQ::DurableQueue::MAX_ACKS.times do |i|
+        q.get(no_ack: false).try &.ack
+      end
+    end
+    wait_for { s.vhosts["/"].queues["durable_queue_index"].message_count == 1 }
+    close_servers
+    TestHelpers.setup
+    wait_for { s.vhosts["/"].queues["durable_queue_index"].message_count == 1 }
+    AMQP::Connection.start do |conn|
+      ch = conn.channel
+      q = ch.queue("durable_queue_index", durable: true)
+      deleted_msgs = q.delete
+      deleted_msgs.should eq(1)
+    end
+  ensure
+    s.vhosts["/"].delete_queue("durable_queue_index")
+  end
 end

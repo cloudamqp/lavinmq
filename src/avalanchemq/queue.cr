@@ -24,7 +24,7 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     property last_get_time : Int64
-    getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers
+    getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
     getter? closed
     def_equals_and_hash @vhost.name, @name
 
@@ -37,7 +37,7 @@ module AvalancheMQ
       @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new(1)
       @consumer_available = Channel(Nil).new(1)
-      @unacked = Deque(SegmentPosition).new
+      @unacked_count = 0_u32
       @ready = Deque(SegmentPosition).new
       @ready_lock = Mutex.new
       @segments = Hash(UInt32, File).new do |h, seg|
@@ -117,14 +117,10 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def unacked_count : UInt32
-      @unacked.size.to_u32
-    end
-
     def close_unused_segments_and_report_used : Set(UInt32)
       s = Set(UInt32).new
       @ready.each { |sp| s << sp.segment }
-      @unacked.each { |sp| s << sp.segment }
+      @consumers.each { |c| c.unacked.each { |sp| s << sp.segment } }
       @segments.each do |seg, f|
         unless s.includes? seg
           @log.debug { "Closing non referenced segment #{seg}" }
@@ -151,7 +147,7 @@ module AvalancheMQ
         end
       rescue ex : Errno
         sp = @ready_lock.synchronize { @ready.shift }
-        @log.error "Segment #{sp} not found, possible message loss. #{ex.inspect}"
+        @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       end
       @log.debug "Exiting delivery loop"
     rescue Channel::ClosedError
@@ -229,9 +225,9 @@ module AvalancheMQ
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
         consumers: @consumers.size, vhost: @vhost.name,
-        messages: @ready.size + @unacked.size,
+        messages: @ready.size + @unacked_count,
         ready: @ready.size,
-        unacked: @unacked.size,
+        unacked: @unacked_count,
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? "closed" : "running",
@@ -355,7 +351,7 @@ module AvalancheMQ
       return if @closed
       sp = @ready_lock.synchronize { @ready.shift? }
       return unless sp
-      @unacked << sp unless no_ack
+      @unacked_count += 1 unless no_ack
       read(sp)
     end
 
@@ -374,6 +370,7 @@ module AvalancheMQ
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
       msg = Message.new(ts, ex, rk, pr, sz, seg)
       redelivered = @requeued.includes?(sp)
+      # TODO: optimize
       @requeued.delete(sp) if redelivered
       Envelope.new(sp, msg, redelivered)
     end
@@ -381,29 +378,23 @@ module AvalancheMQ
     def ack(sp : SegmentPosition, flush : Bool)
       return if @closed
       @log.debug { "Acking #{sp}" }
-      idx = @unacked.index(sp)
-      @log.debug { "Acking idx #{idx} in unacked deque" }
-      @unacked.delete_at(idx) if idx
+      @unacked_count -= 1
       @consumer_available.send nil unless @consumer_available.full?
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @closed
       @log.debug { "Rejecting #{sp}" }
-      idx = @unacked.index(sp)
-      @log.debug { "Rejecting idx #{idx} in unacked deque" }
-      if idx
-        @unacked.delete_at(idx)
-        if requeue
-          @ready_lock.synchronize do
-            i = @ready.index { |rsp| rsp > sp } || 0
-            @ready.insert(i, sp)
-          end
-          @requeued << sp
-          @message_available.send nil unless @message_available.full?
-        else
-          expire_msg(sp, :rejected)
+      @unacked_count -= 1
+      if requeue
+        @ready_lock.synchronize do
+          i = @ready.index { |rsp| rsp > sp } || 0
+          @ready.insert(i, sp)
         end
+        @requeued << sp
+        @message_available.send nil unless @message_available.full?
+      else
+        expire_msg(sp, :rejected)
       end
     end
 

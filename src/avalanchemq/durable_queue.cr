@@ -16,7 +16,7 @@ module AvalancheMQ
       Dir.mkdir_p @index_dir
       @enq = File.open(File.join(@index_dir, "enq"), "a+")
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
-      @acks = 0
+      @acks = 0_u32
       restore_index
     end
 
@@ -25,7 +25,7 @@ module AvalancheMQ
       @enq.close
       Dir.mkdir_p @index_dir
       File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-        unacked = @unacked.to_a.sort.each
+        unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
         next_unacked = unacked.next
         @ready.each do |sp|
           while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
@@ -45,12 +45,14 @@ module AvalancheMQ
       @acks = 0
     end
 
-    def close(deleting = false) : Nil
-      if super
-        compact_index! unless deleting
-        @log.debug { "Closing index files" }
-        @ack.close
-        @enq.close
+    def close(deleting = false) : Bool
+      super.tap do |closed|
+        if closed
+          compact_index! unless deleting
+          @log.debug { "Closing index files" }
+          @ack.close
+          @enq.close
+        end
       end
     end
 
