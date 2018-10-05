@@ -70,7 +70,11 @@
     d.textContent = text
     document.body.appendChild(d)
     setTimeout(() => {
-      document.body.removeChild(d)
+      try {
+        document.body.removeChild(d)
+      } catch(e) {
+        // noop
+      }
     }, 7000)
   }
 
