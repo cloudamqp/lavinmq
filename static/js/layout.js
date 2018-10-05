@@ -1,7 +1,7 @@
 (function () {
   document.getElementsByTagName('aside')[0].innerHTML = `
     <h1>
-      <img id="amq-logo" src="/img/logo-avalanche-mq.png">
+      <a href="/"><img id="amq-logo" src="/img/logo-avalanche-mq.png"></a>
       <small id="version"></small>
     </h1>
     <div id="user-menu">
