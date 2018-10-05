@@ -75,10 +75,13 @@
       if (typeof raw === "string") {
         data = JSON.parse(raw)
       }
-      if (!Array.isArray(data)) return
       data.sort(byColumn)
       document.getElementById(id + '-count').textContent = data.length
       const t = document.getElementById(id).tBodies[0]
+      if (!Array.isArray(data) || data.length === 0) {
+        t.innerHTML = '<tr><td colspan="100" class="center">Nope, nothing to see here.</td></tr>'
+        return
+      }
       let start = 0
       for (let i = 0; i < data.length; i++) {
         const item = data[i]
