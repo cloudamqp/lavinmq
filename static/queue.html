@@ -158,7 +158,7 @@
             <span>Messages</span>
             <input type="number" name="messages" value=1>
           </label>
-          <button type="submit" class="btn-secondary">Get message(s)</button>
+          <button type="submit" class="btn-primary">Get message(s)</button>
         </form>
       </section>
       <form method="post" id="moveMessages" class="form card cols-6">
@@ -337,6 +337,10 @@
         }
         avalanchemq.http.request('POST', url, { body })
           .then(messages => {
+            if (messages.length === 0) {
+              alert("No messages in queue")
+              return
+            }
             updateQueue(false)
             const messagesContainer = document.getElementById('messages')
             avalanchemq.dom.removeChildren(messagesContainer)
