@@ -1323,7 +1323,10 @@ module AvalancheMQ
         end
 
         def to_io(io, format)
-          raise NotImplemented.new(@channel, class_id, method_id)
+          wrap(io, 8 + 1, format) do
+            io.write_bytes(@delivery_tag, format)
+            io.write_byte @requeue ? 1_u8 : 0_u8
+          end
         end
 
         def self.decode(channel, io)
