@@ -128,6 +128,14 @@ aside::after {
   padding: 20px 0;
 }
 
+#user-menu select {
+  box-shadow: none;
+}
+
+#user-menu > * {
+  padding-top: 10px;
+}
+
 footer {
   margin: 0 20px;
   border-top-left-radius: 4px;
