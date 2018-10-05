@@ -22,6 +22,9 @@ development_dependencies:
     github: cloudamqp/amqp.cr
     branch: master
     # path: ../amqp.cr
+  ameba:
+    github: veelenga/ameba
+    version: 0.8.0
 
 crystal: 0.26.1
 

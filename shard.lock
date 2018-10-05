@@ -1,5 +1,9 @@
 version: 1.0
 shards:
+  ameba:
+    github: veelenga/ameba
+    version: 0.8.0
+
   amqp:
     github: cloudamqp/amqp.cr
     commit: 7918d230ffac1ebd70bb346dbe5b648e060a78b0
