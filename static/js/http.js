@@ -13,7 +13,7 @@
       request('GET', '/api/whoami').then(function () {
         avalanchemq.auth.setUsername()
       }).catch(function () {
-        // not logged in
+        redirect('/login')
       })
     }
   }
