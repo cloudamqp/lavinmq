@@ -454,6 +454,8 @@ a[data-tag] {
 
 .form label > select:first-child {
   width: 151px;
+  position: relative;
+  top: -1px;
 }
 
 button {
@@ -462,7 +464,7 @@ button {
 }
 
 select {
-  height: 32px;
+  height: 34px;
   background-color: #FFF;
 }
 
