@@ -326,6 +326,10 @@ aside li.active a {
   float: right;
 }
 
+.table-multihead {
+  box-shadow: inset -9px 0px 0px 0px #FFF, inset -10px 0px 0px 0px var(--font-color-dark);
+}
+
 .details-table {
   margin-left: -1.5rem;
   margin-right: -1.5rem;
