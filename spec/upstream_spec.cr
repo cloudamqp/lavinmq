@@ -5,7 +5,7 @@ module UpstreamSpecHelpers
   def self.setup_qs(conn) : {AMQP::Exchange, AMQP::Queue}
     ch = conn.channel
     x = ch.exchange("", "direct", passive: true)
-    q1 = ch.queue("q1")
+    _q1 = ch.queue("q1")
     q2 = ch.queue("q2")
     {x, q2}
   end

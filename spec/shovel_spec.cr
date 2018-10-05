@@ -5,7 +5,7 @@ module ShovelSpecHelpers
   def self.setup_qs(conn, prefix = "") : {AMQP::Exchange, AMQP::Queue}
     ch = conn.channel
     x = ch.exchange("", "direct", passive: true)
-    q1 = ch.queue("#{prefix}q1")
+    _q1 = ch.queue("#{prefix}q1")
     q2 = ch.queue("#{prefix}q2")
     {x, q2}
   end

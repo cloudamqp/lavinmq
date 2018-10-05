@@ -640,7 +640,7 @@ describe AvalancheMQ::Server do
       x = ch.exchange("", "direct")
       x.publish AMQP::Message.new("m1"), q.name
       delivered = 0
-      q.subscribe(no_ack: false) { |m| delivered += 1 }
+      q.subscribe(no_ack: false) { |_m| delivered += 1 }
       ch.recover(requeue: true)
       Fiber.yield
       delivered.should eq 2
@@ -670,7 +670,7 @@ describe AvalancheMQ::Server do
         msg = AMQP::Message.new(i.to_s)
         x.publish(msg, q.name)
       end
-      AvalancheMQ::DurableQueue::MAX_ACKS.times do |i|
+      AvalancheMQ::DurableQueue::MAX_ACKS.times do |_i|
         q.get(no_ack: false).try &.ack
       end
     end
