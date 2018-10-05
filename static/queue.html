@@ -321,6 +321,7 @@
         }
         avalanchemq.http.request('POST', url, { body })
           .then(() => {
+            avalanchemq.dom.toast("Published message to " + queue)
             updateQueue(false)
           }).catch(e => console.error(e))
       })
@@ -365,13 +366,14 @@
         evt.preventDefault()
         const shovel = 'Move from ' + queue
         const url = '/api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(shovel)
+        const dest = document.querySelector('[name=shovel-destination]').value
         const body = {
           name: shovel,
           value: {
             'src-uri': 'amqp:///' + urlEncodedVhost,
             'src-queue': queue,
             'dest-uri': 'amqp:///' + urlEncodedVhost,
-            'dest-queue': document.querySelector('[name=shovel-destination]').value,
+            'dest-queue': dest,
             'src-prefetch-count': 1000,
             'ack-mode': 'on-confirm',
             'src-delete-after': 'queue-length'
@@ -380,7 +382,7 @@
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {
             evt.target.reset()
-            scrollTo(0, 0)
+            avalanchemq.dom.toast("Moving messages to " + dest)
           })
           .catch(e => console.error(e))
       })
@@ -390,6 +392,7 @@
         const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
         if (confirm("Are you sure? Messages cannot be recovered after purging.")) {
           avalanchemq.http.request('DELETE', url)
+            .then(() => { avalanchemq.dom.toast("Queue purged!") })
             .catch(e => console.error(e))
         }
       })

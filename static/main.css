@@ -562,3 +562,22 @@ fieldset.inline {
   max-width: 468px;
   margin: 20px 0 20px 10px;
 }
+
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 20px;
+  min-width: 200px;
+  border-radius: 4px;
+  box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
+  color: #fff;
+  background-color: #2a9463;
+  animation: fadeOut 0.5s ease-in 5s forwards;
+  opacity: 0.9;
+}
+
+@keyframes fadeOut {
+    from {opacity: 0.9;}
+    to {opacity: 0;}
+}

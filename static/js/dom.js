@@ -13,6 +13,7 @@
 
   function removeNodes (selector) {
     const els = elements(selector)
+    if (!els[0]) return;
     const parent = els[0].parentNode
     els.forEach(node => {
       parent.removeChild(node)
@@ -62,13 +63,25 @@
     return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '')
   }
 
+  function toast (text) {
+    removeNodes(".toast")
+    let d = document.createElement("div")
+    d.classList.add("toast")
+    d.textContent = text
+    document.body.appendChild(d)
+    setTimeout(() => {
+      document.body.removeChild(d)
+    }, 7000)
+  }
+
   Object.assign(window.avalanchemq, {
     dom: {
       setChild,
       removeNodes,
       jsonToText,
       removeChildren,
-      parseJSON
+      parseJSON,
+      toast
     }
   })
 })()
