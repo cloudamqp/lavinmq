@@ -434,6 +434,10 @@ a[data-tag] {
   width: calc(100% - 160px);
 }
 
+.form label input[type="checkbox"] {
+  margin: 10px 0;
+}
+
 .form .label {
   margin: 0.5em 0;
 }
