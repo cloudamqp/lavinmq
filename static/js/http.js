@@ -54,13 +54,14 @@
           } else {
             redirect('/login')
           }
-        } else if (response.status === 404) {
-          redirect('/404')
         }
         return response
       })
       .then(function (response) {
         return response.json().then(json => {
+          if (response.status === 404) {
+            alert(json.reason || "Resource not found")
+          }
           if (!response.ok) {
             throw new Error(json.reason)
           }
