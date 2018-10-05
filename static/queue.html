@@ -160,38 +160,6 @@
           </label>
           <button type="submit" class="btn-secondary">Get message(s)</button>
         </form>
-        <div id="message-template" class="hide">
-          <span>Message <span class="message-number"></span></span>
-          <hr>
-          <span>The server reported <span class="messages-remaining"></span> messages remaining.</span>
-          <table>
-            <tr>
-              <th>Exchange</th>
-              <td class="message-exchange"></td>
-            </tr>
-            <tr>
-              <th>Routing key</th>
-              <td class="message-routing-key"></td>
-            </tr>
-            <tr>
-              <th>Mode</th>
-              <td class="message-mode"></td>
-            </tr>
-            <tr>
-              <th>Properties</th>
-              <td><pre class="message-properties"></pre></td>
-            </tr>
-            <tr>
-              <th>
-                Payload
-                <div><small><span class="message-size"></span> bytes</small></div>
-                <div><small>Encoding: <span class="message-encoding"></span></small></div>
-              </th>
-              <td><pre class="message-payload"></pre></td>
-            </tr>
-          </table>
-        </div>
-        <div id="messages"></div>
       </section>
       <form method="post" id="moveMessages" class="form card cols-6">
         <h3>Move messages</h3>
@@ -201,6 +169,37 @@
         </label>
         <button type="submit" class="btn-primary">Move messages</button>
       </form>
+      <div id="message-template" class="hide message card">
+        <h4 class="message-header">Message <span class="message-number"></span></h4>
+        <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
+        <table>
+          <tr>
+            <th>Exchange</th>
+            <td class="message-exchange"></td>
+          </tr>
+          <tr>
+            <th>Routing key</th>
+            <td class="message-routing-key"></td>
+          </tr>
+          <tr>
+            <th>Mode</th>
+            <td class="message-mode"></td>
+          </tr>
+          <tr>
+            <th>Properties</th>
+            <td><pre class="message-properties"></pre></td>
+          </tr>
+          <tr>
+            <th>
+              Payload
+              <div><small><span class="message-size"></span> bytes</small></div>
+              <div><small>Encoding: <span class="message-encoding"></span></small></div>
+            </th>
+            <td><pre class="message-payload"></pre></td>
+          </tr>
+        </table>
+      </div>
+      <div id="messages" class="cols-12"></div>
       <form method="delete" id="purgeQueue" class="cols-12">
         <button type="submit" class="btn-danger">Purge queue</button>
       </form>
@@ -345,6 +344,7 @@
             for (let i = 0; i < messages.length; i++) {
               const message = messages[i]
               const msgNode = template.cloneNode(true)
+              msgNode.removeAttribute("id")
               msgNode.querySelector('.message-number').textContent = i + 1
               msgNode.querySelector('.messages-remaining').textContent = message.message_count
               const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange;

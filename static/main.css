@@ -581,3 +581,20 @@ fieldset.inline {
     from {opacity: 0.9;}
     to {opacity: 0;}
 }
+
+.message {
+  margin-top: 10px;
+}
+
+.message-header {
+  font-weight: bold;
+}
+
+.message table {
+  table-layout: fixed;
+}
+
+.message table th {
+  min-width: 150px;
+  text-align: left;
+}
