@@ -200,12 +200,19 @@
         </table>
       </div>
       <div id="messages" class="cols-12"></div>
-      <form method="delete" id="purgeQueue" class="cols-12">
-        <button type="submit" class="btn-danger">Purge queue</button>
-      </form>
-      <form method="delete" id="deleteQueue" class="cols-12">
-        <button type="submit" class="btn-danger">Delete queue</button>
-      </form>
+      <section class="card cols-4">
+        <h3>Danger zone</h3>
+        <form method="delete" id="purgeQueue" class="form">
+          <label>
+            <button type="submit" class="btn-danger">Purge queue</button>
+          </label>
+        </form>
+        <form method="delete" id="deleteQueue" class="form">
+          <label>
+            <button type="submit" class="btn-danger">Delete queue</button>
+          </label>
+        </form>
+      </section>
     </main>
     <footer></footer>
     <script src="/js/layout.js"></script>
