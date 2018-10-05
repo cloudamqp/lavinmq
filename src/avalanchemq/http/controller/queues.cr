@@ -32,9 +32,7 @@ module AvalancheMQ
       get "/api/queues/:vhost/:name" do |context, params|
         with_vhost(context, params) do |vhost|
           refuse_unless_management(context, user(context), vhost)
-          name = params["name"]
-          q = @amqp_server.vhosts[vhost].queues[name]?
-          not_found(context, "Queue #{name} does not exist") unless q
+          q = queue(context, params, vhost)
           q.details.merge({
             consumer_details: q.consumers.to_a,
           }).to_json(context.response)
@@ -45,7 +43,7 @@ module AvalancheMQ
         with_vhost(context, params) do |vhost|
           refuse_unless_management(context, user(context), vhost)
           user = user(context)
-          name = params["name"]
+          name = URI.unescape(params["name"])
           name = Queue.generate_name if name.empty?
           body = parse_body(context)
           durable = body["durable"]?.try(&.as_bool?) || false
