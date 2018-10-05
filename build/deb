@@ -81,3 +81,6 @@ chmod +x $root/DEBIAN/prerm
 
 fakeroot dpkg-deb --build $root
 rm -r $root
+
+mkdir -p builds
+mv $root.deb builds/

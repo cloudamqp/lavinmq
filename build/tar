@@ -10,3 +10,6 @@ shards build --release --production
 cp README.md bin/avalanchemq avalanchemq/
 tar zchf avalanchemq-$pkg_version-$pkg_revision.$pkg_platform.tar.gz avalanchemq/
 rm -r avalanchemq
+
+mkdir -p builds
+mv avalanchemq-$pkg_version-$pkg_revision.$pkg_platform.tar.gz builds/
