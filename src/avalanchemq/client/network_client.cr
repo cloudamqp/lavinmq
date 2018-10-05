@@ -123,7 +123,7 @@ module AvalancheMQ
     end
 
     private def cleanup
-      @socket.close
+      @socket.close unless @socket.closed?
       super
     end
 
@@ -395,7 +395,6 @@ module AvalancheMQ
       case frame
       when AMQP::Connection::CloseOk
         @log.info "Disconnected"
-        @socket.close
         cleanup
         return false
       end
@@ -406,7 +405,6 @@ module AvalancheMQ
       false
     rescue ex : IO::Timeout
       @log.info { "Timeout while sending (#{ex.inspect})" }
-      @socket.close
       cleanup
       false
     rescue ex
@@ -449,7 +447,6 @@ module AvalancheMQ
       false
     rescue ex : IO::Timeout
       @log.info { "Timeout while sending (#{ex.inspect})" }
-      @socket.close
       cleanup
       false
     rescue ex

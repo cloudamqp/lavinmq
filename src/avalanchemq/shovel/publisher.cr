@@ -64,7 +64,7 @@ module AvalancheMQ
         @log.debug "Closing socket"
         # @done will be closed if the shovel is actually done, so we can always try to send true
         @done.send(true) unless @done.closed?
-        @socket.close
+        @socket.close unless @socket.closed?
       end
 
       def forward(frame)
