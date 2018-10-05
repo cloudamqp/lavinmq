@@ -568,8 +568,13 @@ fieldset.inline {
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   color: #fff;
   background-color: #2a9463;
-  animation: fadeOut 0.5s ease-in 5s forwards;
+  animation: fadeIn 0.5s, fadeOut 0.5s ease-in 5s forwards;
   opacity: 0.9;
+}
+
+@keyframes fadeIn {
+  0% {background-color: #fff;}
+  100% {background-color: #2a9463;}
 }
 
 @keyframes fadeOut {
