@@ -6,8 +6,8 @@ jobs:
   - script: crystal spec
   - script: bin/ameba
   - stage: GitHub Release
-    script: build/deb 1
     script: build/tar 1
+    script: build/deb 1
     deploy:
       provider: releases
       file_glob: true
@@ -17,3 +17,6 @@ jobs:
       skip_cleanup: true
       on:
         tags: true
+notifications:
+  slack:
+    secure: swXk/RxCX1PaG1rf+XGFEzvMNwo0a3E0xM1X311Nd0l0r4FBoVtXsYcWT6HLtUlxeQB+Bo2YXG8deffpfaUv2JFXnJOwACFfRAK5dn/q+aSjfASkFBL8kus/uyDdX+n+/HP+OccSDVqF+DefAdWr5JcB8gh1QuLdlq3yuDHDWTZrRia8JjSj/P0gJAZkst+F8LzGqAQLCcR2X8nJQEL6bWik5n11YFz/foek77d8sDuhpYURJcqI4GKk9XRmyJFFAFnAsFg4k/A+XJozyBCn8GPHXb9Hb4+cLJIF1n7lkUbaO1Rhe83D+izGX1MNb2kV/NKlezapIJPu+yS8aTuKry9XHIdOHCv7tPQ34R1VsQ1jza5XXfaVOZbQ05/R0yBEqd5zXXjswVIECcwPElIntPub7SmXuoj6Imm9aQhrX/E4cYAJxZv2xRxiCheYgXz7zTmgjQvjxLEpjrRNoo5Yrshh1glNw8xpk4je6uO9u+NDnDUwmkwysx8dTPNhCVroExwS2lRlbnPdTxhyOQ0gUSwODOqZSTtIJcsKsV08GPa98g2MTo9oESc5FD4QRXhcotU45gFtA6uZdCuegFs7Uyws/88KCdqIEse8xl+m8G/HFSOjjbu/Yh6/QY3GErygv3P+USRMlb3LsS/QE7N0n1mecJVRZpDTx/Zp41bIdYQ=
