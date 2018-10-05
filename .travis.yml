@@ -1,3 +1,4 @@
+sudo: false
 language: crystal
 install:
 - shards install
@@ -6,8 +7,12 @@ jobs:
   - script: crystal spec
   - script: bin/ameba
   - stage: GitHub Release
-    before_script:
-      - sudo apt-get install -y dpkg-deb fakeroot help2man
+    addons:
+      apt:
+        packages:
+        - dpkg-deb
+        - fakeroot
+        - help2man
     script: build/deb 1
     deploy:
       provider: releases
