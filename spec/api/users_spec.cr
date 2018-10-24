@@ -17,7 +17,7 @@ describe AvalancheMQ::UsersController do
       response = get("/api/users", headers: hdrs)
       response.status_code.should eq 401
     ensure
-      s.users.delete("arnold")
+      delete("/api/users/arnold")
     end
   end
 
@@ -29,7 +29,7 @@ describe AvalancheMQ::UsersController do
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
     ensure
-      s.users.delete("alan")
+      delete("/api/users/alan")
     end
   end
 
@@ -43,8 +43,8 @@ describe AvalancheMQ::UsersController do
       response = post("/api/users/bulk-delete", body: body)
       response.status_code.should eq 204
     ensure
-      s.users.delete("alan1")
-      s.users.delete("alan2")
+      delete("/api/users/alan1")
+      delete("/api/users/alan2")
     end
   end
 
@@ -54,7 +54,7 @@ describe AvalancheMQ::UsersController do
       response = get("/api/users/alan")
       response.status_code.should eq 200
     ensure
-      s.users.delete("alan")
+      delete("/api/users/alan")
     end
   end
 
@@ -69,7 +69,7 @@ describe AvalancheMQ::UsersController do
       ok = u.not_nil!.password == "test"
       ok.should be_true
     ensure
-      s.users.delete("alan")
+      delete("/api/users/alan")
     end
 
     it "should create user with password_hash" do
@@ -82,7 +82,7 @@ describe AvalancheMQ::UsersController do
       ok = u.not_nil!.password == "test12"
       ok.should be_true
     ensure
-      s.users.delete("alan")
+      delete("/api/users/alan")
     end
 
     it "should create user with empty password_hash" do
@@ -95,7 +95,7 @@ describe AvalancheMQ::UsersController do
       response = get("/api/users/alan", headers: hrds)
       response.status_code.should eq 401
     ensure
-      s.users.delete("alan")
+      delete("/api/users/alan")
     end
   end
 

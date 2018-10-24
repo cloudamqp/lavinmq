@@ -1,6 +1,8 @@
 require "spec"
 require "file_utils"
 require "../src/avalanchemq/server"
+require "../src/avalanchemq/json_socket/server_adapter"
+require "../src/avalanchemq/log_formatter"
 require "../src/avalanchemq/http/http_server"
 require "http/client"
 require "amqp"
@@ -26,16 +28,10 @@ BASE_URL       = "http://localhost:#{HTTP_PORT}"
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
 module TestHelpers
-  class_property s, h
+  class_property s, h, socket, client
 
   def self.setup
     create_servers
-    spawn { @@s.try &.listen(AMQP_PORT) }
-    cert = Dir.current + "/spec/resources/server_certificate.pem"
-    key = Dir.current + "/spec/resources/server_key.pem"
-    ca = Dir.current + "/spec/resources/ca_certificate.pem"
-    spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
-    spawn { @@h.try &.listen }
     Fiber.yield
   end
 
@@ -45,6 +41,10 @@ module TestHelpers
 
   def h
     TestHelpers.h.not_nil!
+  end
+
+  def json_client
+    TestHelpers.client.not_nil!
   end
 
   def with_channel(**args)
@@ -83,9 +83,24 @@ module TestHelpers
     h.close
   end
 
+  @@socket : String?
+
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    @@s = AvalancheMQ::Server.new(dir, level)
-    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, HTTP_PORT)
+    log = Logger.new(STDOUT, level: level)
+    AvalancheMQ::LogFormatter.use(log)
+    @@s = AvalancheMQ::Server.new(dir, log.dup)
+    socket = @@s.try &.listen_json_socket
+    @@client = AvalancheMQ::ServerAdapter.new(socket.not_nil!, log.dup)
+    @@h = AvalancheMQ::HTTPServer.new(@@client.not_nil!, HTTP_PORT, log.dup)
+    Spec.after_each do
+      @@h.try &.cache.purge
+    end
+    spawn { @@s.try &.listen(AMQP_PORT) }
+    cert = Dir.current + "/spec/resources/server_certificate.pem"
+    key = Dir.current + "/spec/resources/server_key.pem"
+    ca = Dir.current + "/spec/resources/ca_certificate.pem"
+    spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
+    spawn { @@h.try &.listen }
   end
 
   def get(path, headers = nil)

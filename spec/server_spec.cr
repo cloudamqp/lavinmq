@@ -540,7 +540,8 @@ describe AvalancheMQ::Server do
   end
 
   it "supports heartbeats" do
-    s = AvalancheMQ::Server.new("/tmp/spec", LOG_LEVEL, config: {"heartbeat" => 1_u16})
+    s = AvalancheMQ::Server.new("/tmp/spec", Logger.new(STDOUT, level: LOG_LEVEL),
+      config: {"heartbeat" => 1_u16})
     s.config["heartbeat"].should eq 1
   end
 
