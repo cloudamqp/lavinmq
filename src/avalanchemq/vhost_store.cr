@@ -3,7 +3,7 @@ require "./vhost"
 
 module AvalancheMQ
   class VHostStore
-    include Enumerable(VHost)
+    include Enumerable({String, VHost})
 
     def initialize(@data_dir : String, @connection_events : Server::ConnectionsEvents,
                    @log : Logger)
@@ -11,21 +11,7 @@ module AvalancheMQ
       load!
     end
 
-    def each
-      @vhosts.values.each { |e| yield e }
-    end
-
-    def [](name)
-      @vhosts[name]
-    end
-
-    def []?(name)
-      @vhosts[name]?
-    end
-
-    def values
-      @vhosts.values
-    end
+    forward_missing_to @vhosts
 
     def create(name, save = true)
       if v = @vhosts[name]?
@@ -72,13 +58,13 @@ module AvalancheMQ
         create("/", save: false)
         save!
       end
-      @log.debug("#{@vhosts.size} vhosts loaded")
+      @log.debug("#{size} vhosts loaded")
     end
 
     private def save!
       @log.debug "Saving vhosts to file"
       tmpfile = File.join(@data_dir, "vhosts.json.tmp")
-      File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
+      File.open(tmpfile, "w") { |f| to_pretty_json(f) }
       File.rename tmpfile, File.join(@data_dir, "vhosts.json")
     end
   end

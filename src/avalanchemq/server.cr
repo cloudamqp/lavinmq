@@ -11,36 +11,18 @@ require "./queue"
 require "./durable_queue"
 require "./parameter"
 require "./chained_logger"
+require "./config"
 
 module AvalancheMQ
   class Server
     getter connections, vhosts, users, data_dir, log, parameters, config
-    alias ConfigValue = UInt16
     alias ConnectionsEvents = Channel::Buffered(Tuple(Client, Symbol))
     include ParameterTarget
 
     @running = false
-    @config = {"heartbeat" => 60_u16} of String => ConfigValue
 
-    def initialize(@data_dir : String, log_level, log_prefix_systemd_level = false,
-                   config = Hash(String, ConfigValue).new)
-      @log = Logger.new(STDOUT)
-      # @log = ChainedLogger.new(STDOUT)
-      @log.level = log_level
+    def initialize(@data_dir : String, @log : Logger, @config = Config.new)
       @log.progname = "amqpserver"
-      @log.formatter = Logger::Formatter.new do |severity, _datetime, progname, message, io|
-        if log_prefix_systemd_level
-          io << case severity
-          when Logger::Severity::DEBUG then "<7>"
-          when Logger::Severity::INFO  then "<6>"
-          when Logger::Severity::WARN  then "<4>"
-          when Logger::Severity::ERROR then "<3>"
-          when Logger::Severity::FATAL then "<0>"
-          else
-          end
-        end
-        io << progname << ": " << message
-      end
       Dir.mkdir_p @data_dir
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
@@ -49,7 +31,6 @@ module AvalancheMQ
       @users = UserStore.new(@data_dir, @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
-      @config.merge!(config)
       spawn handle_connection_events, name: "Server#handle_connection_events"
     end
 
@@ -107,7 +88,7 @@ module AvalancheMQ
       @log.debug "Closing listeners"
       @listeners.each &.close
       @log.debug "Closing connections"
-      @connections.each &.close
+      @connections.each &.close("Broker shutdown")
       @log.debug "Closing vhosts"
       @vhosts.close
     end
@@ -138,7 +119,7 @@ module AvalancheMQ
 
     def stop_shovels
       @log.info("Stopping shovels")
-      @vhosts.each { |v| v.stop_shovels }
+      @vhosts.each_value { |v| v.stop_shovels }
     end
 
     private def apply_parameter(parameter : Parameter? = nil)
@@ -157,7 +138,8 @@ module AvalancheMQ
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
       socket.send_buffer_size = 131072
-      client = NetworkClient.start(socket, ssl_client, @config, @vhosts, @users, @log)
+      config = {"heartbeat" => @config.heartbeat}
+      client = NetworkClient.start(socket, ssl_client, config, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})
         client.on_close do |c|

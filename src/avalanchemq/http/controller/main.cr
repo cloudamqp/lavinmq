@@ -59,34 +59,21 @@ module AvalancheMQ
       end
 
       get "/api/shovels" do |context, _params|
-        shovels = [] of Hash(String, String)
-        vhosts(user(context)).each do |vhost|
-          vhost.shovels.not_nil!.each do |shovel|
-            shovels << map_shovel(shovel)
-          end
-        end
-        shovels.to_json(context.response)
+        vhosts(user(context)).flat_map { |vhost| vhost.shovels.not_nil!.values }.to_json(context.response)
         context
       end
 
       get "/api/shovels/:vhost" do |context, params|
-        shovels = [] of Hash(String, String)
         with_vhost(context, params) do |vhost|
-          @amqp_server.vhosts[vhost].shovels.not_nil!.each do |shovel|
-            shovels << map_shovel(shovel)
-          end
+          @amqp_server.vhosts[vhost].shovels.not_nil!.values.to_json(context.response)
         end
-        shovels.to_json(context.response)
-        context
       end
 
       get "/api/federation-links" do |context, _params|
-        links = [] of Hash(String, String)
+        links = [] of Upstream::Link
         vhosts(user(context)).each do |vhost|
           vhost.upstreams.not_nil!.each do |upstream|
-            upstream.links.each do |resource, publisher|
-              links << map_link(upstream, resource, publisher)
-            end
+            links.concat(upstream.links.values)
           end
         end
         links.to_json(context.response)
@@ -94,16 +81,13 @@ module AvalancheMQ
       end
 
       get "/api/federation-links/:vhost" do |context, params|
-        links = [] of Hash(String, String)
+        links = [] of Upstream::Link
         with_vhost(context, params) do |vhost|
           @amqp_server.vhosts[vhost].upstreams.not_nil!.each do |upstream|
-            upstream.links.each do |resource, publisher|
-              links << map_link(upstream, resource, publisher)
-            end
+            links.concat(upstream.links.values)
           end
+          links.to_json(context.response)
         end
-        links.to_json(context.response)
-        context
       end
     end
 
@@ -111,25 +95,6 @@ module AvalancheMQ
       connections.reduce(0) do |memo_i, i|
         memo_i + i.channels.values.reduce(0) { |memo_j, j| memo_j + j.consumers.size }
       end
-    end
-
-    private def map_shovel(shovel)
-      {
-        "name"  => shovel.name,
-        "vhost" => shovel.vhost.name,
-        "state" => shovel.state,
-      }
-    end
-
-    private def map_link(upstream, resource, publisher)
-      {
-        "name"      => upstream.name,
-        "vhost"     => upstream.vhost.name,
-        "timestamp" => publisher.connected_at.to_s,
-        "type"      => upstream.is_a?(QueueUpstream) ? "queue" : "exchange",
-        "uri"       => upstream.uri.to_s,
-        "resource"  => resource,
-      }
     end
   end
 end

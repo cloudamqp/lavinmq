@@ -1,5 +1,4 @@
 require "logger"
-require "./consumer"
 
 module AvalancheMQ
   abstract class Client

@@ -276,7 +276,6 @@ module AvalancheMQ
       end
 
       def close
-        @log.debug { "Closing" }
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
         @map.each_value do |queue, sp, consumer|

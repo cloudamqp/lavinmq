@@ -84,7 +84,12 @@ module AvalancheMQ
             access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
           end
           props = URI.unescape(params["props"])
-          unbind_prop(e, q, props)
+          e.bindings.each do |k, destinations|
+            next unless destinations.includes?(q) && hash_key(k) == props
+            arguments = k[1] || Hash(String, AMQP::Field).new
+            @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], arguments)
+            break
+          end
           context.response.status_code = 204
         end
       end
@@ -147,7 +152,12 @@ module AvalancheMQ
             access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
           end
           props = URI.unescape(params["props"])
-          unbind_prop(source, destination, props)
+          source.bindings.each do |k, destinations|
+            next unless destinations.includes?(destination) && hash_key(k) == props
+            arguments = k[1] || Hash(String, AMQP::Field).new
+            @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k[0], arguments)
+            break
+          end
           context.response.status_code = 204
         end
       end

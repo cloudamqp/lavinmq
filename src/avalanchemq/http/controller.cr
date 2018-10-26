@@ -8,8 +8,7 @@ module AvalancheMQ
 
     @log : Logger
 
-    def initialize(@amqp_server : AvalancheMQ::Server)
-      @log = @amqp_server.log.dup
+    def initialize(@amqp_server : Server, @log : Logger)
       @log.progname += " " + self.class.name.split("::").last
       register_routes
     end
@@ -72,7 +71,7 @@ module AvalancheMQ
     end
 
     def vhosts(user : User, require_amqp_access = false)
-      @amqp_server.vhosts.select do |v|
+      @amqp_server.vhosts.values.select do |v|
         full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
         amqp_access = user.permissions.has_key?(v.name)
         mgmt = user.tags.any? { |t| t.management? || t.policy_maker? }

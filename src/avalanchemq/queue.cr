@@ -26,7 +26,6 @@ module AvalancheMQ
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
     getter? closed
-    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
@@ -192,7 +191,6 @@ module AvalancheMQ
 
     def close(deleting = false) : Bool
       return false if @closed
-      @log.info "Closing"
       @closed = true
       @message_available.close
       @consumer_available.close
@@ -206,13 +204,12 @@ module AvalancheMQ
       end
       Fiber.yield
       notify_observers(:close)
-      @log.info "Closed"
+      @log.info { deleting ? "Deleted" : "Closed" }
       true
     end
 
     def delete : Bool
       return false if @deleted
-      @log.info "Deleting"
       @deleted = true
       @vhost.apply AMQP::Frame::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
       close(true)

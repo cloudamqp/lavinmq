@@ -3,36 +3,14 @@ require "./parameter"
 
 module AvalancheMQ
   class ParameterStore(T)
-    include Enumerable(T)
+    include Enumerable({ParameterId?, T})
 
     def initialize(@data_dir : String, @file_name : String, @log : Logger)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
 
-    def each
-      @parameters.values.compact.each { |e| yield e }
-    end
-
-    def [](id)
-      @parameters[id]
-    end
-
-    def []?(id)
-      @parameters[id]?
-    end
-
-    def values
-      @parameters.values
-    end
-
-    def size
-      @parameters.size
-    end
-
-    def empty?
-      @parameters.empty?
-    end
+    forward_missing_to @parameters
 
     def create(data : JSON::Any, save = true)
       p = T.from_json(data)
@@ -90,7 +68,7 @@ module AvalancheMQ
           @log.warn("#{@file_name} is not vaild json")
         end
       end
-      @log.debug("#{@parameters.size} items loaded from #{@file_name}")
+      @log.debug("#{size} items loaded from #{@file_name}")
     end
   end
 end

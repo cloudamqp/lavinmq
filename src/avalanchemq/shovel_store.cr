@@ -2,20 +2,13 @@ require "./shovel"
 
 module AvalancheMQ
   class ShovelStore
-    include Enumerable(Shovel)
-
-    @shovels = Hash(String, Shovel).new
+    include Enumerable({String, Shovel})
 
     def initialize(@vhost : VHost)
+      @shovels = Hash(String, Shovel).new
     end
 
-    def each
-      @shovels.values.each { |e| yield e }
-    end
-
-    def empty?
-      @shovels.empty?
-    end
+    forward_missing_to @shovels
 
     def create(name, config)
       delete(name)

@@ -139,11 +139,11 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /^$/)
     with_channel(vhost: "v1") do |ch|
-      ch.queue("q1", durable: false, auto_delete: true)
+      ch.queue("q1cp", durable: false, auto_delete: true)
     end
     s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
     with_channel(vhost: "v1") do |ch|
-      q1 = ch.queue("q1", passive: true)
+      q1 = ch.queue("q1cp", passive: true)
       q1.is_a?(AMQP::Queue).should be_true
     end
   ensure

@@ -1,11 +1,11 @@
 require "spec"
 require "file_utils"
+require "amqp"
+require "../src/avalanchemq/config"
 require "../src/avalanchemq/server"
-require "../src/avalanchemq/json_socket/server_adapter"
 require "../src/avalanchemq/log_formatter"
 require "../src/avalanchemq/http/http_server"
 require "http/client"
-require "amqp"
 require "uri"
 
 FileUtils.rm_rf("/tmp/spec")
@@ -28,11 +28,10 @@ BASE_URL       = "http://localhost:#{HTTP_PORT}"
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
 module TestHelpers
-  class_property s, h, socket, client
+  class_property s, h
 
   def self.setup
     create_servers
-    Fiber.yield
   end
 
   def s
@@ -41,10 +40,6 @@ module TestHelpers
 
   def h
     TestHelpers.h.not_nil!
-  end
-
-  def json_client
-    TestHelpers.client.not_nil!
   end
 
   def with_channel(**args)
@@ -83,15 +78,11 @@ module TestHelpers
     h.close
   end
 
-  @@socket : String?
-
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     log = Logger.new(STDOUT, level: level)
     AvalancheMQ::LogFormatter.use(log)
     @@s = AvalancheMQ::Server.new(dir, log.dup)
-    socket = @@s.try &.listen_json_socket
-    @@client = AvalancheMQ::ServerAdapter.new(socket.not_nil!, log.dup)
-    @@h = AvalancheMQ::HTTPServer.new(@@client.not_nil!, HTTP_PORT, log.dup)
+    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, HTTP_PORT, log.dup)
     Spec.after_each do
       @@h.try &.cache.purge
     end
@@ -101,6 +92,7 @@ module TestHelpers
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
     spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
     spawn { @@h.try &.listen }
+    Fiber.yield
   end
 
   def get(path, headers = nil)

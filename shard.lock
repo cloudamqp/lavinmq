@@ -16,6 +16,10 @@ shards:
     github: schovi/baked_file_system
     version: 0.9.8
 
+  cache_hash:
+    github: samueleaton/cache-hash
+    commit: 2f967653d57e4ab3c0c059ba312c2fe8db8a421d
+
   radix:
     github: luislavena/radix
     version: 0.3.8

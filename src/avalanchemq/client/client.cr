@@ -166,7 +166,8 @@ module AvalancheMQ
       @on_close_callback = nil
     end
 
-    def close(reason = "Broker shutdown")
+    def close(reason = nil)
+      reason ||= "Connection closed"
       @log.debug "Gracefully closing"
       send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
       @running = false

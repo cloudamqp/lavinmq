@@ -38,6 +38,17 @@ module AvalancheMQ
         end
       end
 
+      def to_json(json)
+        {
+          upstream:  @upstream.name,
+          vhost:     @upstream.vhost.name,
+          timestamp: @connected_at.to_s,
+          type:      @upstream.is_a?(QueueUpstream) ? "queue" : "exchange",
+          uri:       @upstream.uri.to_s,
+          resource:  @federated_q.name,
+        }
+      end
+
       def run
         @log.info { "Starting" }
         spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{@federated_q.name}")

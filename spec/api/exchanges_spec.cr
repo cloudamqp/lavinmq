@@ -166,8 +166,8 @@ describe AvalancheMQ::ExchangesController do
   describe "POST /api/exchanges/vhost/name/publish" do
     it "should publish" do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts["/"].declare_queue("q1", false, false)
-      s.vhosts["/"].bind_queue("q1", "spechange", "*")
+      s.vhosts["/"].declare_queue("q1p", false, false)
+      s.vhosts["/"].bind_queue("q1p", "spechange", "*")
       body = %({
         "properties": {},
         "routing_key": "rk",
@@ -178,10 +178,10 @@ describe AvalancheMQ::ExchangesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["routed"].as_bool.should be_true
-      s.vhosts["/"].queues["q1"].message_count.should eq 1
+      s.vhosts["/"].queues["q1p"].message_count.should eq 1
     ensure
       s.vhosts["/"].delete_exchange("spechange")
-      s.vhosts["/"].delete_queue("q1")
+      s.vhosts["/"].delete_queue("q1p")
     end
 
     it "should require all args" do
