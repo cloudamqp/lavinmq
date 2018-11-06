@@ -91,7 +91,7 @@ module AvalancheMQ
 
     private def static(context, file_path)
       info = File.info(file_path)
-      etag = info.modification_time.epoch_ms.to_s
+      etag = info.modification_time.to_unix_ms.to_s
       {File.open(file_path), etag}
     end
   end

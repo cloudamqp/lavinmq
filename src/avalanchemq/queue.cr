@@ -44,7 +44,7 @@ module AvalancheMQ
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = File.open(path, "r")
       end
-      @last_get_time = Time.now.epoch_ms # reset when redecalred
+      @last_get_time = Time.now.to_unix_ms # reset when redecalred
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       schedule_expiration_of_queue(@last_get_time)
     end
@@ -182,7 +182,7 @@ module AvalancheMQ
     private def schedule_expiration_and_wait
       return if @closed
       @log.debug "No consumer available"
-      now = Time.now.epoch_ms
+      now = Time.now.to_unix_ms
       schedule_expiration_of_queue(now)
       schedule_expiration_of_next_msg(now)
       @log.debug "Waiting for consumer"
@@ -315,7 +315,7 @@ module AvalancheMQ
         unless msg.properties.headers.not_nil!.has_key? "x-death"
           msg.properties.headers.not_nil!["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
         end
-        xdeaths = msg.properties.headers.not_nil!.fetch("x-death").as(Array(Hash(String, AMQP::Field)))
+        xdeaths = msg.properties.headers.not_nil!.fetch("x-death", nil).as(Array(Hash(String, AMQP::Field)))
         xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
         xdeaths.delete(xd)
         count = xd ? xd["count"].as(Int32) : 0

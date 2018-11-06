@@ -6,11 +6,11 @@ shards:
 
   amqp:
     github: cloudamqp/amqp.cr
-    commit: 7918d230ffac1ebd70bb346dbe5b648e060a78b0
+    commit: a26227a3f84bec2e6b5997bcb84b25b37f759079
 
   baked_file_system:
     github: schovi/baked_file_system
-    version: 0.9.7
+    version: 0.9.8
 
   radix:
     github: luislavena/radix
@@ -18,5 +18,5 @@ shards:
 
   router:
     github: tbrand/router.cr
-    version: 0.2.4
+    version: 0.2.7
 

@@ -132,7 +132,7 @@ module AvalancheMQ
             bad_request(context, "Unknown payload_encoding #{payload_encoding}")
           end
           size = content.bytesize.to_u64
-          msg = Message.new(Time.utc_now.epoch_ms,
+          msg = Message.new(Time.utc_now.to_unix_ms,
             e.name,
             routing_key,
             AMQP::Properties.from_json(properties),

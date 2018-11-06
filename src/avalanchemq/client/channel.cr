@@ -109,7 +109,7 @@ module AvalancheMQ
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
         props.timestamp = ts unless props.timestamp
-        msg = Message.new(ts.epoch_ms,
+        msg = Message.new(ts.to_unix_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
           props,
@@ -179,7 +179,7 @@ module AvalancheMQ
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
           @consumers.push(c)
           q.add_consumer(c)
-          q.last_get_time = Time.utc_now.epoch_ms
+          q.last_get_time = Time.utc_now.to_unix_ms
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
@@ -201,7 +201,7 @@ module AvalancheMQ
           else
             @client.send AMQP::Basic::GetEmpty.new(frame.channel)
           end
-          q.last_get_time = Time.utc_now.epoch_ms
+          q.last_get_time = Time.utc_now.to_unix_ms
         else
           reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'"
           @client.close_channel(frame, 404_u16, reply_code)

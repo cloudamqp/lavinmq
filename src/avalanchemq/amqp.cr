@@ -172,7 +172,7 @@ module AvalancheMQ
           value.each { |v| write_field(v, io, format) }
         when Time
           io.write_byte 'T'.ord.to_u8
-          io.write_bytes(value.epoch.to_i64, format)
+          io.write_bytes(value.to_unix.to_i64, format)
         when Hash(String, Field)
           io.write_byte 'F'.ord.to_u8
           io.write_bytes Table.new(value), format
@@ -198,7 +198,7 @@ module AvalancheMQ
         when 'S' then LongString.from_io(io, format)
         when 'x' then read_slice(io, format)
         when 'A' then read_array(io, format)
-        when 'T' then Time.epoch(Int64.from_io(io, format))
+        when 'T' then Time.unix(Int64.from_io(io, format))
         when 'F' then Table.from_io(io, format)
         when 'V' then nil
         else raise "Unknown field type '#{type}' at #{io.pos}"
@@ -343,7 +343,7 @@ module AvalancheMQ
         reply_to = ShortString.from_io(io, format)         if flags & FLAG_REPLY_TO > 0
         expiration = ShortString.from_io(io, format)       if flags & FLAG_EXPIRATION > 0
         message_id = ShortString.from_io(io, format)       if flags & FLAG_MESSAGE_ID > 0
-        timestamp = Time.epoch(Int64.from_io(io, format))  if flags & FLAG_TIMESTAMP > 0
+        timestamp = Time.unix(Int64.from_io(io, format))  if flags & FLAG_TIMESTAMP > 0
         type = ShortString.from_io(io, format)             if flags & FLAG_TYPE > 0
         user_id = ShortString.from_io(io, format)          if flags & FLAG_USER_ID > 0
         app_id = ShortString.from_io(io, format)           if flags & FLAG_APP_ID > 0
@@ -386,7 +386,7 @@ module AvalancheMQ
         p.reply_to = data["reply_to"]?.try(&.as_s)
         p.expiration = data["expiration"]?.try(&.as_s)
         p.message_id = data["message_id"]?.try(&.as_s)
-        p.timestamp = data["timestamp"]?.try(&.as_i64?).try { |ms| Time.epoch_ms(ms) }
+        p.timestamp = data["timestamp"]?.try(&.as_i64?).try { |ms| Time.unix_ms(ms) }
         p.type = data["type"]?.try(&.as_s)
         p.user_id = data["user_id"]?.try(&.as_s)
         p.app_id = data["app_id"]?.try(&.as_s)
@@ -441,7 +441,7 @@ module AvalancheMQ
         io.write_bytes ShortString.new(@reply_to.not_nil!), format         if @reply_to
         io.write_bytes ShortString.new(@expiration.not_nil!), format       if @expiration
         io.write_bytes ShortString.new(@message_id.not_nil!), format       if @message_id
-        io.write_bytes @timestamp.not_nil!.epoch.to_i64, format            if @timestamp
+        io.write_bytes @timestamp.not_nil!.to_unix.to_i64, format          if @timestamp
         io.write_bytes ShortString.new(@type.not_nil!), format             if @type
         io.write_bytes ShortString.new(@user_id.not_nil!), format          if @user_id
         io.write_bytes ShortString.new(@app_id.not_nil!), format           if @app_id

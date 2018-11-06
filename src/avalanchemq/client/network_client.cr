@@ -225,7 +225,7 @@ module AvalancheMQ
         else
           send_precondition_failed(frame, "Existing queue declared with other arguments")
         end
-        q.last_get_time = Time.now.epoch_ms
+        q.last_get_time = Time.now.to_unix_ms
       elsif frame.passive
         send_not_found(frame)
       elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/

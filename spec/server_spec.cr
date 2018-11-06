@@ -591,12 +591,12 @@ describe AvalancheMQ::Server do
     with_channel do |ch|
       q = ch.queue("")
       x = ch.exchange("", "direct")
-      t = Time.utc_now.epoch
+      t = Time.utc_now.to_unix
       x.publish AMQP::Message.new("m1"), q.name
       msg = nil
       q.subscribe(no_ack: true) { |m| msg = m }
       wait_for { msg }
-      msg.not_nil!.properties.timestamp.epoch.should be_close(t, 1)
+      msg.not_nil!.properties.timestamp.to_unix.should be_close(t, 1)
     end
   end
 
