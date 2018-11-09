@@ -8,6 +8,7 @@ module AvalancheMQ
     include HTTP::Handler
 
     @cache = CacheHash(String).new(5.seconds)
+    @mutex = Hash(String, Mutex).new { |h, k| h[k] = Mutex.new }
 
     def initialize(@log : Logger)
     end
@@ -30,16 +31,19 @@ module AvalancheMQ
       key = "#{user}:#{context.request.path}"
       context.response.headers["Cache-Control"] = "private"
       response = @cache.get(key)
-      if response
-        return cached_response(context, key, response)
-      end
-      body = String.build do |io|
-        context.response.output = IO::MultiWriter.new(context.response.output, io, sync_close: true)
+      return cached_response(context, key, response) if response
+      @mutex[key].synchronize do
+        response = @cache.get(key)
+        next cached_response(context, key, response) if response
+        body = String.build do |io|
+          context.response.output = IO::MultiWriter.new(context.response.output, io,
+            sync_close: true)
+        end
         call_next(context)
-      end
-      if (200..299).includes?(context.response.status_code) && !body.empty?
-        @cache.set(key, body)
-        context.response.headers["ETag"] = @cache.time(key).to_s
+        if (200..299).includes?(context.response.status_code) && !body.empty?
+          @cache.set(key, body)
+          context.response.headers["ETag"] = @cache.time(key).to_s
+        end
       end
     end
 

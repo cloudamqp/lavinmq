@@ -299,7 +299,7 @@ apply AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
       Fiber.yield
       stop_upstream_links
       Fiber.yield
-      @queues.each_value &.close
+      @queues.each_value &.close(silent: true)
       Fiber.yield
       @save.close
       Fiber.yield
