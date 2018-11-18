@@ -9,12 +9,12 @@ class TestConnection < AvalancheMQ::Connection
   def read_loop
     spawn do
       loop do
-        AvalancheMQ::AMQP::Frame.decode(@socket) do |frame|
+        AvalancheMQ::AMQP::Frame.from_io(@socket) do |frame|
           case frame
-          when AvalancheMQ::AMQP::BodyFrame
+          when AvalancheMQ::AMQP::Frame::Body
             frame.body.skip(frame.body_size)
             true
-          when AvalancheMQ::AMQP::Connection::CloseOk
+          when AvalancheMQ::AMQP::Frame::Connection::CloseOk
             @socket.close
             false
           else true

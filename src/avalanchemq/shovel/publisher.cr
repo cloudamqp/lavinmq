@@ -27,10 +27,10 @@ module AvalancheMQ
 
       private def read_loop
         loop do
-          AMQP::Frame.decode(@socket) do |frame|
+          AMQP::Frame.from_io(@socket) do |frame|
             @log.debug { "Read from socket #{frame.inspect}" }
             case frame
-            when AMQP::Basic::Ack
+            when AMQP::Frame::Basic::Ack
               next true unless @ack_mode == AckMode::OnConfirm
               if frame.multiple
                 with_multiple(frame.delivery_tag) { |t| ack(t) }
@@ -38,7 +38,7 @@ module AvalancheMQ
                 ack(@delivery_tags[frame.delivery_tag])
               end
               true
-            when AMQP::Basic::Nack
+            when AMQP::Frame::Basic::Nack
               next unless @ack_mode == AckMode::OnConfirm
               if frame.multiple
                 with_multiple(frame.delivery_tag) { |t| reject(t) }
@@ -46,19 +46,19 @@ module AvalancheMQ
                 reject(@delivery_tags[frame.delivery_tag])
               end
               true
-            when AMQP::Basic::Return
+            when AMQP::Frame::Basic::Return
               reject(@message_count) if @ack_mode == AckMode::OnConfirm
               true
-            when AMQP::Connection::Close
-              write AMQP::Connection::CloseOk.new
+            when AMQP::Frame::Connection::Close
+              write AMQP::Frame::Connection::CloseOk.new
               false
-            when AMQP::Connection::CloseOk
+            when AMQP::Frame::Connection::CloseOk
               false
             else true
             end
           end || break
         end
-      rescue ex : IO::Error | Errno | AMQP::FrameDecodeError
+      rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
         @log.info "Closed due to: #{ex.inspect}"
       ensure
         @log.debug "Closing socket"
@@ -69,9 +69,9 @@ module AvalancheMQ
 
       def forward(frame)
         case frame
-        when AMQP::Basic::Deliver
+        when AMQP::Frame::Basic::Deliver
           send_basic_publish(frame)
-        when AMQP::HeaderFrame
+        when AMQP::Frame::Header
           @last_message_size = frame.body_size
           @last_message_pos = 0_u64
           @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
@@ -81,7 +81,7 @@ module AvalancheMQ
               ack(@last_delivery_tag)
             end
           end
-        when AMQP::BodyFrame
+        when AMQP::Frame::Body
           @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           @socket.flush
           @last_message_pos += frame.body_size
@@ -97,7 +97,7 @@ module AvalancheMQ
         exchange = @destination.exchange.not_nil!
         routing_key = @destination.exchange_key || frame.routing_key
         mandatory = @ack_mode == AckMode::OnConfirm
-        pframe = AMQP::Basic::Publish.new(frame.channel,
+        pframe = AMQP::Frame::Basic::Publish.new(frame.channel,
           0_u16,
           exchange,
           routing_key,
@@ -114,9 +114,9 @@ module AvalancheMQ
       end
 
       private def set_confirm
-        write AMQP::Confirm::Select.new(1_u16, false)
+        write AMQP::Frame::Confirm::Select.new(1_u16, false)
         @socket.flush
-        AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Confirm::SelectOk) }
+        AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Confirm::SelectOk) }
       end
 
       private def with_multiple(delivery_tag)
@@ -128,11 +128,11 @@ module AvalancheMQ
       end
 
       private def ack(delivery_tag)
-        @on_frame.try &.call(AMQP::Basic::Ack.new(1_u16, delivery_tag, false))
+        @on_frame.try &.call(AMQP::Frame::Basic::Ack.new(1_u16, delivery_tag, false))
       end
 
       private def reject(delivery_tag)
-        @on_frame.try &.call(AMQP::Basic::Reject.new(1_u16, delivery_tag, false))
+        @on_frame.try &.call(AMQP::Frame::Basic::Reject.new(1_u16, delivery_tag, false))
       end
     end
   end

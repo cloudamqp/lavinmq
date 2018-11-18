@@ -25,7 +25,7 @@ module AvalancheMQ
           @log.debug { "Getting delivery tag" }
           delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
           @log.debug { "Sending BasicDeliver" }
-          deliver = AMQP::Basic::Deliver.new(@channel.id, @tag,
+          deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
             redelivered,
             msg.exchange_name, msg.routing_key)
@@ -61,7 +61,7 @@ module AvalancheMQ
         end
 
         def cancel
-          @channel.send AMQP::Basic::Cancel.new(@channel.id, @tag, true)
+          @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, true)
         end
 
         def details

@@ -38,18 +38,18 @@ module AvalancheMQ
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
       socket.read_fully(proto.to_slice)
-      if proto != AMQP::PROTOCOL_START && proto != AMQP::PROTOCOL_START_ALT
-        socket.write AMQP::PROTOCOL_START.to_slice
+      if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
+        socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
         socket.close
         log.debug { "Unknown protocol #{proto}, closing socket" }
         return
       end
 
-      start = AMQP::Connection::Start.new
+      start = AMQP::Frame::Connection::Start.new
       socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
       socket.flush
-      start_ok = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::StartOk) }
+      start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
 
       username = password = ""
       case start_ok.mechanism
@@ -72,7 +72,7 @@ module AvalancheMQ
         props = start_ok.client_properties
         capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
         if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
-          socket.write_bytes AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED",
+          socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED",
             start_ok.class_id,
             start_ok.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
@@ -82,34 +82,34 @@ module AvalancheMQ
         end
         return
       end
-      socket.write_bytes AMQP::Connection::Tune.new(channel_max: 0_u16,
+      socket.write_bytes AMQP::Frame::Connection::Tune.new(channel_max: 0_u16,
         frame_max: 131072_u32,
         heartbeat: config["heartbeat"]), IO::ByteFormat::NetworkEndian
       socket.flush
-      tune_ok = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::TuneOk) }
-      open = AMQP::Frame.decode(socket) { |f| f.as(AMQP::Connection::Open) }
+      tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
+      open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
-          socket.write_bytes AMQP::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
+          socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
           socket.flush
           return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
-          socket.write_bytes AMQP::Connection::Close.new(530_u16, reply_text,
+          socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
           close_on_ok(socket, log)
         end
       else
         log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
-        socket.write_bytes AMQP::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
+        socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
         close_on_ok(socket, log)
       end
       nil
-    rescue ex : AMQP::FrameDecodeError
+    rescue ex : AMQP::Error::FrameDecode
       log.warn "#{ex.cause.inspect} while #{remote_address} tried to establish connection"
       nil
     rescue ex : Exception
@@ -154,7 +154,7 @@ module AvalancheMQ
       if e = @vhost.exchanges.fetch(name, nil)
         if frame.passive || e.match?(frame)
           unless frame.no_wait
-            send AMQP::Exchange::DeclareOk.new(frame.channel)
+            send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
           end
         else
           send_precondition_failed(frame, "Existing exchange declared with other arguments")
@@ -171,7 +171,7 @@ module AvalancheMQ
           return
         end
         @vhost.apply(frame)
-        send AMQP::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
+        send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -184,10 +184,10 @@ module AvalancheMQ
           send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
         else
           @vhost.apply(frame)
-          send AMQP::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
+          send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
         end
       else
-        send AMQP::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
+        send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -206,10 +206,10 @@ module AvalancheMQ
           q.delete
           @vhost.apply(frame)
           @exclusive_queues.delete(q) if q.exclusive
-          send AMQP::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
+          send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
         end
       else
-        send AMQP::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+        send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
       end
     end
 
@@ -219,7 +219,7 @@ module AvalancheMQ
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive || q.match?(frame)
           unless frame.no_wait
-            send AMQP::Queue::DeclareOk.new(frame.channel, q.name,
+            send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
               q.message_count, q.consumer_count)
           end
         else
@@ -231,7 +231,7 @@ module AvalancheMQ
       elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
         unless frame.no_wait
           consumer_count = direct_reply_channel.nil? ? 0_u32 : 1_u32
-          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, consumer_count)
+          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, consumer_count)
         end
       elsif frame.queue_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
@@ -250,7 +250,7 @@ module AvalancheMQ
           @exclusive_queues << @vhost.queues[frame.queue_name]
         end
         unless frame.no_wait
-          send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
         end
       end
     end
@@ -266,7 +266,7 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       else
         @vhost.apply(frame)
-        send AMQP::Queue::BindOk.new(frame.channel) unless frame.no_wait
+        send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -281,7 +281,7 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       else
         @vhost.apply(frame)
-        send AMQP::Queue::UnbindOk.new(frame.channel)
+        send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
       end
     end
 
@@ -296,7 +296,7 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
-        send AMQP::Exchange::BindOk.new(frame.channel) unless frame.no_wait
+        send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -311,7 +311,7 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       else
         @vhost.apply(frame)
-        send AMQP::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
+        send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
       end
     end
 
@@ -325,7 +325,7 @@ module AvalancheMQ
           send_resource_locked(frame, "Exclusive queue")
         else
           messages_purged = q.purge
-          send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
+          send AMQP::Frame::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
         end
       else
         send_not_found(frame, "Queue #{frame.queue_name} not found")
@@ -356,11 +356,11 @@ module AvalancheMQ
     private def read_loop
       i = 0
       loop do
-        AMQP::Frame.decode(@socket) do |frame|
+        AMQP::Frame.from_io(@socket) do |frame|
           @log.debug { "Read #{frame.inspect}" }
-          if (!@running && !frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk))
+          if (!@running && !frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk))
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-            if frame.is_a?(AMQP::BodyFrame)
+            if frame.is_a?(AMQP::Frame::Body)
               @log.debug "Skipping body"
               frame.body.skip(frame.body_size)
             end
@@ -370,19 +370,19 @@ module AvalancheMQ
         end || break
         Fiber.yield if (i += 1) % 1000 == 0
       end
-    rescue ex : AMQP::NotImplemented
+    rescue ex : AMQP::Error::NotImplemented
       @log.error { "#{ex} when reading from socket" }
       if ex.channel > 0
         close_channel(ex, 540_u16, "Not implemented")
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : AMQP::FrameDecodeError | OpenSSL::SSL::Error
+    rescue ex : AMQP::Error::FrameDecode | OpenSSL::SSL::Error
       @log.info "Lost connection, while reading (#{ex.inspect})"
       cleanup
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
-      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+      send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
     end
 
@@ -393,7 +393,7 @@ module AvalancheMQ
         @socket.flush
       end
       case frame
-      when AMQP::Connection::CloseOk
+      when AMQP::Frame::Connection::CloseOk
         @log.info "Disconnected"
         cleanup
         return false
@@ -409,7 +409,7 @@ module AvalancheMQ
       false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
-      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+      send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
     def connection_details
@@ -426,14 +426,14 @@ module AvalancheMQ
       @write_lock.synchronize do
         @log.debug { "Sending #{frame.inspect}" }
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-        header = AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+        header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
         @log.debug { "Sending #{header.inspect}" }
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         pos = 0
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
           @log.debug { "Sending BodyFrame (pos #{pos}, length #{length})" }
-          body = AMQP::BodyFrame.new(frame.channel, length, msg.body_io)
+          body = AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
           body.to_io(@socket, ::IO::ByteFormat::NetworkEndian)
           pos += length
         end
@@ -460,7 +460,7 @@ module AvalancheMQ
       loop do
         sleep @heartbeat
         break unless @running
-        send(AMQP::HeartbeatFrame.new) || break
+        send(AMQP::Frame::Heartbeat.new) || break
       end
     end
   end

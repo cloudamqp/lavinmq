@@ -1,4 +1,5 @@
 require "../controller"
+require "../../version"
 
 module AvalancheMQ
   class MainController < Controller

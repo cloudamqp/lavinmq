@@ -67,7 +67,7 @@ module AvalancheMQ
         rescue ex
           @connected_at = nil
           case ex
-          when AMQP::FrameDecodeError, Connection::UnexpectedFrame
+          when AMQP::Error::FrameDecode, Connection::UnexpectedFrame
             @log.warn { "Federation link failure: #{ex.cause.inspect}" }
           else
             @log.warn { "Federation link: #{ex.inspect_with_backtrace}" }

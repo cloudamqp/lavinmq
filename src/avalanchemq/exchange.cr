@@ -116,7 +116,7 @@ module AvalancheMQ
 
     protected def delete
       @log.info { "Deleting exchange: #{@name}" }
-      @vhost.apply AMQP::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
+      @vhost.apply AMQP::Frame::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
     end
 
     abstract def type : String

@@ -214,7 +214,7 @@ module AvalancheMQ
       return false if @deleted
       @log.info "Deleting"
       @deleted = true
-      @vhost.apply AMQP::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
+      @vhost.apply AMQP::Frame::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
       close(true)
       notify_observers(:delete)
       true

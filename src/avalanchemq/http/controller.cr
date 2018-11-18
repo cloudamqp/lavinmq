@@ -1,5 +1,6 @@
 require "router"
 require "logger"
+require "../slice_to_json"
 
 module AvalancheMQ
   abstract class Controller

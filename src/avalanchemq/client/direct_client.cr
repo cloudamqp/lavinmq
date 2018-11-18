@@ -37,20 +37,20 @@ module AvalancheMQ
       name = frame.exchange_name
       if e = @vhost.exchanges.fetch(name, nil)
         if e.match?(frame)
-          send AMQP::Exchange::DeclareOk.new(frame.channel)
+          send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
         else
           send_precondition_failed(frame, "Existing exchange declared with other arguments")
         end
       else
         @vhost.apply(frame)
-        send AMQP::Exchange::DeclareOk.new(frame.channel)
+        send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
       end
     end
 
     private def delete_exchange(frame)
       if @vhost.exchanges.has_key? frame.exchange_name
         @vhost.apply(frame)
-        send AMQP::Exchange::DeleteOk.new(frame.channel)
+        send AMQP::Frame::Exchange::DeleteOk.new(frame.channel)
       else
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
       end
@@ -69,10 +69,10 @@ module AvalancheMQ
           q.delete
           @vhost.apply(frame)
           @exclusive_queues.delete(q) if q.exclusive
-          send AMQP::Queue::DeleteOk.new(frame.channel, size)
+          send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size)
         end
       else
-        send AMQP::Queue::DeleteOk.new(frame.channel, 0_u32)
+        send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32)
       end
     end
 
@@ -81,7 +81,7 @@ module AvalancheMQ
         if q.exclusive && !exclusive_queues.includes? q
           send_resource_locked(frame, "Exclusive queue")
         elsif q.match?(frame)
-          send AMQP::Queue::DeclareOk.new(frame.channel, q.name, q.message_count, q.consumer_count)
+          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name, q.message_count, q.consumer_count)
         else
           send_precondition_failed(frame, "Existing queue declared with other arguments")
         end
@@ -93,7 +93,7 @@ module AvalancheMQ
         if frame.exclusive
           @exclusive_queues << @vhost.queues[frame.queue_name]
         end
-        send AMQP::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+        send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
       end
     end
 
@@ -104,7 +104,7 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
       else
         @vhost.apply(frame)
-        send AMQP::Queue::BindOk.new(frame.channel)
+        send AMQP::Frame::Queue::BindOk.new(frame.channel)
       end
     end
 
@@ -115,7 +115,7 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.exchange_name} not found"
       else
         @vhost.apply(frame)
-        send AMQP::Queue::UnbindOk.new(frame.channel)
+        send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
       end
     end
 
@@ -126,7 +126,7 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
       else
         @vhost.apply(frame)
-        send AMQP::Exchange::BindOk.new(frame.channel)
+        send AMQP::Frame::Exchange::BindOk.new(frame.channel)
       end
     end
 
@@ -137,7 +137,7 @@ module AvalancheMQ
         send_not_found frame, "Exchange #{frame.source} doesn't exists"
       else
         @vhost.apply(frame)
-        send AMQP::Exchange::UnbindOk.new(frame.channel)
+        send AMQP::Frame::Exchange::UnbindOk.new(frame.channel)
       end
     end
 
@@ -147,7 +147,7 @@ module AvalancheMQ
           send_resource_locked(frame, "Exclusive queue")
         else
           messages_purged = q.purge
-          send AMQP::Queue::PurgeOk.new(frame.channel, messages_purged)
+          send AMQP::Frame::Queue::PurgeOk.new(frame.channel, messages_purged)
         end
       else
         send_not_found(frame, "Queue #{frame.queue_name} not found")
@@ -174,19 +174,19 @@ module AvalancheMQ
     def write(frame : AMQP::Frame)
       ensure_open_channel(frame)
       process_frame(frame)
-    rescue ex : AMQP::NotImplemented
+    rescue ex : AMQP::Error::NotImplemented
       @log.error { "#{ex} when reading handling frame" }
       if ex.channel > 0
         close_channel(ex, 540_u16, "Not implemented")
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : AMQP::FrameDecodeError
+    rescue ex : AMQP::Error::FrameDecode
       @log.info "Lost connection, while reading (#{ex.cause})"
       cleanup
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
-      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+      send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
     end
 
@@ -194,7 +194,7 @@ module AvalancheMQ
       @log.debug { "Send #{frame.inspect}" }
       handle_frame(frame)
       case frame
-      when AMQP::Connection::CloseOk
+      when AMQP::Frame::Connection::CloseOk
         @log.info "Disconnected"
         cleanup
         return false
@@ -206,7 +206,7 @@ module AvalancheMQ
       false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
-      send AMQP::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+      send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
     def connection_details
@@ -217,8 +217,8 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       send frame
-      send AMQP::HeaderFrame.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-      send AMQP::BodyFrame.new(frame.channel, msg.size.to_u32, msg.body_io)
+      send AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+      send AMQP::Frame::Body.new(frame.channel, msg.size.to_u32, msg.body_io)
     end
   end
 end

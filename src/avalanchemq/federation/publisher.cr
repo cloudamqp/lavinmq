@@ -32,24 +32,24 @@ module AvalancheMQ
 
       def handle_frame(frame)
         case frame
-        when AMQP::Basic::Ack
+        when AMQP::Frame::Basic::Ack
           return unless @upstream.ack_mode == AckMode::OnConfirm
           if frame.multiple
             with_multiple(frame.delivery_tag) { |t| ack(t) }
           else
             ack(@delivery_tags[frame.delivery_tag])
           end
-        when AMQP::Basic::Nack
+        when AMQP::Frame::Basic::Nack
           return unless @upstream.ack_mode == AckMode::OnConfirm
           if frame.multiple
             with_multiple(frame.delivery_tag) { |t| reject(t) }
           else
             reject(@delivery_tags[frame.delivery_tag])
           end
-        when AMQP::Basic::Return
+        when AMQP::Frame::Basic::Return
           reject(@message_count) if @upstream.ack_mode == AckMode::OnConfirm
-        when AMQP::Connection::Close
-          write AMQP::Connection::CloseOk.new
+        when AMQP::Frame::Connection::Close
+          write AMQP::Frame::Connection::CloseOk.new
         else
           @log.debug { "No action for #{frame.inspect}" }
         end
@@ -57,16 +57,16 @@ module AvalancheMQ
 
       def forward(frame)
         case frame
-        when AMQP::Basic::Deliver
+        when AMQP::Frame::Basic::Deliver
           send_basic_publish(frame, @federated_q.name)
-        when AMQP::HeaderFrame
+        when AMQP::Frame::Header
           write(frame)
           @last_message_size = frame.body_size
           @last_message_pos = 0_u64
           if @last_message_size.zero? && @upstream.ack_mode == AckMode::OnPublish
             ack(@last_delivery_tag)
           end
-        when AMQP::BodyFrame
+        when AMQP::Frame::Body
           write(frame)
           @last_message_pos += frame.body_size
           if @upstream.ack_mode == AckMode::OnPublish && @last_message_pos >= @last_message_size
@@ -80,7 +80,7 @@ module AvalancheMQ
       def send_basic_publish(frame, routing_key = nil)
         exchange = ""
         mandatory = @upstream.ack_mode == AckMode::OnConfirm
-        pframe = AMQP::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
+        pframe = AMQP::Frame::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
           mandatory, false)
         write pframe
         if mandatory
@@ -91,7 +91,7 @@ module AvalancheMQ
       end
 
       private def set_confirm
-        write AMQP::Confirm::Select.new(1_u16, false)
+        write AMQP::Frame::Confirm::Select.new(1_u16, false)
       end
 
       private def with_multiple(delivery_tag)
@@ -103,11 +103,11 @@ module AvalancheMQ
       end
 
       private def ack(delivery_tag)
-        @on_frame.try &.call(AMQP::Basic::Ack.new(1_u16, delivery_tag, false))
+        @on_frame.try &.call(AMQP::Frame::Basic::Ack.new(1_u16, delivery_tag, false))
       end
 
       private def reject(delivery_tag)
-        @on_frame.try &.call(AMQP::Basic::Reject.new(1_u16, delivery_tag, false))
+        @on_frame.try &.call(AMQP::Frame::Basic::Reject.new(1_u16, delivery_tag, false))
       end
     end
   end

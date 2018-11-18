@@ -1,7 +1,6 @@
 require "logger"
 require "openssl"
 require "socket"
-require "../amqp"
 require "../message"
 require "./channel"
 require "../user"
@@ -27,16 +26,16 @@ module AvalancheMQ
 
     def self.close_on_ok(socket, log)
       loop do
-        AMQP::Frame.decode(socket) do |frame|
+        AMQP::Frame.from_io(socket, IO::ByteFormat::NetworkEndian) do |frame|
           log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-          if frame.is_a?(AMQP::BodyFrame)
+          if frame.is_a?(AMQP::Frame::Body)
             log.debug "Skipping body"
             frame.body.skip(frame.body_size)
           end
-          frame.is_a?(AMQP::Connection::Close | AMQP::Connection::CloseOk)
+          frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
         end && break
       end
-    rescue e : AMQP::FrameDecodeError
+    rescue e : AMQP::Error::FrameDecode
       log.warn { "#{e.inspect} when waiting for CloseOk" }
     ensure
       socket.close
@@ -60,7 +59,7 @@ module AvalancheMQ
         yield ch
       else
         @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-        if frame.is_a?(AMQP::BodyFrame)
+        if frame.is_a?(AMQP::Frame::Body)
           @log.debug "Skipping body"
           frame.body.skip(frame.body_size)
         end
@@ -69,86 +68,86 @@ module AvalancheMQ
 
     private def open_channel(frame)
       @channels[frame.channel] = Client::Channel.new(self, frame.channel)
-      send AMQP::Channel::OpenOk.new(frame.channel)
+      send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 
     private def process_frame(frame)
       case frame
-      when AMQP::Connection::Close
-        send AMQP::Connection::CloseOk.new
+      when AMQP::Frame::Connection::Close
+        send AMQP::Frame::Connection::CloseOk.new
         return false
-      when AMQP::Connection::CloseOk
+      when AMQP::Frame::Connection::CloseOk
         @log.info "Disconnected"
         @log.debug { "Closing socket" }
         cleanup
         return false
-      when AMQP::Channel::Open
+      when AMQP::Frame::Channel::Open
         open_channel(frame)
-      when AMQP::Channel::Close
+      when AMQP::Frame::Channel::Close
         @channels.delete(frame.channel).try &.close
-        send AMQP::Channel::CloseOk.new(frame.channel)
-      when AMQP::Channel::CloseOk
+        send AMQP::Frame::Channel::CloseOk.new(frame.channel)
+      when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
-      when AMQP::Confirm::Select
+      when AMQP::Frame::Confirm::Select
         with_channel frame, &.confirm_select(frame)
-      when AMQP::Exchange::Declare
+      when AMQP::Frame::Exchange::Declare
         declare_exchange(frame)
-      when AMQP::Exchange::Delete
+      when AMQP::Frame::Exchange::Delete
         delete_exchange(frame)
-      when AMQP::Exchange::Bind
+      when AMQP::Frame::Exchange::Bind
         bind_exchange(frame)
-      when AMQP::Exchange::Unbind
+      when AMQP::Frame::Exchange::Unbind
         unbind_exchange(frame)
-      when AMQP::Queue::Declare
+      when AMQP::Frame::Queue::Declare
         declare_queue(frame)
-      when AMQP::Queue::Bind
+      when AMQP::Frame::Queue::Bind
         bind_queue(frame)
-      when AMQP::Queue::Unbind
+      when AMQP::Frame::Queue::Unbind
         unbind_queue(frame)
-      when AMQP::Queue::Delete
+      when AMQP::Frame::Queue::Delete
         delete_queue(frame)
-      when AMQP::Queue::Purge
+      when AMQP::Frame::Queue::Purge
         purge_queue(frame)
-      when AMQP::Basic::Publish
+      when AMQP::Frame::Basic::Publish
         start_publish(frame)
-      when AMQP::HeaderFrame
+      when AMQP::Frame::Header
         with_channel frame, &.next_msg_headers(frame)
-      when AMQP::BodyFrame
+      when AMQP::Frame::Body
         with_channel frame, &.add_content(frame)
-      when AMQP::Basic::Consume
+      when AMQP::Frame::Basic::Consume
         consume(frame)
-      when AMQP::Basic::Get
+      when AMQP::Frame::Basic::Get
         basic_get(frame)
-      when AMQP::Basic::Ack
+      when AMQP::Frame::Basic::Ack
         with_channel frame, &.basic_ack(frame)
-      when AMQP::Basic::Reject
+      when AMQP::Frame::Basic::Reject
         with_channel frame, &.basic_reject(frame)
-      when AMQP::Basic::Nack
+      when AMQP::Frame::Basic::Nack
         with_channel frame, &.basic_nack(frame)
-      when AMQP::Basic::Cancel
+      when AMQP::Frame::Basic::Cancel
         with_channel frame, &.cancel_consumer(frame)
-      when AMQP::Basic::Qos
+      when AMQP::Frame::Basic::Qos
         with_channel frame, &.basic_qos(frame)
-      when AMQP::Basic::Recover
+      when AMQP::Frame::Basic::Recover
         with_channel frame, &.basic_recover(frame)
-      when AMQP::HeartbeatFrame
+      when AMQP::Frame::Heartbeat
         # send AMQP::HeartbeatFrame.new
       else
-        raise AMQP::NotImplemented.new(frame)
+        raise AMQP::Error::NotImplemented.new(frame)
       end
       true
-    rescue ex : AMQP::NotImplemented
+    rescue ex : AMQP::Error::NotImplemented
       @log.error { "#{frame.inspect}, not implemented" }
       raise ex if ex.channel == 0
       close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
       true
     rescue ex : KeyError
-      raise ex unless frame.is_a? AMQP::MethodFrame
+      raise ex unless frame.is_a? AMQP::Frame::Method
       @log.error { "Channel #{frame.channel} not open" }
       close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
       true
     rescue ex : Exception
-      raise ex unless frame.is_a? AMQP::MethodFrame
+      raise ex unless frame.is_a? AMQP::Frame::Method
       @log.error { "#{ex.inspect}, when processing frame" }
       @log.debug { ex.inspect_with_backtrace }
       close_channel(frame, 541_u16, "INTERNAL_ERROR")
@@ -169,7 +168,7 @@ module AvalancheMQ
 
     def close(reason = "Broker shutdown")
       @log.debug "Gracefully closing"
-      send AMQP::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
+      send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
       @running = false
     end
 
@@ -178,12 +177,17 @@ module AvalancheMQ
     end
 
     def close_channel(frame, code, text)
-      send AMQP::Channel::Close.new(frame.channel, code, text, frame.class_id, frame.method_id)
+      case frame
+      when AMQP::Frame::Header
+        send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
+      else
+        send AMQP::Frame::Channel::Close.new(frame.channel, code, text, frame.class_id, frame.method_id)
+      end
       @channels[frame.channel].running = false
     end
 
     def close_connection(frame, code, text)
-      send AMQP::Connection::Close.new(code, text, frame.class_id, frame.method_id)
+      send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
       @running = false
     end
 

@@ -70,9 +70,9 @@ module AvalancheMQ
     end
 
     def negotiate_connection(channel_max, heartbeat, auth_mechanism)
-      @socket.write AMQP::PROTOCOL_START.to_slice
+      @socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
       @socket.flush
-      AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Connection::Start) }
+      AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::Start) }
 
       props = {} of String => AMQP::Field
       user = URI.unescape(@uri.user || "guest")
@@ -88,24 +88,24 @@ module AvalancheMQ
       else
         response = "\u0000#{user}\u0000#{password}"
       end
-      write AMQP::Connection::StartOk.new(props, auth_mechanism, response, "")
-      AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Connection::Tune) }
-      write AMQP::Connection::TuneOk.new(channel_max: channel_max,
+      write AMQP::Frame::Connection::StartOk.new(props, auth_mechanism, response, "")
+      AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::Tune) }
+      write AMQP::Frame::Connection::TuneOk.new(channel_max: channel_max,
         frame_max: 131072_u32, heartbeat: heartbeat)
       path = @uri.path || ""
       vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
-      write AMQP::Connection::Open.new(vhost)
-      AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Connection::OpenOk) }
+      write AMQP::Frame::Connection::Open.new(vhost)
+      AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::OpenOk) }
     end
 
     def open_channel
-      write AMQP::Channel::Open.new(1_u16)
-      AMQP::Frame.decode(@socket) { |f| f.as(AMQP::Channel::OpenOk) }
+      write AMQP::Frame::Channel::Open.new(1_u16)
+      AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Channel::OpenOk) }
     end
 
     def close(msg = "Connection closed")
       return if @socket.closed?
-      write AMQP::Connection::Close.new(320_u16, msg, 0_u16, 0_u16)
+      write AMQP::Frame::Connection::Close.new(320_u16, msg, 0_u16, 0_u16)
     rescue Errno
       @log.info("Socket already closed, can't send close frame")
     end
@@ -123,10 +123,10 @@ module AvalancheMQ
     class UnexpectedFrame < Exception
       def initialize(@frame : AMQP::Frame)
         msg = @frame.class.name
-        if frame.is_a?(AMQP::Channel::Close)
-          msg += ": " + frame.as(AMQP::Channel::Close).reply_text
-        elsif frame.is_a?(AMQP::Connection::Close)
-          msg += ": " + frame.as(AMQP::Connection::Close).reply_text
+        if frame.is_a?(AMQP::Frame::Channel::Close)
+          msg += ": " + frame.as(AMQP::Frame::Channel::Close).reply_text
+        elsif frame.is_a?(AMQP::Frame::Connection::Close)
+          msg += ": " + frame.as(AMQP::Frame::Connection::Close).reply_text
         end
         super(msg)
       end

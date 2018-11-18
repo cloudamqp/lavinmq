@@ -56,7 +56,7 @@ module AvalancheMQ
       true
     end
 
-    private def find_all_queues(ex : Exchange, routing_key : String, headers : Hash(String, AvalancheMQ::AMQP::Field)?, visited = Set(Exchange).new, queues = Set(Queue).new) : Set(Queue)
+    private def find_all_queues(ex : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?, visited = Set(Exchange).new, queues = Set(Queue).new) : Set(Queue)
       matches = ex.matches(routing_key, headers)
       if cc = headers.try(&.fetch("CC", nil))
         cc.as(Array(AMQP::Field)).each do |rk|
@@ -143,42 +143,42 @@ module AvalancheMQ
 
     def declare_queue(name, durable, auto_delete,
                       arguments = Hash(String, AMQP::Field).new)
-      apply AMQP::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
+      apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
         auto_delete, false, arguments)
     end
 
     def delete_queue(name)
-      apply AMQP::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
+      apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
                          arguments = Hash(String, AMQP::Field).new)
-      apply AMQP::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
+      apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
         auto_delete, internal, false, arguments)
     end
 
     def delete_exchange(name)
-      apply AMQP::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
+      apply AMQP::Frame::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
     end
 
     def bind_queue(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
-      apply AMQP::Queue::Bind.new(0_u16, 0_u16, destination, source,
+      apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
         routing_key, false, arguments)
     end
 
     def bind_exchange(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
-      apply AMQP::Exchange::Bind.new(0_u16, 0_u16, destination, source,
+      apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
         routing_key, false, arguments)
     end
 
     def apply(f, loading = false) : Bool?
       case f
-      when AMQP::Exchange::Declare
+      when AMQP::Frame::Exchange::Declare
         return if @exchanges.has_key? f.exchange_name
         e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
         apply_policies([e] of Exchange) unless loading
-      when AMQP::Exchange::Delete
+      when AMQP::Frame::Exchange::Delete
         return unless @exchanges.has_key? f.exchange_name
         @exchanges.each_value do |ex|
           ex.bindings.each_value do |destination|
@@ -186,15 +186,15 @@ module AvalancheMQ
           end
         end
         @exchanges.delete f.exchange_name
-      when AMQP::Exchange::Bind
+      when AMQP::Frame::Exchange::Bind
         source = @exchanges[f.source]? || return
         x = @exchanges[f.destination]? || return
         source.bind(x, f.routing_key, f.arguments)
-      when AMQP::Exchange::Unbind
+      when AMQP::Frame::Exchange::Unbind
         source = @exchanges[f.source]? || return
         x = @exchanges[f.destination]? || return
         source.unbind(x, f.routing_key, f.arguments)
-      when AMQP::Queue::Declare
+      when AMQP::Frame::Queue::Declare
         return if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] =
           if f.durable
@@ -204,7 +204,7 @@ module AvalancheMQ
           end
         @exchanges[""].bind(q, f.queue_name, f.arguments)
         apply_policies([q] of Queue) unless loading
-      when AMQP::Queue::Delete
+      when AMQP::Frame::Queue::Delete
         return unless @queues.has_key? f.queue_name
         q = @queues.delete(f.queue_name)
         @exchanges.each_value do |ex|
@@ -213,11 +213,11 @@ module AvalancheMQ
           end
         end
         q.try &.close
-      when AMQP::Queue::Bind
+      when AMQP::Frame::Queue::Bind
         x = @exchanges[f.exchange_name]? || return
         q = @queues[f.queue_name]? || return
         x.bind(q, f.routing_key, f.arguments)
-      when AMQP::Queue::Unbind
+      when AMQP::Frame::Queue::Unbind
         x = @exchanges[f.exchange_name]? || return
         q = @queues[f.queue_name]? || return
         x.unbind(q, f.routing_key, f.arguments)
@@ -343,12 +343,11 @@ module AvalancheMQ
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         loop do
           begin
-            AMQP::Frame.decode(io) do |frame|
+            AMQP::Frame.from_io(io, IO::ByteFormat::NetworkEndian) do |frame|
               apply frame, loading: true
             end
-          rescue ex : AMQP::FrameDecodeError
-            break if ex.cause.is_a? IO::EOFError
-            raise ex
+          rescue ex : IO::EOFError
+            break
           end
         end
       end
@@ -373,7 +372,7 @@ module AvalancheMQ
         @exchanges.each do |_name, e|
           next unless e.durable
           next if e.auto_delete
-          f = AMQP::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
+          f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, e.arguments)
           io.write_bytes f, ::IO::ByteFormat::NetworkEndian
@@ -381,7 +380,7 @@ module AvalancheMQ
         @queues.each do |_name, q|
           next unless q.durable
           next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
-          f = AMQP::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
+          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, q.arguments)
           io.write_bytes f, ::IO::ByteFormat::NetworkEndian
         end
@@ -394,9 +393,9 @@ module AvalancheMQ
               f =
                 case d
                 when Queue
-                  AMQP::Queue::Bind.new(0_u16, 0_u16, d.name, e.name, bt[0], false, args)
+                  AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name, bt[0], false, args)
                 when Exchange
-                  AMQP::Exchange::Bind.new(0_u16, 0_u16, e.name, d.name, bt[0], false, args)
+                  AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, e.name, d.name, bt[0], false, args)
                 else raise "Unknown destination type #{d.class}"
                 end
               io.write_bytes f, ::IO::ByteFormat::NetworkEndian
@@ -413,20 +412,20 @@ module AvalancheMQ
         loop do
           frame = @save.receive
           case frame
-          when AMQP::Exchange::Declare
+          when AMQP::Frame::Exchange::Declare
             next unless frame.durable
-          when AMQP::Queue::Declare
+          when AMQP::Frame::Queue::Declare
             next unless frame.durable
             next if frame.exclusive
-          when AMQP::Exchange::Delete
+          when AMQP::Frame::Exchange::Delete
             next unless @exchanges[frame.exchange_name]?.try(&.durable)
-          when AMQP::Queue::Delete
+          when AMQP::Frame::Queue::Delete
             next unless @queues[frame.queue_name]?.try { |q| q.durable && !q.exclusive }
-          when AMQP::Queue::Bind, AMQP::Queue::Unbind
+          when AMQP::Frame::Queue::Bind, AMQP::Frame::Queue::Unbind
             next unless @exchanges[frame.exchange_name]?.try(&.durable)
             q = @queues[frame.queue_name]
             next if !q.durable || q.exclusive
-          when AMQP::Exchange::Bind, AMQP::Exchange::Unbind
+          when AMQP::Frame::Exchange::Bind, AMQP::Frame::Exchange::Unbind
             s = @exchanges[frame.source]
             next unless s.durable
             d = @exchanges[frame.destination]

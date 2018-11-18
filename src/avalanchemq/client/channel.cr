@@ -1,6 +1,5 @@
 require "logger"
 require "./channel/consumer"
-require "../amqp"
 
 module AvalancheMQ
   abstract class Client
@@ -60,7 +59,7 @@ module AvalancheMQ
       def confirm_select(frame)
         @confirm = true
         unless frame.no_wait
-          @client.send AMQP::Confirm::SelectOk.new(frame.channel)
+          @client.send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
         end
       end
 
@@ -118,7 +117,7 @@ module AvalancheMQ
         if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
           consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
           @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
-            deliver = AMQP::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
+            deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
               msg.exchange_name, msg.routing_key)
             ch.deliver(deliver, msg)
             return true
@@ -126,10 +125,10 @@ module AvalancheMQ
         end
         unless @client.vhost.publish(msg, immediate: @next_publish_immediate)
           if @next_publish_immediate
-            retrn = AMQP::Basic::Return.new(@id, 313_u16, "No consumers", msg.exchange_name, msg.routing_key)
+            retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "No consumers", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
           elsif @next_publish_mandatory
-            retrn = AMQP::Basic::Return.new(@id, 312_u16, "No Route", msg.exchange_name, msg.routing_key)
+            retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "No Route", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
           else
             @log.debug "Skipping body because wasn't written to disk"
@@ -138,11 +137,11 @@ module AvalancheMQ
         end
         if @confirm
           @confirm_count += 1
-          @client.send AMQP::Basic::Ack.new(@id, @confirm_count, false)
+          @client.send AMQP::Frame::Basic::Ack.new(@id, @confirm_count, false)
         end
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
-        @client.send AMQP::Basic::Nack.new(@id, @confirm_count, false, false) if @confirm
+        @client.send AMQP::Frame::Basic::Nack.new(@id, @confirm_count, false, false) if @confirm
         raise ex
       ensure
         @next_msg_size = 0_u64
@@ -184,7 +183,7 @@ module AvalancheMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         unless frame.no_wait
-          @client.send AMQP::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          @client.send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
       end
 
@@ -194,12 +193,12 @@ module AvalancheMQ
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif env = q.get(frame.no_ack)
             delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-            get_ok = AMQP::Basic::GetOk.new(frame.channel, delivery_tag,
+            get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
               env.redelivered, env.message.exchange_name,
               env.message.routing_key, q.message_count)
             deliver(get_ok, env.message)
           else
-            @client.send AMQP::Basic::GetEmpty.new(frame.channel)
+            @client.send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
           end
           q.last_get_time = Time.utc_now.to_unix_ms
         else
@@ -268,12 +267,12 @@ module AvalancheMQ
         @prefetch_size = frame.prefetch_size
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
-        @client.send AMQP::Basic::QosOk.new(frame.channel)
+        @client.send AMQP::Frame::Basic::QosOk.new(frame.channel)
       end
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
-        @client.send AMQP::Basic::RecoverOk.new(frame.channel)
+        @client.send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
 
       def close
@@ -299,13 +298,13 @@ module AvalancheMQ
         if c = @consumers.find { |conn| conn.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
           unless frame.no_wait
-            @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
           # text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
-          # @client.send AMQP::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
+          # @client.send AMQP::Frame::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
           unless frame.no_wait
-            @client.send AMQP::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         end
       end

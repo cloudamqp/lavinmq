@@ -1,5 +1,4 @@
 require "logger"
-require "./amqp"
 require "./shovel/*"
 
 module AvalancheMQ
@@ -58,7 +57,7 @@ module AvalancheMQ
         end
       rescue ex
         case ex
-        when AMQP::FrameDecodeError
+        when AMQP::Error::FrameDecode
           @log.warn { "Shovel failure: #{ex.cause.inspect}" }
         when Connection::UnexpectedFrame
           @log.warn { "Shovel failure: #{ex.inspect}" }
