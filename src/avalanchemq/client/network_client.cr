@@ -109,7 +109,7 @@ module AvalancheMQ
         close_on_ok(socket, log)
       end
       nil
-    rescue ex : AMQP::Error::FrameDecode
+    rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
       log.warn "#{ex.cause.inspect} while #{remote_address} tried to establish connection"
       nil
     rescue ex : Exception
@@ -377,7 +377,7 @@ module AvalancheMQ
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : AMQP::Error::FrameDecode | OpenSSL::SSL::Error
+    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       @log.info "Lost connection, while reading (#{ex.inspect})"
       cleanup
     rescue ex : Exception
