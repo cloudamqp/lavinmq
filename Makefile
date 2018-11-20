@@ -11,4 +11,4 @@ deb:
 	build/deb 1
 
 release-deb:
-	deb-s3 upload --bucket apt.avalanchemq.com avalanchemq_*.deb && aws cloudfront create-invalidation --distribution-id E26Y9DFNV7WCMR --paths "/dists/*"
+	deb-s3 upload --bucket apt.avalanchemq.com builds/avalanchemq_*.deb && aws cloudfront create-invalidation --distribution-id E26Y9DFNV7WCMR --paths "/dists/*"
