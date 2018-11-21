@@ -54,7 +54,7 @@ module TestHelpers
     with_channel(args) { |ch| yield ch }
   end
 
-  def wait_for(t = 10.seconds)
+  def wait_for(t = 5.seconds)
     timeout = Time.now + t
     until yield
       Fiber.yield
