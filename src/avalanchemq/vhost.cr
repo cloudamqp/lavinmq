@@ -172,12 +172,12 @@ module AvalancheMQ
     end
 
     def unbind_queue(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
-apply AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, destination, source,
+      apply AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, destination, source,
         routing_key, arguments)
     end
 
     def unbind_exchange(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
-apply AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
+      apply AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
         routing_key, false, arguments)
     end
 
