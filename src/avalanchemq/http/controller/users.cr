@@ -16,13 +16,13 @@ module AvalancheMQ
     private def register_routes
       get "/api/users" do |context, _params|
         refuse_unless_administrator(context, user(context))
-        @amqp_server.users.map(&.user_details).to_json(context.response)
+        @amqp_server.users.values.map(&.user_details).to_json(context.response)
         context
       end
 
       get "/api/users/without-permissions" do |context, _params|
         refuse_unless_administrator(context, user(context))
-        @amqp_server.users.select { |u| u.permissions.empty? }
+        @amqp_server.users.values.select { |u| u.permissions.empty? }
           .map(&.user_details).to_json(context.response)
         context
       end
@@ -40,7 +40,6 @@ module AvalancheMQ
           end
           @amqp_server.users.delete(u.as_s, false)
         end
-        @amqp_server.users.save!
         context.response.status_code = 204
         context
       end

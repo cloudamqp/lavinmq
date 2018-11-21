@@ -26,7 +26,6 @@ module AvalancheMQ
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
     getter? closed
-    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
@@ -44,7 +43,7 @@ module AvalancheMQ
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = File.open(path, "r")
       end
-      @last_get_time = Time.now.to_unix_ms # reset when redecalred
+      @last_get_time = Time.now.to_unix_ms # reset when redeclared
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       schedule_expiration_of_queue(@last_get_time)
     end
@@ -190,9 +189,8 @@ module AvalancheMQ
       @log.debug "Consumer available"
     end
 
-    def close(deleting = false) : Bool
+    def close : Bool
       return false if @closed
-      @log.info "Closing"
       @closed = true
       @message_available.close
       @consumer_available.close
@@ -201,22 +199,19 @@ module AvalancheMQ
         c.cancel
       end
       @segments.each_value &.close
-      if !deleting && ((@auto_delete || @exclusive) && @expires.nil?)
-        delete
-      end
+      @vhost.delete_queue(@name) if @auto_delete || @exclusive
       Fiber.yield
       notify_observers(:close)
-      @log.info "Closed"
+      @log.debug { "Closed" }
       true
     end
 
     def delete : Bool
       return false if @deleted
-      @log.info "Deleting"
       @deleted = true
-      @vhost.apply AMQP::Frame::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
-      close(true)
+      close
       notify_observers(:delete)
+      @log.info { "Deleted" }
       true
     end
 
@@ -230,7 +225,7 @@ module AvalancheMQ
         unacked: @unacked_count,
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
-        state: @closed ? "closed" : "running",
+        state: @closed ? :closed : :running,
         effective_policy_definition: @policy,
       }
     end
@@ -244,15 +239,17 @@ module AvalancheMQ
         @log.debug { "Overflow #{@max_length} #{@overflow}" }
         case @overflow
         when "reject-publish"
+          @log.debug { "Overflow reject message sp=#{sp}" }
           return false
         when "drop-head"
           drophead
         end
       end
-      @log.debug { "Enqueuing message #{sp}" }
+      @log.debug { "Enqueuing message sp=#{sp}" }
       @ready_lock.synchronize { @ready.push sp }
       @message_available.send nil unless @message_available.full?
-      @log.debug { "Enqueued successfully #{sp}" }
+      @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{@unacked_count}\
+                    consumers=#{@consumers.size}" }
       true
     end
 
@@ -343,7 +340,7 @@ module AvalancheMQ
         next unless @consumers.empty?
         next schedule_expiration_of_queue(@last_get_time) if @last_get_time > now
         @log.debug "Expired"
-        delete
+        @vhost.delete_queue(@name)
       end
     end
 
@@ -400,7 +397,7 @@ module AvalancheMQ
 
     private def drophead
       if sp = @ready_lock.synchronize { @ready.shift? }
-        @log.debug { "Dropping head #{sp}" }
+        @log.debug { "Overflow drop head sp=#{sp}" }
         expire_msg(sp, :maxlen)
       end
     end

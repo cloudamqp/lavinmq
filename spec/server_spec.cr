@@ -539,11 +539,6 @@ describe AvalancheMQ::Server do
     s.vhosts["/"].delete_exchange("ae")
   end
 
-  it "supports heartbeats" do
-    s = AvalancheMQ::Server.new("/tmp/spec", LOG_LEVEL, config: {"heartbeat" => 1_u16})
-    s.config["heartbeat"].should eq 1
-  end
-
   it "supports expires" do
     with_channel do |ch|
       args = AMQP::Protocol::Table.new

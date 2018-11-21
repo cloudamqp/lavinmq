@@ -1,5 +1,6 @@
 require "logger"
 require "./channel/consumer"
+require "../amqp"
 
 module AvalancheMQ
   abstract class Client
@@ -276,7 +277,6 @@ module AvalancheMQ
       end
 
       def close
-        @log.debug { "Closing" }
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
         @map.each_value do |queue, sp, consumer|

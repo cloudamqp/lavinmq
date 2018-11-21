@@ -27,7 +27,7 @@ describe AvalancheMQ::HTTPServer do
       })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.users.select { |u| ["sha256", "sha512", "bcrypt", "md5"].includes? u.name }.all? do |u|
+      s.users.select("sha256", "sha512", "bcrypt", "md5").all? do |_, u|
         u.should be_a(AvalancheMQ::User)
         ok = u.not_nil!.password == "hej"
         "#{u.name}:#{ok}".should eq "#{u.name}:true"
@@ -128,7 +128,7 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].policies.any? { |p| p.name == "import_p1" }.should be_true
+      s.vhosts["/"].policies.has_key?("import_p1").should be_true
     ensure
       s.vhosts["/"].delete_policy("import_p1")
     end
@@ -149,7 +149,7 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].parameters.any? { |p| p.parameter_name == "import_shovel_param" }
+      s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
         .should be_true
     ensure
       s.stop_shovels
@@ -166,7 +166,7 @@ describe AvalancheMQ::HTTPServer do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.stop_shovels
-      s.parameters.any? { |p| p.parameter_name == "global_p1" }.should be_true
+      s.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
     ensure
       s.delete_parameter(nil, "global_p1")
     end
@@ -389,7 +389,7 @@ describe AvalancheMQ::HTTPServer do
       ]})
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].policies.any? { |p| p.name == "import_p1" }.should be_true
+      s.vhosts["/"].policies.has_key?("import_p1").should be_true
     ensure
       s.vhosts["/"].delete_policy("import_p1")
     end

@@ -189,9 +189,7 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       rmsg = nil
-      until rmsg = q2.get(no_ack: true)
-        Fiber.yield
-      end
+      wait_for { rmsg = q2.get(no_ack: true) }
       rmsg.to_s.should eq "shovel me"
     end
   ensure

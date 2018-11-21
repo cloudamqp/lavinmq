@@ -82,20 +82,20 @@ module AvalancheMQ
     private def export_definitions(response)
       {
         "avalanchemq_version": AvalancheMQ::VERSION,
-        "users":               @amqp_server.users,
-        "vhosts":              @amqp_server.vhosts.map { |v| {name: v.name} },
+        "users":               @amqp_server.users.values,
+        "vhosts":              @amqp_server.vhosts.values,
         "queues":              export_queues(@amqp_server.vhosts),
         "exchanges":           export_exchanges(@amqp_server.vhosts),
         "bindings":            export_bindings(@amqp_server.vhosts),
         "permissions":         export_permissions,
-        "policies":            @amqp_server.vhosts.flat_map(&.policies.values),
+        "policies":            @amqp_server.vhosts.values.flat_map(&.policies.values),
         "global_parameters":   @amqp_server.parameters.values,
         "parameters":          export_parameters,
       }.to_json(response)
     end
 
     private def export_parameters
-      @amqp_server.vhosts.flat_map do |vhost|
+      @amqp_server.vhosts.values.flat_map do |vhost|
         vhost.parameters.values.map do |p|
           {
             name:      p.parameter_name,
@@ -285,16 +285,8 @@ module AvalancheMQ
     end
 
     private def export_permissions
-      @amqp_server.users.flat_map do |u|
-        u.permissions.map do |vhost, permissions|
-          {
-            "user":      u.name,
-            "vhost":     vhost,
-            "configure": permissions[:config],
-            "read":      permissions[:read],
-            "write":     permissions[:write],
-          }
-        end
+      @amqp_server.users.values.flat_map do |u|
+        u.permissions_details
       end
     end
   end

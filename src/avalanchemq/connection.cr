@@ -2,6 +2,7 @@ require "uri"
 require "logger"
 require "socket"
 require "openssl"
+require "http"
 require "./amqp"
 
 module AvalancheMQ

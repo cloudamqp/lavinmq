@@ -7,7 +7,6 @@ module AvalancheMQ
 
     getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type,
       alternate_exchange
-    def_equals_and_hash @vhost.name, @name
 
     @alternate_exchange : String?
     @log : Logger

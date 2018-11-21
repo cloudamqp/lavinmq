@@ -41,7 +41,7 @@ module AvalancheMQ
       @upstreams = UpstreamStore.new(self)
       load!
       compact!
-      spawn save!, name: "VHost#save!"
+      spawn save!, name: "VHost/#{@name}#save!"
     end
 
     def publish(msg : Message, immediate = false) : Bool
@@ -171,6 +171,16 @@ module AvalancheMQ
         routing_key, false, arguments)
     end
 
+    def unbind_queue(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
+      apply AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, destination, source,
+        routing_key, arguments)
+    end
+
+    def unbind_exchange(destination, source, routing_key, arguments = Hash(String, AMQP::Field).new)
+      apply AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
+        routing_key, false, arguments)
+    end
+
     def apply(f, loading = false) : Bool?
       case f
       when AMQP::Frame::Exchange::Declare
@@ -212,7 +222,7 @@ module AvalancheMQ
             destinations.delete q
           end
         end
-        q.try &.close
+        q.try &.delete
       when AMQP::Frame::Queue::Bind
         x = @exchanges[f.exchange_name]? || return
         q = @queues[f.queue_name]? || return
@@ -276,7 +286,7 @@ module AvalancheMQ
     end
 
     def stop_shovels
-      @shovels.not_nil!.each &.stop
+      @shovels.not_nil!.each_value &.stop
     end
 
     def stop_upstream_links

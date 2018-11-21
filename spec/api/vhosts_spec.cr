@@ -20,7 +20,7 @@ describe AvalancheMQ::VHostsController do
       s.users.delete("arnold")
     end
 
-    it "should list vhosts from monitoring users" do
+    it "should list vhosts for monitoring users" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::Monitoring])
       s.vhosts.create("test")
       s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)

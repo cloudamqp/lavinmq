@@ -32,6 +32,14 @@ module AvalancheMQ
       Fiber.yield
     end
 
+    def to_json(json)
+      {
+        name:  @name,
+        vhost: @vhost.name,
+        state: @state,
+      }.to_json(json)
+    end
+
     private def run_loop
       loop do
         break if stopped?

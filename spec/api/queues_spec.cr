@@ -68,15 +68,15 @@ describe AvalancheMQ::QueuesController do
       body = %({
         "durable": true
       })
-      response = put("/api/queues/%2f/q1", body: body)
+      response = put("/api/queues/%2f/q1d", body: body)
       response.status_code.should eq 204
       body = %({
         "durable": false
       })
-      response = put("/api/queues/%2f/q1", body: body)
+      response = put("/api/queues/%2f/q1d", body: body)
       response.status_code.should eq 400
     ensure
-      s.vhosts["/"].delete_queue("q1")
+      s.vhosts["/"].delete_queue("q1d")
     end
 
     it "should not be possible to declare amq. prefixed queues" do

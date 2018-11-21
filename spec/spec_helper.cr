@@ -1,9 +1,11 @@
 require "spec"
 require "file_utils"
+require "amqp"
+require "../src/avalanchemq/config"
 require "../src/avalanchemq/server"
+require "../src/avalanchemq/log_formatter"
 require "../src/avalanchemq/http/http_server"
 require "http/client"
-require "amqp"
 require "uri"
 
 FileUtils.rm_rf("/tmp/spec")
@@ -30,13 +32,6 @@ module TestHelpers
 
   def self.setup
     create_servers
-    spawn { @@s.try &.listen(AMQP_PORT) }
-    cert = Dir.current + "/spec/resources/server_certificate.pem"
-    key = Dir.current + "/spec/resources/server_key.pem"
-    ca = Dir.current + "/spec/resources/ca_certificate.pem"
-    spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
-    spawn { @@h.try &.listen }
-    Fiber.yield
   end
 
   def s
@@ -59,7 +54,7 @@ module TestHelpers
     with_channel(args) { |ch| yield ch }
   end
 
-  def wait_for(t = 10.seconds)
+  def wait_for(t = 5.seconds)
     timeout = Time.now + t
     until yield
       Fiber.yield
@@ -84,8 +79,20 @@ module TestHelpers
   end
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    @@s = AvalancheMQ::Server.new(dir, level)
-    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, HTTP_PORT)
+    log = Logger.new(STDOUT, level: level)
+    AvalancheMQ::LogFormatter.use(log)
+    @@s = AvalancheMQ::Server.new(dir, log.dup)
+    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, HTTP_PORT, log.dup)
+    Spec.after_each do
+      @@h.try &.cache.purge
+    end
+    spawn { @@s.try &.listen(AMQP_PORT) }
+    cert = Dir.current + "/spec/resources/server_certificate.pem"
+    key = Dir.current + "/spec/resources/server_key.pem"
+    ca = Dir.current + "/spec/resources/ca_certificate.pem"
+    spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
+    spawn { @@h.try &.listen }
+    Fiber.yield
   end
 
   def get(path, headers = nil)

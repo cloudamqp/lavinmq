@@ -5,7 +5,7 @@ module AvalancheMQ
     private def register_routes
       get "/api/vhosts" do |context, _params|
         vhosts(user(context)).map { |v| v.vhost_details.merge(v.message_details) }
-                             .to_json(context.response)
+          .to_json(context.response)
         context
       end
 
@@ -14,7 +14,7 @@ module AvalancheMQ
           refuse_unless_management(context, user(context), vhost)
           v = @amqp_server.vhosts[vhost]
           v.vhost_details.merge(v.message_details)
-                         .to_json(context.response)
+            .to_json(context.response)
         end
       end
 
@@ -36,7 +36,7 @@ module AvalancheMQ
       get "/api/vhosts/:vhost/permissions" do |context, params|
         refuse_unless_administrator(context, user(context))
         with_vhost(context, params) do |vhost|
-          @amqp_server.users.map do |u|
+          @amqp_server.users.map do |_, u|
             u.permissions[vhost]?.try { |p| u.permissions_details(vhost, p) }
           end.compact.to_json(context.response)
         end

@@ -3,33 +3,19 @@ require "./user"
 
 module AvalancheMQ
   class UserStore
-    include Enumerable(User)
+    include Enumerable({String, User})
 
     def initialize(@data_dir : String, @log : Logger)
       @users = Hash(String, User).new
       load!
     end
 
-    def each
-      @users.values.each { |e| yield e }
-    end
-
-    def [](name)
-      @users[name]
-    end
-
-    def []?(name)
-      @users[name]?
-    end
-
-    def size
-      @users.size
-    end
+    forward_missing_to @users
 
     # Adds a user to the use store
     # Returns nil if user is already created
     def create(name, password, tags = Array(Tag).new, save = true)
-      return if @users.has_key?(name)
+      return if has_key?(name)
       user = User.create(name, password, "Bcrypt", tags)
       @users[name] = user
       save! if save
@@ -37,7 +23,7 @@ module AvalancheMQ
     end
 
     def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
-      return if @users.has_key?(name)
+      return if has_key?(name)
       user = User.new(name, password_hash, password_algorithm, tags)
       @users[name] = user
       save! if save
@@ -68,7 +54,7 @@ module AvalancheMQ
     end
 
     def to_json(json : JSON::Builder)
-      @users.values.to_json(json)
+      values.to_json(json)
     end
 
     private def load!
@@ -89,13 +75,13 @@ module AvalancheMQ
         add_permission("guest", "/", /.*/, /.*/, /.*/)
         save!
       end
-      @log.debug("#{@users.size} users loaded")
+      @log.debug("#{size} users loaded")
     end
 
     def save!
       @log.debug "Saving users to file"
       tmpfile = File.join(@data_dir, "users.json.tmp")
-      File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
+      File.open(tmpfile, "w") { |f| to_pretty_json(f) }
       File.rename tmpfile, File.join(@data_dir, "users.json")
     end
   end

@@ -1,78 +1,43 @@
 require "./avalanchemq/version"
+require "./avalanchemq/stdlib_fixes"
+require "./avalanchemq/config"
 require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
-require "./avalanchemq/stdlib_fixes"
+require "./avalanchemq/log_formatter"
 require "option_parser"
 require "file"
 require "ini"
 
-config = ""
-data_dir = ""
-log_level = Logger::INFO
-# bind = "::"
-port = 5672
-tls_port = 5671
-cert_path = ""
-key_path = ""
-# mgmt_bind = "::"
-mgmt_port = 15672
-# mgmt_tls_port = 15671
-# mgmt_cert_path = ""
-# mgmt_key_path = ""
+config_file = ""
+config = AvalancheMQ::Config.new
 
 p = OptionParser.parse! do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| data_dir = v }
-  parser.on("-c CONF", "--config=CONF", "Config file (INI format)") do |v|
-    config = v
-  end
+  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
+  parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config_file = v }
   parser.on("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)") do |v|
-    port = v.to_i
+    config.port = v.to_i
   end
   parser.on("--tls-port=PORT", "AMQPS port to listen on (default: 5671)") do |v|
-    tls_port = v.to_i
+    config.tls_port = v.to_i
   end
-  parser.on("--cert FILE", "TLS certificate (including chain)") do |v|
-    cert_path = v
-  end
-  parser.on("--key FILE", "Private key for the TLS certificate") do |v|
-    key_path = v
-  end
+  parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.cert_path = v }
+  parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.key_path = v }
   parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-    log_level = Logger::Severity.parse(v)
+    level = Logger::Severity.parse?(v.to_s)
+    config.log_level = level if level
   end
-  parser.on("-d", "--debug", "Verbose logging") { log_level = Logger::DEBUG }
+  parser.on("-d", "--debug", "Verbose logging") { config.log_level = Logger::DEBUG }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
 
-unless config.empty?
-  if File.file?(config)
-    ini = INI.parse(File.read(config))
-    if main = ini["main"]
-      data_dir = main["data_dir"] if main.has_key? "data_dir"
-      log_level = Logger::Severity.parse(main["log_level"]) if main.has_key? "log_level"
-    end
-    if amqp = ini["amqp"]
-      # bind = amqp["bind"] if amqp.has_key? "bind"
-      port = amqp["port"].to_i32 if amqp.has_key? "port"
-      tls_port = amqp["tls_port"].to_i32 if amqp.has_key? "tls_port"
-      cert_path = amqp["tls_cert"] if amqp.has_key? "tls_cert"
-      key_path = amqp["tls_key"] if amqp.has_key? "tls_key"
-    end
-    if mgmt = ini["mgmt"]
-      # mgmt_bind = mgmt["bind"] if mgmt.has_key? "bind"
-      mgmt_port = mgmt["port"].to_i32 if mgmt.has_key? "port"
-      # mgmt_tls_port = mgmt["tls_port"].to_i32 if mgmt.has_key? "tls_port"
-      # mgmt_cert_path = mgmt["tls_cert"] if mgmt.has_key? "tls_cert"
-      # mgmt_key_path = mgmt["tls_key"] if mgmt.has_key? "tls_key"
-    end
-  else
-    abort "Config could not be found"
-  end
+if ini_cfg = config.parse(config_file)
+  config.parse(ini_cfg)
 end
-if data_dir.empty?
+
+if config.data_dir.empty?
   STDERR.puts "No data directory specified"
   STDERR.puts p
   exit 2
@@ -84,18 +49,21 @@ fd_limit = `ulimit -n`.to_i
 puts "FD limit: #{fd_limit}"
 puts "The file descriptor limit is very low, consider raising it. You need one for each connection and two for each queue." if fd_limit < 1025
 
-amqp_server = AvalancheMQ::Server.new(data_dir, log_level)
-spawn(name: "AMQP listening on #{port}") do
-  amqp_server.listen(port)
-end
+log = Logger.new(STDOUT, level: config.log_level)
+AvalancheMQ::LogFormatter.use(log)
+amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup, config)
 
-if !cert_path.empty? && !key_path.empty?
-  spawn(name: "AMQPS listening on #{port}") do
-    amqp_server.listen_tls(tls_port, cert_path, key_path)
+if !config.cert_path.empty? && !config.key_path.empty?
+  spawn(name: "AMQPS listening on #{config.tls_port}") do
+    amqp_server.not_nil!.listen_tls(config.tls_port, config.cert_path, config.key_path)
   end
 end
 
-http_server = AvalancheMQ::HTTPServer.new(amqp_server, mgmt_port)
+spawn(name: "AMQP listening on #{config.port}") do
+  amqp_server.not_nil!.listen(config.port)
+end
+
+http_server = AvalancheMQ::HTTPServer.new(amqp_server, config.mgmt_port, log.dup)
 spawn(name: "HTTP listener") do
   http_server.listen
 end

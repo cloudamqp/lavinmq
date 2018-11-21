@@ -19,6 +19,9 @@ dependencies:
     github: tbrand/router.cr
   baked_file_system:
     github: schovi/baked_file_system
+  cache_hash:
+    github: samueleaton/cache-hash
+    branch: master
 
 development_dependencies:
   amqp:
