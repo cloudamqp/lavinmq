@@ -159,7 +159,10 @@ module AvalancheMQ
       @log.debug "Yielding before cleaning up"
       Fiber.yield
       @log.debug "Cleaning up"
-      @exclusive_queues.each &.close
+      @exclusive_queues.each_slice(100) do |qs|
+        qs.each &.close
+        Fiber.yield
+      end
       @channels.each_value &.close
       @channels.clear
       @on_close_callback.try &.call(self)

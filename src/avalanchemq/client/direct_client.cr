@@ -66,7 +66,6 @@ module AvalancheMQ
           send_precondition_failed(frame, "Not empty")
         else
           size = q.message_count
-          q.delete
           @vhost.apply(frame)
           @exclusive_queues.delete(q) if q.exclusive
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size)

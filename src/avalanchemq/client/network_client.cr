@@ -203,7 +203,6 @@ module AvalancheMQ
           send_access_refused(frame, "User doesn't have permissions to delete queue '#{frame.queue_name}'")
         else
           size = q.message_count
-          q.delete
           @vhost.apply(frame)
           @exclusive_queues.delete(q) if q.exclusive
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait

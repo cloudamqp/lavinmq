@@ -45,21 +45,18 @@ module AvalancheMQ
       @acks = 0
     end
 
-    def close(silent = false, deleting = false) : Bool
+    def close : Bool
       super.tap do |closed|
-        if closed
-          compact_index! unless deleting
-          @log.debug { "Closing index files" }
-          @ack.close
-          @enq.close
-        end
+        next unless closed
+        compact_index! unless @deleted
+        @log.debug { "Closing index files" }
+        @ack.close
+        @enq.close
       end
     end
 
     def delete
-      if super
-        FileUtils.rm_rf @index_dir
-      end
+      FileUtils.rm_rf @index_dir if super
     end
 
     def publish(sp : SegmentPosition, persistent = false)
@@ -72,13 +69,12 @@ module AvalancheMQ
 
     def get(no_ack : Bool) : Envelope | Nil
       super.tap do |env|
-        if env && no_ack
-          persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
-          @lock.synchronize do
-            @ack.write_bytes env.segment_position
-            @ack.flush if persistent
-            compact_index! if (@acks += 1) > MAX_ACKS
-          end
+        next unless env && no_ack
+        persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
+        @lock.synchronize do
+          @ack.write_bytes env.segment_position
+          @ack.flush if persistent
+          compact_index! if (@acks += 1) > MAX_ACKS
         end
       end
     end

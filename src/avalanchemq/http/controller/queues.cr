@@ -83,7 +83,7 @@ module AvalancheMQ
           if context.request.query_params["if-unused"]? == "true"
             bad_request(context, "Exchange #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
           end
-          q.delete
+          @amqp_server.vhosts[vhost].delete_queue(q.name)
           context.response.status_code = 204
         end
       end

@@ -222,7 +222,7 @@ module AvalancheMQ
             destinations.delete q
           end
         end
-        q.try &.close
+        q.try &.delete
       when AMQP::Frame::Queue::Bind
         x = @exchanges[f.exchange_name]? || return
         q = @queues[f.queue_name]? || return
@@ -299,7 +299,7 @@ module AvalancheMQ
       Fiber.yield
       stop_upstream_links
       Fiber.yield
-      @queues.each_value &.close(silent: true)
+      @queues.each_value &.close
       Fiber.yield
       @save.close
       Fiber.yield

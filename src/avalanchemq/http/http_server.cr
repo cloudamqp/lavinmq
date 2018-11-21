@@ -29,7 +29,7 @@ module AvalancheMQ
         ApiErrorHandler.new(@log.dup),
         StaticController.new.route_handler,
         BasicAuthHandler.new(@amqp_server.users, @log.dup),
-        @cache,
+        # @cache,
         MainController.new(@amqp_server, @log.dup).route_handler,
         DefinitionsController.new(@amqp_server, @log.dup).route_handler,
         ConnectionsController.new(@amqp_server, @log.dup).route_handler,

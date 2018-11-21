@@ -189,7 +189,7 @@ module AvalancheMQ
       @log.debug "Consumer available"
     end
 
-    def close(silent = false, deleting = false) : Bool
+    def close : Bool
       return false if @closed
       @closed = true
       @message_available.close
@@ -199,21 +199,19 @@ module AvalancheMQ
         c.cancel
       end
       @segments.each_value &.close
-      if !deleting && ((@auto_delete || @exclusive) && @expires.nil?)
-        delete
-      end
+      @vhost.delete_queue(@name) if @auto_delete || @exclusive
       Fiber.yield
       notify_observers(:close)
-      @log.info { deleting ? "Deleted" : "Closed" } unless silent
+      @log.debug { "Closed" }
       true
     end
 
     def delete : Bool
       return false if @deleted
       @deleted = true
-      @vhost.apply AMQP::Frame::Queue::Delete.new 0_u16, 0_u16, @name, false, false, false
-      close(deleting: true)
+      close
       notify_observers(:delete)
+      @log.info { "Deleted" }
       true
     end
 
@@ -227,7 +225,7 @@ module AvalancheMQ
         unacked: @unacked_count,
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
-        state: @closed ? "closed" : "running",
+        state: @closed ? :closed : :running,
         effective_policy_definition: @policy,
       }
     end
@@ -342,7 +340,7 @@ module AvalancheMQ
         next unless @consumers.empty?
         next schedule_expiration_of_queue(@last_get_time) if @last_get_time > now
         @log.debug "Expired"
-        delete
+        @vhost.delete_queue(@name)
       end
     end
 
