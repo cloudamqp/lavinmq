@@ -43,7 +43,7 @@ module AvalancheMQ
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = File.open(path, "r")
       end
-      @last_get_time = Time.now.to_unix_ms # reset when redecalred
+      @last_get_time = Time.now.to_unix_ms # reset when redeclared
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       schedule_expiration_of_queue(@last_get_time)
     end
@@ -241,15 +241,17 @@ module AvalancheMQ
         @log.debug { "Overflow #{@max_length} #{@overflow}" }
         case @overflow
         when "reject-publish"
+          @log.debug { "Overflow reject message sp=#{sp}" }
           return false
         when "drop-head"
           drophead
         end
       end
-      @log.debug { "Enqueuing message #{sp}" }
+      @log.debug { "Enqueuing message sp=#{sp}" }
       @ready_lock.synchronize { @ready.push sp }
       @message_available.send nil unless @message_available.full?
-      @log.debug { "Enqueued successfully #{sp}" }
+      @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{@unacked_count}\
+                    consumers=#{@consumers.size}" }
       true
     end
 
@@ -397,7 +399,7 @@ module AvalancheMQ
 
     private def drophead
       if sp = @ready_lock.synchronize { @ready.shift? }
-        @log.debug { "Dropping head #{sp}" }
+        @log.debug { "Overflow drop head sp=#{sp}" }
         expire_msg(sp, :maxlen)
       end
     end
