@@ -4,7 +4,7 @@ require "uri"
 describe AvalancheMQ::ChannelsController do
   describe "GET /api/channels" do
     it "should return all channels" do
-      with_channel do |ch|
+      with_channel do
         response = get("/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -18,7 +18,7 @@ describe AvalancheMQ::ChannelsController do
 
   describe "GET /api/vhosts/vhost/channels" do
     it "should return all channels for a vhost" do
-      with_channel do |ch|
+      with_channel do
         response = get("/api/vhosts/%2f/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -39,7 +39,7 @@ describe AvalancheMQ::ChannelsController do
 
   describe "GET /api/channels/channel" do
     it "should return channel" do
-      with_channel do |ch|
+      with_channel do
         response = get("/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)

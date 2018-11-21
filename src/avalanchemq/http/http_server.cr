@@ -3,7 +3,7 @@ require "json"
 require "logger"
 require "router"
 require "./handler/*"
-require "../json_socket/json_cache"
+require "./json_cache"
 require "./controller"
 require "./controller/*"
 

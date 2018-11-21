@@ -90,7 +90,7 @@ describe AvalancheMQ::ConnectionsController do
 
   describe "GET /api/connections/name/channels" do
     it "should return channels for a connection" do
-      with_channel do |ch|
+      with_channel do
         response = get("/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
