@@ -1,5 +1,6 @@
 require "logger"
 require "./channel/consumer"
+require "../amqp"
 
 module AvalancheMQ
   abstract class Client
