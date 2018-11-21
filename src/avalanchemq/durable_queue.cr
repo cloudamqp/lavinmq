@@ -45,7 +45,7 @@ module AvalancheMQ
       @acks = 0
     end
 
-    def close(deleting = false) : Bool
+    def close(silent = false, deleting = false) : Bool
       super.tap do |closed|
         if closed
           compact_index! unless deleting
