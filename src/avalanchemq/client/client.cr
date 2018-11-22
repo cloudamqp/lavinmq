@@ -35,6 +35,8 @@ module AvalancheMQ
           frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
         end && break
       end
+    rescue IO::EOFError
+      log.debug { "Client closed socket without sending CloseOk" }
     rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
       log.warn { "#{ex.inspect} when waiting for CloseOk" }
     ensure
