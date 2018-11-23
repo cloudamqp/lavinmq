@@ -171,12 +171,9 @@ module AvalancheMQ
       loop do
         break if closed?
         sleep Server.config.stats_interval.milliseconds
-        m = Benchmark.measure do
-          @vhosts.each_value do |vhost|
-            vhost.queues.each_value(&.update_rates)
-          end
+        @vhosts.each_value do |vhost|
+          vhost.queues.each_value(&.update_rates)
         end
-        puts m
       end
     end
   end
