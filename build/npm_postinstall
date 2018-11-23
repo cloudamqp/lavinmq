@@ -1,0 +1,2 @@
+#!/bin/sh
+cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js

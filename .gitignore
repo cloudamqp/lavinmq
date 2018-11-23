@@ -3,5 +3,6 @@
 /bin/
 /.shards/
 /.vagrant/
+/node_modules/
 *.log
 .icr_*

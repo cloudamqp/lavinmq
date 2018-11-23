@@ -1,0 +1,25 @@
+{
+  "name": "avalanchemq",
+  "version": "0.0.0",
+  "description": "",
+  "main": "",
+  "directories": {},
+  "dependencies": {
+    "chart.js": "^2.7.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "./build/npm_postinstall"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/84codes/avalanchemq.git"
+  },
+  "author": "",
+  "license": "SEE LICENSE IN LICENSE",
+  "bugs": {
+    "url": "https://github.com/84codes/avalanchemq/issues"
+  },
+  "homepage": "https://github.com/84codes/avalanchemq#readme"
+}
