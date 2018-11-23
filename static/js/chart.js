@@ -86,7 +86,7 @@
         x: date,
         y: data[key].rate
       }
-      if (dataset.data.length >= ticks(chart.ctx)) {
+      if (dataset.data.length >= ticks(chart.ctx.canvas)) {
         dataset.data.shift()
       }
       dataset.data.push(point)
