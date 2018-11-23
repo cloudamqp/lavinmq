@@ -1,16 +1,17 @@
+/* global avalanchemq */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
   function fetch (cb) {
     const url = '/api/vhosts'
-    const raw = sessionStorage.getItem(url)
+    const raw = window.sessionStorage.getItem(url)
     if (raw) {
       var vhosts = JSON.parse(raw)
       cb(vhosts)
     }
     return avalanchemq.http.request('GET', url).then(function (vhosts) {
       try {
-        sessionStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
+        window.sessionStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
       } catch (e) {
         console.error('Saving sessionStorage', e)
       }
@@ -38,14 +39,14 @@
   addVhostOptions('user-vhost').then(() => {
     const allOpt = '<option value="_all">All</option>'
     document.querySelector('#userMenuVhost').insertAdjacentHTML('afterbegin', allOpt)
-    const vhost = sessionStorage.getItem("vhost")
+    const vhost = window.sessionStorage.getItem('vhost')
     if (vhost) {
       const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
       if (opt) {
         document.querySelector('#userMenuVhost').value = vhost
       }
     } else {
-      sessionStorage.setItem("vhost", "_all")
+      window.sessionStorage.setItem('vhost', '_all')
     }
   })
 

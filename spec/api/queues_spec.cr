@@ -38,6 +38,20 @@ describe AvalancheMQ::QueuesController do
       response = get("/api/queues/%2f/404")
       response.status_code.should eq 404
     end
+
+    it "should return message stats" do
+      with_channel do |ch|
+        q = ch.queue("stats_q")
+        x = ch.exchange("", "direct")
+        x.publish AMQP::Message.new("m1"), q.name
+      end
+      response = get("/api/queues/%2f/stats_q")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body["message_stats"]["publish_details"]["rate"].nil?.should be_false
+    ensure
+      s.vhosts["/"].delete_queue("stats_q")
+    end
   end
 
   describe "PUT /api/queues/vhost/name" do

@@ -12,16 +12,22 @@ require "./durable_queue"
 require "./parameter"
 require "./chained_logger"
 require "./config"
+require "benchmark"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, log, parameters, config
+    getter connections, vhosts, users, data_dir, log, parameters
+    getter? closed
     alias ConnectionsEvents = Channel::Buffered(Tuple(Client, Symbol))
     include ParameterTarget
 
-    @running = false
+    @closed = false
 
-    def initialize(@data_dir : String, @log : Logger, @config = Config.new)
+    def self.config
+      @@config.not_nil!
+    end
+
+    def initialize(@data_dir : String, @log : Logger, @@config = Config.new)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(TCPServer).new(1)
@@ -32,10 +38,10 @@ module AvalancheMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn handle_connection_events, name: "Server#handle_connection_events"
+      spawn stats_loop, name: "Server#stats_loop"
     end
 
     def listen(port = 5672)
-      @running = true
       s = TCPServer.new("::", port)
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
@@ -55,7 +61,6 @@ module AvalancheMQ
     end
 
     def listen_tls(port, cert_path : String, key_path : String, ca_path : String? = nil)
-      @running = true
       s = TCPServer.new("::", port)
       @listeners << s
       context = OpenSSL::SSL::Context::Server.new
@@ -85,16 +90,13 @@ module AvalancheMQ
     end
 
     def close
+      @closed = true
       @log.debug "Closing listeners"
       @listeners.each &.close
       @log.debug "Closing connections"
       @connections.each &.close("Broker shutdown")
       @log.debug "Closing vhosts"
       @vhosts.close
-    end
-
-    def closed?
-      !@running
     end
 
     def add_parameter(p : Parameter)
@@ -138,8 +140,7 @@ module AvalancheMQ
       socket.write_timeout = 15
       socket.recv_buffer_size = 131072
       socket.send_buffer_size = 131072
-      config = {"heartbeat" => @config.heartbeat}
-      client = NetworkClient.start(socket, ssl_client, config, @vhosts, @users, @log)
+      client = NetworkClient.start(socket, ssl_client, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})
         client.on_close do |c|
@@ -164,6 +165,19 @@ module AvalancheMQ
       end
     rescue Channel::ClosedError
       @log.debug { "Connection events channel closed" }
+    end
+
+    private def stats_loop
+      loop do
+        break if closed?
+        sleep Server.config.stats_interval.milliseconds
+        m = Benchmark.measure do
+          @vhosts.each_value do |vhost|
+            vhost.queues.each_value(&.update_rates)
+          end
+        end
+        puts m
+      end
     end
   end
 end

@@ -23,6 +23,14 @@ module AvalancheMQ
     @deleted = false
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
+
+    # Stats
+    STATS = %w(ack deliver get publish redeliver reject)
+    {% for name in STATS %}
+      @{{name.id}}_count = 0
+      @{{name.id}}_rate = 0_f32
+    {% end %}
+
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
     getter? closed
@@ -130,6 +138,13 @@ module AvalancheMQ
       s
     end
 
+    def update_rates
+      {% for name in STATS %}
+        @{{name.id}}_rate = @{{name.id}}_count.to_f32 / (Server.config.stats_interval / 1000)
+        @{{name.id}}_count = 0
+      {% end %}
+    end
+
     private def deliver_loop
       loop do
         break if @closed
@@ -169,6 +184,11 @@ module AvalancheMQ
         sp = env.segment_position
         @log.debug { "Delivering #{sp} to consumer" }
         if c.deliver(env.message, sp, env.redelivered)
+          if env.redelivered
+            @redeliver_count += 1
+          else
+            @deliver_count += 1
+          end
           @log.debug { "Delivery done" }
         else
           @log.debug { "Delivery failed" }
@@ -227,6 +247,26 @@ module AvalancheMQ
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? :closed : :running,
         effective_policy_definition: @policy,
+        message_stats: {
+          ack_details: {
+            rate: @ack_rate,
+          },
+          deliver_details: {
+            rate: @deliver_rate,
+          },
+          publish_details: {
+            rate: @publish_rate,
+          },
+          get_details: {
+            rate: @get_rate,
+          },
+          redeliver_details: {
+            rate: @redeliver_rate,
+          },
+          reject_details: {
+            rate: @reject_rate,
+          },
+        },
       }
     end
 
@@ -250,6 +290,7 @@ module AvalancheMQ
       @message_available.send nil unless @message_available.full?
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{@unacked_count}\
                     consumers=#{@consumers.size}" }
+      @publish_count += 1
       true
     end
 
@@ -349,6 +390,7 @@ module AvalancheMQ
       sp = @ready_lock.synchronize { @ready.shift? }
       return unless sp
       @unacked_count += 1 unless no_ack
+      @get_count += 1
       read(sp)
     end
 
@@ -376,6 +418,7 @@ module AvalancheMQ
       return if @closed
       @log.debug { "Acking #{sp}" }
       @unacked_count -= 1
+      @ack_count += 1
       @consumer_available.send nil unless @consumer_available.full?
     end
 
@@ -383,6 +426,7 @@ module AvalancheMQ
       return if @closed
       @log.debug { "Rejecting #{sp}" }
       @unacked_count -= 1
+      @reject_count += 1
       if requeue
         @ready_lock.synchronize do
           i = @ready.index { |rsp| rsp > sp } || 0

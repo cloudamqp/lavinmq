@@ -60,7 +60,7 @@
     }
   }
   const path = window.location.pathname
-  document.querySelectorAll("aside li").forEach(li => {
+  document.querySelectorAll('aside li').forEach(li => {
     li.classList.remove('active')
     toggleSubMenu(li, true)
   })

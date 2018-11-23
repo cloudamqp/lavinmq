@@ -217,6 +217,7 @@ module AvalancheMQ
       when AMQP::Frame::Queue::Delete
         return unless @queues.has_key? f.queue_name
         q = @queues.delete(f.queue_name)
+        # TODO optimize
         @exchanges.each_value do |ex|
           ex.bindings.each_value do |destinations|
             destinations.delete q

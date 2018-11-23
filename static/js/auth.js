@@ -79,7 +79,7 @@
   }
 
   function selectVhost (select) {
-    sessionStorage.setItem('vhost', select.value)
+    window.sessionStorage.setItem('vhost', select.value)
     window.location.reload()
   }
 

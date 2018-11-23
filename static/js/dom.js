@@ -13,7 +13,7 @@
 
   function removeNodes (selector) {
     const els = elements(selector)
-    if (!els[0]) return;
+    if (!els[0]) return
     const parent = els[0].parentNode
     els.forEach(node => {
       parent.removeChild(node)
@@ -37,7 +37,7 @@
       return {}
     } catch (e) {
       if (e instanceof SyntaxError) {
-        alert('Input must be JSON')
+        window.alert('Input must be JSON')
       } else {
         throw e
       }
@@ -46,11 +46,11 @@
 
   function elements (selector) {
     let els = null
-    if (selector instanceof Node) {
+    if (selector instanceof document.Node) {
       els = [selector]
-    } else if (selector instanceof NodeList) {
+    } else if (selector instanceof document.NodeList) {
       els = selector
-    } else if (typeof selector === "string") {
+    } else if (typeof selector === 'string') {
       els = document.querySelectorAll(selector)
     } else {
       els = []
@@ -64,15 +64,15 @@
   }
 
   function toast (text) {
-    removeNodes(".toast")
-    let d = document.createElement("div")
-    d.classList.add("toast")
+    removeNodes('.toast')
+    let d = document.createElement('div')
+    d.classList.add('toast')
     d.textContent = text
     document.body.appendChild(d)
     setTimeout(() => {
       try {
         document.body.removeChild(d)
-      } catch(e) {
+      } catch (e) {
         // noop
       }
     }, 7000)

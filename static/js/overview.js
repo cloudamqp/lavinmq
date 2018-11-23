@@ -1,9 +1,10 @@
 
+/* global avalanchemq */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
   const url = '/api/overview'
-  const raw = sessionStorage.getItem(cacheKey())
+  const raw = window.sessionStorage.getItem(cacheKey())
   let data = null
   let updateTimer = null
 
@@ -14,27 +15,27 @@
         render(data)
       }
     } catch (e) {
-      sessionStorage.removeItem(cacheKey())
+      window.sessionStorage.removeItem(cacheKey())
       console.log('Error parsing data from sessionStorage')
       console.error(e)
     }
   }
 
   function cacheKey () {
-    const vhost = sessionStorage.getItem('vhost')
+    const vhost = window.sessionStorage.getItem('vhost')
     return url + '/' + vhost
   }
 
   function update () {
-    const vhost = sessionStorage.getItem('vhost')
-    const headers = new Headers()
-    if (vhost && vhost !== "_all") {
+    const vhost = window.sessionStorage.getItem('vhost')
+    const headers = new window.Headers()
+    if (vhost && vhost !== '_all') {
       headers.append('x-vhost', vhost)
     }
     avalanchemq.http.request('GET', url, { headers }).then(function (response) {
       data = response
       try {
-        sessionStorage.setItem(cacheKey(), JSON.stringify(response))
+        window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
       } catch (e) {
         console.error('Saving sessionStorage', e)
       }

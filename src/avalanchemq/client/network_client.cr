@@ -33,7 +33,7 @@ module AvalancheMQ
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(tcp_socket, ssl_client, config, vhosts, users, log)
+    def self.start(tcp_socket, ssl_client, vhosts, users, log)
       socket = ssl_client.nil? ? tcp_socket : ssl_client
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
@@ -84,7 +84,7 @@ module AvalancheMQ
       end
       socket.write_bytes AMQP::Frame::Connection::Tune.new(channel_max: 0_u16,
         frame_max: 131072_u32,
-        heartbeat: config["heartbeat"]), IO::ByteFormat::NetworkEndian
+        heartbeat: Server.config.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
       tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
       open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }

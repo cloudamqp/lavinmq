@@ -1,3 +1,4 @@
+/* global avalanchemq */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
@@ -12,7 +13,7 @@
     makeHeadersSortable()
 
     if (url) {
-      const raw = sessionStorage.getItem(url)
+      const raw = window.sessionStorage.getItem(url)
       if (raw) {
         updateTable(raw)
       }
@@ -43,7 +44,7 @@
           }
           const t = document.getElementById(id).tBodies[0]
           clearRows(t)
-          const raw = sessionStorage.getItem(url)
+          const raw = window.sessionStorage.getItem(url)
           updateTable(raw)
         })
       })
@@ -60,7 +61,7 @@
       return avalanchemq.http.request('GET', url).then(function (response) {
         tableError.textContent = ''
         try {
-          sessionStorage.setItem(url, JSON.stringify(response))
+          window.sessionStorage.setItem(url, JSON.stringify(response))
         } catch (e) {
           console.error('Saving sessionStorage', e)
         }
@@ -70,16 +71,16 @@
           tableError.textContent = 'Error fetching data: ' + e.body
         } else {
           console.error(e)
-          if (timer) {
-            clearInterval(timer)
-          }
+        }
+        if (timer) {
+          clearInterval(timer)
         }
       })
     }
 
     function updateTable (raw) {
       let data = raw
-      if (typeof raw === "string") {
+      if (typeof raw === 'string') {
         data = JSON.parse(raw)
       }
       data.sort(byColumn)
@@ -154,7 +155,7 @@
   function renderCell (tr, column, value, classList = '') {
     const cell = tr.cells[column] || buildCells(tr, column)
     cell.classList = classList
-    if (value instanceof Element) {
+    if (value instanceof window.Element) {
       if (!value.isEqualNode(cell.firstChild)) {
         while (cell.lastChild) {
           cell.removeChild(cell.lastChild)
@@ -180,7 +181,7 @@
 
   function buildCells (tr, index) {
     const target = index + 1
-    while(index >= 0) {
+    while (index >= 0) {
       if (tr.cells.length >= target) break
       tr.insertCell(-1)
       index--

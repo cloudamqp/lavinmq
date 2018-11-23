@@ -1,3 +1,4 @@
+/* global avalanchemq */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
@@ -19,14 +20,14 @@
   }
 
   function redirect (path) {
-    if (location.pathname !== path) {
+    if (window.location.pathname !== path) {
       window.location.assign(path)
     }
   }
 
   function request (method, path, options = {}) {
     const body = options.body
-    const headers = options.headers || new Headers()
+    const headers = options.headers || new window.Headers()
     if (!avalanchemq.auth) {
       redirect('/login')
     }
@@ -39,14 +40,14 @@
       mode: 'cors',
       redirect: 'follow'
     }
-    if (body instanceof FormData) {
+    if (body instanceof window.FormData) {
       headers.delete('Content-Type') // browser will set to multipart with boundary
       opts.body = body
     } else if (body) {
       headers.append('Content-Type', 'application/json')
       opts.body = JSON.stringify(body)
     }
-    return fetch(path, opts)
+    return window.fetch(path, opts)
       .then(function (response) {
         return response.json().then(json => {
           if (!response.ok) {
@@ -65,9 +66,9 @@
 
   function standardErrorHandler (e) {
     if (e.status === 404) {
-      avalanchemq.http.redirect('/404')
+      throw e
     } else if (e.body) {
-      alert(e.body)
+      window.alert(e.body)
     } else {
       console.error(e)
     }

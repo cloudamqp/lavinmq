@@ -49,7 +49,7 @@ fd_limit = `ulimit -n`.to_i
 puts "FD limit: #{fd_limit}"
 puts "The file descriptor limit is very low, consider raising it. You need one for each connection and two for each queue." if fd_limit < 1025
 
-log = Logger.new(STDOUT, level: config.log_level)
+log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
 amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup, config)
 
