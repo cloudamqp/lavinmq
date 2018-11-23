@@ -128,12 +128,12 @@ module AvalancheMQ
           when "ack_requeue_true", "reject_requeue_true", "peek"
             msgs = q.peek(count)
           when "ack_requeue_false", "reject_requeue_false", "get"
-            msgs = Array.new(count) { q.get(true) }
+            msgs = Array.new(count) { q.basic_get(true) }
           else
             if body["requeue"]?
               msgs = q.peek(count)
             else
-              msgs = Array.new(count) { q.get(true) }
+              msgs = Array.new(count) { q.basic_get(true) }
             end
           end
           msgs ||= [] of Envelope

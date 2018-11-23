@@ -192,7 +192,7 @@ module AvalancheMQ
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
-          elsif env = q.get(frame.no_ack)
+          elsif env = q.basic_get(frame.no_ack)
             delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
             get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
               env.redelivered, env.message.exchange_name,

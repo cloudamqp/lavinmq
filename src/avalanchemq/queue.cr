@@ -385,12 +385,17 @@ module AvalancheMQ
       end
     end
 
-    def get(no_ack : Bool) : Envelope | Nil
+    def basic_get(no_ack)
+      m = get(no_ack)
+      @get_count += 1 if m
+      m
+    end
+
+    private def get(no_ack : Bool) : Envelope | Nil
       return if @closed
       sp = @ready_lock.synchronize { @ready.shift? }
       return unless sp
       @unacked_count += 1 unless no_ack
-      @get_count += 1
       read(sp)
     end
 
