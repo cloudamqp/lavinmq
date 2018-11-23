@@ -65,7 +65,9 @@
     let date = new Date()
     let keys = Object.keys(data)
     for (let key in data) {
-      let label = key.split('_')[0].replace(/^\w/, c => c.toUpperCase())
+      let parts = key.split('_')
+      parts.unshift()
+      let label = parts.join(' ').replace(/^\w/, c => c.toUpperCase())
       let dataset = chart.data.datasets.find(dataset => dataset.label === label)
       if (dataset === undefined) {
         let i = keys.indexOf(key)

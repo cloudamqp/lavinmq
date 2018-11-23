@@ -34,6 +34,12 @@
           </tr>
         </table>
       </section>
+      <section class="card cols-8">
+        <h3>Rates</h3>
+        <div class="chart-container" style="position: relative; width:100%">
+          <canvas id="chart"></canvas>
+        </div>
+      </section>
       <section class="card">
         <h3>
           Bindings
@@ -116,16 +122,21 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
+    <script src="/js/lib/chart.js"></script>
+    <script src="/js/chart.js"></script>
     <script>
       const exchange = new URLSearchParams(window.location.search).get('name')
       const vhost = new URLSearchParams(window.location.search).get('vhost')
       const urlEncodedExchange = encodeURIComponent(exchange)
       const urlEncodedVhost = encodeURIComponent(vhost)
+      const chart = avalanchemq.chart.render('chart', 'msgs/s')
+
       document.title = exchange + ' | AvalancheMQ'
 
       const exchangeUrl = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
       function updateExchange () {
         avalanchemq.http.request('GET', exchangeUrl).then(item => {
+          avalanchemq.chart.update(chart, item.message_stats)
           let features = ''
           features += item.durable ? ' D' : ''
           features += item.auto_delete ? ' AD' : ''
@@ -139,9 +150,10 @@
             policyLink.textContent = item.policy
             avalanchemq.dom.setChild('#e-policy', policyLink)
           }
-        }).catch(avalanchemq.http.standardErrorHandler)
+        }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(eTimer))
       }
       updateExchange()
+      let eTimer = setInterval(updateExchange, 5000)
 
       const tableOptions = { url: exchangeUrl + '/bindings/source', keyColumns: ['properties_key'], interval: 5000 }
       const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item, all) {

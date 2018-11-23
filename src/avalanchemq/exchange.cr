@@ -1,15 +1,20 @@
 require "logger"
 require "./policy"
+require "./stats"
 
 module AvalancheMQ
   abstract class Exchange
     include PolicyTarget
+    include Stats
 
     getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type,
       alternate_exchange
 
     @alternate_exchange : String?
     @log : Logger
+
+    rate_stats(%w(publish_in publish_out))
+    property publish_in_count, publish_out_count
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
@@ -48,6 +53,7 @@ module AvalancheMQ
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
         policy: @policy.try &.name, effective_policy_definition: @policy,
+        message_stats: stats_details,
       }.to_json(builder)
     end
 

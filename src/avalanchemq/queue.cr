@@ -3,11 +3,13 @@ require "digest/sha1"
 require "./segment_position"
 require "./policy"
 require "./observable"
+require "./stats"
 
 module AvalancheMQ
   class Queue
     include PolicyTarget
     include Observable
+    include Stats
 
     alias ArgumentNumber = UInt16 | Int32 | Int64
 
@@ -24,12 +26,7 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
 
-    # Stats
-    STATS = %w(ack deliver get publish redeliver reject)
-    {% for name in STATS %}
-      @{{name.id}}_count = 0
-      @{{name.id}}_rate = 0_f32
-    {% end %}
+    rate_stats(%w(ack deliver get publish redeliver reject))
 
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
@@ -138,13 +135,6 @@ module AvalancheMQ
       s
     end
 
-    def update_rates
-      {% for name in STATS %}
-        @{{name.id}}_rate = @{{name.id}}_count.to_f32 / (Server.config.stats_interval / 1000)
-        @{{name.id}}_count = 0
-      {% end %}
-    end
-
     private def deliver_loop
       loop do
         break if @closed
@@ -247,26 +237,7 @@ module AvalancheMQ
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? :closed : :running,
         effective_policy_definition: @policy,
-        message_stats: {
-          ack_details: {
-            rate: @ack_rate,
-          },
-          deliver_details: {
-            rate: @deliver_rate,
-          },
-          publish_details: {
-            rate: @publish_rate,
-          },
-          get_details: {
-            rate: @get_rate,
-          },
-          redeliver_details: {
-            rate: @redeliver_rate,
-          },
-          reject_details: {
-            rate: @reject_rate,
-          },
-        },
+        message_stats: stats_details,
       }
     end
 

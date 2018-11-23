@@ -173,6 +173,7 @@ module AvalancheMQ
         sleep Server.config.stats_interval.milliseconds
         @vhosts.each_value do |vhost|
           vhost.queues.each_value(&.update_rates)
+          vhost.exchanges.each_value(&.update_rates)
         end
       end
     end
