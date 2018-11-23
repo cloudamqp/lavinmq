@@ -229,6 +229,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script src="/js/lib/chart.js"></script>
+    <script src="/js/chart.js"></script>
     <script>
       const queue = new URLSearchParams(window.location.search).get('name')
       const vhost = new URLSearchParams(window.location.search).get('vhost')
@@ -249,10 +250,11 @@
         avalanchemq.table.renderCell(tr, 4, item.prefetch_count, 'right')
       })
 
+      const chart = avalanchemq.chart.render('chart', 'msgs/s')
       const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
       function updateQueue (all) {
         avalanchemq.http.request('GET', queueUrl).then(item => {
-          updateCharts(item.message_stats)
+          avalanchemq.chart.update(chart, item.message_stats)
           document.getElementById('q-state').textContent = item.state
           document.getElementById('q-unacked').textContent = item.unacked
           document.getElementById('q-total').textContent = item.messages
@@ -424,91 +426,6 @@
             .catch(avalanchemq.http.standardErrorHandler)
         }
       })
-
-      function ticks() {
-        return ctx.clientWidth / 80
-      }
-
-      function updateCharts(data) {
-        let date = new Date()
-        let keys = Object.keys(data)
-        for (let key in data) {
-          let label = key.split('_')[0].replace(/^\w/, c => c.toUpperCase())
-          let dataset = chart.data.datasets.find(dataset => dataset.label === label)
-          if (dataset === undefined) {
-            let i = keys.indexOf(key)
-            let color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
-            dataset = {
-              label,
-              fill: false,
-              type: 'line',
-              data: [],
-              backgroundColor: color,
-              borderColor: color,
-            }
-            chart.data.datasets.push(dataset)
-          }
-          let point = {
-            x: date,
-            y: data[key].rate
-          }
-          if (dataset.data.length >= ticks()) {
-            dataset.data.shift()
-          }
-          dataset.data.push(point)
-        }
-        chart.update()
-      }
-      const chartColors = ["#5899DA", "#E8743B", "#19A979", "#ED4A7B", "#945ECF", "#13A4B4",
-                           "#525DF4", "#BF399E", "#6C8893", "#EE6868", "#2F6497"]
-      const ctx = document.getElementById("chart")
-      const chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: []
-        },
-        options: {
-          responsive: true,
-          aspectRatio: 4,
-          legend: {
-            labels: {
-              boxWidth: 10
-            }
-          },
-          scales: {
-            xAxes: [{
-              type: 'time',
-              distribution: 'series',
-              gridLines: {
-                display: false
-              },
-              time: {
-                unit: 'second',
-                unitStepSize: 5,
-                displayFormats: {
-                  second: 'HH:mm:ss'
-                }
-              },
-              ticks: {
-                min: 0,
-                max: ticks(),
-                source: 'data'
-              }
-            }],
-            yAxes: [{
-              scaleLabel: {
-                display: true,
-                labelString: 'msgs/s'
-              },
-              ticks: {
-                beginAtZero: true,
-                min: 0
-              },
-            }]
-          }
-        }
-      });
     </script>
   </body>
 </html>
