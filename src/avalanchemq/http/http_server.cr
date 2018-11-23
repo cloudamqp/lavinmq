@@ -27,7 +27,7 @@ module AvalancheMQ
       handlers = [
         ApiDefaultsHandler.new,
         ApiErrorHandler.new(@log.dup),
-        StaticController.new.route_handler,
+        StaticController.new,
         BasicAuthHandler.new(@amqp_server.users, @log.dup),
         # @cache,
         MainController.new(@amqp_server, @log.dup).route_handler,

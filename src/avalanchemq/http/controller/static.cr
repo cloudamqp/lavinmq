@@ -1,41 +1,30 @@
-require "router"
+require "http/server/handler"
 require "baked_file_system"
 require "digest/md5"
 
 module AvalancheMQ
   class StaticController
-    class Static
+    include HTTP::Handler
+
+    PUBLIC_DIR = "#{__DIR__}/../../../../static"
+
+    class Release
       extend BakedFileSystem
       bake_folder "../../../../static"
     end
 
-    include Router
-
-    def initialize
-      register_routes
-    end
-
-    private def register_routes
-      get "/" do |context, _|
-        serve(context, "index.html")
+    def call(context)
+      path = context.request.path
+      if !%w(GET HEAD).includes?(context.request.method) || path.starts_with?("/api/")
+        call_next(context)
+        return
       end
 
-      %w(login connections connection channels channel queues queue exchanges exchange users user
-        vhosts vhost shovels federation policies 401 404).each do |r|
-        get "/#{r}" do |context, _|
-          serve(context, "#{r}.html")
-        end
-      end
+      is_dir_path = path.ends_with? "/"
+      file_path = URI.unescape(path)
+      file_path = "#{file_path}index.html" if is_dir_path
 
-      get "/:filename" do |context, params|
-        serve(context, params["filename"])
-      end
-
-      %w(js img).each do |r|
-        get "/#{r}/:filename" do |context, params|
-          serve(context, "#{r}/#{params["filename"]}")
-        end
-      end
+      serve(context, file_path) || call_next(context)
     end
 
     BUILD_TIME = {{ "#{`date +%s`}" }}
@@ -44,11 +33,18 @@ module AvalancheMQ
       file = nil
       etag = nil
       {% if flag?(:release) %}
-        file = Static.get?(file_path) || raise HTTPServer::NotFoundError.new("#{file_path} not found")
-        etag = Digest::MD5.hexdigest(file_path + BUILD_TIME)
+        file = Release.get?(file_path)
+        unless file
+          file_path = "#{file_path}.html"
+          file = Release.get?(file_path)
+        end
+        etag = Digest::MD5.hexdigest(file_path + BUILD_TIME) if file
       {% else %}
-        file, etag = static(context, file(file_path))
+        file_path = File.join(PUBLIC_DIR, file_path)
+        file_path = "#{file_path}.html" unless File.exists?(file_path)
+        file, etag = static(context, file_path) if File.exists?(file_path)
       {% end %}
+      return nil unless file && etag
       context.response.content_type = mime_type(file_path)
       if context.request.headers["If-None-Match"]? == etag
         context.response.status_code = 304
@@ -60,7 +56,7 @@ module AvalancheMQ
       end
       context
     ensure
-      file.close if file
+      file.try &.close
     end
 
     private def mime_type(path)
@@ -75,18 +71,6 @@ module AvalancheMQ
       when ".svg"  then "image/svg+xml"
       else              "application/octet-stream"
       end
-    end
-
-    private def file(filename)
-      public_dir = File.join(__DIR__, "..", "..", "..", "..", "static")
-      file_path = File.join(public_dir, "#{filename}.html")
-      unless File.exists?(file_path)
-        file_path = File.join(public_dir, filename)
-        unless File.exists?(file_path)
-          raise HTTPServer::NotFoundError.new("#{filename} not found")
-        end
-      end
-      file_path
     end
 
     private def static(context, file_path)
