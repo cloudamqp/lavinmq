@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::ConnectionsController do
+describe AvalancheMQ::HTTP::ConnectionsController do
   describe "GET /api/connections" do
     it "should return network connections" do
       with_channel do

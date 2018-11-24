@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::ExchangesController do
+describe AvalancheMQ::HTTP::ExchangesController do
   describe "GET /api/exchanges" do
     it "should return all exchanges" do
       response = get("/api/exchanges")

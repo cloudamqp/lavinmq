@@ -19,7 +19,7 @@ module AvalancheMQ
       heartbeat = 0_u16
       connect_timeout = nil
       auth_mechanism = "PLAIN"
-      params = HTTP::Params.parse(@uri.query.to_s)
+      params = ::HTTP::Params.parse(@uri.query.to_s)
       params.each do |key, value|
         case key
         when "heartbeat"

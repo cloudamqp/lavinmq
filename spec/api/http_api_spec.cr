@@ -1,9 +1,9 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTPServer do
+describe AvalancheMQ::HTTP::Server do
   describe "GET /api/overview" do
     it "should refuse access if no basic auth header" do
-      response = HTTP::Client.get("#{BASE_URL}/api/overview")
+      response = ::HTTP::Client.get("#{BASE_URL}/api/overview")
       response.status_code.should eq 401
     end
 
@@ -11,14 +11,14 @@ describe AvalancheMQ::HTTPServer do
       s.users.delete("arnold")
       # arnold:pw
       response = get("/api/overview",
-        headers: HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"})
+        headers: ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"})
       response.status_code.should eq 401
     end
 
     it "should refuse access if password does not match" do
       # guest:pw
       response = get("/api/overview",
-        headers: HTTP::Headers{"Authorization" => "Basic Z3Vlc3Q6cHc="})
+        headers: ::HTTP::Headers{"Authorization" => "Basic Z3Vlc3Q6cHc="})
       response.status_code.should eq 401
     end
 

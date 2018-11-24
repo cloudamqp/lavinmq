@@ -83,7 +83,7 @@ module TestHelpers
     AvalancheMQ::LogFormatter.use(log)
     config = AvalancheMQ::Config.new
     @@s = AvalancheMQ::Server.new(dir, log.dup, config)
-    @@h = AvalancheMQ::HTTPServer.new(@@s.not_nil!, HTTP_PORT, log.dup)
+    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, HTTP_PORT, log.dup)
     Spec.after_each do
       @@h.try &.cache.purge
     end

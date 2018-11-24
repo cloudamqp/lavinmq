@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::ConsumersController do
+describe AvalancheMQ::HTTP::ConsumersController do
   describe "GET /api/consumers" do
     it "should return all consumers" do
       with_channel do |ch|

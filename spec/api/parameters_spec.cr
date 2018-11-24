@@ -1,11 +1,11 @@
 require "../spec_helper"
 
-describe AvalancheMQ::ParametersController do
+describe AvalancheMQ::HTTP::ParametersController do
   describe "GET /api/parameters" do
     it "should return all vhost scoped parameters for policymaker" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
       s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
       response = get("/api/parameters", headers: hdrs)
@@ -22,7 +22,7 @@ describe AvalancheMQ::ParametersController do
     it "should refuse monitoring and management" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::Management, AvalancheMQ::Tag::Monitoring])
       s.users.rm_permission("arnold", "/")
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/parameters", headers: hdrs)
       response.status_code.should eq 401
     ensure

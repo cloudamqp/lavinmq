@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::VHostsController do
+describe AvalancheMQ::HTTP::VHostsController do
   describe "GET /api/vhosts" do
     it "should return all vhosts" do
       response = get("/api/vhosts")
@@ -13,7 +13,7 @@ describe AvalancheMQ::VHostsController do
 
     it "should require management access" do
       s.users.create("arnold", "pw", [] of AvalancheMQ::Tag)
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
       response.status_code.should eq 401
     ensure
@@ -24,7 +24,7 @@ describe AvalancheMQ::VHostsController do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::Monitoring])
       s.vhosts.create("test")
       s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -56,7 +56,7 @@ describe AvalancheMQ::VHostsController do
 
     it "should only allow administrators to create vhost" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
     ensure
@@ -73,7 +73,7 @@ describe AvalancheMQ::VHostsController do
 
     it "should only allow administrators to delete vhost" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = delete("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
     ensure

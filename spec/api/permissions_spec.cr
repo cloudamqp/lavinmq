@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::PermissionsController do
+describe AvalancheMQ::HTTP::PermissionsController do
   describe "GET /api/permissions" do
     it "should return all permissions" do
       response = get("/api/permissions")
@@ -13,7 +13,7 @@ describe AvalancheMQ::PermissionsController do
 
     it "should refuse non administrators" do
       s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
-      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/permissions", headers: hdrs)
       response.status_code.should eq 401
     ensure

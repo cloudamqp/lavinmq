@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTPServer do
+describe AvalancheMQ::HTTP::Server do
   describe "POST /api/definitions" do
     it "imports users" do
       body = %({

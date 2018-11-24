@@ -63,7 +63,7 @@ spawn(name: "AMQP listening on #{config.port}") do
   amqp_server.not_nil!.listen(config.port)
 end
 
-http_server = AvalancheMQ::HTTPServer.new(amqp_server, config.mgmt_port, log.dup)
+http_server = AvalancheMQ::HTTP::Server.new(amqp_server, config.mgmt_port, log.dup)
 spawn(name: "HTTP listener") do
   http_server.listen
 end

@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::QueuesController do
+describe AvalancheMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
       s.vhosts["/"].declare_queue("", false, false)
