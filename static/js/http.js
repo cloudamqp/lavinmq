@@ -3,14 +3,14 @@
   window.avalanchemq = window.avalanchemq || {}
 
   function testLoggedIn () {
-    const hash = location.hash
+    const hash = window.location.hash
     if (hash.startsWith('#/login')) {
       const arr = hash.split('/')
       avalanchemq.auth.setAuth(arr[2] + ':' + arr[3])
-      location.hash = ''
+      window.location.hash = ''
       window.location.assign('/')
     }
-    if (location.pathname !== '/login') {
+    if (window.location.pathname !== '/login') {
       request('GET', '/api/whoami').then(function () {
         avalanchemq.auth.setUsername()
       }).catch(function () {
@@ -51,13 +51,13 @@
       .then(function (response) {
         return response.json().then(json => {
           if (!response.ok) {
-            throw { status: response.status, body: json }
+            throw new HTTPError(response.status, json)
           }
           return json
         }).catch(function (e) {
           // not json
           if (!response.ok) {
-            throw { status: response.status, body: response.statusText }
+            throw new HTTPError(response.status, response.statusText)
           }
           return e
         })
@@ -70,7 +70,15 @@
     } else if (e.body) {
       window.alert(e.body)
     } else {
-      console.error(e)
+      throw e
+    }
+  }
+
+  class HTTPError extends Error {
+    constructor (status, body) {
+      super(`${status}: ${body}`)
+      this.status = status
+      this.body = body
     }
   }
 
