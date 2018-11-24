@@ -20,13 +20,13 @@ module UpstreamSpecHelpers
   end
 end
 
-describe AvalancheMQ::Upstream do
+describe AvalancheMQ::Federation::Upstream do
   log = Logger.new(STDOUT)
   log.level = LOG_LEVEL
 
   it "should federate queue" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1")
+    upstream = AvalancheMQ::Federation::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1")
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -45,7 +45,7 @@ describe AvalancheMQ::Upstream do
 
   it "should not federate queue if no downstream consumer" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1")
+    upstream = AvalancheMQ::Federation::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1")
 
     with_channel do |ch|
       x = UpstreamSpecHelpers.setup_qs(ch).first
@@ -62,8 +62,8 @@ describe AvalancheMQ::Upstream do
 
   it "should federate queue with ack mode no-ack" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1",
-      ack_mode: AvalancheMQ::Upstream::AckMode::NoAck)
+    upstream = AvalancheMQ::Federation::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1",
+      ack_mode: AvalancheMQ::Federation::AckMode::NoAck)
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -82,8 +82,8 @@ describe AvalancheMQ::Upstream do
 
   it "should federate queue with ack mode on-publish" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1",
-      ack_mode: AvalancheMQ::Upstream::AckMode::OnPublish)
+    upstream = AvalancheMQ::Federation::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1",
+      ack_mode: AvalancheMQ::Federation::AckMode::OnPublish)
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch

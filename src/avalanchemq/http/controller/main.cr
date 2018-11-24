@@ -89,7 +89,7 @@ module AvalancheMQ
         end
 
         get "/api/federation-links" do |context, _params|
-          links = [] of Upstream::Link
+          links = [] of Federation::Upstream::Link
           vhosts(user(context)).each do |vhost|
             vhost.upstreams.not_nil!.each do |upstream|
               links.concat(upstream.links.values)
@@ -100,7 +100,7 @@ module AvalancheMQ
         end
 
         get "/api/federation-links/:vhost" do |context, params|
-          links = [] of Upstream::Link
+          links = [] of Federation::Upstream::Link
           with_vhost(context, params) do |vhost|
             @amqp_server.vhosts[vhost].upstreams.not_nil!.each do |upstream|
               links.concat(upstream.links.values)

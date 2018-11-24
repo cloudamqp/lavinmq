@@ -20,7 +20,7 @@ module AvalancheMQ
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
-    @upstreams : UpstreamStore?
+    @upstreams : Federation::UpstreamStore?
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String, server_log : Logger,
@@ -38,7 +38,7 @@ module AvalancheMQ
       @segment = last_segment
       @wfile = open_wfile
       @shovels = ShovelStore.new(self)
-      @upstreams = UpstreamStore.new(self)
+      @upstreams = Federation::UpstreamStore.new(self)
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
