@@ -19,7 +19,7 @@
       },
       options: {
         responsive: true,
-        aspectRatio: 4,
+        aspectRatio: 3,
         legend: {
           labels: {
             boxWidth: 10
@@ -61,18 +61,26 @@
     return chart
   }
 
+  function formatLabel (key) {
+    return key.replace(/_/, ' ').replace(/(rate|details)/, '').replace(/^\w/, c => c.toUpperCase())
+  }
+
+  function value (data) {
+    if (data.rate !== undefined) return data.rate
+    return data
+  }
+
   function update (chart, data) {
     let date = new Date()
     let keys = Object.keys(data)
     for (let key in data) {
-      let parts = key.split('_')
-      parts.unshift()
-      let label = parts.join(' ').replace(/^\w/, c => c.toUpperCase())
-      let dataset = chart.data.datasets.find(dataset => dataset.label === label)
+      let label = formatLabel(key)
+      let dataset = chart.data.datasets.find(dataset => dataset.key === key)
       if (dataset === undefined) {
         let i = keys.indexOf(key)
         let color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
         dataset = {
+          key,
           label,
           fill: false,
           type: 'line',
@@ -84,7 +92,7 @@
       }
       let point = {
         x: date,
-        y: data[key].rate
+        y: value(data[key])
       }
       if (dataset.data.length >= ticks(chart.ctx.canvas)) {
         dataset.data.shift()

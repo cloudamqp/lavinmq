@@ -4,9 +4,12 @@ require "socket"
 require "../message"
 require "./channel"
 require "../user"
+require "../stats"
 
 module AvalancheMQ
   abstract class Client
+    include Stats
+
     abstract def send(frame : AMQP::Frame)
     abstract def to_json(json : JSON::Builder)
     abstract def connection_details
@@ -23,6 +26,7 @@ module AvalancheMQ
     @direct_reply_consumer_tag : String?
     @log : Logger
     @running = true
+    rate_stats(%w(send_oct recv_oct))
 
     def self.close_on_ok(socket, log)
       loop do

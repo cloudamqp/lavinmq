@@ -3,14 +3,16 @@ require "../../version"
 
 module AvalancheMQ
   class MainController < Controller
+    QUEUE_STATS = %w(ack deliver get publish redeliver reject)
+
     private def register_routes
       get "/api/overview" do |context, _params|
         x_vhost = context.request.headers["x-vhost"]?
-        channels = 0
-        connections = 0
-        exchanges = 0
-        queues = 0
-        consumers = 0
+        channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
+        {% for name in QUEUE_STATS %}
+        {{name.id}}_rate = 0_f32
+        {% end %}
+
         vhosts(user(context)).each do |vhost|
           next unless x_vhost.nil? || vhost.name == x_vhost
           vhost_connections = @amqp_server.connections.select { |c| c.vhost.name == vhost.name }
@@ -19,19 +21,35 @@ module AvalancheMQ
           consumers += nr_of_consumers(vhost_connections)
           exchanges += vhost.exchanges.size
           queues += vhost.queues.size
+          vhost.queues.each_value do |q|
+            ready += q.message_count
+            unacked += q.unacked_count
+            {% for name in QUEUE_STATS %}
+            {{name.id}}_rate += q.stats_details[:{{name.id}}_details][:rate]
+            {% end %}
+          end
         end
 
         {
-          "avalanchemq_version": AvalancheMQ::VERSION,
-          "object_totals":       {
-            "channels":    channels,
-            "connections": connections,
-            "consumers":   consumers,
-            "exchanges":   exchanges,
-            "queues":      queues,
+          avalanchemq_version: AvalancheMQ::VERSION,
+          object_totals:       {
+            channels:    channels,
+            connections: connections,
+            consumers:   consumers,
+            exchanges:   exchanges,
+            queues:      queues,
           },
-          "listeners":      @amqp_server.listeners,
-          "exchange_types": VHost::EXCHANGE_TYPES.map { |name| {"name": name} },
+          queue_totals: {
+            messages:         ready + unacked,
+            messages_ready:   ready,
+            messages_unacked: unacked,
+          },
+          message_stats: {% begin %} {
+            {% for name in QUEUE_STATS %}
+            {{name.id}}_details: { rate: {{name.id}}_rate },
+          {% end %} } {% end %},
+          listeners:      @amqp_server.listeners,
+          exchange_types: VHost::EXCHANGE_TYPES.map { |name| {name: name} },
         }.to_json(context.response)
         context
       end

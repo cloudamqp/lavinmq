@@ -599,3 +599,8 @@ fieldset.inline {
   min-width: 150px;
   text-align: left;
 }
+
+.chart-container {
+  position: relative;
+  width:100%;
+}

@@ -26,7 +26,7 @@
     return url + '/' + vhost
   }
 
-  function update () {
+  function update (cb) {
     const vhost = window.sessionStorage.getItem('vhost')
     const headers = new window.Headers()
     if (vhost && vhost !== '_all') {
@@ -40,6 +40,9 @@
         console.error('Saving sessionStorage', e)
       }
       render(response)
+      if (cb) {
+        cb(response)
+      }
     })
   }
 
@@ -53,9 +56,9 @@
     }
   }
 
-  function start () {
-    update()
-    updateTimer = setInterval(update, 5000)
+  function start (cb) {
+    update(cb)
+    updateTimer = setInterval(() => update(cb), 5000)
   }
 
   function stop () {
