@@ -459,6 +459,7 @@ a[data-tag] {
   width: 151px;
   position: relative;
   top: -1px;
+  margin-right: 4px;
 }
 
 button {
