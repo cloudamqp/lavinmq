@@ -1,5 +1,6 @@
 require "logger"
-require "./shovel/*"
+require "./consumer"
+require "./publisher"
 
 module AvalancheMQ
   class Shovel
