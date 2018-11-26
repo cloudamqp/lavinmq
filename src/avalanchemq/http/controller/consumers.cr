@@ -9,7 +9,8 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/consumers" do |context, _params|
-          all_consumers(user(context)).to_json(context.response)
+          query = query_params(context)
+          page(query, all_consumers(user(context))).to_json(context.response)
           context
         end
 
@@ -17,12 +18,13 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
+            query = query_params(context)
             conns = connections(user).select { |conn| conn.vhost.name == vhost }
             consumers = Array(Client::Channel::Consumer).new
             conns.each do |conn|
               conn.channels.values.flat_map(&.consumers).each { |c| consumers << c }
             end
-            consumers.to_json(context.response)
+            page(query, consumers).to_json(context.response)
           end
         end
       end

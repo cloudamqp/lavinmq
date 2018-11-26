@@ -78,34 +78,40 @@ module AvalancheMQ
         end
 
         get "/api/shovels" do |context, _params|
-          vhosts(user(context)).flat_map { |vhost| vhost.shovels.not_nil!.values }.to_json(context.response)
+          query = query_params(context)
+          page(query, vhosts(user(context)).flat_map { |vhost| vhost.shovels.not_nil!.values })
+            .to_json(context.response)
           context
         end
 
         get "/api/shovels/:vhost" do |context, params|
+          query = query_params(context)
           with_vhost(context, params) do |vhost|
-            @amqp_server.vhosts[vhost].shovels.not_nil!.values.to_json(context.response)
+            page(query, @amqp_server.vhosts[vhost].shovels.not_nil!.values)
+              .to_json(context.response)
           end
         end
 
         get "/api/federation-links" do |context, _params|
           links = [] of Federation::Upstream::Link
+          query = query_params(context)
           vhosts(user(context)).each do |vhost|
             vhost.upstreams.not_nil!.each do |upstream|
               links.concat(upstream.links.values)
             end
           end
-          links.to_json(context.response)
+          page(query, links).to_json(context.response)
           context
         end
 
         get "/api/federation-links/:vhost" do |context, params|
           links = [] of Federation::Upstream::Link
+          query = query_params(context)
           with_vhost(context, params) do |vhost|
             @amqp_server.vhosts[vhost].upstreams.not_nil!.each do |upstream|
               links.concat(upstream.links.values)
             end
-            links.to_json(context.response)
+            page(query, links).to_json(context.response)
           end
         end
       end

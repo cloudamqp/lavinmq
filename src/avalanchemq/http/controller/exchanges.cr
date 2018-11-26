@@ -22,14 +22,16 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/exchanges" do |context, _params|
-          vhosts(user(context)).flat_map { |v| v.exchanges.values }.to_json(context.response)
+          query = query_params(context)
+          page(query, vhosts(user(context)).flat_map { |v| v.exchanges.values }).to_json(context.response)
           context
         end
 
         get "/api/exchanges/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            @amqp_server.vhosts[vhost].exchanges.values.to_json(context.response)
+            query = query_params(context)
+            page(query, @amqp_server.vhosts[vhost].exchanges.values).to_json(context.response)
           end
         end
 
@@ -93,18 +95,20 @@ module AvalancheMQ
         get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
+            query = query_params(context)
             e = exchange(context, params, vhost)
-            e.bindings_details.map { |b| map_binding(b) }.to_json(context.response)
+            page(query, e.bindings_details.map { |b| map_binding(b) }).to_json(context.response)
           end
         end
 
         get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
+            query = query_params(context)
             e = exchange(context, params, vhost)
             all_bindings = e.vhost.exchanges.values.flat_map(&.bindings_details)
-            all_bindings.select { |b| b[:destination] == e.name }
-              .map { |b| map_binding(b) }.to_json(context.response)
+            page(query, all_bindings.select { |b| b[:destination] == e.name }
+              .map { |b| map_binding(b) }).to_json(context.response)
           end
         end
 

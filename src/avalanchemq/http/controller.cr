@@ -16,6 +16,25 @@ module AvalancheMQ
 
       private abstract def register_routes
 
+      private def query_params(context)
+        context.request.query_params
+      end
+
+      private def page(params, values)
+        return values unless params.has_key?("page")
+        page = params["page"].to_i
+        page_size = params["page_size"]?.try(&.to_i) || 1000
+        start = (page - 1) * page_size
+        items = values[start, page_size]
+        {
+          item_count:  items.size,
+          items:       items,
+          page:        page,
+          page_size:   page_size,
+          total_count: values.size,
+        }
+      end
+
       private def redirect_back(context)
         context.response.headers["Location"] = context.request.headers["Referer"]
         halt(context, 302)

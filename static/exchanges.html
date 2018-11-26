@@ -7,6 +7,10 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
   </head>
   <body>
     <header>
@@ -92,7 +96,7 @@
       if (vhost && vhost !== "_all") {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''

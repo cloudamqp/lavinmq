@@ -20,15 +20,18 @@ module AvalancheMQ
       include QueueHelpers
 
       private def register_routes
-        get "/api/queues" do |context, _params|
-          vhosts(user(context)).flat_map { |v| v.queues.values }.to_json(context.response)
+        get "/api/queues" do |context, params|
+          query = query_params(context)
+          page(query, vhosts(user(context)).flat_map { |v| v.queues.values })
+            .to_json(context.response)
           context
         end
 
         get "/api/queues/:vhost" do |context, params|
+          query = query_params(context)
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            @amqp_server.vhosts[vhost].queues.values.to_json(context.response)
+            page(query, @amqp_server.vhosts[vhost].queues.values).to_json(context.response)
           end
         end
 
@@ -92,10 +95,11 @@ module AvalancheMQ
         get "/api/queues/:vhost/:name/bindings" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
+            query = query_params(context)
             queue = queue(context, params, vhost)
             all_bindings = queue.vhost.exchanges.values.flat_map(&.bindings_details)
-            all_bindings.select { |b| b[:destination] == queue.name }
-              .map { |b| map_binding(b) }.to_json(context.response)
+            page(query, all_bindings.select { |b| b[:destination] == queue.name }
+              .map { |b| map_binding(b) }).to_json(context.response)
           end
         end
 
@@ -160,15 +164,15 @@ module AvalancheMQ
                 bad_request(context, "Unknown encoding #{encoding}")
               end
               {
-                "payload_bytes":    env.message.size,
-                "redelivered":      env.redelivered,
-                "exchange":         env.message.exchange_name,
-                "routing_key":      env.message.routing_key,
-                "message_count":    count,
-                "properties":       env.message.properties,
-                "payload":          content,
-                "payload_encoding": payload_encoding,
-                "peek":             ack_mode == "peek",
+                payload_bytes:    env.message.size,
+                redelivered:      env.redelivered,
+                exchange:         env.message.exchange_name,
+                routing_key:      env.message.routing_key,
+                message_count:    count,
+                properties:       env.message.properties,
+                payload:          content,
+                payload_encoding: payload_encoding,
+                peek:             ack_mode == "peek",
               }
             end
             res.to_json(context.response)

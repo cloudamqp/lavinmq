@@ -18,14 +18,17 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/connections" do |context, _params|
-          connections(user(context)).to_json(context.response)
+          query = query_params(context)
+          page(query, connections(user(context))).to_json(context.response)
           context
         end
 
         get "/api/vhosts/:vhost/connections" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            @amqp_server.connections.select { |c| c.vhost.name == vhost }.to_json(context.response)
+            query = query_params(context)
+            page(query, @amqp_server.connections.select { |c| c.vhost.name == vhost })
+              .to_json(context.response)
           end
         end
 
@@ -44,7 +47,8 @@ module AvalancheMQ
 
         get "/api/connections/:name/channels" do |context, params|
           with_connection(context, params) do |connection|
-            connection.channels.values.to_json(context.response)
+            query = query_params(context)
+            page(query, connection.channels.values).to_json(context.response)
           end
         end
       end

@@ -2,20 +2,42 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
+  function getQueryVariable (variable) {
+    var query = window.location.search.substring(1)
+    var vars = query.split('&')
+    for (var i = 0; i < vars.length; i++) {
+      var pair = vars[i].split('=')
+      if (pair[0] === variable) { return pair[1] }
+    }
+    return (false)
+  }
+
   function renderTable (id, options = {}, renderRow) {
     let sortKey = ''
     let reverseOrder = false
-    const url = options.url
+    let url = options.url
+    const table = document.getElementById(id)
     const keyColumns = options.keyColumns
     const interval = options.interval
     let timer = null
 
     makeHeadersSortable()
 
+    if (options.pagination) {
+      let page = getQueryVariable('page') || 1
+      let pageSize = getQueryVariable('page_size') || 10
+      url = `${url}?page=${page}&page_size=${pageSize}`
+      let footer = `<tfoot><tr>
+                        <td colspan="999"><div id="pagination"></div></td>
+                      </tr></tfoot>`
+      table.insertAdjacentHTML('beforeend', footer)
+    }
+
     if (url) {
       const raw = window.sessionStorage.getItem(url)
       if (raw) {
-        updateTable(raw)
+        let data = JSON.parse(raw)
+        updateTable(data.items || data)
       }
       fetchAndUpdate()
       if (interval) {
@@ -24,9 +46,9 @@
     }
 
     function makeHeadersSortable () {
-      document.querySelectorAll('#' + id + ' th[data-sort-key]').forEach(function (cell) {
+      table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
         cell.addEventListener('click', function (e) {
-          document.querySelectorAll('#' + id + ' th[data-sort-key]').forEach(th => {
+          table.querySelectorAll('th[data-sort-key]').forEach(th => {
             if (th.isEqualNode(e.target)) return
             th.classList.remove('sorting_desc')
             th.classList.remove('sorting_asc')
@@ -42,7 +64,7 @@
             e.target.classList.add('sorting_asc')
             e.target.classList.remove('sorting_desc')
           }
-          const t = document.getElementById(id).tBodies[0]
+          const t = table.tBodies[0]
           clearRows(t)
           const raw = window.sessionStorage.getItem(url)
           updateTable(raw)
@@ -78,13 +100,16 @@
       })
     }
 
-    function updateTable (raw) {
-      let data = raw
-      if (typeof raw === 'string') {
-        data = JSON.parse(raw)
-      }
+    function updateTable (response) {
+      if (response === undefined) return
+      let data = response.items || response
+      let totalCount = response.total_count || response.length
       data.sort(byColumn)
-      document.getElementById(id + '-count').textContent = data.length
+      document.getElementById(id + '-count').textContent = totalCount
+      if (options.pagination && response.items) {
+        let pages = Math.ceil(response.total_count / response.page_size)
+        avalanchemq.dom.createPagination(pages, response.page)
+      }
       const t = document.getElementById(id).tBodies[0]
       if (!Array.isArray(data) || data.length === 0) {
         t.innerHTML = '<tr><td colspan="100" class="center">Nope, nothing to see here.</td></tr>'

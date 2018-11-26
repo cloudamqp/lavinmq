@@ -16,15 +16,17 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/users" do |context, _params|
+          query = query_params(context)
           refuse_unless_administrator(context, user(context))
-          @amqp_server.users.values.map(&.user_details).to_json(context.response)
+          page(query, @amqp_server.users.values.map(&.user_details)).to_json(context.response)
           context
         end
 
         get "/api/users/without-permissions" do |context, _params|
+          query = query_params(context)
           refuse_unless_administrator(context, user(context))
-          @amqp_server.users.values.select { |u| u.permissions.empty? }
-            .map(&.user_details).to_json(context.response)
+          page(query, @amqp_server.users.values.select { |u| u.permissions.empty? }
+            .map(&.user_details)).to_json(context.response)
           context
         end
 

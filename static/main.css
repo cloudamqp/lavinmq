@@ -138,6 +138,16 @@ footer .logo {
   height: 20px;
 }
 
+@media (max-width: 1500px) {
+  body {
+    font-size: 9pt;
+  }
+
+  small {
+    font-size: 7.5pt;
+  }
+}
+
 @media (max-width: 1200px) {
   main {
     grid-template-columns: 1fr;
@@ -271,7 +281,10 @@ aside li.active a {
   font-weight: normal;
   border-bottom: 1px solid var(--font-color-dark);
   padding: .75rem 1.15rem .5rem .75rem;
-  min-width: 60px;
+  min-width: 10px;
+  max-width: 500px;
+  word-break: keep-all;
+  white-space: nowrap;
 }
 
 .table th:first-child {
@@ -310,6 +323,12 @@ aside li.active a {
   border-top: 1px solid #ddd;
   padding: .75rem 1.55rem .5rem .55rem;
   color: var(--font-color-light);
+  width: 100%;
+  max-width: 10vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: keep-all;
+  white-space: nowrap;
 }
 
 .table tbody tr:nth-of-type(odd) {
@@ -603,4 +622,27 @@ fieldset.inline {
 .chart-container {
   position: relative;
   width:100%;
+}
+
+#pagination {
+  padding: 0;
+  margin: 0;
+  display: grid;
+  justify-self: center;
+  grid-template-columns: repeat(10, fit-content(100px))
+}
+#pagination .page-item a {
+  padding: 5px 10px;
+  border: 2px solid var(--separator-color);
+  border-right: 0;
+}
+#pagination .page-item.active a {
+  background-color: #9AB87A;
+}
+#pagination .page-item:first-child a {
+  border-radius: 5px 0 0 5px;
+}
+#pagination .page-item:last-child a {
+  border-radius: 0 5px 5px 0;
+  border-right: 2px solid var(--separator-color);
 }
