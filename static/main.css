@@ -276,6 +276,9 @@ aside li.active a {
   width: 100%;
   border-radius: 3px;
 }
+.table tbody {
+  border-bottom: solid 1px #ddd;
+}
 
 .table th {
   font-weight: normal;
@@ -625,24 +628,33 @@ fieldset.inline {
 }
 
 #pagination {
-  padding: 0;
-  margin: 0;
+  margin: -1px 0;
   display: grid;
-  justify-self: center;
   grid-template-columns: repeat(10, fit-content(100px))
 }
+#pagination .page-item {
+  border-bottom: 1px solid #ddd;
+  border-right: 1px solid #ddd;;
+  box-sizing: content-box;
+}
 #pagination .page-item a {
-  padding: 5px 10px;
-  border: 2px solid var(--separator-color);
-  border-right: 0;
+  padding: 0 15px;
+  height: 32px;
+  line-height: 32px;
+  white-space: nowrap;
+  display: block;
+  text-decoration: none;
+  text-align: center;
+  font-weight: bold;
 }
 #pagination .page-item.active a {
-  background-color: #9AB87A;
+  background-color: var(--theme-color-link);
+  color: white;
 }
-#pagination .page-item:first-child a {
-  border-radius: 5px 0 0 5px;
+#pagination .page-item:first-child {
+  border-bottom-left-radius: 3px;
 }
-#pagination .page-item:last-child a {
-  border-radius: 0 5px 5px 0;
-  border-right: 2px solid var(--separator-color);
+#pagination .page-item:last-child {
+  border-right: 1px solid #ddd;
+  border-bottom-right-radius: 3px;
 }

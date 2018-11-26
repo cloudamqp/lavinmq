@@ -55,21 +55,21 @@
       const vhost = sessionStorage.getItem('vhost')
       let url = '/api/connections'
       if (vhost && vhost !== "_all") {
-        url = '/api/vhosts/' + encodeURIComponent(vhost) + '/connections'
+        url = `/api/vhosts/${encodeURIComponent(vhost)}/connections`
       }
       const tableOptions = { url, keyColumns: ['name'], interval: 5000, pagination: true }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let client = ''
           if (item.client_properties.product) {
-            client = item.client_properties.product + ' / ' + (item.client_properties.platform || '')
+            client = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
           }
           const clientVersion = item.client_properties.version || ''
           const connectionLink = document.createElement('a')
-          connectionLink.href = '/connection?name=' + encodeURIComponent(item.name)
+          connectionLink.href = `/connection?name=${encodeURIComponent(item.name)}`
           if (item.client_properties.connection_name) {
-            connectionLink.innerHTML = '<span>' + item.name + '</span><br>' + '<small>' +
-              item.client_properties.connection_name + '</small>'
+            connectionLink.innerHTML = `<span>${item.name}</span>
+              <br><small>${item.client_properties.connection_name}</small>`
           } else {
             connectionLink.textContent = item.name
           }
@@ -80,11 +80,11 @@
           avalanchemq.table.renderCell(tr, 5, item.protocol, 'center')
           avalanchemq.table.renderCell(tr, 7, item.channel_max, 'right')
           // avalanchemq.table.renderCell(tr, 8, item.auth_mechanism)
-          avalanchemq.table.renderHtmlCell(tr, 8, client + '<br><small>' + clientVersion + '</small>')
+          avalanchemq.table.renderHtmlCell(tr, 8, `${client}<br><small>${clientVersion}</small>`)
           avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString(), 'center')
         }
         const state = item.state == 'running' ? 'state-ok' : 'state-error'
-        avalanchemq.table.renderCell(tr, 3, null, 'center ' + state)
+        avalanchemq.table.renderCell(tr, 3, null, `center ${state}`)
         avalanchemq.table.renderCell(tr, 6, item.channels, 'right')
       })
     </script>
