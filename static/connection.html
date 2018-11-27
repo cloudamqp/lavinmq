@@ -78,21 +78,23 @@
           Channels
           <small id="table-count"></small>
         </h3>
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th data-sort-key="name">Name</th>
-              <th data-sort-key="vhost" class="left">Virtual Host</th>
-              <th data-sort-key="username" class="left">Username</th>
-              <th>Mode</th>
-              <th data-sort-key="consumer_count">Consumers</th>
-              <th data-sort-key="prefetch_count">Prefetch limit</th>
-              <th data-sort-key="messages_unacked">Unacked messages</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name">Name</th>
+                <th data-sort-key="vhost" class="left">Virtual Host</th>
+                <th data-sort-key="username" class="left">Username</th>
+                <th>Mode</th>
+                <th data-sort-key="consumer_count">Consumers</th>
+                <th data-sort-key="prefetch_count">Prefetch limit</th>
+                <th data-sort-key="messages_unacked">Unacked messages</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="delete" id="closeConnection" class="form card">
         <h3>Close connection</h3>
@@ -112,6 +114,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       const urlEncodedConnection = new URLSearchParams(window.location.search).get('name')
       const connection = decodeURIComponent(urlEncodedConnection)
       document.title = connection + ' | AvalancheMQ'
@@ -173,7 +176,7 @@
       document.querySelector('#closeConnection').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/connections/' + urlEncodedConnection
-        const headers = new Headers({
+        const headers = new window.Headers({
           'X-Reason': document.querySelector('[name=reason]').value
         })
         avalanchemq.http.request('DELETE', url, { headers })

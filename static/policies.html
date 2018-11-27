@@ -22,21 +22,23 @@
     <aside></aside>
     <main>
       <section class="card">
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <td>Virtual host</td>
-              <td data-sort-key="name">Name</td>
-              <td>Pattern</td>
-              <td>Apply to</td>
-              <td>Definition</td>
-              <td>Priority</td>
-              <td></td>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <td>Virtual host</td>
+                <td data-sort-key="name">Name</td>
+                <td>Pattern</td>
+                <td>Apply to</td>
+                <td>Definition</td>
+                <td>Priority</td>
+                <td></td>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="createPolicy" class="form card">
         <h3>Add/update policy</h3>
@@ -80,14 +82,15 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       avalanchemq.vhosts.addVhostOptions('createPolicy')
 
       let url = '/api/policies'
-      const vhost = sessionStorage.getItem('vhost')
-      if (vhost && vhost !== "_all") {
+      const vhost = window.sessionStorage.getItem('vhost')
+      if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], pagination: true }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'], pagination: true, columnSelector: true }
       const policiesTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
@@ -112,7 +115,7 @@
 
       document.querySelector('#createPolicy').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const name = encodeURIComponent(data.get('name'))
         const vhost = encodeURIComponent(data.get('vhost'))
         const url = '/api/policies/' + vhost + '/' + name

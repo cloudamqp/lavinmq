@@ -22,10 +22,13 @@
     let timer = null
 
     makeHeadersSortable()
+    if (options.columnSelector) {
+      renderColumnSelector(table)
+    }
 
     if (options.pagination) {
       let page = getQueryVariable('page') || 1
-      let pageSize = getQueryVariable('page_size') || 10
+      let pageSize = getQueryVariable('page_size') || 1000
       url = `${url}?page=${page}&page_size=${pageSize}`
       let footer = `<tfoot><tr>
                         <td colspan="999"><div id="pagination"></div></td>
@@ -108,7 +111,7 @@
       document.getElementById(id + '-count').textContent = totalCount
       if (options.pagination && response.items) {
         let pages = Math.ceil(response.total_count / response.page_size)
-        avalanchemq.dom.createPagination(pages, response.page)
+        createPagination(pages, response.page)
       }
       const t = document.getElementById(id).tBodies[0]
       if (!Array.isArray(data) || data.length === 0) {
@@ -179,6 +182,7 @@
 
   function renderCell (tr, column, value, classList = '') {
     const cell = tr.cells[column] || buildCells(tr, column)
+    if (cell.classList.contains('hide')) return
     cell.classList = classList
     if (value instanceof window.Element) {
       if (!value.isEqualNode(cell.firstChild)) {
@@ -212,6 +216,109 @@
       index--
     }
     return tr.cells[tr.cells.length - 1]
+  }
+
+  function toggleCol (table, colIndex) {
+    let allCol = table.querySelectorAll(`tr > *:nth-child(${colIndex + 1})`)
+    for (let i = 0; i < allCol.length; i++) {
+      allCol[i].classList.toggle('hide')
+    }
+  }
+
+  function renderColumnSelector (table) {
+    const container = table.parentElement
+    container.insertAdjacentHTML('afterbegin', '<a class="col-toggle" id="col-toggle">+/-</a>')
+
+    function close () {
+      container.parentElement.querySelectorAll('.tooltip').forEach(el => {
+        container.parentElement.removeChild(el)
+      })
+    }
+
+    container.addEventListener('click', e => {
+      if (!e.target.classList.contains('col-toggle')) return
+      let tooltip = container.parentElement.querySelector('.tooltip')
+      if (tooltip) return close()
+      let str = '<form class="form tooltip"><a class="close">&times;</a>'
+      let allCol = table.getElementsByTagName('th')
+      for (let i = 0; i < allCol.length; i++) {
+        let col = allCol[i]
+        let checked = !col.classList.contains('hide') ? 'checked' : ''
+        str += `<label>
+                  <span>${col.innerHTML}</span>
+                  <input type="checkbox" class="col-toggle-checkbox" ${checked} data-index=${i}>
+                </label>`
+      }
+      str += '</form>'
+      container.parentElement.insertAdjacentHTML('beforeend', str)
+      container.parentElement.addEventListener('click', e => {
+        if (e.target.classList.contains('close')) close()
+      })
+      container.parentElement.addEventListener('change', e => {
+        if (!e.target.classList.contains('col-toggle-checkbox')) return
+        let i = parseInt(e.target.dataset.index)
+        toggleCol(table, i)
+      })
+      document.addEventListener('keyup', e => {
+        if (e.key === 'Escape') close()
+      })
+    })
+  }
+
+  function createPagination (pages, page) {
+    let str = ''
+    let active
+    let pageCutLow = page - 1
+    let pageCutHigh = page + 1
+    if (pages === 1) return
+
+    if (page > 1) {
+      str += `<div class="page-item previous"><a href="?page_size=${pages}&page=${page - 1}">Previous</a></div>`
+    }
+    if (pages < 6) {
+      for (let p = 1; p <= pages; p++) {
+        active = page === p ? 'active' : ''
+        str += `<div class="page-item ${active}"><a href="?page_size=${pages}&page=${p}">${p}</a></div>`
+      }
+    } else {
+      if (page > 2) {
+        str += `<div class="page-item"><a href="?page_size=${pages}&page=1">1</a></div>`
+        if (page > 3) {
+          str += `<div class="page-item out-of-range"><a href="?page_size=${pages}&page=${page - 2}">...</a></div>`
+        }
+      }
+      if (page === 1) {
+        pageCutHigh += 2
+      } else if (page === 2) {
+        pageCutHigh += 1
+      }
+      if (page === pages) {
+        pageCutLow -= 2
+      } else if (page === pages - 1) {
+        pageCutLow -= 1
+      }
+      for (let p = pageCutLow; p <= pageCutHigh; p++) {
+        if (p === 0) {
+          p += 1
+        }
+        if (p > pages) {
+          continue
+        }
+        active = page === p ? 'active' : ''
+        str += `<div class="page-item ${active}"><a href="?page_size=${pages}&page=${p}">${p}</a></div>`
+      }
+      if (page < pages - 1) {
+        if (page < pages - 2) {
+          str += `<div class="page-item out-of-range"><a href="?page_size=${pages}&page=${page + 2}">...</a></div>`
+        }
+        str += `<div class="page-item"><a href="?page_size=${pages}&page=${pages}">${pages}</a></div>`
+      }
+    }
+    if (page < pages) {
+      str += `<div class="page-item next"><a href="?page_size=${pages}&page=${page + 1}">Next</a></div>`
+    }
+    document.getElementById('pagination').innerHTML = str
+    return str
   }
 
   Object.assign(window.avalanchemq, {

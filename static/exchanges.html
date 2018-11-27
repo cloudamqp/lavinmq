@@ -78,6 +78,7 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       avalanchemq.vhosts.addVhostOptions('addExchange')
 
       const exchangeTypes = avalanchemq.overview.data.exchange_types
@@ -91,12 +92,12 @@
         select.add(opt)
       }
 
-      const vhost = sessionStorage.getItem('vhost')
+      const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/exchanges'
-      if (vhost && vhost !== "_all") {
+      if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true, columnSelector: true }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''
@@ -122,7 +123,7 @@
 
       document.querySelector('#addExchange').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
         const exchange = encodeURIComponent(data.get('name'))
         const url = '/api/exchanges/' + vhost + '/' + exchange
@@ -136,7 +137,7 @@
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {
             exchangeTable.fetchAndUpdate()
-            avalanchemq.dom.toast("Exchange " + exchange + " created")
+            avalanchemq.dom.toast('Exchange ' + exchange + ' created')
             evt.target.reset()
           }).catch(avalanchemq.http.standardErrorHandler)
       })

@@ -5,7 +5,9 @@
   "main": "",
   "directories": {},
   "dependencies": {
-    "chart.js": "^2.7.3"
+    "chart.js": "^2.7.3",
+    "eslint-plugin-html": "^5.0.0",
+    "eslint-plugin-markdown": "^1.0.0-rc.0"
   },
   "devDependencies": {},
   "scripts": {

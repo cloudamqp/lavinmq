@@ -22,21 +22,23 @@
     <aside></aside>
     <main>
       <section class="card">
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th data-sort-key="name">Name</th>
-              <th data-sort-key="vhost" class="left">Virtual host</th>
-              <th data-sort-key="username" class="left">User</th>
-              <th>Mode</th>
-              <th data-sort-key="consumer_count">Consumers</th>
-              <th data-sort-key="prefetch_count">Prefetch limit</th>
-              <th data-sort-key="messages_unacked">Unacked messages</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name">Name</th>
+                <th data-sort-key="vhost" class="left">Virtual host</th>
+                <th data-sort-key="username" class="left">User</th>
+                <th>Mode</th>
+                <th data-sort-key="consumer_count">Consumers</th>
+                <th data-sort-key="prefetch_count">Prefetch limit</th>
+                <th data-sort-key="messages_unacked">Unacked messages</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </main>
     <footer></footer>
@@ -47,12 +49,13 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const vhost = sessionStorage.getItem('vhost')
+      /* globals avalanchemq */
+      const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/channels'
-      if (vhost && vhost !== "_all") {
+      if (vhost && vhost !== '_all') {
         url = '/api/vhosts/' + encodeURIComponent(vhost) + '/channels'
       }
-      const tableOptions = { url, keyColumns: ['name'], interval: 5000, pagination: true }
+      const tableOptions = { url, keyColumns: ['name'], interval: 5000, pagination: true, columnSelector: true }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           const channelLink = document.createElement('a')

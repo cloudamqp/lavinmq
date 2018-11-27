@@ -22,42 +22,50 @@
     <aside></aside>
     <main>
       <section class="card">
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th data-sort-key="vhost">Virtual host</th>
-              <th data-sort-key="name" class="left">Name</th>
-              <th data-sort-key="user" class="left">User</th>
-              <th data-sort-key="state">State</th>
-              <th data-sort-key="ssl">TLS</th>
-              <th data-sort-key="protocol">Protocol</th>
-              <th data-sort-key="channels">Channels</th>
-              <th data-sort-key="channel_max">Channel max</th>
-              <!--th data-sort-key="auth_mechanism">Auth mechanism</th-->
-              <th>Client</th>
-              <th data-sort-key="connected_at">Connected at</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="vhost">Virtual host</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th data-sort-key="user" class="left">User</th>
+                <th data-sort-key="state">State</th>
+                <th data-sort-key="ssl">TLS</th>
+                <th data-sort-key="protocol">Protocol</th>
+                <th data-sort-key="channels">Channels</th>
+                <th data-sort-key="channel_max">Channel max</th>
+                <!--th data-sort-key="auth_mechanism">Auth mechanism</th-->
+                <th>Client</th>
+                <th data-sort-key="connected_at">Connected at</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </main>
     <footer></footer>
     <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
-    <script src="/js/dom.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const vhost = sessionStorage.getItem('vhost')
+      /* globals avalanchemq */
+      const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/connections'
-      if (vhost && vhost !== "_all") {
+      if (vhost && vhost !== '_all') {
         url = `/api/vhosts/${encodeURIComponent(vhost)}/connections`
       }
-      const tableOptions = { url, keyColumns: ['name'], interval: 5000, pagination: true }
+      const tableOptions = {
+        url,
+        keyColumns: ['name'],
+        interval: 5000,
+        pagination: true,
+        columnSelector: true
+      }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let client = ''
@@ -83,7 +91,7 @@
           avalanchemq.table.renderHtmlCell(tr, 8, `${client}<br><small>${clientVersion}</small>`)
           avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString(), 'center')
         }
-        const state = item.state == 'running' ? 'state-ok' : 'state-error'
+        const state = item.state === 'running' ? 'state-ok' : 'state-error'
         avalanchemq.table.renderCell(tr, 3, null, `center ${state}`)
         avalanchemq.table.renderCell(tr, 6, item.channels, 'right')
       })

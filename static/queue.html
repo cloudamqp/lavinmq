@@ -70,37 +70,41 @@
           Consumers
           <small id="table-count"></small>
         </h3>
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th>Channel</th>
-              <th class="left">Consumer tag</th>
-              <th>Ack required</th>
-              <th>Exclusive</th>
-              <th class="right">Prefetch count</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Channel</th>
+                <th class="left">Consumer tag</th>
+                <th>Ack required</th>
+                <th>Exclusive</th>
+                <th class="right">Prefetch count</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <section class="card">
         <h3>
           Bindings
           <small id="bindings-table-count"></small>
         </h3>
-        <div id="bindings-table-error"></div>
-        <table id="bindings-table" class="table">
-          <thead>
-            <tr>
-              <th>From</th>
-              <th class="left">Routing key</th>
-              <th class="left">Arguments</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="bindings-table-error"></div>
+          <table id="bindings-table" class="table">
+            <thead>
+              <tr>
+                <th>From</th>
+                <th class="left">Routing key</th>
+                <th class="left">Arguments</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="post" id="addBinding" class="form card cols-6">
         <h3>Add a binding to this queue</h3>
@@ -235,6 +239,7 @@
     <script src="/js/lib/chart.js"></script>
     <script src="/js/chart.js"></script>
     <script>
+      /* globals avalanchemq */
       const queue = new URLSearchParams(window.location.search).get('name')
       const vhost = new URLSearchParams(window.location.search).get('vhost')
       const urlEncodedQueue = encodeURIComponent(queue)
@@ -312,7 +317,7 @@
 
       document.querySelector('#addBinding').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const e = encodeURIComponent(data.get('source'))
         const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue
         const args = avalanchemq.dom.parseJSON(data.get('arguments'))
@@ -328,7 +333,7 @@
 
       document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const url = '/api/exchanges/' + urlEncodedVhost + '/amq.default/publish'
         const properties = avalanchemq.dom.parseJSON(data.get('properties'))
         properties.delivery_mode = parseInt(data.get('delivery_mode'))
@@ -341,14 +346,14 @@
         }
         avalanchemq.http.request('POST', url, { body })
           .then(() => {
-            avalanchemq.dom.toast("Published message to " + queue)
+            avalanchemq.dom.toast('Published message to ' + queue)
             updateQueue(false)
           }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#getMessages').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/get'
         const body = {
           count: parseInt(data.get('messages')),
@@ -359,7 +364,7 @@
         avalanchemq.http.request('POST', url, { body })
           .then(messages => {
             if (messages.length === 0) {
-              alert("No messages in queue")
+              window.alert('No messages in queue')
               return
             }
             updateQueue(false)
@@ -369,13 +374,13 @@
             for (let i = 0; i < messages.length; i++) {
               const message = messages[i]
               const msgNode = template.cloneNode(true)
-              msgNode.removeAttribute("id")
+              msgNode.removeAttribute('id')
               msgNode.querySelector('.message-number').textContent = i + 1
               msgNode.querySelector('.messages-remaining').textContent = message.message_count
-              const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange;
+              const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange
               msgNode.querySelector('.message-exchange').textContent = exchange
               msgNode.querySelector('.message-routing-key').textContent = message.routing_key
-              const mode = message.peek ? 'peek' : (message.redelivered ? 'redelivered' : 'get');
+              const mode = message.peek ? 'peek' : (message.redelivered ? 'redelivered' : 'get')
               msgNode.querySelector('.message-mode').textContent = mode
               msgNode.querySelector('.message-properties').textContent = avalanchemq.dom.jsonToText(message.properties)
               msgNode.querySelector('.message-size').textContent = message.payload_bytes
@@ -407,16 +412,16 @@
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {
             evt.target.reset()
-            avalanchemq.dom.toast("Moving messages to " + dest)
+            avalanchemq.dom.toast('Moving messages to ' + dest)
           }).catch(avalanchemq.http.standardErrorHandler)
       })
 
       document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
-        if (confirm("Are you sure? Messages cannot be recovered after purging.")) {
+        if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
           avalanchemq.http.request('DELETE', url)
-            .then(() => { avalanchemq.dom.toast("Queue purged!") })
+            .then(() => { avalanchemq.dom.toast('Queue purged!') })
             .catch(avalanchemq.http.standardErrorHandler)
         }
       })
@@ -424,7 +429,7 @@
       document.querySelector('#deleteQueue').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
-        if (confirm("Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.")) {
+        if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/queues' })
             .catch(avalanchemq.http.standardErrorHandler)

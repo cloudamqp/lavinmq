@@ -23,22 +23,24 @@
     <main>
       <section class="card">
         <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <td colspan="2">Overview</td>
-              <td colspan="3">Messages</td>
-            </tr>
-            <tr>
-              <th data-sort-key="name">Name</th>
-              <th class="left">Users</th>
-              <th data-sort-key="ready">Ready</th>
-              <th data-sort-key="unacked">Unacked</th>
-              <th data-sort-key="total">Total</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <td colspan="2">Overview</td>
+                <td colspan="3">Messages</td>
+              </tr>
+              <tr>
+                <th data-sort-key="name">Name</th>
+                <th class="left">Users</th>
+                <th data-sort-key="ready">Ready</th>
+                <th data-sort-key="unacked">Unacked</th>
+                <th data-sort-key="total">Total</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="createVhost" class="form card">
         <h3>Add virtual host</h3>
@@ -57,18 +59,25 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      const tableOptions = { url: '/api/vhosts', keyColumns: ['name'], interval: 5000, pagination: true }
+      /* globals avalanchemq */
+      const tableOptions = {
+        url: '/api/vhosts',
+        keyColumns: ['name'],
+        interval: 5000,
+        pagination: true,
+        columnSelector: true
+      }
       const vhostTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
-          const raw = sessionStorage.getItem(permissionsUrl)
+          const raw = window.sessionStorage.getItem(permissionsUrl)
 
           if (raw) {
             resolve(JSON.parse(raw))
           } else {
             avalanchemq.http.request('GET', permissionsUrl).then(permissions => {
-              sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
+              window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
               resolve(permissions)
             }).catch(e => reject(e))
           }
@@ -91,7 +100,7 @@
 
       document.querySelector('#createVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const name = encodeURIComponent(data.get('name'))
         const url = '/api/vhosts/' + name
         avalanchemq.http.request('PUT', url)

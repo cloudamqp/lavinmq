@@ -45,19 +45,21 @@
           Permissions
           <small id="table-count"></small>
         </h3>
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Configure regexp</th>
-              <th>Write regexp</th>
-              <th>Read regexp</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Configure regexp</th>
+                <th>Write regexp</th>
+                <th>Read regexp</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="setPermission" class="form card cols-6">
         <h3>Set permission</h3>
@@ -98,6 +100,7 @@
     <script src="/js/users.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       const vhost = new URLSearchParams(window.location.search).get('name')
       const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = vhost + ' | AvalancheMQ'
@@ -148,7 +151,7 @@
 
       document.querySelector('#setPermission').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(data.get('user'))
         const body = {
           configure: data.get('configure'),
@@ -165,7 +168,7 @@
       document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/vhosts/' + urlEncodedVhost
-        if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
+        if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/vhosts' })
             .catch(avalanchemq.http.standardErrorHandler)

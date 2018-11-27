@@ -22,37 +22,39 @@
     <aside></aside>
     <main>
       <section class="card">
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <td>Virtual host</td>
-              <td data-sort-key="name">Name</td>
-              <td colspan="3" class="table-multihead">Source</td>
-              <td colspan="2" class="table-multihead">Destination</td>
-              <td>Reconnect delay</td>
-              <td>Ack mode</td>
-              <td>Delete after</td>
-              <td>State</td>
-              <td></td>
-            </tr>
-            <tr>
-              <th></th>
-              <th></th>
-              <th class="left">Uri</th>
-              <th class="left">Endpoint</th>
-              <th class="left table-multihead">Prefetch</th>
-              <th class="left">Uri</th>
-              <th class="left table-multihead">Endpoint</th>
-              <th></th>
-              <th></th>
-              <th></th>
-              <th></th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <td>Virtual host</td>
+                <td data-sort-key="name">Name</td>
+                <td colspan="3" class="table-multihead">Source</td>
+                <td colspan="2" class="table-multihead">Destination</td>
+                <td>Reconnect delay</td>
+                <td>Ack mode</td>
+                <td>Delete after</td>
+                <td>State</td>
+                <td></td>
+              </tr>
+              <tr>
+                <th></th>
+                <th></th>
+                <th class="left">Uri</th>
+                <th class="left">Endpoint</th>
+                <th class="left table-multihead">Prefetch</th>
+                <th class="left">Uri</th>
+                <th class="left table-multihead">Endpoint</th>
+                <th></th>
+                <th></th>
+                <th></th>
+                <th></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="createShovel" class="form card">
         <h3>Add a new shovel</h3>
@@ -139,16 +141,18 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       avalanchemq.vhosts.addVhostOptions('createShovel')
 
-      const shovelsTable = avalanchemq.table.renderTable('table', { keyColumns: ['vhost', 'name'] }, (tr, item, all) => {
+      const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true }
+      const shovelsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
         if (!all) {
           avalanchemq.table.renderCell(tr, 10, item.state)
           return
         }
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ":***@")))
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
         let srcEndpoint = ''
         let srcEndpointType = ''
         if (item.value['src-queue']) {
@@ -160,7 +164,7 @@
         }
         avalanchemq.table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
         avalanchemq.table.renderCell(tr, 4, item.value['src-prefetch-count'])
-        avalanchemq.table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ":***@")))
+        avalanchemq.table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
         let destEndpoint = ''
         let destEndpointType = ''
         if (item.value['dest-queue']) {
@@ -190,15 +194,15 @@
         avalanchemq.table.renderCell(tr, 11, btn, 'right')
       })
 
-      const vhost = sessionStorage.getItem('vhost')
+      const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/parameters/shovel'
       let statusUrl = '/api/shovels'
-      if (vhost && vhost !== "_all") {
+      if (vhost && vhost !== '_all') {
         let urlEncodedVhost = encodeURIComponent(vhost)
         url += '/' + urlEncodedVhost
         statusUrl += '/' + urlEncodedVhost
       }
-      function updateShovelsTable() {
+      function updateShovelsTable () {
         const p1 = avalanchemq.http.request('GET', url)
         const p2 = avalanchemq.http.request('GET', statusUrl)
 
@@ -206,7 +210,7 @@
           const items = values[0]
           const status = values[1]
           const shovels = items.map(item => {
-            item.state = status.find(s => s.name == item.name && s.vhost == item.vhost).state
+            item.state = status.find(s => s.name === item.name && s.vhost === item.vhost).state
             return item
           })
           shovelsTable.updateTable(shovels)
@@ -221,7 +225,7 @@
 
       document.querySelector('#createShovel').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const name = encodeURIComponent(data.get('name'))
         const vhost = encodeURIComponent(data.get('vhost'))
         const url = '/api/parameters/shovel/' + vhost + '/' + name
@@ -232,15 +236,15 @@
             'src-prefetch-count': parseInt(data.get('src-prefetch-count')),
             'src-delete-after': data.get('src-delete-after'),
             'reconnect-delay': parseInt(data.get('reconnect-delay')),
-            'ack-mode': data.get('ack-mode')          }
+            'ack-mode': data.get('ack-mode') }
         }
-        if (data.get('src-type') == 'queue') {
+        if (data.get('src-type') === 'queue') {
           body.value['src-queue'] = data.get('src-endpoint')
         } else {
           body.value['src-exchange'] = data.get('src-endpoint')
           body.value['src-exchange-key'] = data.get('src-exchange-key')
         }
-        if (data.get('dest-type') == 'queue') {
+        if (data.get('dest-type') === 'queue') {
           body.value['dest-queue'] = data.get('dest-endpoint')
         } else {
           body.value['dest-exchange'] = data.get('dest-endpoint')

@@ -79,6 +79,7 @@
 <script src="/js/lib/chart.js"></script>
 <script src="/js/chart.js"></script>
 <script>
+  /* globals avalanchemq */
   const msgChart = avalanchemq.chart.render('msgChart', 'msgs')
   const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s')
 
@@ -90,11 +91,11 @@
   avalanchemq.overview.start(updateCharts)
   document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
     evt.preventDefault()
-    const body = new FormData(this)
+    const body = new window.FormData(this)
     avalanchemq.http.request('POST', '/api/definitions/upload', { body }).then(function () {
       window.location.assign('/')
     }).catch(function () {
-      alert('Upload failed')
+      window.alert('Upload failed')
     })
   })
 
@@ -104,17 +105,17 @@
   })
   document.querySelector('#exportDefinitions').addEventListener('submit', function (evt) {
     evt.preventDefault()
-    const body = new FormData(this)
+    const body = new window.FormData(this)
     let url = '/api/definitions'
     if (body.get('vhost') !== '_all') {
       url += '/' + body.get('vhost')
     }
     avalanchemq.http.request('GET', url).then(function (data) {
-      const a = document.createElement('a');
+      const a = document.createElement('a')
       a.classList.add('hide')
       let name = 'avalanchemq-definitions-' + window.location.hostname
       name += '-' + new Date().toISOString() + '.json'
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'text/json', name })
+      const blob = new window.Blob([JSON.stringify(data, null, 2)], { type: 'text/json', name })
       a.download = name
       a.href = URL.createObjectURL(blob)
       document.body.appendChild(a)
@@ -122,6 +123,5 @@
       document.body.removeChild(a)
     }).catch(avalanchemq.http.standardErrorHandler)
   })
-
 </script>
 

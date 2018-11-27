@@ -44,6 +44,7 @@
       </section>
     </main>
     <script type="text/javascript">
+      /* globals avalanchemq */
       document.querySelector('#login').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const user = document.querySelector('#amq-username').value
@@ -53,7 +54,7 @@
           avalanchemq.auth.storeCookie({ username: user, password: pass })
           window.location.assign('/')
         }).catch(function () {
-          alert('Login failed')
+          window.alert('Login failed')
         })
       })
     </script>

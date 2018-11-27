@@ -63,9 +63,16 @@
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       let usersTable = null
       avalanchemq.http.request('GET', '/api/permissions').then(permissions => {
-        const tableOptions = { url: '/api/users', keyColumns: ['vhost', 'name'], interval: 0, pagination: true }
+        const tableOptions = {
+          url: '/api/users',
+          keyColumns: ['vhost', 'name'],
+          interval: 0,
+          pagination: true,
+          columnSelector: true
+        }
         usersTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
           if (all) {
             const userLink = document.createElement('a')
@@ -83,7 +90,7 @@
 
       document.querySelector('#createUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const username = encodeURIComponent(data.get('username'))
         const url = '/api/users/' + username
         const body = {

@@ -28,6 +28,10 @@ textarea {
   font-family: monospace;
 }
 
+a:hover {
+  cursor: pointer;
+}
+
 header,
 footer {
   grid-column: 2 / span 1;
@@ -64,15 +68,16 @@ main {
   width: calc(100% - 40px);
   justify-self: center;
   margin-bottom: 20px;
+  position: relative;
 }
 
 .card {
-  overflow: auto;
   padding: 1.5rem;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   background-color: #FFF;
   grid-column: 1 / span 12;
+  position: relative;
 }
 
 .card > :first-child, .card > form > :first-child {
@@ -151,10 +156,6 @@ footer .logo {
 @media (max-width: 1200px) {
   main {
     grid-template-columns: 1fr;
-  }
-
-  .card {
-    grid-column: auto / span 1 !important;
   }
 }
 
@@ -271,6 +272,10 @@ aside li.active a {
   border-left: 6px solid #3C9368;
 }
 
+.table-wrapper {
+  overflow: auto;
+}
+
 .table {
   border-collapse: collapse;
   width: 100%;
@@ -278,6 +283,12 @@ aside li.active a {
 }
 .table tbody {
   border-bottom: solid 1px #ddd;
+}
+
+.col-toggle {
+  position: absolute;
+  top: 8px;
+  right: 1.5rem;
 }
 
 .table th {
@@ -326,7 +337,6 @@ aside li.active a {
   border-top: 1px solid #ddd;
   padding: .75rem 1.55rem .5rem .55rem;
   color: var(--font-color-light);
-  width: 100%;
   max-width: 10vw;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -652,9 +662,28 @@ fieldset.inline {
   color: white;
 }
 #pagination .page-item:first-child {
+  border-left: 1px solid #ddd;
   border-bottom-left-radius: 3px;
 }
 #pagination .page-item:last-child {
   border-right: 1px solid #ddd;
   border-bottom-right-radius: 3px;
+}
+
+.tooltip {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: white;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  overflow: visible;
+  z-index: 99;
+}
+
+.tooltip .close {
+  position: absolute;
+  top: 5px;
+  right: 5px;
 }

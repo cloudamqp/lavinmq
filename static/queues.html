@@ -74,14 +74,15 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       avalanchemq.vhosts.addVhostOptions('declare')
 
-      const vhost = sessionStorage.getItem('vhost')
+      const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/queues'
-      if (vhost && vhost !== "_all") {
+      if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true }
+      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true, columnSelector: true }
       const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''
@@ -102,7 +103,7 @@
           policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
           policyLink.textContent = item.policy
         }
-        const state = item.state == 'running' ? 'state-ok' : 'state-error'
+        const state = item.state === 'running' ? 'state-ok' : 'state-error'
         avalanchemq.table.renderCell(tr, 3, policyLink, 'center')
         avalanchemq.table.renderCell(tr, 4, item.consumers, 'right')
         avalanchemq.table.renderCell(tr, 5, null, 'center ' + state)
@@ -113,7 +114,7 @@
 
       document.querySelector('#declare').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
         const queue = encodeURIComponent(data.get('name'))
         const url = '/api/queues/' + vhost + '/' + queue
@@ -126,7 +127,7 @@
           .then(() => {
             queuesTable.fetchAndUpdate()
             evt.target.reset()
-            avalanchemq.dom.toast("Queue " + queue + " created")
+            avalanchemq.dom.toast('Queue ' + queue + ' created')
           }).catch(avalanchemq.http.standardErrorHandler)
       })
     </script>

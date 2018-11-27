@@ -64,19 +64,21 @@
           Consumers
           <small id="table-count"></small>
         </h3>
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th>Consumer tag</th>
-              <th class="left">Queue</th>
-              <th>Ack required</th>
-              <th>Exclusive</th>
-              <th>Prefetch count</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Consumer tag</th>
+                <th class="left">Queue</th>
+                <th>Ack required</th>
+                <th>Exclusive</th>
+                <th>Prefetch count</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </main>
     <footer></footer>
@@ -89,6 +91,7 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       const channel = new URLSearchParams(window.location.search).get('name')
       const urlEncodedChannel = encodeURIComponent(channel)
       let vhost = null

@@ -39,19 +39,21 @@
           Permissions
           <small id="table-count"></small>
         </h3>
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th>Virtual host</th>
-              <th class="left">Configure regexp</th>
-              <th class="left">Write regexp</th>
-              <th class="left">Read regexp</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th class="left">Configure regexp</th>
+                <th class="left">Write regexp</th>
+                <th class="left">Read regexp</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="setPermission" class="form card cols-6">
         <h3>Set permission</h3>
@@ -110,6 +112,7 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
+      /* globals avalanchemq */
       const user = new URLSearchParams(window.location.search).get('name')
       const urlEncodedUsername = encodeURIComponent(user)
       document.title = user + ' | AvalancheMQ'
@@ -154,7 +157,7 @@
 
       document.querySelector('#setPermission').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
         const url = '/api/permissions/' + vhost + '/' + urlEncodedUsername
         const body = {
@@ -169,7 +172,6 @@
           }).catch(avalanchemq.http.standardErrorHandler)
       })
 
-
       document.querySelector('[name=remove_password]').addEventListener('change', function () {
         const pwd = document.querySelector('[name=password]')
         if (this.checked) {
@@ -182,12 +184,12 @@
       })
       document.querySelector('#updateUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const data = new FormData(this)
+        const data = new window.FormData(this)
         const url = '/api/users/' + urlEncodedUsername
         const body = {
           tags: data.get('tags')
         }
-        if (data.get('remove_password') == 'on') {
+        if (data.get('remove_password') === 'on') {
           body.password_hash = ''
         } else {
           body.password = data.get('password')
@@ -206,7 +208,7 @@
       document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/users/' + urlEncodedUsername
-        if (confirm("Are you sure? This object cannot be recovered after deletion.")) {
+        if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/users' })
             .catch(avalanchemq.http.standardErrorHandler)
