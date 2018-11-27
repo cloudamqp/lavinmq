@@ -180,8 +180,8 @@ module AvalancheMQ
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : AMQP::Error::FrameDecode
-      @log.info "Lost connection, while reading (#{ex.cause})"
+    rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
+      @log.info "Lost connection, while reading (#{ex.cause})" unless closed?
       cleanup
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }

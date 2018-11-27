@@ -165,10 +165,8 @@ module AvalancheMQ
       @log.debug "Yielding before cleaning up"
       Fiber.yield
       @log.debug "Cleaning up"
-      @exclusive_queues.each_slice(100) do |qs|
-        qs.each &.close
-        Fiber.yield
-      end
+      @exclusive_queues.each(&.close)
+      @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
       @on_close_callback.try &.call(self)
@@ -177,9 +175,9 @@ module AvalancheMQ
 
     def close(reason = nil)
       reason ||= "Connection closed"
-      @log.debug "Gracefully closing"
-      send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
+      @log.info { "Closing, #{reason}" }
       @running = false
+      send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
     end
 
     def closed?
@@ -197,8 +195,9 @@ module AvalancheMQ
     end
 
     def close_connection(frame, code, text)
-      send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
+      @log.info { "Closing, #{text}" }
       @running = false
+      send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
     end
 
     def direct_reply_channel
