@@ -65,7 +65,8 @@
         keyColumns: ['name'],
         interval: 5000,
         pagination: true,
-        columnSelector: true
+        columnSelector: true,
+        search: true
       }
       const vhostTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
         const urlEncodedVhost = encodeURIComponent(item.name)

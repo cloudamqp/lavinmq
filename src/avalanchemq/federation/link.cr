@@ -27,6 +27,10 @@ module AvalancheMQ
           @state.to_s
         end
 
+        def name
+          @federated_q.name
+        end
+
         def on(event, data)
           @log.debug { "event=#{event} data=#{data}" }
           case event

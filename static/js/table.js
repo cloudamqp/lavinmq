@@ -16,23 +16,30 @@
     let sortKey = ''
     let reverseOrder = false
     let url = options.url
+    let query = options.query || ''
     const table = document.getElementById(id)
+    const container = table.parentElement
     const keyColumns = options.keyColumns
     const interval = options.interval
     let timer = null
+    let searchTerm = null
 
     makeHeadersSortable()
     if (options.columnSelector) {
       renderColumnSelector(table)
     }
 
+    if (options.search) {
+      renderSearch(table)
+    }
+
     if (options.pagination) {
       let page = getQueryVariable('page') || 1
-      let pageSize = getQueryVariable('page_size') || 1000
-      url = `${url}?page=${page}&page_size=${pageSize}`
+      let pageSize = getQueryVariable('page_size') || 20
+      query += `&page=${page}&page_size=${pageSize}`
       let footer = `<tfoot><tr>
-                        <td colspan="999"><div id="pagination"></div></td>
-                      </tr></tfoot>`
+                      <td colspan="999"><div id="pagination"></div></td>
+                    </tr></tfoot>`
       table.insertAdjacentHTML('beforeend', footer)
     }
 
@@ -82,11 +89,15 @@
     }
 
     function fetchAndUpdate () {
+      let fullUrl = `${url}?${query.replace(/^&/, '')}`
+      if (searchTerm) {
+        fullUrl += `&name=${searchTerm}&use_regex=true`
+      }
       const tableError = document.getElementById(id + '-error')
-      return avalanchemq.http.request('GET', url).then(function (response) {
+      return avalanchemq.http.request('GET', fullUrl).then(function (response) {
         tableError.textContent = ''
         try {
-          window.sessionStorage.setItem(url, JSON.stringify(response))
+          window.sessionStorage.setItem(fullUrl, JSON.stringify(response))
         } catch (e) {
           console.error('Saving sessionStorage', e)
         }
@@ -106,11 +117,11 @@
     function updateTable (response) {
       if (response === undefined) return
       let data = response.items || response
-      let totalCount = response.total_count || response.length
+      let totalCount = response.filtered_count || response.length
       data.sort(byColumn)
       document.getElementById(id + '-count').textContent = totalCount
       if (options.pagination && response.items) {
-        let pages = Math.ceil(response.total_count / response.page_size)
+        let pages = Math.ceil(response.filtered_count / response.page_size)
         createPagination(pages, response.page)
       }
       const t = document.getElementById(id).tBodies[0]
@@ -118,6 +129,7 @@
         t.innerHTML = '<tr><td colspan="100" class="center">Nope, nothing to see here.</td></tr>'
         return
       }
+
       let start = 0
       for (let i = 0; i < data.length; i++) {
         const item = data[i]
@@ -126,8 +138,10 @@
           if (foundIndex !== i) {
             renderRow(t.rows[i], item, true)
             setKeyAttributes(t.rows[i], item)
-            renderRow(t.rows[foundIndex], data[foundIndex], true)
-            setKeyAttributes(t.rows[foundIndex], data[foundIndex])
+            if (data[foundIndex]) {
+              renderRow(t.rows[foundIndex], data[foundIndex], true)
+              setKeyAttributes(t.rows[foundIndex], data[foundIndex])
+            }
           } else {
             renderRow(t.children[i], item, false)
           }
@@ -177,6 +191,20 @@
         tr.setAttribute('data-' + key, item[key])
       })
     }
+
+    function renderSearch () {
+      const debouncedUpdate = debounce(fetchAndUpdate)
+      let str = `<form class="form">
+            <input class="filter-table" placeholder="Filter regex">
+          </form>`
+      container.insertAdjacentHTML('afterbegin', str)
+      container.addEventListener('keyup', e => {
+        if (!e.target.classList.contains('filter-table')) return true
+        searchTerm = encodeURIComponent(e.target.value)
+        debouncedUpdate()
+      })
+    }
+
     return { updateTable, fetchAndUpdate }
   }
 
@@ -236,7 +264,7 @@
     }
 
     container.addEventListener('click', e => {
-      if (!e.target.classList.contains('col-toggle')) return
+      if (!e.target.classList.contains('col-toggle')) return true
       let tooltip = container.parentElement.querySelector('.tooltip')
       if (tooltip) return close()
       let str = '<form class="form tooltip"><a class="close">&times;</a>'
@@ -255,7 +283,7 @@
         if (e.target.classList.contains('close')) close()
       })
       container.parentElement.addEventListener('change', e => {
-        if (!e.target.classList.contains('col-toggle-checkbox')) return
+        if (!e.target.classList.contains('col-toggle-checkbox')) return true
         let i = parseInt(e.target.dataset.index)
         toggleCol(table, i)
       })
@@ -270,7 +298,10 @@
     let active
     let pageCutLow = page - 1
     let pageCutHigh = page + 1
-    if (pages === 1) return
+    if (pages === 1) {
+      document.getElementById('pagination').innerHTML = ''
+      return
+    }
 
     if (page > 1) {
       str += `<div class="page-item previous"><a href="?page_size=${pages}&page=${page - 1}">Previous</a></div>`
@@ -319,6 +350,22 @@
     }
     document.getElementById('pagination').innerHTML = str
     return str
+  }
+
+  function debounce (func, wait, immediate) {
+    let timeout
+    return function () {
+      let context = this
+      let args = arguments
+      function later () {
+        timeout = null
+        if (!immediate) func.apply(context, args)
+      }
+      let callNow = immediate && !timeout
+      clearTimeout(timeout)
+      timeout = setTimeout(later, wait || 200)
+      if (callNow) func.apply(context, args)
+    }
   }
 
   Object.assign(window.avalanchemq, {

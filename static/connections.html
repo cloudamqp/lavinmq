@@ -64,7 +64,8 @@
         keyColumns: ['name'],
         interval: 5000,
         pagination: true,
-        columnSelector: true
+        columnSelector: true,
+        search: true
       }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {

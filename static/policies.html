@@ -90,7 +90,13 @@
       if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], pagination: true, columnSelector: true }
+      const tableOptions = {
+        url,
+        keyColumns: ['vhost', 'name'],
+        pagination: true,
+        columnSelector: true,
+        search: true
+      }
       const policiesTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)

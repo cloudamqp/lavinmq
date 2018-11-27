@@ -20,6 +20,24 @@ module AvalancheMQ
         context.request.query_params
       end
 
+      private def filter_values(params, values)
+        return values unless raw_name = params["name"]?
+        term = URI.unescape(raw_name)
+        if params["use_regex"]?.try { |v| v == "true" }
+          values.select { |v| match_value(v).to_s =~ /#{term}/ }
+        else
+          values.select { |v| match_value(v).to_s.includes?(term) }
+        end
+      end
+
+      private def match_value(value)
+        if value.responds_to?(:name)
+          value.name
+        else
+          value[:name]? || value["name"]?
+        end
+      end
+
       private def page(params, values)
         unless params.has_key?("page")
           raise Server::PayloadTooLarge.new if values.size > 10000
@@ -28,13 +46,15 @@ module AvalancheMQ
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size
-        items = values[start, page_size]
+        all_items = filter_values(params, values)
+        items = all_items[start, page_size]
         {
-          item_count:  items.size,
-          items:       items,
-          page:        page,
-          page_size:   page_size,
-          total_count: values.size,
+          filtered_count: all_items.size,
+          item_count:     items.size,
+          items:          items,
+          page:           page,
+          page_size:      page_size,
+          total_count:    values.size,
         }
       end
 

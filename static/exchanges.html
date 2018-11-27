@@ -97,7 +97,13 @@
       if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true, columnSelector: true }
+      const tableOptions = { url,
+        keyColumns: ['vhost', 'name'],
+        interval: 5000,
+        pagination: true,
+        columnSelector: true,
+        search: true
+      }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''

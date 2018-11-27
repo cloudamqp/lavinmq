@@ -55,7 +55,13 @@
       if (vhost && vhost !== '_all') {
         url = '/api/vhosts/' + encodeURIComponent(vhost) + '/channels'
       }
-      const tableOptions = { url, keyColumns: ['name'], interval: 5000, pagination: true, columnSelector: true }
+      const tableOptions = { url,
+        keyColumns: ['name'],
+        interval: 5000,
+        pagination: true,
+        columnSelector: true,
+        search: true
+      }
       avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           const channelLink = document.createElement('a')

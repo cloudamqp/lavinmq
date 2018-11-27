@@ -21,13 +21,13 @@ module AvalancheMQ
         @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
         not_found(context, ex.message)
       rescue ex : JSON::Error | Server::ExpectedBodyError | ArgumentError
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex.inspect_with_backtrace}"
+        @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex.message}"
         context.response.status_code = 400
         {error: "bad_request", reason: "#{ex.message}"}.to_json(context.response)
       rescue ex : Controller::HaltRequest
         @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
       rescue ex : Exception
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=500\n#{ex.inspect_with_backtrace}"
+        @log.error "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}"
         context.response.status_code = 500
         {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response)
       end

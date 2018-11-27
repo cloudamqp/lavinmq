@@ -14,6 +14,10 @@ module AvalancheMQ
           @unacked = Deque(SegmentPosition).new(@channel.prefetch_count)
         end
 
+        def name
+          @tag
+        end
+
         def accepts?
           @channel.prefetch_count.zero? || @unacked.size < @channel.prefetch_count
         end

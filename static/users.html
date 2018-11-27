@@ -71,7 +71,8 @@
           keyColumns: ['vhost', 'name'],
           interval: 0,
           pagination: true,
-          columnSelector: true
+          columnSelector: true,
+          search: true
         }
         usersTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
           if (all) {

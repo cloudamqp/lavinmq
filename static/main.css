@@ -276,6 +276,10 @@ aside li.active a {
   overflow: auto;
 }
 
+.filter-table {
+  margin: 2px;
+}
+
 .table {
   border-collapse: collapse;
   width: 100%;
@@ -287,7 +291,7 @@ aside li.active a {
 
 .col-toggle {
   position: absolute;
-  top: 8px;
+  top: 15px;
   right: 1.5rem;
 }
 

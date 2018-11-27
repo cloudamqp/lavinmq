@@ -23,22 +23,24 @@
     <main>
       <section class="card">
         <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th data-sort-key="vhost">Virtual host</th>
-              <th data-sort-key="name" class="left">Name</th>
-              <th>Features</th>
-              <th data-sort-key="policy">Policy</th>
-              <th data-sort-key="consumers">Consumers</th>
-              <th data-sort-key="state">State</th>
-              <th data-sort-key="ready">Ready</th>
-              <th data-sort-key="unacked">Unacked</th>
-              <th data-sort-key="messages">Total</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="vhost">Virtual host</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th>Features</th>
+                <th data-sort-key="policy">Policy</th>
+                <th data-sort-key="consumers">Consumers</th>
+                <th data-sort-key="state">State</th>
+                <th data-sort-key="ready">Ready</th>
+                <th data-sort-key="unacked">Unacked</th>
+                <th data-sort-key="messages">Total</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="declare" class="form card">
         <h3>Add queue</h3>
@@ -82,7 +84,14 @@
       if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url, keyColumns: ['vhost', 'name'], interval: 5000, pagination: true, columnSelector: true }
+      const tableOptions = {
+        url,
+        keyColumns: ['vhost', 'name'],
+        interval: 5000,
+        pagination: true,
+        columnSelector: true,
+        search: true
+      }
       const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let features = ''

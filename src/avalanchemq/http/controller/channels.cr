@@ -19,7 +19,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             query = query_params(context)
             c = @amqp_server.connections.find { |conn| conn.vhost.name == vhost }
-            channels = c.try(&.channels.values) || [] of Nil
+            channels = c.try(&.channels.values) || [] of Client::Channel
             page(query, channels).to_json(context.response)
           end
         end

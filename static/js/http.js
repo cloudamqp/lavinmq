@@ -51,13 +51,13 @@
       .then(function (response) {
         return response.json().then(json => {
           if (!response.ok) {
-            throw new HTTPError(response.status, json)
+            throw new HTTPError(response.status, json.reason)
           }
           return json
         }).catch(function (e) {
           // not json
           if (!response.ok) {
-            throw new HTTPError(response.status, response.statusText)
+            throw new HTTPError(response.status, e.body || response.statusText)
           }
           return e
         })
