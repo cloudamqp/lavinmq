@@ -176,8 +176,8 @@ module AvalancheMQ
     def close(reason = nil)
       reason ||= "Connection closed"
       @log.info { "Closing, #{reason}" }
-      @running = false
       send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
+      @running = false
     end
 
     def closed?
@@ -196,8 +196,8 @@ module AvalancheMQ
 
     def close_connection(frame, code, text)
       @log.info { "Closing, #{text}" }
-      @running = false
       send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
+      @running = false
     end
 
     def direct_reply_channel

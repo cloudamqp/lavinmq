@@ -190,6 +190,7 @@ module AvalancheMQ
     end
 
     def send(frame : AMQP::Frame)
+      return false if closed?
       @log.debug { "Send #{frame.inspect}" }
       handle_frame(frame)
       case frame

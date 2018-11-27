@@ -18,7 +18,7 @@ module AvalancheMQ
                    @user : User,
                    tune_ok,
                    start_ok)
-      @socket = (ssl_client || tcp_socket).not_nil!
+      @socket = ssl_client || tcp_socket
       @remote_address = tcp_socket.remote_address
       @local_address = tcp_socket.local_address
       log = vhost.log.dup
@@ -34,7 +34,7 @@ module AvalancheMQ
     end
 
     def self.start(tcp_socket, ssl_client, vhosts, users, log)
-      socket = ssl_client.nil? ? tcp_socket : ssl_client
+      socket = ssl_client || tcp_socket
       remote_address = tcp_socket.remote_address
       proto = uninitialized UInt8[8]
       socket.read_fully(proto.to_slice)
@@ -110,7 +110,7 @@ module AvalancheMQ
       end
       nil
     rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
-      log.warn "#{ex.cause.inspect} while #{remote_address} tried to establish connection"
+      log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
       nil
     rescue ex : Exception
       log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
@@ -386,6 +386,7 @@ module AvalancheMQ
     end
 
     def send(frame : AMQP::Frame)
+      return false if closed?
       @log.debug { "Send #{frame.inspect}" }
       @write_lock.synchronize do
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
@@ -399,7 +400,7 @@ module AvalancheMQ
       end
       true
     rescue ex : IO::Error | Errno
-      @log.info { "Lost connection, while sending (#{ex.inspect})" }
+      @log.info { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup
       false
     rescue ex : IO::Timeout
