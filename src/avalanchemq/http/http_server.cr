@@ -59,6 +59,8 @@ module AvalancheMQ
         !@running
       end
 
+      class PayloadTooLarge < Exception; end
+
       class NotFoundError < Exception; end
 
       class ExpectedBodyError < ArgumentError; end

@@ -21,8 +21,10 @@ module AvalancheMQ
       end
 
       private def page(params, values)
-        # TODO add response body too large
-        return values unless params.has_key?("page")
+        unless params.has_key?("page")
+          raise Server::PayloadTooLarge.new if values.size > 10000
+          return values
+        end
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size
