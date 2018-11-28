@@ -74,6 +74,12 @@
         </table>
       </section>
       <section class="card">
+        <h3>Rates</h3>
+        <div class="chart-container">
+          <canvas id="chart"></canvas>
+        </div>
+      </section>
+      <section class="card">
         <h3>
           Channels
           <small id="table-count"></small>
@@ -113,16 +119,22 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/overview.js"></script>
     <script src="/js/table.js"></script>
+    <script src="/js/lib/chart.js"></script>
+    <script src="/js/chart.js"></script>
     <script>
       /* globals avalanchemq */
       const urlEncodedConnection = new URLSearchParams(window.location.search).get('name')
       const connection = decodeURIComponent(urlEncodedConnection)
+      const chart = avalanchemq.chart.render('chart', 'bytes/s')
+
       document.title = connection + ' | AvalancheMQ'
       document.querySelector('#connection').textContent = connection
 
       const connectionUrl = '/api/connections/' + urlEncodedConnection
       function updateConnection (all) {
         avalanchemq.http.request('GET', connectionUrl).then(item => {
+          let stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
+          avalanchemq.chart.update(chart, stats)
           const stateEl = document.getElementById('state')
           if (item.state !== stateEl.textContent) {
             stateEl.textContent = item.state

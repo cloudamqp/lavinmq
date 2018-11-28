@@ -78,6 +78,7 @@ module AvalancheMQ
     end
 
     private def process_frame(frame)
+      @recv_oct_count += frame.bytesize + 8
       case frame
       when AMQP::Frame::Connection::Close
         send AMQP::Frame::Connection::CloseOk.new

@@ -48,9 +48,9 @@
     let els = null
     if (typeof selector === 'string') {
       els = document.querySelectorAll(selector)
-    } else if (selector instanceof document.NodeList) {
+    } else if (selector instanceof window.NodeList) {
       els = selector
-    } else if (selector instanceof document.Node) {
+    } else if (selector instanceof window.Node) {
       els = [selector]
     } else {
       els = []

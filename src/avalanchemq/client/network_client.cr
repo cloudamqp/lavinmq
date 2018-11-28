@@ -146,7 +146,7 @@ module AvalancheMQ
         name:              @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         state:             @socket.closed? ? "closed" : "running",
-      }.to_json(json)
+      }.merge(stats_details).to_json(json)
     end
 
     private def declare_exchange(frame)
@@ -387,6 +387,7 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       return false if closed?
+      @send_oct_count += frame.bytesize + 8
       @log.debug { "Send #{frame.inspect}" }
       @write_lock.synchronize do
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
