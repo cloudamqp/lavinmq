@@ -211,22 +211,22 @@ module AvalancheMQ
     end
 
     def send_access_refused(frame, text)
-      @log.warn { "Access refused channel=#{frame.channel} reason=#{text}" }
+      @log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 403_u16, "ACCESS_REFUSED - #{text}")
     end
 
     def send_not_found(frame, text = "")
-      @log.warn { "Not found channel=#{frame.channel} reason=#{text}" }
+      @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 404_u16, "NOT_FOUND - #{text}")
     end
 
     def send_resource_locked(frame, text)
-      @log.warn { "Resource locked channel=#{frame.channel} reason=#{text}" }
+      @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 405_u16, "RESOURCE_LOCKED - #{text}")
     end
 
     def send_precondition_failed(frame, text)
-      @log.warn { "Precondition failed channel=#{frame.channel} reason=#{text}" }
+      @log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
     end
   end
