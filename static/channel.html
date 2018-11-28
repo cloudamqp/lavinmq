@@ -134,10 +134,10 @@
             document.getElementById('ch-mode').textContent = mode
             document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
           }
-        }).catch(avalanchemq.http.standardErrorHandler)
+        }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(cTimer))
       }
       updateChannel(true)
-      setInterval(updateChannel, 5000)
+      const cTimer = setInterval(updateChannel, 5000)
     </script>
   </body>
 </html>

@@ -3,6 +3,7 @@
   window.avalanchemq = window.avalanchemq || {}
 
   function fetch (cb) {
+    const vhost = window.sessionStorage.getItem('vhost')
     const url = '/api/vhosts'
     const raw = window.sessionStorage.getItem(url)
     if (raw) {
@@ -10,6 +11,10 @@
       cb(vhosts)
     }
     return avalanchemq.http.request('GET', url).then(function (vhosts) {
+      if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
+        window.sessionStorage.removeItem('vhost')
+        window.location.reload()
+      }
       try {
         window.sessionStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
       } catch (e) {
