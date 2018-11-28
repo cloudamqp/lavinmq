@@ -203,8 +203,7 @@ module AvalancheMQ
           end
           q.last_get_time = Time.utc_now.to_unix_ms
         else
-          reply_code = "NOT_FOUND - no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'"
-          @client.close_channel(frame, 404_u16, reply_code)
+          @client.send_not_found(frame, "no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
           close
         end
       end
@@ -223,7 +222,7 @@ module AvalancheMQ
           consumer.ack(sp) if consumer
           queue.ack(sp, flush: true)
         else
-          reply_text = "unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -234,7 +233,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -259,7 +258,7 @@ module AvalancheMQ
           consumer.reject(sp) if consumer
           queue.reject(sp, frame.requeue)
         else
-          reply_text = "unknown delivery tag #{frame.delivery_tag}"
+          reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
@@ -294,14 +293,14 @@ module AvalancheMQ
       end
 
       def cancel_consumer(frame)
-        @log.debug { "Canceling consumer #{frame.consumer_tag}" }
+        @log.debug { "Canceling consumer '#{frame.consumer_tag}'" }
         if c = @consumers.find { |conn| conn.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
           unless frame.no_wait
             @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
-          # text = "No consumer for tag #{frame.consumer_tag} on channel #{frame.channel}"
+          # text = "No consumer for tag '#{frame.consumer_tag}' on channel '#{frame.channel}'"
           # @client.send AMQP::Frame::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
           unless frame.no_wait
             @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)

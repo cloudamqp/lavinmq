@@ -157,7 +157,7 @@ module AvalancheMQ
             send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
           end
         else
-          send_precondition_failed(frame, "Existing exchange declared with other arguments")
+          send_precondition_failed(frame, "Existing exchange '#{name}' declared with other arguments")
         end
       elsif frame.passive
         send_not_found(frame)
@@ -194,13 +194,13 @@ module AvalancheMQ
     private def delete_queue(frame)
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Exclusive queue")
+          send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         elsif frame.if_unused && !q.consumer_count.zero?
-          send_precondition_failed(frame, "In use")
+          send_precondition_failed(frame, "Queue '#{q.name}' in use")
         elsif frame.if_empty && !q.message_count.zero?
-          send_precondition_failed(frame, "Not empty")
+          send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
         elsif !@user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have permissions to delete queue '#{frame.queue_name}'")
+          send_access_refused(frame, "User doesn't have permissions to delete queue '#{q.name}'")
         else
           size = q.message_count
           @vhost.apply(frame)
@@ -222,7 +222,7 @@ module AvalancheMQ
               q.message_count, q.consumer_count)
           end
         else
-          send_precondition_failed(frame, "Existing queue declared with other arguments")
+          send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
         end
         q.last_get_time = Time.now.to_unix_ms
       elsif frame.passive
@@ -256,9 +256,9 @@ module AvalancheMQ
 
     private def bind_queue(frame)
       if !@vhost.queues.has_key? frame.queue_name
-        send_not_found frame, "Queue #{frame.queue_name} not found"
+        send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send_not_found frame, "Exchange #{frame.exchange_name} not found"
+        send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
       elsif !@user.can_read?(@vhost.name, frame.exchange_name)
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
@@ -271,9 +271,9 @@ module AvalancheMQ
 
     private def unbind_queue(frame)
       if !@vhost.queues.has_key? frame.queue_name
-        send_not_found frame, "Queue #{frame.queue_name} not found"
+        send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send_not_found frame, "Exchange #{frame.exchange_name} not found"
+        send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
       elsif !@user.can_read?(@vhost.name, frame.exchange_name)
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
@@ -286,9 +286,9 @@ module AvalancheMQ
 
     private def bind_exchange(frame)
       if !@vhost.exchanges.has_key? frame.destination
-        send_not_found frame, "Exchange #{frame.destination} doesn't exists"
+        send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
-        send_not_found frame, "Exchange #{frame.source} doesn't exists"
+        send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
       elsif !@user.can_read?(@vhost.name, frame.source)
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
       elsif !@user.can_write?(@vhost.name, frame.destination)
@@ -301,9 +301,9 @@ module AvalancheMQ
 
     private def unbind_exchange(frame)
       if !@vhost.exchanges.has_key? frame.destination
-        send_not_found frame, "Exchange #{frame.destination} doesn't exists"
+        send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
       elsif !@vhost.exchanges.has_key? frame.source
-        send_not_found frame, "Exchange #{frame.source} doesn't exists"
+        send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
       elsif !@user.can_read?(@vhost.name, frame.source)
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
       elsif !@user.can_write?(@vhost.name, frame.destination)
@@ -321,13 +321,13 @@ module AvalancheMQ
       end
       if q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Exclusive queue")
+          send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         else
           messages_purged = q.purge
           send AMQP::Frame::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
         end
       else
-        send_not_found(frame, "Queue #{frame.queue_name} not found")
+        send_not_found(frame, "Queue '#{frame.queue_name}' not found")
       end
     end
 
