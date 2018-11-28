@@ -18,14 +18,14 @@ module AvalancheMQ
         context.response.status_code = 413
         {error: "payload_too_large", reason: "Result set too large, use pagination"}.to_json(context.response)
       rescue ex : Server::NotFoundError
-        @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
+        @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
         not_found(context, ex.message)
       rescue ex : JSON::Error | Server::ExpectedBodyError | ArgumentError
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex.message}"
+        @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=\"#{ex.message}\""
         context.response.status_code = 400
         {error: "bad_request", reason: "#{ex.message}"}.to_json(context.response)
       rescue ex : Controller::HaltRequest
-        @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=#{ex.message}" }
+        @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
       rescue ex : Exception
         @log.error "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}"
         context.response.status_code = 500
