@@ -9,7 +9,7 @@
     return ctx.clientWidth / 80
   }
 
-  function render (selector, unit) {
+  function render (selector, unit, options = {}) {
     const ctx = document.getElementById(selector)
     const chart = new Chart(ctx, {
       type: 'line',
@@ -17,9 +17,9 @@
         labels: [],
         datasets: []
       },
-      options: {
+      options: Object.assign({
         responsive: true,
-        aspectRatio: 3,
+        aspectRatio: 4,
         legend: {
           labels: {
             boxWidth: 10
@@ -56,7 +56,7 @@
             }
           }]
         }
-      }
+      }, options)
     })
     return chart
   }

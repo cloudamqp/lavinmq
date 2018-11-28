@@ -46,12 +46,12 @@
 
   function elements (selector) {
     let els = null
-    if (selector instanceof document.Node) {
-      els = [selector]
+    if (typeof selector === 'string') {
+      els = document.querySelectorAll(selector)
     } else if (selector instanceof document.NodeList) {
       els = selector
-    } else if (typeof selector === 'string') {
-      els = document.querySelectorAll(selector)
+    } else if (selector instanceof document.Node) {
+      els = [selector]
     } else {
       els = []
     }

@@ -80,8 +80,9 @@
 <script src="/js/chart.js"></script>
 <script>
   /* globals avalanchemq */
-  const msgChart = avalanchemq.chart.render('msgChart', 'msgs')
-  const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s')
+  const chartOptions = { aspectRatio: 3 }
+  const msgChart = avalanchemq.chart.render('msgChart', 'msgs', chartOptions)
+  const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', chartOptions)
 
   function updateCharts (response) {
     avalanchemq.chart.update(msgChart, response.queue_totals)
