@@ -10,6 +10,7 @@ module AvalancheMQ
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
+          recv_rate, send_rate = 0, 0
           {% for name in QUEUE_STATS %}
           {{name.id}}_rate = 0_f32
           {% end %}
@@ -18,8 +19,12 @@ module AvalancheMQ
             next unless x_vhost.nil? || vhost.name == x_vhost
             vhost_connections = @amqp_server.connections.select { |c| c.vhost.name == vhost.name }
             connections += vhost_connections.size
-            channels += vhost_connections.reduce(0) { |memo, i| memo + i.channels.size }
-            consumers += nr_of_consumers(vhost_connections)
+            vhost_connections.each do |c|
+              channels += c.channels.size
+              consumers += c.channels.values.reduce(0) { |memo, i| memo + i.consumers.size }
+              recv_rate += c.stats_details[:recv_oct_details][:rate]
+              send_rate += c.stats_details[:send_oct_details][:rate]
+            end
             exchanges += vhost.exchanges.size
             queues += vhost.queues.size
             vhost.queues.each_value do |q|
@@ -44,6 +49,12 @@ module AvalancheMQ
               messages:         ready + unacked,
               messages_ready:   ready,
               messages_unacked: unacked,
+            },
+            recv_oct_details: {
+              rate: recv_rate,
+            },
+            send_oct_details: {
+              rate: send_rate,
             },
             message_stats: {% begin %} {
               {% for name in QUEUE_STATS %}

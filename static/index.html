@@ -45,11 +45,18 @@
         </div>
       </section>
       <section class="card cols-6">
+        <h3>Data rates</h3>
+        <div class="chart-container">
+          <canvas id="dataChart"></canvas>
+        </div>
+      </section>
+      <section class="card cols-6">
         <h3>Message rates</h3>
         <div class="chart-container">
           <canvas id="rateChart"></canvas>
         </div>
       </section>
+      <section class="cols-6"></section>
       <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
         <h3>Upload definitions</h3>
         <label>
@@ -83,10 +90,13 @@
   const chartOptions = { aspectRatio: 3 }
   const msgChart = avalanchemq.chart.render('msgChart', 'msgs', chartOptions)
   const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', chartOptions)
+  const dataChart = avalanchemq.chart.render('dataChart', 'bytes/s', chartOptions)
 
   function updateCharts (response) {
     avalanchemq.chart.update(msgChart, response.queue_totals)
     avalanchemq.chart.update(rateChart, response.message_stats)
+    let stats = { send_details: response.send_oct_details, receive_details: response.recv_oct_details }
+    avalanchemq.chart.update(dataChart, stats)
   }
 
   avalanchemq.overview.start(updateCharts)
