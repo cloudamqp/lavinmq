@@ -94,8 +94,11 @@
   function updateCharts (response) {
     avalanchemq.chart.update(msgChart, response.queue_totals)
     avalanchemq.chart.update(rateChart, response.message_stats)
-    let stats = { send_details: response.send_oct_details, receive_details: response.recv_oct_details }
-    avalanchemq.chart.update(dataChart, stats)
+    let dataStats = {
+      send_details: response.send_oct_details,
+      receive_details: response.recv_oct_details
+    }
+    avalanchemq.chart.update(dataChart, dataStats)
   }
 
   avalanchemq.overview.start(updateCharts)

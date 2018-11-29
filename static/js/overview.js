@@ -43,7 +43,7 @@
       if (cb) {
         cb(response)
       }
-    })
+    }).catch(avalanchemq.http.standardErrorHandler).catch(e => stop)
   }
 
   function render (data) {

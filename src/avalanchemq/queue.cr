@@ -26,7 +26,8 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
 
-    rate_stats(%w(ack deliver get publish redeliver reject))
+    # Creates @[x]_count and @[x]_rate and @[y]_log
+    rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
 
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count

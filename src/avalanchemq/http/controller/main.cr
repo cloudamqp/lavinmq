@@ -3,7 +3,31 @@ require "../../version"
 
 module AvalancheMQ
   module HTTP
+    module StatsHelpers
+      def add_logs!(logs_a, logs_b)
+        a_size = logs_a.size
+        b_dup = logs_b.dup
+        logs_a.reverse!.map! do |a|
+          b = b_dup.pop?
+          b ? (a + b) : a
+        end.reverse!
+        while b_dup.size > 0
+          if a_size < logs_b.size
+            logs_a.unshift(b_dup.pop)
+          else
+            logs_a.push(b_dup.pop)
+          end
+        end
+        logs_a
+      end
+
+      private def add_logs(logs_a, logs_b)
+        add_logs!(logs_a.dup, logs_b)
+      end
+    end
+
     class MainController < Controller
+      include StatsHelpers
       QUEUE_STATS = %w(ack deliver get publish redeliver reject)
 
       private def register_routes
@@ -11,8 +35,13 @@ module AvalancheMQ
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
           recv_rate, send_rate = 0, 0
+          ready_log = Array(UInt32).new(AvalancheMQ::Server.config.stats_log_size)
+          unacked_log = Array(UInt32).new(AvalancheMQ::Server.config.stats_log_size)
+          recv_rate_log = Array(Float32).new(AvalancheMQ::Server.config.stats_log_size)
+          send_rate_log = Array(Float32).new(AvalancheMQ::Server.config.stats_log_size)
           {% for name in QUEUE_STATS %}
           {{name.id}}_rate = 0_f32
+          {{name.id}}_log = Array(Float32).new(AvalancheMQ::Server.config.stats_log_size)
           {% end %}
 
           vhosts(user(context)).each do |vhost|
@@ -24,14 +53,19 @@ module AvalancheMQ
               consumers += c.channels.values.reduce(0) { |memo, i| memo + i.consumers.size }
               recv_rate += c.stats_details[:recv_oct_details][:rate]
               send_rate += c.stats_details[:send_oct_details][:rate]
+              add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
+              add_logs!(send_rate_log, c.stats_details[:send_oct_details][:log])
             end
             exchanges += vhost.exchanges.size
             queues += vhost.queues.size
             vhost.queues.each_value do |q|
               ready += q.message_count
               unacked += q.unacked_count
+              add_logs!(ready_log, q.message_count_log)
+              add_logs!(unacked_log, q.unacked_count_log)
               {% for name in QUEUE_STATS %}
               {{name.id}}_rate += q.stats_details[:{{name.id}}_details][:rate]
+              add_logs!({{name.id}}_log, q.stats_details[:{{name.id}}_details][:log])
               {% end %}
             end
           end
@@ -46,19 +80,27 @@ module AvalancheMQ
               queues:      queues,
             },
             queue_totals: {
-              messages:         ready + unacked,
-              messages_ready:   ready,
-              messages_unacked: unacked,
+              messages:             ready + unacked,
+              messages_ready:       ready,
+              messages_unacked:     unacked,
+              messages_log:         add_logs(ready_log, unacked_log),
+              messages_ready_log:   ready_log,
+              messages_unacked_log: unacked_log,
             },
             recv_oct_details: {
               rate: recv_rate,
+              log:  recv_rate_log,
             },
             send_oct_details: {
               rate: send_rate,
+              log:  send_rate_log,
             },
             message_stats: {% begin %} {
               {% for name in QUEUE_STATS %}
-              {{name.id}}_details: { rate: {{name.id}}_rate },
+              {{name.id}}_details: {
+                rate: {{name.id}}_rate,
+                log: {{name.id}}_log,
+              },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
             exchange_types: VHost::EXCHANGE_TYPES.map { |name| {name: name} },
@@ -124,12 +166,6 @@ module AvalancheMQ
             end
             page(query, links).to_json(context.response)
           end
-        end
-      end
-
-      private def nr_of_consumers(connections)
-        connections.reduce(0) do |memo_i, i|
-          memo_i + i.channels.values.reduce(0) { |memo_j, j| memo_j + j.consumers.size }
         end
       end
     end

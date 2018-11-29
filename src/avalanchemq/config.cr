@@ -16,12 +16,13 @@ module AvalancheMQ
       @mgmt_cert_path = "",
       @mgmt_key_path = "",
       @heartbeat = 60_u16,
-      @stats_interval = 5000
+      @stats_interval = 5000,
+      @stats_log_size = 120 # 10 mins at 5s interval
     )
     end
 
     property data_dir, log_level, bind, port, tls_port, cert_path, key_path, mgmt_bind, mgmt_port,
-      mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat, stats_interval
+      mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat, stats_interval, stats_log_size
 
     def parse(file)
       return if file.empty?
@@ -33,6 +34,7 @@ module AvalancheMQ
           @data_dir = settings["data_dir"]? || @data_dir
           @log_level = Logger::Severity.parse?(settings["log_level"]?.to_s) || @log_level
           @stats_interval = settings["stats_interval"]?.try &.to_i32 || @stats_interval
+          @stats_log_size = settings["stats_log_size"]?.try &.to_i32 || @stats_log_size
         when "amqp"
           @bind = settings["bind"]? || @bind
           @port = settings["port"]?.try &.to_i32 || @port

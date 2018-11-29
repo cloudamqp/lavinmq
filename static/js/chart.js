@@ -6,7 +6,7 @@
     '#525DF4', '#BF399E', '#6C8893', '#EE6868', '#2F6497']
 
   function ticks (ctx) {
-    return ctx.clientWidth / 80
+    return ctx.clientWidth / 90
   }
 
   function render (selector, unit, options = {}) {
@@ -43,7 +43,8 @@
               min: 0,
               max: ticks(ctx),
               source: 'data'
-            }
+            },
+            bounds: 'data'
           }],
           yAxes: [{
             scaleLabel: {
@@ -83,38 +84,53 @@
   }
 
   function value (data) {
-    if (data.rate !== undefined) return data.rate
-    return data
+    return (data.rate === undefined) ? data : data.rate
+  }
+
+  function createDataset (key, color) {
+    let label = formatLabel(key)
+    return {
+      key,
+      label,
+      fill: false,
+      type: 'line',
+      data: [],
+      backgroundColor: color,
+      borderColor: color,
+      steppedLine: true
+    }
+  }
+
+  function addToDataset (dataset, data, date, maxY) {
+    let point = {
+      x: date,
+      y: value(data)
+    }
+    if (dataset.data.length >= maxY) {
+      dataset.data.shift()
+    }
+    dataset.data.push(point)
   }
 
   function update (chart, data) {
-    let date = new Date()
-    let keys = Object.keys(data)
+    const date = new Date()
+    const maxY = ticks(chart.ctx.canvas)
+    const keys = Object.keys(data)
     for (let key in data) {
-      let label = formatLabel(key)
+      if (key.match(/_log$/)) continue
       let dataset = chart.data.datasets.find(dataset => dataset.key === key)
       if (dataset === undefined) {
         let i = keys.indexOf(key)
         let color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
-        dataset = {
-          key,
-          label,
-          fill: false,
-          type: 'line',
-          data: [],
-          backgroundColor: color,
-          borderColor: color
-        }
+        dataset = createDataset(key, color)
         chart.data.datasets.push(dataset)
+        let log = data[`${key}_log`] || data[key].log || []
+        log.forEach((p, i) => {
+          let pDate = new Date(date.getTime() - 5000 * (log.length - i))
+          addToDataset(dataset, p, pDate, maxY)
+        })
       }
-      let point = {
-        x: date,
-        y: value(data[key])
-      }
-      if (dataset.data.length >= ticks(chart.ctx.canvas)) {
-        dataset.data.shift()
-      }
-      dataset.data.push(point)
+      addToDataset(dataset, data[key], date, maxY)
     }
     chart.update()
   }
