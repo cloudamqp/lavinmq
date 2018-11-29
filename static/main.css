@@ -143,6 +143,10 @@ footer .logo {
   height: 20px;
 }
 
+@media (max-width: 1850px) {
+  .cols-6-md { grid-column: auto / span 6 !important; }
+}
+
 @media (max-width: 1500px) {
   body {
     font-size: 9pt;
@@ -156,6 +160,10 @@ footer .logo {
 @media (max-width: 1200px) {
   main {
     grid-template-columns: 1fr;
+  }
+
+  .card {
+    grid-column: auto / span 1 !important;
   }
 }
 
@@ -367,6 +375,7 @@ aside li.active a {
   margin-bottom: -1.5rem;
   width: calc(100% + 3rem);
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .details-table th {
@@ -376,6 +385,7 @@ aside li.active a {
   vertical-align: middle;
   padding: .75rem;
   padding-left: 1rem;
+  max-width: 400px;
 }
 
 .details-table td {

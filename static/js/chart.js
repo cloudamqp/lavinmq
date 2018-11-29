@@ -48,11 +48,13 @@
           yAxes: [{
             scaleLabel: {
               display: true,
-              labelString: unit
+              labelString: unit,
+              fontSize: 14
             },
             ticks: {
               beginAtZero: true,
               min: 0,
+              suggestedMax: 10,
               callback: nFormatter
             }
           }]
@@ -76,7 +78,8 @@
   }
 
   function formatLabel (key) {
-    return key.replace(/_/, ' ').replace(/(rate|details)/, '').replace(/^\w/, c => c.toUpperCase())
+    return key.replace(/_/g, ' ').replace(/(rate|details|unroutable)/g, '')
+      .replace(/^\w/, c => c.toUpperCase())
   }
 
   function value (data) {
