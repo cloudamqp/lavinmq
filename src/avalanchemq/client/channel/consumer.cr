@@ -33,6 +33,8 @@ module AvalancheMQ
             redelivered,
             msg.exchange_name, msg.routing_key)
           @channel.client.deliver(deliver, msg)
+          @channel.deliver_count += 1
+          @channel.redeliver_count += 1 if redelivered
         end
 
         def ack(sp)

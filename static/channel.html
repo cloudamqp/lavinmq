@@ -60,6 +60,12 @@
         </table>
       </section>
       <section class="card">
+        <h3>Message rates</h3>
+        <div class="chart-container">
+          <canvas id="chart"></canvas>
+        </div>
+      </section>
+      <section class="card">
         <h3>
           Consumers
           <small id="table-count"></small>
@@ -90,10 +96,13 @@
     <script src="/js/overview.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
+    <script src="/js/lib/chart.js"></script>
+    <script src="/js/chart.js"></script>
     <script>
       /* globals avalanchemq */
       const channel = new URLSearchParams(window.location.search).get('name')
       const urlEncodedChannel = encodeURIComponent(channel)
+      const chart = avalanchemq.chart.render('chart', 'msgs/s')
       let vhost = null
       document.title = channel + ' | AvalancheMQ'
 
@@ -114,6 +123,7 @@
       const channelUrl = '/api/channels/' + urlEncodedChannel
       function updateChannel (all) {
         avalanchemq.http.request('GET', channelUrl).then(item => {
+          avalanchemq.chart.update(chart, item.message_stats)
           vhost = item.vhost
           const stateEl = document.getElementById('ch-state')
           if (item.state !== stateEl.textContent) {

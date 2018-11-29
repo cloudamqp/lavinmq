@@ -1,10 +1,12 @@
 require "logger"
 require "./channel/consumer"
 require "../amqp"
+require "../stats"
 
 module AvalancheMQ
   abstract class Client
     class Channel
+      include Stats
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
       property? running = true
@@ -16,13 +18,16 @@ module AvalancheMQ
       @next_msg_body = IO::Memory.new
       @log : Logger
 
+      rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
+      property deliver_count, redeliver_count
+
       def initialize(@client : Client, @id : UInt16)
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @prefetch_size = 0_u32
         @prefetch_count = 0_u16
-        @confirm_count = 0_u64
+        @confirm_total = 0_u64
         @confirm = false
         @global_prefetch = false
         @next_publish_mandatory = false
@@ -46,6 +51,7 @@ module AvalancheMQ
           messages_unacknowledged: @map.size,
           connection_details:      @client.connection_details,
           state:                   @running ? "running" : "closed",
+          message_stats:           stats_details,
         }
       end
 
@@ -106,6 +112,7 @@ module AvalancheMQ
 
       private def finish_publish(message_body)
         @log.debug { "Finishing publish #{message_body.inspect}" }
+        @publish_count += 1
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
         props.timestamp = ts unless props.timestamp
@@ -135,14 +142,16 @@ module AvalancheMQ
             @log.debug "Skipping body because wasn't written to disk"
             message_body.skip(@next_msg_size)
           end
+          @return_unroutable_count += 1
         end
         if @confirm
-          @confirm_count += 1
-          @client.send AMQP::Frame::Basic::Ack.new(@id, @confirm_count, false)
+          @confirm_total += 1
+          @confirm_count += 1 # Stats
+          @client.send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
         end
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
-        @client.send AMQP::Frame::Basic::Nack.new(@id, @confirm_count, false, false) if @confirm
+        @client.send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
         raise ex
       ensure
         @next_msg_size = 0_u64
@@ -173,7 +182,7 @@ module AvalancheMQ
             return
           end
           if q.has_exclusive_consumer?
-            @client.send_access_refused(frame, "queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
@@ -198,12 +207,14 @@ module AvalancheMQ
               env.redelivered, env.message.exchange_name,
               env.message.routing_key, q.message_count)
             deliver(get_ok, env.message)
+            @redeliver_count += 1 if env.redelivered
           else
             @client.send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
           end
           q.last_get_time = Time.utc_now.to_unix_ms
+          @get_count += 1
         else
-          @client.send_not_found(frame, "no queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
+          @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
           close
         end
       end
@@ -213,25 +224,28 @@ module AvalancheMQ
           if frame.multiple
             @map.select { |k, _| k < frame.delivery_tag }
               .each_value do |queue, sp, consumer|
-                consumer.ack(sp) if consumer
-                queue.ack(sp, flush: false)
+                do_ack(frame, queue, sp, consumer, flush: false)
               end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
           queue, sp, consumer = qspc
-          consumer.ack(sp) if consumer
-          queue.ack(sp, flush: true)
+          do_ack(frame, queue, sp, consumer)
         else
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
 
+      private def do_ack(frame, queue, sp, consumer, flush = true)
+        consumer.ack(sp) if consumer
+        queue.ack(sp, flush: flush)
+        @ack_count += 1
+      end
+
       def basic_reject(frame)
         if qspc = @map.delete(frame.delivery_tag)
           queue, sp, consumer = qspc
-          consumer.reject(sp) if consumer
-          queue.reject(sp, frame.requeue)
+          do_reject(frame, queue, sp, consumer)
         else
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
@@ -241,26 +255,29 @@ module AvalancheMQ
       def basic_nack(frame)
         if frame.multiple && frame.delivery_tag.zero?
           @map.each_value do |queue, sp, consumer|
-            consumer.reject(sp) if consumer
-            queue.reject(sp, frame.requeue)
+            do_reject(frame, queue, sp, consumer)
           end
           @map.clear
         elsif qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
             @map.select { |k, _| k < frame.delivery_tag }
               .each_value do |queue, sp, consumer|
-                consumer.reject(sp) if consumer
-                queue.reject(sp, frame.requeue)
+                do_reject(frame, queue, sp, consumer)
               end
             @map.delete_if { |k, _| k < frame.delivery_tag }
           end
           queue, sp, consumer = qspc
-          consumer.reject(sp) if consumer
-          queue.reject(sp, frame.requeue)
+          do_reject(frame, queue, sp, consumer)
         else
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
+      end
+
+      private def do_reject(frame, queue, sp, consumer)
+        consumer.reject(sp) if consumer
+        queue.reject(sp, frame.requeue)
+        @reject_count += 1
       end
 
       def basic_qos(frame)
