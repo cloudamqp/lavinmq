@@ -96,8 +96,7 @@
       type: 'line',
       data: [],
       backgroundColor: color,
-      borderColor: color,
-      steppedLine: true
+      borderColor: color
     }
   }
 
