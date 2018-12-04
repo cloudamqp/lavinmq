@@ -647,8 +647,49 @@ fieldset.inline {
 }
 
 .chart-container {
+  display: grid;
+  grid-template-columns: auto 100px;
   position: relative;
-  width:100%;
+}
+
+.chart-container .graph {
+  grid-column: 1 / span 1;
+}
+
+.chart-container .legend {
+  grid-column: 2 / span 1;
+  grid-row-gap: 5px;
+}
+
+.chart-container .legend .legend-item {
+  display: grid;
+  grid-template-columns: 15px 20px auto;
+  height: 30px;
+  margin-bottom: 5px;
+  transition: all .2s ease-in-out;
+}
+
+.chart-container .legend .legend-item:hover {
+  transform: scale(1.05);
+  cursor: pointer;
+}
+
+.chart-container .legend .legend-item.checked .toggle:before {
+  content: '✔';
+  position: absolute;
+  top: 5px;
+}
+
+.chart-container .legend .legend-item:not(.checked) {
+  opacity: 0.6;
+}
+
+.chart-container .legend .toggle {
+  position: relative;
+}
+
+.chart-container .legend .color-ref {
+  width: 10px;
 }
 
 #pagination {

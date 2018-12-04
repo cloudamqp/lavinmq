@@ -40,21 +40,15 @@
       </table>
       <section class="card cols-4 cols-6-md">
         <h3>Queued messages</h3>
-        <div class="chart-container">
-          <canvas id="msgChart"></canvas>
-        </div>
+        <div class="chart-container" id="msgChart"></div>
       </section>
       <section class="card cols-4 cols-6-md">
         <h3>Data rates</h3>
-        <div class="chart-container">
-          <canvas id="dataChart"></canvas>
-        </div>
+        <div class="chart-container" id="dataChart"></div>
       </section>
       <section class="card cols-4 cols-6-md">
         <h3>Message rates</h3>
-        <div class="chart-container">
-          <canvas id="rateChart"></canvas>
-        </div>
+        <div class="chart-container" id="rateChart"></div>
       </section>
       <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
         <h3>Upload definitions</h3>
@@ -86,10 +80,9 @@
 <script src="/js/chart.js"></script>
 <script>
   /* globals avalanchemq */
-  const chartOptions = { aspectRatio: 3 }
-  const msgChart = avalanchemq.chart.render('msgChart', 'msgs', chartOptions)
-  const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', chartOptions)
-  const dataChart = avalanchemq.chart.render('dataChart', 'bytes/s', chartOptions)
+  const msgChart = avalanchemq.chart.render('msgChart', 'msgs', { aspectRatio: 2 })
+  const dataChart = avalanchemq.chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
+  const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
 
   function updateCharts (response) {
     avalanchemq.chart.update(msgChart, response.queue_totals)

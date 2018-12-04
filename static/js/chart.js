@@ -6,11 +6,19 @@
     '#525DF4', '#BF399E', '#6C8893', '#EE6868', '#2F6497']
 
   function ticks (ctx) {
-    return ctx.clientWidth / 90
+    return ctx.clientWidth / 10
   }
 
-  function render (selector, unit, options = {}) {
-    const ctx = document.getElementById(selector)
+  function render (id, unit, options = {}) {
+    const el = document.getElementById(id)
+    const graphContainer = document.createElement('div')
+    graphContainer.classList.add('graph')
+    const ctx = document.createElement('canvas')
+    graphContainer.append(ctx)
+    el.append(graphContainer)
+    const legendEl = document.createElement('div')
+    legendEl.classList.add('legend')
+    el.append(legendEl)
     const chart = new Chart(ctx, {
       type: 'line',
       data: {
@@ -21,9 +29,16 @@
         responsive: true,
         aspectRatio: 4,
         legend: {
-          labels: {
-            boxWidth: 10
-          }
+          display: false
+        },
+        tooltips: {
+          mode: 'x',
+          intersect: false,
+          position: 'nearest'
+        },
+        hover: {
+          mode: 'x',
+          intersect: false
         },
         scales: {
           xAxes: [{
@@ -34,7 +49,6 @@
             },
             time: {
               unit: 'second',
-              unitStepSize: 5,
               displayFormats: {
                 second: 'HH:mm:ss'
               }
@@ -42,9 +56,8 @@
             ticks: {
               min: 0,
               max: ticks(ctx),
-              source: 'data'
-            },
-            bounds: 'data'
+              source: 'auto'
+            }
           }],
           yAxes: [{
             scaleLabel: {
@@ -59,10 +72,50 @@
               callback: nFormatter
             }
           }]
+        },
+        legendCallback: function (chart) {
+          let text = []
+          for (let i = 0; i < chart.data.datasets.length; i++) {
+            let dataSet = chart.data.datasets[i]
+            let value = dataSet.data[-1] ? dataSet.data[-1].y : ''
+            text.push(`<div class="legend-item checked">
+              <div class="toggle"></div>
+              <div class="color-ref" style="background-color:${dataSet.backgroundColor}"></div>
+              <div>
+                <div class="legend-label">${dataSet.label}</div>
+                <div class="legend-value">${value}</div>
+              </div>
+            </div>`)
+          }
+          return text.join('')
         }
       }, options)
     })
+    legendEl.classList.add(chart.id + '-legend')
+
+    legendEl.innerHTML = chart.generateLegend()
+    addLegendClickHandler(legendEl)
     return chart
+  }
+
+  function addLegendClickHandler (legendEl) {
+    legendEl.addEventListener('click', e => {
+      let target = e.target
+      while (!target.classList.contains('legend-item')) {
+        target = target.parentElement
+      }
+      let parent = target.parentElement
+      let chartId = parseInt(parent.classList[1].split('-')[0], 10)
+      let chart = Chart.instances[chartId]
+      let index = Array.prototype.slice.call(parent.children).indexOf(target)
+
+      chart.legend.options.onClick.call(chart, e, chart.legend.legendItems[index])
+      if (chart.isDatasetVisible(index)) {
+        target.classList.add('checked')
+      } else {
+        target.classList.remove('checked')
+      }
+    })
   }
 
   function nFormatter (num) {
@@ -79,8 +132,9 @@
   }
 
   function formatLabel (key) {
-    return key.replace(/_/g, ' ').replace(/(rate|details|unroutable)/g, '')
+    let label = key.replace(/_/g, ' ').replace(/(rate|details|unroutable|messages)/ig, '').trim()
       .replace(/^\w/, c => c.toUpperCase())
+    return label || 'Total'
   }
 
   function value (data) {
@@ -94,6 +148,9 @@
       label,
       fill: false,
       type: 'line',
+      steppedLine: true,
+      pointRadius: 0,
+      pointStyle: 'line',
       data: [],
       backgroundColor: color,
       borderColor: color
@@ -115,14 +172,16 @@
     const date = new Date()
     const maxY = ticks(chart.ctx.canvas)
     const keys = Object.keys(data)
+    const legend = chart.ctx.canvas.closest('.chart-container').querySelector('.legend')
     for (let key in data) {
       if (key.match(/_log$/)) continue
       let dataset = chart.data.datasets.find(dataset => dataset.key === key)
+      let i = keys.indexOf(key)
       if (dataset === undefined) {
-        let i = keys.indexOf(key)
         let color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
         dataset = createDataset(key, color)
         chart.data.datasets.push(dataset)
+        legend.innerHTML = chart.generateLegend()
         let log = data[`${key}_log`] || data[key].log || []
         log.forEach((p, i) => {
           let pDate = new Date(date.getTime() - 5000 * (log.length - i))
@@ -130,6 +189,9 @@
         })
       }
       addToDataset(dataset, data[key], date, maxY)
+      setTimeout(() => {
+        legend.children[i].querySelector('.legend-value').innerHTML = dataset.data.slice(-1)[0].y
+      }, 50)
     }
     chart.update()
   }

@@ -67,13 +67,12 @@
   function standardErrorHandler (e) {
     if (e.status === 404) {
       console.warn(`Not found: ${e.message}`)
-      throw e
     } else if (e.body) {
       window.alert(e.body)
     } else {
       console.error(e)
-      throw e
     }
+    throw e
   }
 
   class HTTPError extends Error {
