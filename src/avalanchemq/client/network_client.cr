@@ -160,7 +160,7 @@ module AvalancheMQ
           send_precondition_failed(frame, "Existing exchange '#{name}' declared with other arguments")
         end
       elsif frame.passive
-        send_not_found(frame)
+        send_not_found(frame, "Exchange '#{name}' doesn't exists")
       elsif name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
@@ -226,7 +226,7 @@ module AvalancheMQ
         end
         q.last_get_time = Time.now.to_unix_ms
       elsif frame.passive
-        send_not_found(frame)
+        send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
       elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
         unless frame.no_wait
           consumer_count = direct_reply_channel.nil? ? 0_u32 : 1_u32
