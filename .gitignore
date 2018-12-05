@@ -1,6 +1,7 @@
 /docs/
 /lib/
 /bin/
+/builds/
 /.shards/
 /.vagrant/
 /node_modules/
