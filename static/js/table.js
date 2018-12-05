@@ -122,7 +122,7 @@
       document.getElementById(id + '-count').textContent = totalCount
       if (options.pagination && response.items) {
         let pages = Math.ceil(response.filtered_count / response.page_size)
-        createPagination(pages, response.page)
+        createPagination(pages, response.page, response.page_size)
       }
       const t = document.getElementById(id).tBodies[0]
       if (!Array.isArray(data) || data.length === 0) {
@@ -293,7 +293,7 @@
     })
   }
 
-  function createPagination (pages, page) {
+  function createPagination (pages, page, pageSize) {
     let str = ''
     let active
     let pageCutLow = page - 1
@@ -304,18 +304,18 @@
     }
 
     if (page > 1) {
-      str += `<div class="page-item previous"><a href="?page_size=${pages}&page=${page - 1}">Previous</a></div>`
+      str += `<div class="page-item previous"><a href="?page_size=${pageSize}&page=${page - 1}">Previous</a></div>`
     }
     if (pages < 6) {
       for (let p = 1; p <= pages; p++) {
         active = page === p ? 'active' : ''
-        str += `<div class="page-item ${active}"><a href="?page_size=${pages}&page=${p}">${p}</a></div>`
+        str += `<div class="page-item ${active}"><a href="?page_size=${pageSize}&page=${p}">${p}</a></div>`
       }
     } else {
       if (page > 2) {
-        str += `<div class="page-item"><a href="?page_size=${pages}&page=1">1</a></div>`
+        str += `<div class="page-item"><a href="?page_size=${pageSize}&page=1">1</a></div>`
         if (page > 3) {
-          str += `<div class="page-item out-of-range"><a href="?page_size=${pages}&page=${page - 2}">...</a></div>`
+          str += `<div class="page-item out-of-range"><a href="?page_size=${pageSize}&page=${page - 2}">...</a></div>`
         }
       }
       if (page === 1) {
@@ -336,17 +336,17 @@
           continue
         }
         active = page === p ? 'active' : ''
-        str += `<div class="page-item ${active}"><a href="?page_size=${pages}&page=${p}">${p}</a></div>`
+        str += `<div class="page-item ${active}"><a href="?page_size=${pageSize}&page=${p}">${p}</a></div>`
       }
       if (page < pages - 1) {
         if (page < pages - 2) {
-          str += `<div class="page-item out-of-range"><a href="?page_size=${pages}&page=${page + 2}">...</a></div>`
+          str += `<div class="page-item out-of-range"><a href="?page_size=${pageSize}&page=${page + 2}">...</a></div>`
         }
-        str += `<div class="page-item"><a href="?page_size=${pages}&page=${pages}">${pages}</a></div>`
+        str += `<div class="page-item"><a href="?page_size=${pageSize}&page=${pages}">${pages}</a></div>`
       }
     }
     if (page < pages) {
-      str += `<div class="page-item next"><a href="?page_size=${pages}&page=${page + 1}">Next</a></div>`
+      str += `<div class="page-item next"><a href="?page_size=${pageSize}&page=${page + 1}">Next</a></div>`
     }
     document.getElementById('pagination').innerHTML = str
     return str
