@@ -309,7 +309,7 @@
           }
           avalanchemq.table.renderCell(tr, 0, item.source)
           avalanchemq.table.renderCell(tr, 1, item.routing_key)
-          avalanchemq.table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments) + '</pre>')
+          avalanchemq.table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>')
           avalanchemq.table.renderCell(tr, 3, btn, 'right')
         }
       })
