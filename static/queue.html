@@ -299,15 +299,16 @@
           const btn = document.createElement('button')
           btn.classList.add('btn-secondary')
           btn.innerHTML = 'Unbind'
+          const e = encodeURIComponent(item.source)
           btn.onclick = function () {
-            const e = encodeURIComponent(item.source)
             const p = encodeURIComponent(item.properties_key)
             const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
             avalanchemq.http.request('DELETE', url)
               .then(() => { avalanchemq.dom.removeNodes(tr) })
               .catch(avalanchemq.http.standardErrorHandler)
           }
-          avalanchemq.table.renderCell(tr, 0, item.source)
+          const exchangeLink = `<a href="/exchange?vhost=${urlEncodedVhost}&name=${e}">${item.source}</a>`
+          avalanchemq.table.renderHtmlCell(tr, 0, exchangeLink)
           avalanchemq.table.renderCell(tr, 1, item.routing_key)
           avalanchemq.table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>')
           avalanchemq.table.renderCell(tr, 3, btn, 'right')
