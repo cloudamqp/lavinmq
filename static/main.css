@@ -151,10 +151,6 @@ footer .logo {
   body {
     font-size: 9pt;
   }
-
-  small {
-    font-size: 7.5pt;
-  }
 }
 
 @media (max-width: 1200px) {
