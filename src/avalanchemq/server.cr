@@ -173,10 +173,10 @@ module AvalancheMQ
         @vhosts.each_value do |vhost|
           vhost.queues.values.each(&.update_rates)
           vhost.exchanges.values.each(&.update_rates)
-          connections.each do |connection|
-            connection.update_rates
-            connection.channels.each_value(&.update_rates)
-          end
+        end
+        @connections.each do |connection|
+          connection.update_rates
+          connection.channels.each_value(&.update_rates)
         end
       end
     end
