@@ -153,6 +153,8 @@ module AvalancheMQ
       @log.error { "Channel #{frame.channel} not open" }
       close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
       true
+    rescue ex : Errno # Broken pipe
+      cleanup
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::Frame::Method
       @log.error { "#{ex.inspect}, when processing frame" }
