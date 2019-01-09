@@ -60,11 +60,11 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, persistent = false)
+      return false unless super
       @lock.synchronize do
         @enq.write_bytes sp
         @enq.flush if persistent
       end
-      super
     end
 
     def get(no_ack : Bool) : Envelope | Nil
