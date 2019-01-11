@@ -146,7 +146,7 @@ module AvalancheMQ
             res = msgs.compact.map do |env|
               size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
               payload = String.build(size) do |io|
-                IO.copy env.message.body_io, io
+                IO.copy env.message.body_io, io, size
               end
               case encoding
               when "auto"
