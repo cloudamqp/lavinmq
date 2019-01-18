@@ -101,7 +101,6 @@ module AvalancheMQ
 
     def delete_parameter(component_name, parameter_name)
       @parameters.delete({component_name, parameter_name})
-      @log.warn("No action when deleting parameter #{component_name}")
     end
 
     def listeners
@@ -121,7 +120,7 @@ module AvalancheMQ
 
     private def apply_parameter(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
-        @log.warn("No action when applying parameter #{p.component_name}")
+        @log.warn("No action when applying parameter #{p.parameter_name}")
       end
     end
 
