@@ -21,7 +21,7 @@ module AvalancheMQ
     end
 
     private def compact_index! : Nil
-      @log.info { "Compacting index" }
+      @log.debug { "Compacting index" }
       @enq.close
       Dir.mkdir_p @index_dir
       File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
