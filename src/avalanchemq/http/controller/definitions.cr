@@ -1,9 +1,12 @@
 require "uri"
 require "../controller"
+require "../resource_helpers"
 
 module AvalancheMQ
   module HTTP
     class DefinitionsController < Controller
+      include ResourceHelpers
+
       private def register_routes
         get "/api/definitions" do |context, _params|
           refuse_unless_administrator(context, user(context))
@@ -129,11 +132,7 @@ module AvalancheMQ
           vhost = q["vhost"].as_s
           durable = q["durable"].as_bool
           auto_delete = q["auto_delete"].as_bool
-          json_args = q["arguments"].as_h
-          arguments = Hash(String, AMQP::Field).new(json_args.size)
-          json_args.each do |k, v|
-            arguments[k] = v.raw.as AMQP::Field
-          end
+          arguments = parse_arguments(q)
           next unless v = fetch_vhost?(vhosts, vhost)
           v.declare_queue(name, durable, auto_delete, arguments)
         end
@@ -148,11 +147,7 @@ module AvalancheMQ
           durable = e["durable"].as_bool
           internal = e["internal"].as_bool
           auto_delete = e["auto_delete"].as_bool
-          json_args = e["arguments"].as_h
-          arguments = Hash(String, AMQP::Field).new(json_args.size)
-          json_args.each do |k, v|
-            arguments[k] = v.raw.as AMQP::Field
-          end
+          arguments = parse_arguments(e)
           next unless v = fetch_vhost?(vhosts, vhost)
           v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
         end
@@ -167,10 +162,7 @@ module AvalancheMQ
           destination_type = b["destination_type"].as_s
           routing_key = b["routing_key"].as_s
           json_args = b["arguments"].as_h
-          arguments = Hash(String, AMQP::Field).new(json_args.size)
-          json_args.each do |k, v|
-            arguments[k] = v.raw.as AMQP::Field
-          end
+          arguments = parse_arguments(b)
           next unless v = fetch_vhost?(vhosts, vhost)
           case destination_type
           when "queue"
