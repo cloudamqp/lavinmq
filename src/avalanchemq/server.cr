@@ -22,11 +22,7 @@ module AvalancheMQ
 
     @closed = false
 
-    def self.config
-      @@config.not_nil!
-    end
-
-    def initialize(@data_dir : String, @log : Logger, @@config = Config.new)
+    def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(TCPServer).new(1)
@@ -169,7 +165,7 @@ module AvalancheMQ
     private def stats_loop
       loop do
         break if closed?
-        sleep Server.config.stats_interval.milliseconds
+        sleep Config.instance.stats_interval.milliseconds
         @vhosts.each_value do |vhost|
           vhost.queues.values.each(&.update_rates)
           vhost.exchanges.values.each(&.update_rates)

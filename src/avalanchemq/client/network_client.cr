@@ -84,7 +84,7 @@ module AvalancheMQ
       end
       socket.write_bytes AMQP::Frame::Connection::Tune.new(channel_max: 0_u16,
         frame_max: 131072_u32,
-        heartbeat: Server.config.heartbeat), IO::ByteFormat::NetworkEndian
+        heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
       tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
       open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }

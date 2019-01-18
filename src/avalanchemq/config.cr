@@ -19,10 +19,15 @@ module AvalancheMQ
       @stats_interval = 5000,
       @stats_log_size = 120 # 10 mins at 5s interval
     )
+      @@instance = self
     end
 
     property data_dir, log_level, bind, port, tls_port, cert_path, key_path, mgmt_bind, mgmt_port,
       mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat, stats_interval, stats_log_size
+
+    def self.instance(*args)
+      @@instance || new(*args)
+    end
 
     def parse(file)
       return if file.empty?

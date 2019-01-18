@@ -81,8 +81,7 @@ module TestHelpers
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     log = Logger.new(STDOUT, level: level)
     AvalancheMQ::LogFormatter.use(log)
-    config = AvalancheMQ::Config.new
-    @@s = AvalancheMQ::Server.new(dir, log.dup, config)
+    @@s = AvalancheMQ::Server.new(dir, log.dup)
     @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, HTTP_PORT, log.dup)
     Spec.after_each do
       @@h.try &.cache.purge

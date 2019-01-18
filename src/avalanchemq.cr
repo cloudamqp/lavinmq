@@ -33,9 +33,7 @@ p = OptionParser.parse! do |parser|
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
 
-if ini_cfg = config.parse(config_file)
-  config.parse(ini_cfg)
-end
+config.parse(config_file) unless config_file.empty?
 
 if config.data_dir.empty?
   STDERR.puts "No data directory specified"
@@ -51,7 +49,7 @@ puts "The file descriptor limit is very low, consider raising it. You need one f
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
-amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup, config)
+amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
 
 if !config.cert_path.empty? && !config.key_path.empty?
   spawn(name: "AMQPS listening on #{config.tls_port}") do

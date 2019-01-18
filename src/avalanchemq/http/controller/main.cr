@@ -35,13 +35,13 @@ module AvalancheMQ
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
           recv_rate, send_rate = 0, 0
-          ready_log = Array(UInt32).new(AvalancheMQ::Server.config.stats_log_size)
-          unacked_log = Array(UInt32).new(AvalancheMQ::Server.config.stats_log_size)
-          recv_rate_log = Array(Float32).new(AvalancheMQ::Server.config.stats_log_size)
-          send_rate_log = Array(Float32).new(AvalancheMQ::Server.config.stats_log_size)
+          ready_log = Array(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
+          unacked_log = Array(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
+          recv_rate_log = Array(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
+          send_rate_log = Array(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
           {% for name in QUEUE_STATS %}
           {{name.id}}_rate = 0_f32
-          {{name.id}}_log = Array(Float32).new(AvalancheMQ::Server.config.stats_log_size)
+          {{name.id}}_log = Array(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
           {% end %}
 
           vhosts(user(context)).each do |vhost|
