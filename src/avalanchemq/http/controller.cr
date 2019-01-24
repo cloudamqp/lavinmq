@@ -43,10 +43,11 @@ module AvalancheMQ
           raise Server::PayloadTooLarge.new if values.size > 10000
           return values
         end
+        all_items = filter_values(params, values)
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size
-        all_items = filter_values(params, values)
+        start = 0 if start > all_items.size
         items = all_items[start, page_size]
         {
           filtered_count: all_items.size,
