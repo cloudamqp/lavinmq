@@ -252,7 +252,7 @@ describe AvalancheMQ::HTTP::Server do
       s.vhosts["/"].delete_policy("export_p1")
     end
 
-    it "exports parameters" do
+    it "exports global parameters" do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
       p = AvalancheMQ::Parameter.new("c1", "p11", d)
       s.add_parameter(p)
@@ -264,6 +264,20 @@ describe AvalancheMQ::HTTP::Server do
       body["global_parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     ensure
       s.delete_parameter("c1", "p11")
+    end
+
+    it "exports vhost parameters" do
+      d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
+      p = AvalancheMQ::Parameter.new("c1", "p11", d)
+      s.vhosts["/"].add_parameter(p)
+      response = get("/api/definitions")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      keys = ["name", "component", "value"]
+      body["parameters"].as_a.empty?.should be_false
+      body["parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+    ensure
+      s.vhosts["/"].delete_parameter("c1", "p11")
     end
   end
 

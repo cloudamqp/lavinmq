@@ -74,39 +74,45 @@ module AvalancheMQ
       private def export_vhost_definitions(name, response)
         unescaped_name = URI.unescape(name)
         vhosts = {unescaped_name => @amqp_server.vhosts[unescaped_name]}
-        {
-          "avalanchemq_version": AvalancheMQ::VERSION,
-          "exchanges":           export_exchanges(vhosts),
-          "queues":              export_queues(vhosts),
-          "bindings":            export_bindings(vhosts),
-          "policies":            vhosts.values.flat_map(&.policies.values),
-        }.to_json(response)
+        JSON.build(response) do |json|
+          json.object do
+            json.field("avalanchemq_version", AvalancheMQ::VERSION)
+            json.field("queues") { export_queues(json, vhosts) }
+            json.field("exchanges") { export_exchanges(json, vhosts) }
+            json.field("bindings") { export_bindings(json, vhosts) }
+            json.field("policies") { export_policies(json, vhosts) }
+          end
+        end
       end
 
       private def export_definitions(response)
-        {
-          "avalanchemq_version": AvalancheMQ::VERSION,
-          "users":               @amqp_server.users.values,
-          "vhosts":              @amqp_server.vhosts.values,
-          "queues":              export_queues(@amqp_server.vhosts),
-          "exchanges":           export_exchanges(@amqp_server.vhosts),
-          "bindings":            export_bindings(@amqp_server.vhosts),
-          "permissions":         export_permissions,
-          "policies":            @amqp_server.vhosts.values.flat_map(&.policies.values),
-          "global_parameters":   @amqp_server.parameters.values,
-          "parameters":          export_parameters,
-        }.to_json(response)
+        JSON.build(response) do |json|
+          json.object do
+            json.field("avalanchemq_version", AvalancheMQ::VERSION)
+            json.field("users", @amqp_server.users)
+            json.field("vhosts", @amqp_server.vhosts)
+            json.field("queues") { export_queues(json, @amqp_server.vhosts) }
+            json.field("exchanges") { export_exchanges(json, @amqp_server.vhosts) }
+            json.field("bindings") { export_bindings(json, @amqp_server.vhosts) }
+            json.field("permissions") { export_permissions(json) }
+            json.field("policies") { export_policies(json, @amqp_server.vhosts) }
+            json.field("parameters") { export_vhost_parameters(json, @amqp_server.vhosts) }
+            json.field("global_parameters") { @amqp_server.parameters.to_json(json) }
+          end
+        end
       end
 
-      private def export_parameters
-        @amqp_server.vhosts.values.flat_map do |vhost|
-          vhost.parameters.values.map do |p|
-            {
-              name:      p.parameter_name,
-              component: p.component_name,
-              vhost:     vhost.name,
-              value:     p.value,
-            }
+      private def export_vhost_parameters(json, vhosts)
+        json.array do
+          vhosts.each_value do |vhost|
+            vhost.parameters.each_value do |p|
+              {
+                name:      p.parameter_name,
+                component: p.component_name,
+                vhost:     vhost.name,
+                value:     p.value,
+              }.to_json(json)
+            end
           end
         end
       end
@@ -239,47 +245,67 @@ module AvalancheMQ
         end
       end
 
-      private def export_queues(vhosts)
-        vhosts.values.flat_map do |v|
-          v.queues.values.map do |q|
-            {
-              "name":        q.name,
-              "vhost":       q.vhost.name,
-              "durable":     q.durable,
-              "auto_delete": q.auto_delete,
-              "arguments":   q.arguments,
-            }
+      private def export_policies(json, vhosts)
+        json.array do
+          vhosts.each_value do |v|
+            v.policies.each_value(&.to_json(json))
           end
         end
       end
 
-      private def export_exchanges(vhosts)
-        vhosts.values.flat_map do |v|
-          v.exchanges.values.reject(&.internal).map do |e|
-            {
-              "name":        e.name,
-              "vhost":       e.vhost.name,
-              "type":        e.type,
-              "durable":     e.durable,
-              "auto_delete": e.auto_delete,
-              "internal":    e.internal,
-              "arguments":   e.arguments,
-            }
+      private def export_queues(json, vhosts)
+        json.array do
+          vhosts.each_value do |v|
+            v.queues.each_value do |q|
+              {
+                "name":        q.name,
+                "vhost":       q.vhost.name,
+                "durable":     q.durable,
+                "auto_delete": q.auto_delete,
+                "arguments":   q.arguments,
+              }.to_json(json)
+            end
           end
         end
       end
 
-      private def export_bindings(vhosts)
-        vhosts.values.flat_map do |v|
-          v.exchanges.values.flat_map do |e|
-            e.bindings_details
+      private def export_exchanges(json, vhosts)
+        json.array do
+          vhosts.each_value do |v|
+            v.exchanges.each_value.reject(&.internal).each do |e|
+              {
+                "name":        e.name,
+                "vhost":       e.vhost.name,
+                "type":        e.type,
+                "durable":     e.durable,
+                "auto_delete": e.auto_delete,
+                "internal":    e.internal,
+                "arguments":   e.arguments,
+              }.to_json(json)
+            end
           end
         end
       end
 
-      private def export_permissions
-        @amqp_server.users.values.flat_map do |u|
-          u.permissions_details
+      private def export_bindings(json, vhosts)
+        json.array do
+          vhosts.each_value do |v|
+            v.exchanges.each_value do |e|
+              e.bindings_details.each do |b|
+                b.to_json(json)
+              end
+            end
+          end
+        end
+      end
+
+      private def export_permissions(json)
+        json.array do
+          @amqp_server.users.each_value do |u|
+            u.permissions_details.each do |p|
+              p.to_json(json)
+            end
+          end
         end
       end
     end
