@@ -115,7 +115,7 @@
     }
 
     function updateTable (response) {
-      if (response === undefined) return
+      if (response == null || response.items == null) return
       let data = response.items || response
       let totalCount = response.filtered_count || response.length
       data.sort(byColumn)
