@@ -32,7 +32,7 @@ module AvalancheMQ
       end
 
       def close
-        @links.values.each(&.stop)
+        @links.each_value(&.stop)
         @links.clear
       end
     end

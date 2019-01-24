@@ -90,7 +90,7 @@ module AvalancheMQ
     def in_use?
       in_use = bindings.size > 0
       unless in_use
-        destinations = vhost.exchanges.values.flat_map(&.bindings.values.flat_map(&.to_a))
+        destinations = vhost.exchanges.each_value.flat_map(&.bindings.each_value.flat_map(&.to_a))
         in_use = destinations.includes?(self)
       end
       in_use
@@ -114,7 +114,7 @@ module AvalancheMQ
     end
 
     private def after_unbind
-      if @auto_delete && @bindings.values.none? { |s| s.size > 0 }
+      if @auto_delete && @bindings.each_value.none? { |s| s.size > 0 }
         delete
       end
     end
@@ -166,7 +166,7 @@ module AvalancheMQ
     end
 
     def matches(routing_key, headers = nil)
-      @bindings.values.reduce { |acc, i| acc.concat(i) }
+      @bindings.each_value.reduce { |acc, i| acc.concat(i) }
     end
   end
 

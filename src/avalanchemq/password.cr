@@ -44,6 +44,10 @@ module AvalancheMQ
         io << @raw_hash
       end
 
+      def to_json(json)
+        @raw_hash.to_json(json)
+      end
+
       def inspect(io)
         to_s(io)
       end
@@ -108,5 +112,11 @@ module AvalancheMQ
     end
 
     class InvalidPasswordHash < ArgumentError; end
+  end
+end
+
+class Crypto::Bcrypt::Password
+  def to_json(json : JSON::Builder)
+    @raw_hash.to_json(json)
   end
 end

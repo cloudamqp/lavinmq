@@ -37,7 +37,11 @@ module AvalancheMQ
     end
 
     def to_json(json : JSON::Builder)
-      @vhosts.values.to_json(json)
+      json.array do
+        each_value do |vhost|
+          vhost.to_json(json)
+        end
+      end
     end
 
     private def load!

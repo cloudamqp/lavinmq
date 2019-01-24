@@ -49,7 +49,11 @@ module AvalancheMQ
     end
 
     def to_json(json : JSON::Builder)
-      @parameters.values.to_json(json)
+      json.array do
+        each_value do |p|
+          p.to_json(json)
+        end
+      end
     end
 
     def save!

@@ -10,8 +10,8 @@ module AvalancheMQ
       def initialize(@vhost : VHost)
       end
 
-      def each
-        @upstreams.values.each { |e| yield e }
+      def each(&blk : Upstream -> Nil)
+        @upstreams.each_value(&blk)
       end
 
       def empty?

@@ -115,7 +115,7 @@ module AvalancheMQ
     def user_details
       {
         name:              @name,
-        password_hash:     @password.to_s,
+        password_hash:     @password,
         hashing_algorithm: @hash_algorithm,
         tags:              @tags.map { |t| t.to_s.downcase }.join(","),
       }
