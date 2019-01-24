@@ -1,3 +1,5 @@
+require "./config"
+
 module AvalancheMQ
   module Stats
     macro rate_stats(stats_keys, log_keys = %w())
