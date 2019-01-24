@@ -31,7 +31,7 @@ module AvalancheMQ
 
     def apply(parameter : Parameter? = nil)
       itr = if parameter.nil?
-              @parameters.values.compact.each
+              @parameters.each_value
             else
               [parameter].each
             end

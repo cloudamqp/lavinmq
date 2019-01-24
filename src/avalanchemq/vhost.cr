@@ -321,7 +321,7 @@ module AvalancheMQ
       itr = if resources
               resources.each
             else
-              @queues.values.each.chain(@exchanges.values.each)
+              @queues.each_value.chain(@exchanges.each_value)
             end
       sorted_policies = @policies.values.sort_by!(&.priority).reverse
       itr.each do |r|

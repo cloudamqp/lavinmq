@@ -166,8 +166,8 @@ module AvalancheMQ
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
         @vhosts.each_value do |vhost|
-          vhost.queues.values.each(&.update_rates)
-          vhost.exchanges.values.each(&.update_rates)
+          vhost.queues.each_value(&.update_rates)
+          vhost.exchanges.each_value(&.update_rates)
         end
         @connections.each do |connection|
           connection.update_rates
