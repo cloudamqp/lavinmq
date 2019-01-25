@@ -1,0 +1,9 @@
+#!/bin/bash -eux
+revision=$1
+vagrant ssh-config alpine > /dev/null || vagrant resume alpine || vagrant up alpine
+vagrant ssh alpine -c "cd /vagrant; sudo shards build --release --production --static"
+vagrant suspend alpine
+vagrant ssh-config ubuntu > /dev/null || vagrant resume ubuntu || vagrant up ubuntu
+vagrant ssh ubuntu -c "cd /vagrant; build/deb $revision"
+vagrant ssh ubuntu -c "cd /vagrant; build/tar $revision"
+vagrant suspend ubuntu

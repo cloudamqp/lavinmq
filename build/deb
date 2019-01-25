@@ -8,8 +8,6 @@ pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheM
 pkg_revision=$1
 root=avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
 
-shards build --release --production
-
 rm -rf $root
 mkdir -p $root/DEBIAN
 mkdir -p $root/usr/bin
@@ -53,7 +51,7 @@ Homepage: https://github.com/cloudamqp/avalanchemq
 Section: net
 Priority: optional
 Architecture: $(dpkg --print-architecture)
-Depends: openssl (>= 1.0.1), systemd, libc6, adduser
+Depends: systemd, adduser
 Installed-Size: $(du -ks $root/usr | cut -f 1)
 Maintainer: CloudAMQP <contact@cloudamqp.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
@@ -81,6 +79,3 @@ chmod +x $root/DEBIAN/prerm
 
 fakeroot dpkg-deb --build $root
 rm -r $root
-
-mkdir -p builds
-mv $root.deb builds/
