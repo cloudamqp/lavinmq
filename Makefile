@@ -1,14 +1,11 @@
-build:
-	shards build --production --release
+bin/avalanchemq:
+	crystal build --release -o bin/avalanchemq src/avalanchemq.cr
 
-install: build
-	cp bin/avalanchemq /usr/sbin/
+.PHONY: install
 
-build-deb:
-	vagrant up && vagrant ssh -c "cd /vagrant && build/deb 1" && vagrant halt
+install: bin/avalanchemq
+	install -s bin/avalanchemq /usr/local/bin/
 
-deb:
-	build/deb 1
-
-release-deb:
-	deb-s3 upload --bucket apt.avalanchemq.com builds/avalanchemq_*.deb && aws cloudfront create-invalidation --distribution-id E26Y9DFNV7WCMR --paths "/dists/*"
+.PHONY: clean
+clean:
+	rm bin/*
