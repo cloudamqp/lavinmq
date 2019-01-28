@@ -82,3 +82,5 @@ rm -r $root
 
 mkdir -p builds
 mv $root.deb builds/
+
+lintian builds/$root.deb || true
