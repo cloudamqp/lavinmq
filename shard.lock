@@ -6,7 +6,7 @@ shards:
 
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-    version: 0.1.5
+    version: 0.1.13
 
   amqp:
     github: cloudamqp/amqp.cr
@@ -22,7 +22,7 @@ shards:
 
   radix:
     github: luislavena/radix
-    version: 0.3.8
+    version: 0.3.9
 
   router:
     github: tbrand/router.cr
