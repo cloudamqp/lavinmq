@@ -45,11 +45,7 @@ module AvalancheMQ
         unless params.has_key?("page")
           raise Server::PayloadTooLarge.new if total_count > 10000
           JSON.build(context.response) do |json|
-            json.array do
-              iterator.each do |i|
-                i.to_json(json)
-              end
-            end
+            array_iterator_to_json(json, iterator)
           end
           return context
         end
@@ -61,17 +57,28 @@ module AvalancheMQ
         start = (page - 1) * page_size
         start = 0 if start > filtered_count
         items = all_items.skip(start).first(page_size)
-        item_count = items.size
-        items.rewind
-        {
-          filtered_count: filtered_count,
-          item_count:     items.size,
-          items:          items.to_a,
-          page:           page,
-          page_size:      page_size,
-          total_count:    total_count,
-        }.to_json(context.response)
+        JSON.build(context.response) do |json|
+          json.object do
+            json.field("filtered_count", filtered_count)
+            item_count = json.field("items") { array_iterator_to_json(json, items) }
+            json.field("item_count", item_count)
+            json.field("page", page)
+            json.field("page_size", page_size)
+            json.field("total_count", total_count)
+          end
+        end
         context
+      end
+
+      private def array_iterator_to_json(json, iterator)
+        size = 0
+        json.array do
+          iterator.each do |i|
+            i.to_json(json)
+            size += 1
+          end
+        end
+        size
       end
 
       private def redirect_back(context)
