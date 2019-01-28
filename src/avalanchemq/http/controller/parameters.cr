@@ -7,34 +7,32 @@ module AvalancheMQ
         get "/api/parameters" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          query = query_params(context)
-          page(query, vhosts(user)
-            .flat_map { |v| v.parameters.values.map { |p| map_parameter(v.name, p) } })
-            .to_json(context.response)
-          context
+          itr = vhosts(user).flat_map do |v|
+            v.parameters.each_value.map { |p| map_parameter(v.name, p) }
+          end
+          page(context, itr)
         end
 
         get "/api/parameters/:component" do |context, params|
           user = user(context)
           refuse_unless_policymaker(context, user)
           component = URI.unescape(params["component"])
-          query = query_params(context)
-          page(query, vhosts(user)
-            .flat_map { |v| v.parameters.values.map { |p| map_parameter(v.name, p) } }
-            .select { |p| p["component"] == component })
-            .to_json(context.response)
-          context
+          itr = vhosts(user).flat_map do |v|
+            v.parameters.each_value
+              .select { |p| p.component_name == component }
+              .map { |p| map_parameter(v.name, p) }
+          end
+          page(context, itr)
         end
 
         get "/api/parameters/:component/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            query = query_params(context)
             component = URI.unescape(params["component"])
-            page(query, @amqp_server.vhosts[vhost].parameters.values
+            itr = @amqp_server.vhosts[vhost].parameters.each_value
               .select { |p| p.component_name == component }
-              .map { |p| map_parameter(vhost, p) })
-              .to_json(context.response)
+              .map { |p| map_parameter(vhost, p) }
+            page(context, itr)
           end
         end
 
@@ -77,10 +75,7 @@ module AvalancheMQ
 
         get "/api/global-parameters" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          query = query_params(context)
-          page(query, @amqp_server.parameters.values.map { |p| map_parameter(nil, p) })
-            .to_json(context.response)
-          context
+          page(context, @amqp_server.parameters.each_value.map { |p| map_parameter(nil, p) })
         end
 
         get "/api/global-parameters/:name" do |context, params|
@@ -115,19 +110,16 @@ module AvalancheMQ
         end
 
         get "/api/policies" do |context, _params|
-          query = query_params(context)
           user = user(context)
           refuse_unless_policymaker(context, user)
-          page(query, vhosts(user).flat_map { |v| v.policies.values }).to_json(context.response)
-          context
+          itr = Iterator(Policy).chain(vhosts(user).map { |v| v.policies.each_value })
+          page(context, itr)
         end
 
         get "/api/policies/:vhost" do |context, params|
-          query = query_params(context)
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(query, @amqp_server.vhosts[vhost].policies.values)
-              .to_json(context.response)
+            page(context, @amqp_server.vhosts[vhost].policies.each_value)
           end
         end
 

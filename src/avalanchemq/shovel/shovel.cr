@@ -33,7 +33,7 @@ module AvalancheMQ
       Fiber.yield
     end
 
-    def to_json(json)
+    def to_json(json : JSON::Builder)
       {
         name:  @name,
         vhost: @vhost.name,

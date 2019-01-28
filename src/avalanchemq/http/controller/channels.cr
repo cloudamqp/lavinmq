@@ -9,18 +9,15 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/channels" do |context, _params|
-          query = query_params(context)
-          page(query, all_channels(user(context))).to_json(context.response)
-          context
+          page(context, all_channels(user(context)))
         end
 
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            query = query_params(context)
             c = @amqp_server.connections.find { |conn| conn.vhost.name == vhost }
-            channels = c.try(&.channels.values) || [] of Client::Channel
-            page(query, channels).to_json(context.response)
+            channels = c.try(&.channels.each_value) || ([] of Client::Channel).each
+            page(context, channels)
           end
         end
 
@@ -34,7 +31,7 @@ module AvalancheMQ
       end
 
       private def all_channels(user)
-        connections(user).flat_map { |c| c.channels.values }
+        Iterator(Client::Channel).chain(connections(user).map { |c| c.channels.each_value })
       end
 
       private def with_channel(context, params)

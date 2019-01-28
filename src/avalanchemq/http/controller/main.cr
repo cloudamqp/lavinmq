@@ -50,7 +50,7 @@ module AvalancheMQ
             connections += vhost_connections.size
             vhost_connections.each do |c|
               channels += c.channels.size
-              consumers += c.channels.values.reduce(0) { |memo, i| memo + i.consumers.size }
+              consumers += c.channels.each_value.reduce(0) { |memo, i| memo + i.consumers.size }
               recv_rate += c.stats_details[:recv_oct_details][:rate]
               send_rate += c.stats_details[:send_oct_details][:rate]
               add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
@@ -131,40 +131,33 @@ module AvalancheMQ
         end
 
         get "/api/shovels" do |context, _params|
-          query = query_params(context)
-          page(query, vhosts(user(context)).flat_map { |vhost| vhost.shovels.not_nil!.values })
-            .to_json(context.response)
-          context
+          itrs = vhosts(user(context)).flat_map do |v|
+            v.shovels.not_nil!.each_value
+          end
+          page(context, itrs)
         end
 
         get "/api/shovels/:vhost" do |context, params|
-          query = query_params(context)
           with_vhost(context, params) do |vhost|
-            page(query, @amqp_server.vhosts[vhost].shovels.not_nil!.values)
-              .to_json(context.response)
+            page(context, @amqp_server.vhosts[vhost].shovels.not_nil!.each_value)
           end
         end
 
         get "/api/federation-links" do |context, _params|
-          links = [] of Federation::Upstream::Link
-          query = query_params(context)
-          vhosts(user(context)).each do |vhost|
-            vhost.upstreams.not_nil!.each do |upstream|
-              links.concat(upstream.links.values)
+          itrs = vhosts(user(context)).flat_map do |vhost|
+            vhost.upstreams.not_nil!.flat_map do |upstream|
+              upstream.links.each_value
             end
           end
-          page(query, links).to_json(context.response)
-          context
+          page(context, itrs)
         end
 
         get "/api/federation-links/:vhost" do |context, params|
-          links = [] of Federation::Upstream::Link
-          query = query_params(context)
           with_vhost(context, params) do |vhost|
-            @amqp_server.vhosts[vhost].upstreams.not_nil!.each do |upstream|
-              links.concat(upstream.links.values)
+            itrs = @amqp_server.vhosts[vhost].upstreams.not_nil!.map do |upstream|
+              upstream.links.each_value
             end
-            page(query, links).to_json(context.response)
+            page(context, Iterator(Federation::Upstream::Link).chain(itrs))
           end
         end
       end

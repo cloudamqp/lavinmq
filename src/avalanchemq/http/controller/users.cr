@@ -16,18 +16,16 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/users" do |context, _params|
-          query = query_params(context)
           refuse_unless_administrator(context, user(context))
-          page(query, @amqp_server.users.values.map(&.user_details)).to_json(context.response)
-          context
+          page(context, @amqp_server.users.each_value.map(&.user_details))
         end
 
         get "/api/users/without-permissions" do |context, _params|
-          query = query_params(context)
           refuse_unless_administrator(context, user(context))
-          page(query, @amqp_server.users.values.select { |u| u.permissions.empty? }
-            .map(&.user_details)).to_json(context.response)
-          context
+          itr = @amqp_server.users.each_value
+            .select { |u| u.permissions.empty? }
+            .map(&.user_details)
+          page(context, itr)
         end
 
         post "/api/users/bulk-delete" do |context, _params|

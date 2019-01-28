@@ -16,29 +16,26 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/bindings" do |context, _params|
-          query = query_params(context)
-          page(query, vhosts(user(context)).flat_map { |v| bindings(v) })
-            .to_json(context.response)
-          context
+          itr = Iterator(BindingDetails)
+            .chain(vhosts(user(context)).map { |v| bindings(v) })
+          page(context, itr)
         end
 
         get "/api/bindings/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            query = query_params(context)
-            page(query, bindings(@amqp_server.vhosts[vhost])).to_json(context.response)
+            page(context, bindings(@amqp_server.vhosts[vhost]))
           end
         end
 
         get "/api/bindings/:vhost/e/:name/q/:queue" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            query = query_params(context)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            page(query, e.bindings.select { |_k, v| v.includes?(q) }
-              .map { |k, _| map_binding(e.binding_details(k, q)) })
-              .to_json(context.response)
+            itr = e.bindings.each.select { |(_k, v)| v.includes?(q) }
+              .map { |(k, _)| map_binding(e.binding_details(k, q)) }
+            page(context, itr)
           end
         end
 
@@ -102,12 +99,10 @@ module AvalancheMQ
         get "/api/bindings/:vhost/e/:name/e/:destination" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            query = query_params(context)
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
-            page(query, source.bindings.select { |_k, v| v.includes?(destination) }
-              .map { |k, _| map_binding(source.binding_details(k, destination)) })
-              .to_json(context.response)
+            page(context, source.bindings.each.select { |(_k, v)| v.includes?(destination) }
+              .map { |(k, _)| map_binding(source.binding_details(k, destination)) })
           end
         end
 

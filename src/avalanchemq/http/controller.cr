@@ -20,13 +20,13 @@ module AvalancheMQ
         context.request.query_params
       end
 
-      private def filter_values(params, values)
-        return values unless raw_name = params["name"]?
+      private def filter_values(params, iterator)
+        return iterator unless raw_name = params["name"]?
         term = URI.unescape(raw_name)
         if params["use_regex"]?.try { |v| v == "true" }
-          values.select { |v| match_value(v).to_s =~ /#{term}/ }
+          iterator.select { |v| match_value(v).to_s =~ /#{term}/ }
         else
-          values.select { |v| match_value(v).to_s.includes?(term) }
+          iterator.select { |v| match_value(v).to_s.includes?(term) }
         end
       end
 
@@ -38,25 +38,40 @@ module AvalancheMQ
         end
       end
 
-      private def page(params, values)
+      private def page(context, iterator)
+        params = query_params(context)
+        total_count = iterator.size
+        iterator.rewind
         unless params.has_key?("page")
-          raise Server::PayloadTooLarge.new if values.size > 10000
-          return values
+          raise Server::PayloadTooLarge.new if total_count > 10000
+          JSON.build(context.response) do |json|
+            json.array do
+              iterator.each do |i|
+                i.to_json(json)
+              end
+            end
+          end
+          return context
         end
-        all_items = filter_values(params, values)
+        all_items = filter_values(params, iterator)
+        filtered_count = all_items.size
+        all_items.rewind
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size
-        start = 0 if start > all_items.size
-        items = all_items[start, page_size]
+        start = 0 if start > filtered_count
+        items = all_items.skip(start).first(page_size)
+        item_count = items.size
+        items.rewind
         {
-          filtered_count: all_items.size,
+          filtered_count: filtered_count,
           item_count:     items.size,
-          items:          items,
+          items:          items.to_a,
           page:           page,
           page_size:      page_size,
-          total_count:    values.size,
-        }
+          total_count:    total_count,
+        }.to_json(context.response)
+        context
       end
 
       private def redirect_back(context)
@@ -115,7 +130,7 @@ module AvalancheMQ
       end
 
       def vhosts(user : User, require_amqp_access = false)
-        @amqp_server.vhosts.values.select do |v|
+        @amqp_server.vhosts.each_value.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
           mgmt = user.tags.any? { |t| t.management? || t.policy_maker? }

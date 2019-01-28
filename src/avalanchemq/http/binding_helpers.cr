@@ -1,10 +1,22 @@
+require "../amqp"
+require "../exchange"
+
 module AvalancheMQ
   module HTTP
     module BindingHelpers
+      alias BindingDetails = NamedTuple(
+        source: String,
+        vhost: String,
+        destination: String,
+        destination_type: String,
+        routing_key: String,
+        arguments: Hash(String, AMQP::Field)?,
+        properties_key: String)
+
       private def bindings(vhost)
-        vhost.exchanges.values.flat_map do |e|
-          e.bindings_details.map { |b| map_binding(b) }
-        end
+        vhost.exchanges.each_value.flat_map do |e|
+          e.bindings_details
+        end.each.map { |b| map_binding(b) }
       end
 
       private def map_binding(b)
@@ -13,9 +25,9 @@ module AvalancheMQ
       end
 
       private def binding_for_props(context, source, destination, props)
-        binding = source.bindings.select do |k, v|
+        binding = source.bindings.find do |k, v|
           v.includes?(destination) && hash_key(k) == props
-        end.first?
+        end
         unless binding
           type = destination.is_a?(Queue) ? "queue" : "exchange"
           not_found(context, "Binding '#{props}' on exchange '#{source.name}' -> #{type} '#{destination.name}' does not exist")
@@ -23,7 +35,7 @@ module AvalancheMQ
         binding
       end
 
-      private def hash_key(key : Tuple(String, Hash(String, AMQP::Field)?))
+      private def hash_key(key : Exchange::BindingKey)
         if key[1].nil? || key[1].try &.empty?
           key[0]
         else

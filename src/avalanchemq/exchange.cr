@@ -1,6 +1,8 @@
 require "logger"
 require "./policy"
 require "./stats"
+require "./amqp"
+require "./queue"
 
 module AvalancheMQ
   abstract class Exchange
@@ -15,11 +17,13 @@ module AvalancheMQ
 
     rate_stats(%w(publish_in publish_out))
     property publish_in_count, publish_out_count
+    alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
+    alias Destination = Set(Queue | Exchange)
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
                    @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(Tuple(String, Hash(String, AMQP::Field)?), Set(Queue | Exchange)).new do |h, k|
+      @bindings = Hash(BindingKey, Destination).new do |h, k|
         h[k] = Set(Queue | Exchange).new
       end
       @log = @vhost.log.dup

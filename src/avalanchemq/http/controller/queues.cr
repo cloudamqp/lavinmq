@@ -21,17 +21,14 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/queues" do |context, params|
-          query = query_params(context)
-          page(query, vhosts(user(context)).flat_map { |v| v.queues.values })
-            .to_json(context.response)
-          context
+          itr = Iterator(Queue).chain(vhosts(user(context)).map { |v| v.queues.each_value })
+          page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
-          query = query_params(context)
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(query, @amqp_server.vhosts[vhost].queues.values).to_json(context.response)
+            page(context, @amqp_server.vhosts[vhost].queues.each_value)
           end
         end
 
@@ -95,11 +92,9 @@ module AvalancheMQ
         get "/api/queues/:vhost/:name/bindings" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            query = query_params(context)
             queue = queue(context, params, vhost)
-            all_bindings = queue.vhost.exchanges.values.flat_map(&.bindings_details)
-            page(query, all_bindings.select { |b| b[:destination] == queue.name }
-              .map { |b| map_binding(b) }).to_json(context.response)
+            itr = bindings(queue.vhost).select { |b| b[:destination] == queue.name }
+            page(context, itr)
           end
         end
 
