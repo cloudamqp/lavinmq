@@ -77,7 +77,7 @@ describe AvalancheMQ::Server do
       q.publish pmsg
       q.publish pmsg
       q.publish pmsg
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe(no_ack: false) { |msg| msgs << msg }
       Fiber.yield
       msgs.size.should eq(2)
@@ -198,7 +198,7 @@ describe AvalancheMQ::Server do
       x = ch.exchange("", "direct", passive: true)
       x.publish_confirm "dead letter", "exp", props: AMQP::Client::Properties.new(expiration: "0", headers: hdrs)
 
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       dlq.subscribe { |m| msgs << m }
       Fiber.yield
       msgs.size.should eq 1
@@ -225,7 +225,7 @@ describe AvalancheMQ::Server do
     with_channel do |ch|
       q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       q.publish "m1"
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       tag = q.subscribe { |msg| msgs << msg }
       q.unsubscribe(tag)
       Fiber.yield
@@ -245,7 +245,7 @@ describe AvalancheMQ::Server do
       x.publish "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
       hdrs["user"] = "hest"
       x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       until msgs.size == 1
         Fiber.yield
@@ -266,7 +266,7 @@ describe AvalancheMQ::Server do
       x.publish "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
       hdrs["user"] = "hest"
       x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       Fiber.yield
       msgs.size.should eq 2
@@ -333,7 +333,7 @@ describe AvalancheMQ::Server do
       q = ch.queue("", args: args)
       q.publish_confirm "m1"
       q.publish_confirm "m2"
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -348,7 +348,7 @@ describe AvalancheMQ::Server do
       q = ch.queue("", args: args)
       q.publish_confirm("m1").should be_true
       q.publish_confirm("m2").should be_true
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -444,7 +444,7 @@ describe AvalancheMQ::Server do
       q = ch.queue
       q.publish_confirm("m1").should be_true
       q.publish_confirm("m2").should be_true
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -505,7 +505,7 @@ describe AvalancheMQ::Server do
     with_channel do |ch|
       q = ch.queue
       q.publish "m1"
-      msgs = [] of AMQP::Client::DeliveredMessage
+      msgs = [] of AMQP::Client::Message
       q.subscribe(no_ack: true) { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1

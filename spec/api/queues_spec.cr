@@ -42,8 +42,7 @@ describe AvalancheMQ::HTTP::QueuesController do
     it "should return message stats" do
       with_channel do |ch|
         q = ch.queue("stats_q")
-        x = ch.exchange("", "direct")
-        x.publish AMQP::Message.new("m1"), q.name
+        q.publish "m1"
       end
       response = get("/api/queues/%2f/stats_q")
       response.status_code.should eq 200
@@ -117,8 +116,7 @@ describe AvalancheMQ::HTTP::QueuesController do
     it "should not delete queue if it has messasge when query param if-unused is set" do
       with_channel do |ch|
         q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
-        x = ch.exchange("", "direct")
-        x.publish AMQP::Message.new("m1"), q.name
+        q.publish "m1"
         sleep 0.05
         body = %({
           "count": 1,
@@ -143,8 +141,7 @@ describe AvalancheMQ::HTTP::QueuesController do
     it "should get messages" do
       with_channel do |ch|
         q = ch.queue("q4")
-        x = ch.exchange("", "direct")
-        x.publish AMQP::Message.new("m1"), q.name
+        q.publish "m1"
         sleep 0.05
         body = %({
           "count": 1,
@@ -164,8 +161,7 @@ describe AvalancheMQ::HTTP::QueuesController do
     it "should handle count > message_count" do
       with_channel do |ch|
         q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
-        x = ch.exchange("", "direct")
-        x.publish AMQP::Message.new("m1"), q.name
+        q.publish "m1"
         sleep 0.05
         body = %({
           "count": 2,
@@ -199,8 +195,7 @@ describe AvalancheMQ::HTTP::QueuesController do
     it "should handle base64 encoding" do
       with_channel do |ch|
         q = ch.queue("q7")
-        x = ch.exchange("", "direct")
-        x.publish AMQP::Message.new("m1"), q.name
+        q.publish "m1"
         sleep 0.05
         body = %({
           "count": 1,

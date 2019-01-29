@@ -2,7 +2,7 @@ require "./spec_helper"
 require "../src/avalanchemq/shovel"
 
 module ShovelSpecHelpers
-  def self.setup_qs(ch, prefix = "") : {AMQP::Exchange, AMQP::Queue}
+  def self.setup_qs(ch, prefix = "") : {AMQP::Client::Exchange, AMQP::Client::Queue}
     x = ch.exchange("", "direct", passive: true)
     ch.queue("#{prefix}q1")
     q2 = ch.queue("#{prefix}q2")
@@ -15,8 +15,7 @@ module ShovelSpecHelpers
   end
 
   def self.publish(x, rk, msg)
-    pmsg = AMQP::Message.new(msg)
-    x.publish pmsg, rk
+    x.publish msg, rk
   end
 end
 
@@ -41,7 +40,7 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
-      q2.get(no_ack: true).to_s.should eq "shovel me"
+      q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
       s.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
   ensure
@@ -65,7 +64,7 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.publish x, "q1", "a" * 10_000
       shovel.run
       wait_for { shovel.stopped? }
-      q2.get(no_ack: true).to_s.bytesize.should eq 10_000
+      q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 10_000
     end
   ensure
     ShovelSpecHelpers.cleanup
@@ -91,7 +90,7 @@ describe AvalancheMQ::Shovel do
       until rmsg = q2.get(no_ack: true)
         Fiber.yield
       end
-      rmsg.to_s.should eq "shovel me"
+      rmsg.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup
@@ -115,7 +114,7 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
-      q2.get(no_ack: true).to_s.should eq "shovel me"
+      q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup
@@ -139,7 +138,7 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       shovel.run
       wait_for { shovel.stopped? }
-      q2.get(no_ack: true).to_s.should eq "shovel me"
+      q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup
@@ -190,7 +189,7 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.publish x, "q1", "shovel me"
       rmsg = nil
       wait_for { rmsg = q2.get(no_ack: true) }
-      rmsg.to_s.should eq "shovel me"
+      rmsg.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup
@@ -207,12 +206,10 @@ describe AvalancheMQ::Shovel do
       } of String => JSON::Any))
     s.vhosts["/"].add_parameter(p)
     with_channel do |ch|
-      x = ch.exchange("", "direct", passive: true)
-      ch.queue("q1d", durable: true)
-      ch.queue("q2d", durable: true)
-      props = AMQP::Protocol::Properties.new(delivery_mode: 2_u8)
-      pmsg = AMQP::Message.new("shovel me", props)
-      x.publish pmsg, "q1d"
+      q1 = ch.queue("q1d", durable: true)
+      q2 = ch.queue("q2d", durable: true)
+      props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
+      q1.publish "shovel me", props: props
     end
     close_servers
     TestHelpers.setup
@@ -223,7 +220,7 @@ describe AvalancheMQ::Shovel do
       ch.queue("q1d", durable: true)
       q2 = ch.queue("q2d", durable: true)
       ShovelSpecHelpers.publish x, "q1d", "shovel me"
-      msgs = [] of AMQP::Message
+      msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 2 }
       s.vhosts["/"].queues["q1d"].message_count.should eq 0
@@ -249,10 +246,10 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch
       shovel.run
       ShovelSpecHelpers.publish x, "q1", "shovel me"
-      msgs = [] of AMQP::Message
+      msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
-      msgs[0]?.to_s.should eq "shovel me"
+      msgs[0]?.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup

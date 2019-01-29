@@ -203,10 +203,10 @@ describe AvalancheMQ::HTTP::ExchangesController do
       with_channel do |ch|
         q = ch.queue("q2", durable: false)
         x = ch.exchange("str_enc", "topic", passive: false)
-        q.bind(x, "*")
+        q.bind(x.name, "*")
         response = post("/api/exchanges/%2f/str_enc/publish", body: body)
         response.status_code.should eq 200
-        msgs = [] of AMQP::Message
+        msgs = [] of AMQP::Client::Message
         q.subscribe { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
         msgs[0].to_s.should eq("test")
@@ -227,10 +227,10 @@ describe AvalancheMQ::HTTP::ExchangesController do
       with_channel do |ch|
         q = ch.queue("q2", durable: false)
         x = ch.exchange("str_enc", "topic", passive: false)
-        q.bind(x, "*")
+        q.bind(x.name, "*")
         response = post("/api/exchanges/%2f/str_enc/publish", body: body)
         response.status_code.should eq 200
-        msgs = [] of AMQP::Message
+        msgs = [] of AMQP::Client::Message
         q.subscribe { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
         msgs[0].to_s.should eq("test")

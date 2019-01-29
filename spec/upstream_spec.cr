@@ -2,7 +2,7 @@ require "./spec_helper"
 require "../src/avalanchemq/federation/upstream"
 
 module UpstreamSpecHelpers
-  def self.setup_qs(ch) : {AMQP::Exchange, AMQP::Queue}
+  def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}
     x = ch.exchange("", "direct", passive: true)
     ch.queue("q1")
     q2 = ch.queue("q2")
@@ -15,8 +15,7 @@ module UpstreamSpecHelpers
   end
 
   def self.publish(x, rk, msg)
-    pmsg = AMQP::Message.new(msg)
-    x.publish pmsg, rk
+    x.publish msg, rk
   end
 end
 
@@ -32,7 +31,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
-      msgs = [] of AMQP::Message
+      msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -69,7 +68,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
-      msgs = [] of AMQP::Message
+      msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -89,7 +88,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       UpstreamSpecHelpers.publish x, "q1", "federate me"
       upstream.link(vhost.queues["q2"])
-      msgs = [] of AMQP::Message
+      msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1

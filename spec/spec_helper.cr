@@ -1,6 +1,5 @@
 require "spec"
 require "file_utils"
-require "amqp"
 require "amqp-client"
 require "../src/avalanchemq/config"
 require "../src/avalanchemq/server"
