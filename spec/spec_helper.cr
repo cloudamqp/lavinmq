@@ -1,6 +1,7 @@
 require "spec"
 require "file_utils"
 require "amqp"
+require "amqp-client"
 require "../src/avalanchemq/config"
 require "../src/avalanchemq/server"
 require "../src/avalanchemq/log_formatter"
@@ -43,8 +44,7 @@ module TestHelpers
   end
 
   def with_channel(**args)
-    config = AMQP::Config.new(**args.merge(port: AMQP_PORT))
-    AMQP::Connection.start(config) do |conn|
+    AMQP::Client.start(**args.merge(port: AMQP_PORT)) do |conn|
       ch = conn.channel
       yield ch
     end

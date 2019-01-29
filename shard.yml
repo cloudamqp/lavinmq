@@ -24,6 +24,9 @@ dependencies:
     branch: master
 
 development_dependencies:
+  amqp-client:
+    # github: cloudamqp/amqp-client.cr
+    path: ../amqp-client.cr
   amqp:
     github: cloudamqp/amqp.cr
     branch: master
