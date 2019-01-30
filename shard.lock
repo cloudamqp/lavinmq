@@ -8,13 +8,9 @@ shards:
     github: cloudamqp/amq-protocol.cr
     version: 0.1.15
 
-  amqp:
-    github: cloudamqp/amqp.cr
-    commit: a26227a3f84bec2e6b5997bcb84b25b37f759079
-
   amqp-client:
-    path: ../amqp-client.cr
-    version: 0.2.2
+    github: cloudamqp/amqp-client.cr
+    version: 0.3.0
 
   baked_file_system:
     github: schovi/baked_file_system
