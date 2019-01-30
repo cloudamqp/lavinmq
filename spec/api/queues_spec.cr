@@ -3,7 +3,7 @@ require "../spec_helper"
 describe AvalancheMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
-      s.vhosts["/"].declare_queue("", false, false)
+      s.vhosts["/"].declare_queue("q0", false, false)
       response = get("/api/queues")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -17,7 +17,7 @@ describe AvalancheMQ::HTTP::QueuesController do
 
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
-      s.vhosts["/"].declare_queue("", false, false)
+      s.vhosts["/"].declare_queue("q0", false, false)
       response = get("/api/queues/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)

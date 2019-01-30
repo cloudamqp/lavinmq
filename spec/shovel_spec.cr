@@ -207,19 +207,19 @@ describe AvalancheMQ::Shovel do
     s.vhosts["/"].add_parameter(p)
     with_channel do |ch|
       q1 = ch.queue("q1d", durable: true)
-      q2 = ch.queue("q2d", durable: true)
+      ch.queue("q2d", durable: true)
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
-      q1.publish "shovel me", props: props
+      q1.publish_confirm "shovel me", props: props
     end
     close_servers
     TestHelpers.setup
 
     Fiber.yield
     with_channel do |ch|
-      x = ch.exchange("", "direct", passive: true)
-      ch.queue("q1d", durable: true)
+      q1 = ch.queue("q1d", durable: true)
       q2 = ch.queue("q2d", durable: true)
-      ShovelSpecHelpers.publish x, "q1d", "shovel me"
+      props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
+      q1.publish "shovel me", props: props
       msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 2 }

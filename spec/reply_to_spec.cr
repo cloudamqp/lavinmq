@@ -51,13 +51,10 @@ describe AvalancheMQ::Server do
     it "should set reply-to" do
       with_channel do |ch|
         ch.queue("amq.direct.reply-to").subscribe(no_ack: true) { }
-        reply_to = nil
-        ch.queue("test").subscribe do |msg|
-          reply_to = msg.properties.reply_to
-        end
+        q = ch.queue("test")
         props = AMQ::Protocol::Properties.new(reply_to: "amq.direct.reply-to")
-        ch.exchange("", "direct").publish("test", "test", props: props)
-        wait_for { reply_to }
+        q.publish_confirm("test", props: props)
+        reply_to = q.get.not_nil!.properties.reply_to
         reply_to.should match /^amq\.direct\.reply-to\..+$/
       end
     ensure

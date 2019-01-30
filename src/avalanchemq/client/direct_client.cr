@@ -77,7 +77,7 @@ module AvalancheMQ
 
     private def declare_queue(frame)
       if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
+        if q.exclusive && !@exclusive_queues.includes? q
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         elsif q.match?(frame)
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name, q.message_count, q.consumer_count)

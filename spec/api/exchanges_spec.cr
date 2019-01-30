@@ -209,7 +209,7 @@ describe AvalancheMQ::HTTP::ExchangesController do
         msgs = [] of AMQP::Client::Message
         q.subscribe { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
-        msgs[0].to_s.should eq("test")
+        msgs.first.not_nil!.body_io.to_s.should eq("test")
       end
     ensure
       s.vhosts["/"].delete_queue("q2")
@@ -233,7 +233,7 @@ describe AvalancheMQ::HTTP::ExchangesController do
         msgs = [] of AMQP::Client::Message
         q.subscribe { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
-        msgs[0].to_s.should eq("test")
+        msgs.first.not_nil!.body_io.to_s.should eq("test")
       end
     ensure
       s.vhosts["/"].delete_queue("q2")

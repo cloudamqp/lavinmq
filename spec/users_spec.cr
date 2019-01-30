@@ -2,13 +2,13 @@ require "./spec_helper"
 
 describe AvalancheMQ::Server do
   it "rejects invalid password" do
-    expect_raises(Channel::ClosedError) do
+    expect_raises(AMQP::Client::Connection::ClosedException) do
       with_channel(user: "guest", password: "invalid") { }
     end
   end
 
   it "rejects invalid user" do
-    expect_raises(Channel::ClosedError) do
+    expect_raises(AMQP::Client::Connection::ClosedException) do
       with_channel(user: "invalid", password: "guest") { }
     end
   end
@@ -17,7 +17,7 @@ describe AvalancheMQ::Server do
     s.vhosts.create("v1")
     s.users.rm_permission("guest", "v1")
     Fiber.yield
-    expect_raises(Channel::ClosedError) do
+    expect_raises(AMQP::Client::Connection::ClosedException) do
       with_channel(vhost: "v1", user: "guest", password: "guest") { }
     end
   ensure
