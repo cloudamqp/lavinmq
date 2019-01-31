@@ -15,7 +15,7 @@ module AvalancheMQ
     def initialize(tcp_socket : TCPSocket,
                    ssl_client : OpenSSL::SSL::Socket?,
                    vhost : VHost,
-                   @user : User,
+                   user : User,
                    tune_ok,
                    start_ok)
       @socket = ssl_client || tcp_socket
@@ -28,7 +28,7 @@ module AvalancheMQ
       @heartbeat = tune_ok.heartbeat
       @auth_mechanism = start_ok.mechanism
       name = "#{@remote_address} -> #{@local_address}"
-      super(name, vhost, log, start_ok.client_properties)
+      super(name, vhost, user, log, start_ok.client_properties)
       spawn heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
@@ -147,209 +147,6 @@ module AvalancheMQ
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         state:             @socket.closed? ? "closed" : "running",
       }.merge(stats_details).to_json(json)
-    end
-
-    private def declare_exchange(frame)
-      name = frame.exchange_name
-      if e = @vhost.exchanges.fetch(name, nil)
-        if frame.passive || e.match?(frame)
-          unless frame.no_wait
-            send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
-          end
-        else
-          send_precondition_failed(frame, "Existing exchange '#{name}' declared with other arguments")
-        end
-      elsif frame.passive
-        send_not_found(frame, "Exchange '#{name}' doesn't exists")
-      elsif name.starts_with? "amq."
-        send_access_refused(frame, "Not allowed to use the amq. prefix")
-      else
-        ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
-        ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, name) && ae_ok
-          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{name}'")
-          return
-        end
-        @vhost.apply(frame)
-        send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
-      end
-    end
-
-    private def delete_exchange(frame)
-      if @vhost.exchanges.has_key? frame.exchange_name
-        if frame.exchange_name.starts_with? "amq."
-          send_access_refused(frame, "Not allowed to use the amq. prefix")
-          return
-        elsif !@user.can_config?(@vhost.name, frame.exchange_name)
-          send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
-        else
-          @vhost.apply(frame)
-          send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
-        end
-      else
-        send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
-      end
-    end
-
-    private def delete_queue(frame)
-      if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
-        elsif frame.if_unused && !q.consumer_count.zero?
-          send_precondition_failed(frame, "Queue '#{q.name}' in use")
-        elsif frame.if_empty && !q.message_count.zero?
-          send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
-        elsif !@user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have permissions to delete queue '#{q.name}'")
-        else
-          size = q.message_count
-          @vhost.apply(frame)
-          @exclusive_queues.delete(q) if q.exclusive
-          send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
-        end
-      else
-        send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
-      end
-    end
-
-    private def declare_queue(frame)
-      if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Exclusive queue")
-        elsif frame.passive || q.match?(frame)
-          unless frame.no_wait
-            send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
-              q.message_count, q.consumer_count)
-          end
-        else
-          send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
-        end
-        q.last_get_time = Time.now.to_unix_ms
-      elsif frame.passive
-        send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
-      elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
-        unless frame.no_wait
-          consumer_count = direct_reply_channel.nil? ? 0_u32 : 1_u32
-          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, consumer_count)
-        end
-      elsif frame.queue_name.starts_with? "amq."
-        send_access_refused(frame, "Not allowed to use the amq. prefix")
-      else
-        if frame.queue_name.empty?
-          frame.queue_name = Queue.generate_name
-        end
-        dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
-        dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
-          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
-          return
-        end
-        @vhost.apply(frame)
-        if frame.exclusive
-          @exclusive_queues << @vhost.queues[frame.queue_name]
-        end
-        unless frame.no_wait
-          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
-        end
-      end
-    end
-
-    private def bind_queue(frame)
-      if !@vhost.queues.has_key? frame.queue_name
-        send_not_found frame, "Queue '#{frame.queue_name}' not found"
-      elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
-      elsif !@user.can_read?(@vhost.name, frame.exchange_name)
-        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
-      elsif !@user.can_write?(@vhost.name, frame.queue_name)
-        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      else
-        @vhost.apply(frame)
-        send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
-      end
-    end
-
-    private def unbind_queue(frame)
-      if !@vhost.queues.has_key? frame.queue_name
-        send_not_found frame, "Queue '#{frame.queue_name}' not found"
-      elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
-      elsif !@user.can_read?(@vhost.name, frame.exchange_name)
-        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
-      elsif !@user.can_write?(@vhost.name, frame.queue_name)
-        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      else
-        @vhost.apply(frame)
-        send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-      end
-    end
-
-    private def bind_exchange(frame)
-      if !@vhost.exchanges.has_key? frame.destination
-        send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
-      elsif !@vhost.exchanges.has_key? frame.source
-        send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
-      elsif !@user.can_read?(@vhost.name, frame.source)
-        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
-      elsif !@user.can_write?(@vhost.name, frame.destination)
-        send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
-      else
-        @vhost.apply(frame)
-        send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
-      end
-    end
-
-    private def unbind_exchange(frame)
-      if !@vhost.exchanges.has_key? frame.destination
-        send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
-      elsif !@vhost.exchanges.has_key? frame.source
-        send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
-      elsif !@user.can_read?(@vhost.name, frame.source)
-        send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
-      elsif !@user.can_write?(@vhost.name, frame.destination)
-        send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
-      else
-        @vhost.apply(frame)
-        send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
-      end
-    end
-
-    private def purge_queue(frame)
-      unless @user.can_read?(@vhost.name, frame.queue_name)
-        send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-        return
-      end
-      if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
-        else
-          messages_purged = q.purge
-          send AMQP::Frame::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
-        end
-      else
-        send_not_found(frame, "Queue '#{frame.queue_name}' not found")
-      end
-    end
-
-    private def start_publish(frame)
-      unless @user.can_write?(@vhost.name, frame.exchange)
-        send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
-      end
-      with_channel frame, &.start_publish(frame)
-    end
-
-    private def consume(frame)
-      unless @user.can_read?(@vhost.name, frame.queue)
-        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
-      end
-      with_channel frame, &.consume(frame)
-    end
-
-    private def basic_get(frame)
-      unless @user.can_read?(@vhost.name, frame.queue)
-        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
-      end
-      with_channel frame, &.basic_get(frame)
     end
 
     private def read_loop
