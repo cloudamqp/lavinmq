@@ -114,7 +114,7 @@
       })
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
-      const tableOptions = { url: permissionsUrl, keyColumns: ['user'], interval: 0 }
+      const tableOptions = { url: permissionsUrl, keyColumns: ['user'], interval: 5000 }
       const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
         avalanchemq.table.renderCell(tr, 1, item.configure)
         avalanchemq.table.renderCell(tr, 2, item.write)
