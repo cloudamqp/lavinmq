@@ -12,7 +12,7 @@ require "digest/sha1"
 module AvalancheMQ
   class VHost
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
-      direct_reply_channels, upstreams
+      direct_reply_channels, upstreams, default_user
 
     MAX_SEGMENT_SIZE = 256 * 1024**2
     @segment : UInt32
@@ -23,7 +23,7 @@ module AvalancheMQ
     @upstreams : Federation::UpstreamStore?
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
-    def initialize(@name : String, @server_data_dir : String, server_log : Logger,
+    def initialize(@name : String, @server_data_dir : String, server_log : Logger, @default_user : User,
                    @connection_events = Server::ConnectionsEvents.new(16))
       @log = server_log.dup
       @log.progname = "vhost=#{@name}"

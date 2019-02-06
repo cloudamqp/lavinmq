@@ -53,6 +53,10 @@ module AvalancheMQ
       end
     end
 
+    def default_user
+      @users["guest"]
+    end
+
     def to_json(json : JSON::Builder)
       json.array do
         each_value do |user|

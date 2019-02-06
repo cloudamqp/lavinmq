@@ -4,12 +4,11 @@ module AvalancheMQ
   abstract class DirectClient < Client
     abstract def handle_frame(frame : Frame)
 
-    def initialize(vhost : VHost, client_properties : Hash(String, AMQP::Field))
+    def initialize(vhost : VHost, user : User, client_properties : Hash(String, AMQP::Field))
       log = vhost.log.dup
       log.progname += " direct=#{self.hash}"
       name = "localhost:#{self.hash}"
       vhost.add_connection(self)
-      user = User.new("guest", nil, Array(Tag).new)
       super(name, vhost, user, log, client_properties)
     end
 

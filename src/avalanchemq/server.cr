@@ -28,8 +28,8 @@ module AvalancheMQ
       @listeners = Array(TCPServer).new(1)
       @connections = Array(Client).new
       @connection_events = ConnectionsEvents.new(16)
-      @vhosts = VHostStore.new(@data_dir, @connection_events, @log)
       @users = UserStore.new(@data_dir, @log)
+      @vhosts = VHostStore.new(@data_dir, @connection_events, @log, @users.default_user)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn handle_connection_events, name: "Server#handle_connection_events"

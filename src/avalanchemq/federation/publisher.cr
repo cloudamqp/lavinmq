@@ -18,7 +18,7 @@ module AvalancheMQ
           @last_delivery_tag = 0_u64
           @last_message_size = 0_u64
           @last_message_pos = 0_u64
-          super(@upstream.vhost, client_properties)
+          super(@upstream.vhost, @upstream.vhost.default_user, client_properties)
         end
 
         @on_frame : Proc(AMQP::Frame, Nil)?
@@ -81,8 +81,9 @@ module AvalancheMQ
         def send_basic_publish(frame, routing_key = nil)
           exchange = ""
           mandatory = @upstream.ack_mode == AckMode::OnConfirm
-          pframe = AMQP::Frame::Basic::Publish.new(frame.channel, 0_u16, exchange, routing_key,
-            mandatory, false)
+          pframe = AMQP::Frame::Basic::Publish.new(frame.channel, 0_u16,
+                                                   exchange, routing_key,
+                                                   mandatory, false)
           write pframe
           if mandatory
             @delivery_tags[@message_count += 1] = frame.delivery_tag
