@@ -73,15 +73,10 @@
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
           const raw = window.sessionStorage.getItem(permissionsUrl)
-
-          if (raw) {
-            resolve(JSON.parse(raw))
-          } else {
-            avalanchemq.http.request('GET', permissionsUrl).then(permissions => {
-              window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
-              resolve(permissions)
-            }).catch(e => reject(e))
-          }
+          avalanchemq.http.request('GET', permissionsUrl).then(permissions => {
+            window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
+            resolve(permissions)
+          }).catch(e => reject(e))
         })
 
         permissionsPromise.then(permissions => {
