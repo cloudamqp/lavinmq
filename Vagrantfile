@@ -11,9 +11,10 @@ Vagrant.configure("2") do |config|
     node.vm.box = "alpine/alpine64"
     node.vm.box_version = "3.6.0"
     node.vm.provision "shell", inline: <<~SHELL
+      echo '@edge http://dl-cdn.alpinelinux.org/alpine/edge/community' >> /etc/apk/repositories
       apk update
       apk upgrade
-      apk add crystal shards libc-dev libxml2-dev openssl-dev readline-dev gmp-dev yaml-dev
+      apk add --update crystal@edge shards@edge libc-dev libxml2-dev openssl-dev readline-dev gmp-dev yaml-dev
     SHELL
   end
 
