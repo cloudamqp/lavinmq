@@ -136,6 +136,7 @@
           const name = encodeURIComponent(item.name)
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
+          if (!confirm("Delete federation upstream " + item.name + "?")) return
           avalanchemq.http.request('DELETE', url)
             .then(() => {
               avalanchemq.dom.removeNodes(tr)
