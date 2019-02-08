@@ -3,7 +3,7 @@ require "./spec_helper"
 describe AvalancheMQ::DirectExchange do
   it "matches exact rk" do
     log = Logger.new(File.open("/dev/null", "w"))
-    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
     x = AvalancheMQ::DirectExchange.new(vhost, "")
     x.bind(q1, "q1", Hash(String, AvalancheMQ::AMQP::Field).new)
@@ -13,7 +13,7 @@ end
 
 describe AvalancheMQ::TopicExchange do
   log = Logger.new(File.open("/dev/null", "w"))
-  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
   x = AvalancheMQ::TopicExchange.new(vhost, "t", false, false, true)
 
   it "matches exact rk" do
@@ -72,7 +72,7 @@ end
 describe AvalancheMQ::HeadersExchange do
   log = Logger.new(STDOUT)
   log.level = LOG_LEVEL
-  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log)
+  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
   x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
   hdrs_all = {
     "x-match" => "all",
