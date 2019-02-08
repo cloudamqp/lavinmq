@@ -20,6 +20,8 @@ module AvalancheMQ
     alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
     alias Destination = Set(Queue | Exchange)
 
+    def_equals_and_hash @vhost, @name
+
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
                    @arguments = Hash(String, AMQP::Field).new)

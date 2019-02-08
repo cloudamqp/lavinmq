@@ -32,6 +32,7 @@ module AvalancheMQ
     property last_get_time : Int64
     getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
     getter? closed
+    def_equals_and_hash @vhost, @name
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,

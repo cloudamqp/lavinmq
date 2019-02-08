@@ -23,7 +23,10 @@ module AvalancheMQ
     @upstreams : Federation::UpstreamStore?
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
-    def initialize(@name : String, @server_data_dir : String, server_log : Logger, @default_user : User,
+    def_equals_and_hash @name
+
+    def initialize(@name : String, @server_data_dir : String,
+                   server_log : Logger, @default_user : User,
                    @connection_events = Server::ConnectionsEvents.new(16))
       @log = server_log.dup
       @log.progname = "vhost=#{@name}"
