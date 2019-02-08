@@ -63,7 +63,10 @@ module AvalancheMQ
       true
     end
 
-    private def find_all_queues(ex : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?, visited = Set(Exchange).new, queues = Set(Queue).new) : Set(Queue)
+    private def find_all_queues(ex : Exchange, routing_key : String,
+                                headers : Hash(String, AMQP::Field)?,
+                                visited = Set(Exchange).new,
+                                queues = Set(Queue).new) : Set(Queue)
       matches = ex.matches(routing_key, headers)
       if cc = headers.try(&.fetch("CC", nil))
         cc.as(Array(AMQP::Field)).each do |rk|
@@ -76,13 +79,16 @@ module AvalancheMQ
         end
       end
 
-      queues.concat matches.compact_map { |m| m.as? Queue }
-      exchanges = matches.compact_map { |m| m.as? Exchange }
-
-      exchanges.each do |e2e|
-        visited.add(ex)
-        unless visited.includes? e2e
-          find_all_queues(e2e, routing_key, headers, visited, queues)
+      matches.each do |m|
+        case m
+        when Queue
+          queues.add m.as(Queue)
+        when Exchange
+          e2e = m.as(Exchange)
+          visited.add(ex)
+          unless visited.includes? e2e
+            find_all_queues(e2e, routing_key, headers, visited, queues)
+          end
         end
       end
 
