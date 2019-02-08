@@ -293,6 +293,23 @@ module AvalancheMQ
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
+        keys = @map.keys
+        keys.each do |k|
+          queue, sp, consumer = @map[k]
+          if consumer.nil?
+            if frame.requeue
+              raise AMQP::Error::NotImplemented.new(@id,
+                                              AMQP::Frame::Basic::CLASS_ID,
+                                              AMQP::Frame::Basic::Recover::METHOD_ID)
+            end
+            env = queue.read(sp)
+            dt = next_delivery_tag(queue, env.segment_position, false, nil)
+            get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, dt,
+              false, env.message.exchange_name,
+              env.message.routing_key, queue.message_count)
+            deliver(get_ok, env.message)
+          end
+        end
         @client.send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
 
