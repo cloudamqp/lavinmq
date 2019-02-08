@@ -31,6 +31,7 @@ module AvalancheMQ
           @upstreams[name] = QueueUpstream.new(@vhost, name, uri, queue, prefetch, reconnect_delay,
             ack_mode)
         end
+        @vhost.log.info { "Upstream '#{name}' created" }
         @upstreams[name]
       end
 
