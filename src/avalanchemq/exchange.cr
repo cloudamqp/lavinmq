@@ -245,13 +245,13 @@ module AvalancheMQ
       @bindings.each do |bt, queues|
         args = bt[1]
         next unless args
-        case args["x-match"]
+        case args["x-match"]?
         when "any"
-          if headers.any? { |k, v| k != "x-match" && args.has_key?(k) && args[k] == v }
+          if args.any? { |k, v| k != "x-match" && headers[k]? == v }
             matches.concat(queues)
           end
         else
-          if headers.all? { |k, v| args.has_key?(k) && args[k] == v }
+          if args.all? { |k, v| k == "x-match" || headers[k]? == v }
             matches.concat(queues)
           end
         end
