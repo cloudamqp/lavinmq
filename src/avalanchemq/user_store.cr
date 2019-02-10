@@ -54,7 +54,9 @@ module AvalancheMQ
     end
 
     def default_user
-      @users["guest"]
+      tu = @users.find { |_, u| u.tags.includes? Tag::Administrator }
+      raise "No user with administrator privileges found" if tu.nil?
+      tu.not_nil!.last
     end
 
     def to_json(json : JSON::Builder)
