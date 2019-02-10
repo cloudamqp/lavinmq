@@ -56,8 +56,8 @@ From source:
 ```
 git clone git@github.com:avalanchemq/avalanchemq.git
 cd avalanchemq
-make
-cp bin/avalanchemq /usr/local/bin/avalanchemq
+shards build --release --production
+install -s bin/avalanchemq /usr/local/bin/avalanchemq
 ```
 
 Refer to
