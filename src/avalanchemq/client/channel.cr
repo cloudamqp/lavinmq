@@ -293,14 +293,8 @@ module AvalancheMQ
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
-        keys = @map.keys
-        keys.each do |key|
-          queue, sp, consumer = @map[key]
-          if consumer.nil?
-            queue.reject(sp, true)
-            @map.delete(key)
-          end
-        end
+        @map.each_value { |queue, sp, consumer| queue.reject(sp, true) if consumer.nil? }
+        @map.clear
         @client.send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
 
