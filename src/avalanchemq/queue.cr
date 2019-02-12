@@ -170,8 +170,11 @@ module AvalancheMQ
       nil
     end
 
+    @deliver_lock = Mutex.new
+
     private def deliver_to_consumer(c)
       @log.debug { "Getting a new message" }
+      @deliver_lock.lock
       if env = get(c.no_ack)
         sp = env.segment_position
         @log.debug { "Delivering #{sp} to consumer" }
@@ -188,6 +191,8 @@ module AvalancheMQ
       else
         @log.debug { "Consumer found, but not a message" }
       end
+    ensure
+      @deliver_lock.unlock
     end
 
     private def schedule_expiration_and_wait
