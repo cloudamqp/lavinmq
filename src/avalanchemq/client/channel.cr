@@ -201,15 +201,19 @@ module AvalancheMQ
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
-          elsif env = q.basic_get(frame.no_ack)
-            delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-            get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
-              env.redelivered, env.message.exchange_name,
-              env.message.routing_key, q.message_count)
-            deliver(get_ok, env.message)
-            @redeliver_count += 1 if env.redelivered
           else
-            @client.send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
+            q.basic_get(frame.no_ack) do |env|
+              if env
+                delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+                get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
+                  env.redelivered, env.message.exchange_name,
+                  env.message.routing_key, q.message_count)
+                deliver(get_ok, env.message)
+                @redeliver_count += 1 if env.redelivered
+              else
+                @client.send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
+              end
+            end
           end
           q.last_get_time = Time.utc_now.to_unix_ms
           @get_count += 1

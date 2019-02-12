@@ -120,57 +120,57 @@ module AvalancheMQ
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
             body = parse_body(context)
-            count = body["count"]?.try(&.as_i) || 1
-            ack_mode = body["ack_mode"]?.try(&.as_s) || body["ackmode"]?.try(&.as_s)
+            get_count = body["count"]?.try(&.as_i) || 1
+            ack_mode = body["ack_mode"]?.try(&.as_s) || "peek"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
-            case ack_mode
-            when "ack_requeue_true", "reject_requeue_true", "peek"
-              msgs = q.peek(count)
-            when "ack_requeue_false", "reject_requeue_false", "get"
-              msgs = Array.new(count) { q.basic_get(true) }
-            else
-              if body["requeue"]?
-                msgs = q.peek(count)
-              else
-                msgs = Array.new(count) { q.basic_get(true) }
+            requeue =
+              case ack_mode
+              when "ack_requeue_true", "reject_requeue_true", "peek" then true
+              when "ack_requeue_false", "reject_requeue_false", "get" then false
+              else body["requeue"]?.try(&.as_bool) || true
               end
-            end
-            msgs ||= [] of Envelope
-            count = q.message_count
-            res = msgs.compact.map do |env|
-              size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
-              payload = String.build(size) do |io|
-                IO.copy env.message.body_io, io, size
-              end
-              case encoding
-              when "auto"
-                if payload.valid_encoding?
-                  content = payload
-                  payload_encoding = "string"
-                else
-                  content = Base64.urlsafe_encode(payload)
-                  payload_encoding = "base64"
+            msg_count = q.message_count
+            JSON.build(context.response) do |j|
+              j.array do
+                get_count.times do
+                  q.basic_get(false) do |env|
+                    break if env.nil?
+                    size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
+                    payload = String.build(size) do |io|
+                      IO.copy env.message.body_io, io, size
+                    end
+                    q.reject(env.segment_position, requeue)
+                    case encoding
+                    when "auto"
+                      if payload.valid_encoding?
+                        content = payload
+                        payload_encoding = "string"
+                      else
+                        content = Base64.urlsafe_encode(payload)
+                        payload_encoding = "base64"
+                      end
+                    when "base64"
+                      content = Base64.urlsafe_encode(payload)
+                      payload_encoding = "base64"
+                    else
+                      bad_request(context, "Unknown encoding #{encoding}")
+                    end
+                    j.object do
+                      j.field(payload_bytes, env.message.size)
+                      j.field(redelivered, env.redelivered)
+                      j.field(exchange, env.message.exchange_name)
+                      j.field(routing_key, env.message.routing_key)
+                      j.field(message_count, msg_count)
+                      j.field(properties, env.message.properties)
+                      j.field(payload, content)
+                      j.field(payload_encoding, payload_encoding)
+                      j.field(peek, ack_mode == "peek")
+                    end
+                  end
                 end
-              when "base64"
-                content = Base64.urlsafe_encode(payload)
-                payload_encoding = "base64"
-              else
-                bad_request(context, "Unknown encoding #{encoding}")
               end
-              {
-                payload_bytes:    env.message.size,
-                redelivered:      env.redelivered,
-                exchange:         env.message.exchange_name,
-                routing_key:      env.message.routing_key,
-                message_count:    count,
-                properties:       env.message.properties,
-                payload:          content,
-                payload_encoding: payload_encoding,
-                peek:             ack_mode == "peek",
-              }
             end
-            res.to_json(context.response)
           end
         end
       end

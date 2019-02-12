@@ -186,7 +186,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         response = post("/api/queues/%2f/q6/get", body: body)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        body.as_a.empty?.should be_true
+        body.as_a.should be_empty
       end
     ensure
       s.vhosts["/"].delete_queue("q6")

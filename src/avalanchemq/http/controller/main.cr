@@ -124,9 +124,10 @@ module AvalancheMQ
               4_u64,
               IO::Memory.new("test"))
             ok = @amqp_server.vhosts[vhost].publish(msg)
-            env = @amqp_server.vhosts[vhost].queues["aliveness-test"].basic_get(true)
-            ok = ok && env && env.message.body_io.read_string(env.message.size) == "test"
-            {status: ok ? "ok" : "failed"}.to_json(context.response)
+            @amqp_server.vhosts[vhost].queues["aliveness-test"].basic_get(true) do |env|
+              ok = ok && env && env.message.body_io.read_string(env.message.size) == "test"
+              {status: ok ? "ok" : "failed"}.to_json(context.response)
+            end
           end
         end
 

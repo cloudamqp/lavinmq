@@ -170,29 +170,26 @@ module AvalancheMQ
       nil
     end
 
-    @deliver_lock = Mutex.new
-
     private def deliver_to_consumer(c)
       @log.debug { "Getting a new message" }
-      @deliver_lock.lock
-      if env = get(c.no_ack)
-        sp = env.segment_position
-        @log.debug { "Delivering #{sp} to consumer" }
-        if c.deliver(env.message, sp, env.redelivered)
-          if env.redelivered
-            @redeliver_count += 1
+      get(c.no_ack) do |env|
+        if env
+          sp = env.segment_position
+          @log.debug { "Delivering #{sp} to consumer" }
+          if c.deliver(env.message, sp, env.redelivered)
+            if env.redelivered
+              @redeliver_count += 1
+            else
+              @deliver_count += 1
+            end
+            @log.debug { "Delivery done" }
           else
-            @deliver_count += 1
+            @log.debug { "Delivery failed" }
           end
-          @log.debug { "Delivery done" }
         else
-          @log.debug { "Delivery failed" }
+          @log.debug { "Consumer found, but not a message" }
         end
-      else
-        @log.debug { "Consumer found, but not a message" }
       end
-    ensure
-      @deliver_lock.unlock
     end
 
     private def schedule_expiration_and_wait
@@ -364,23 +361,23 @@ module AvalancheMQ
       end
     end
 
-    def basic_get(no_ack)
-      m = get(no_ack)
-      @get_count += 1 if m
-      m
+    def basic_get(no_ack, &blk : Envelope? -> Nil)
+      get(no_ack) do |env|
+        @get_count += 1 if env
+        yield env
+      end
     end
 
-    private def get(no_ack : Bool) : Envelope | Nil
-      return if @closed
+    @read_lock = Mutex.new
+
+    private def get(no_ack : Bool, &blk : Envelope? -> Nil)
+      return yield nil if @closed
       sp = @ready_lock.synchronize { @ready.shift? }
-      return unless sp
+      return yield nil if sp.nil?
       @unacked_count += 1 unless no_ack
-      read(sp)
-    end
-
-    def peek(length = 1) : Array(Envelope) | Nil
-      return if @closed
-      Array.new(length) { |i| @ready[i]?.try { |sp| read(sp) } }.compact
+      @read_lock.synchronize do
+        yield read(sp)
+      end
     end
 
     def read(sp : SegmentPosition) : Envelope

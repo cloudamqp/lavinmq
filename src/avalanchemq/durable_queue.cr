@@ -27,12 +27,14 @@ module AvalancheMQ
       File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
         unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
         next_unacked = unacked.next
-        @ready.each do |sp|
-          while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
-            f.write_bytes next_unacked.as(SegmentPosition)
-            next_unacked = unacked.next
+        @ready_lock.synchronize do
+          @ready.each do |sp|
+            while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
+              f.write_bytes next_unacked.as(SegmentPosition)
+              next_unacked = unacked.next
+            end
+            f.write_bytes sp
           end
-          f.write_bytes sp
         end
         until next_unacked == Iterator::Stop::INSTANCE
           f.write_bytes next_unacked.as(SegmentPosition)
@@ -67,15 +69,17 @@ module AvalancheMQ
       end
     end
 
-    def get(no_ack : Bool) : Envelope | Nil
-      super.tap do |env|
-        next unless env && no_ack
-        persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
-        @lock.synchronize do
-          @ack.write_bytes env.segment_position
-          @ack.flush if persistent
-          compact_index! if (@acks += 1) > MAX_ACKS
+    def get(no_ack : Bool, &blk : Envelope? -> Nil)
+      super(no_ack) do |env|
+        if env && no_ack
+          persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
+          @lock.synchronize do
+            @ack.write_bytes env.segment_position
+            @ack.flush if persistent
+            compact_index! if (@acks += 1) > MAX_ACKS
+          end
         end
+        yield env
       end
     end
 
