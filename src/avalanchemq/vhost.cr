@@ -103,7 +103,10 @@ module AvalancheMQ
       queues
     end
 
+    @wfile_lock = Mutex.new
+
     private def write_to_disk(msg) : SegmentPosition
+      @wfile_lock.lock
       pos = @wfile.pos.to_u32
       if pos >= MAX_SEGMENT_SIZE
         @segment += 1
@@ -123,6 +126,8 @@ module AvalancheMQ
       IO.copy(msg.body_io, @wfile, msg.size)
       @wfile.flush
       SegmentPosition.new(@segment, pos)
+    ensure
+      @wfile_lock.unlock
     end
 
     private def open_wfile : File
