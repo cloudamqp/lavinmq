@@ -270,13 +270,15 @@ module AvalancheMQ
     end
 
     private def metadata(sp) : MessageMetadata
-      seg = @segments[sp.segment]
-      seg.seek(sp.position, IO::Seek::Set)
-      ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
-      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
-      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
-      pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
-      MessageMetadata.new(ts, ex, rk, pr)
+      @read_lock.synchronize do
+        seg = @segments[sp.segment]
+        seg.seek(sp.position, IO::Seek::Set)
+        ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
+        ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
+        rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
+        pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
+        MessageMetadata.new(ts, ex, rk, pr)
+      end
     end
 
     private def schedule_expiration_of_next_msg(now)
