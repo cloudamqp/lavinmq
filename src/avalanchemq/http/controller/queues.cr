@@ -157,15 +157,15 @@ module AvalancheMQ
                       bad_request(context, "Unknown encoding #{encoding}")
                     end
                     j.object do
-                      j.field(payload_bytes, env.message.size)
-                      j.field(redelivered, env.redelivered)
-                      j.field(exchange, env.message.exchange_name)
-                      j.field(routing_key, env.message.routing_key)
-                      j.field(message_count, msg_count)
-                      j.field(properties, env.message.properties)
-                      j.field(payload, content)
-                      j.field(payload_encoding, payload_encoding)
-                      j.field(peek, ack_mode == "peek")
+                      j.field("payload_bytes", env.message.size)
+                      j.field("redelivered", env.redelivered)
+                      j.field("exchange", env.message.exchange_name)
+                      j.field("routing_key", env.message.routing_key)
+                      j.field("message_count", msg_count)
+                      j.field("properties", env.message.properties)
+                      j.field("payload", content)
+                      j.field("payload_encoding", payload_encoding)
+                      j.field("peek", ack_mode == "peek")
                     end
                   end
                 end
