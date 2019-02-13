@@ -35,7 +35,7 @@
 
     if (options.pagination) {
       let page = getQueryVariable('page') || 1
-      let pageSize = getQueryVariable('page_size') || 20
+      let pageSize = getQueryVariable('page_size') || 100
       query += `&page=${page}&page_size=${pageSize}`
       let footer = `<tfoot><tr>
                       <td colspan="999"><div id="pagination"></div></td>

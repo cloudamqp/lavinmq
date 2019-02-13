@@ -41,4 +41,36 @@ describe AvalancheMQ::HTTP::Server do
       body["status"].as_s.should eq "ok"
     end
   end
+
+  describe "Pagination" do
+    it "should page results" do
+      response = get("/api/vhosts?page=1&page_size=1")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      keys = ["filtered_count", "items", "item_count", "page", "page_size", "total_count"]
+      keys.each { |k| body.as_h.keys.should contain(k) }
+    end
+  end
+
+  describe "Sorting" do
+    it "should sort results" do
+      s.vhosts.create("x-vhost")
+      s.vhosts.create("a-vhost")
+      response = get("/api/vhosts?page=1&sort=name")
+      response.status_code.should eq 200
+      items = JSON.parse(response.body).as_h["items"].as_a
+      items.first["name"].should eq "/"
+      items.last["name"].should eq "x-vhost"
+    end
+
+    it "should sort reverse results" do
+      s.vhosts.create("a-vhost")
+      s.vhosts.create("x-vhost")
+      response = get("/api/vhosts?page=1&sort=name&sort_reverse=true")
+      response.status_code.should eq 200
+      items = JSON.parse(response.body).as_h["items"].as_a
+      items.first["name"].should eq "x-vhost"
+      items.last["name"].should eq "/"
+    end
+  end
 end

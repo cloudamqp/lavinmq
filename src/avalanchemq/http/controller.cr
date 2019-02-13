@@ -47,20 +47,23 @@ module AvalancheMQ
           return context
         end
         all_items = filter_values(params, iterator.map(&.details_tuple))
-        filtered_count = all_items.size
-        all_items.rewind
+        if sort_by = params["sort"]?
+          sorted_items = all_items.to_a
+          filtered_count = sorted_items.size
+          if sorted_items.first.has_key?(sort_by)
+            sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
+          end
+          sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
+          all_items = sorted_items.each
+        else
+          filtered_count = all_items.size
+          all_items.rewind
+        end
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size
         start = 0 if start > filtered_count
         items = all_items.skip(start).first(page_size)
-        if sort_by = params["sort"]?
-          sorted_items = items.to_a
-          if sorted_items.first.has_key?(sort_by)
-            sorted_items.sort_by! { |i| i[sort_by].to_s }
-          end
-          items = sorted_items.each
-        end
         JSON.build(context.response) do |json|
           json.object do
             json.field("filtered_count", filtered_count)
