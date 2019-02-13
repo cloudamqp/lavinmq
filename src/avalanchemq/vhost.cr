@@ -384,12 +384,12 @@ module AvalancheMQ
 
     private def load_default_definitions
       @log.info "Loading default definitions"
-      @exchanges[""] = DirectExchange.new(self, "", true, false, true)
-      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, true)
-      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, true)
-      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, true)
-      @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, true)
-      @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, true)
+      @exchanges[""] = DirectExchange.new(self, "", true, false, false)
+      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
+      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
+      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, false)
+      @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, false)
+      @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
     end
 
     private def compact!
