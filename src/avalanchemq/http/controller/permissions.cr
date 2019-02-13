@@ -1,15 +1,30 @@
 require "../controller"
 require "./users"
+require "../../sortable_json"
 
 module AvalancheMQ
   module HTTP
+    struct PermissionsView
+      include SortableJSON
+
+      def initialize(@user : User, @vhost : String, @p : User::Permissions)
+      end
+
+      def details_tuple
+        @user.permissions_details(@vhost, @p)
+      end
+    end
+
     class PermissionsController < Controller
       include UserHelpers
 
       private def register_routes
         get "/api/permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.users.flat_map { |_, u| u.permissions_details }.each)
+          itr = @amqp_server.users
+            .flat_map { |_, u| u.permissions.map { |vhost, p| PermissionsView.new(u, vhost, p) } }
+            .each
+          page(context, itr)
         end
 
         get "/api/permissions/:vhost/:user" do |context, params|

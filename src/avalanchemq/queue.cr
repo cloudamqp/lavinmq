@@ -4,12 +4,14 @@ require "./segment_position"
 require "./policy"
 require "./observable"
 require "./stats"
+require "./sortable_json"
 
 module AvalancheMQ
   class Queue
     include PolicyTarget
     include Observable
     include Stats
+    include SortableJSON
 
     alias ArgumentNumber = UInt16 | Int32 | Int64
 
@@ -229,7 +231,7 @@ module AvalancheMQ
       true
     end
 
-    def details
+    def details_tuple
       {
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
@@ -243,10 +245,6 @@ module AvalancheMQ
         effective_policy_definition: @policy,
         message_stats: stats_details,
       }
-    end
-
-    def to_json(json : JSON::Builder)
-      details.to_json(json)
     end
 
     def publish(sp : SegmentPosition, flush = false)

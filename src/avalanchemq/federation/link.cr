@@ -3,12 +3,14 @@ require "./publisher"
 require "./consumer"
 require "./queue_upstream"
 require "./exchange_upstream"
+require "../sortable_json"
 
 module AvalancheMQ
   module Federation
     class Upstream
       class Link
         include Observer
+        include SortableJSON
         getter connected_at
 
         @publisher : Publisher?
@@ -43,7 +45,7 @@ module AvalancheMQ
           end
         end
 
-        def to_json(json)
+        def details_tuple
           {
             upstream:  @upstream.name,
             vhost:     @upstream.vhost.name,

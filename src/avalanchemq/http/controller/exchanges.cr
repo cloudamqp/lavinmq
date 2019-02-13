@@ -94,7 +94,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            page(context, e.bindings_details.each.map { |b| map_binding(b) })
+            page(context, e.bindings_details.each)
           end
         end
 
@@ -102,7 +102,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            itr = bindings(e.vhost).select { |b| b[:destination] == e.name }
+            itr = bindings(e.vhost).select { |b| b.destination.name == e.name }
             page(context, itr)
           end
         end

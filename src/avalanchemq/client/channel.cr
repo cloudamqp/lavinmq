@@ -2,11 +2,14 @@ require "logger"
 require "./channel/consumer"
 require "../amqp"
 require "../stats"
+require "../sortable_json"
 
 module AvalancheMQ
   abstract class Client
     class Channel
       include Stats
+      include SortableJSON
+
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
       property? running = true
@@ -37,7 +40,7 @@ module AvalancheMQ
         @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
       end
 
-      def details
+      def details_tuple
         {
           number:                  @id,
           name:                    @name,
@@ -53,10 +56,6 @@ module AvalancheMQ
           state:                   @running ? "running" : "closed",
           message_stats:           stats_details,
         }
-      end
-
-      def to_json(builder : JSON::Builder)
-        details.to_json(builder)
       end
 
       def send(frame)

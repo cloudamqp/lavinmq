@@ -36,7 +36,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             q = queue(context, params, vhost)
-            q.details.merge({
+            q.details_tuple.merge({
               consumer_details: q.consumers.to_a,
             }).to_json(context.response)
           end
@@ -93,7 +93,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             queue = queue(context, params, vhost)
-            itr = bindings(queue.vhost).select { |b| b[:destination] == queue.name }
+            itr = bindings(queue.vhost).select { |b| b.destination.name == queue.name }
             page(context, itr)
           end
         end
@@ -126,9 +126,9 @@ module AvalancheMQ
             truncate = body["truncate"]?.try(&.as_i)
             requeue =
               case ack_mode
-              when "ack_requeue_true", "reject_requeue_true", "peek" then true
+              when "ack_requeue_true", "reject_requeue_true", "peek"  then true
               when "ack_requeue_false", "reject_requeue_false", "get" then false
-              else body["requeue"]?.try(&.as_bool) || true
+              else                                                         body["requeue"]?.try(&.as_bool) || true
               end
             msg_count = q.message_count
             JSON.build(context.response) do |j|

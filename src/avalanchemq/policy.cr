@@ -1,4 +1,5 @@
 require "json"
+require "./sortable_json"
 
 module AvalancheMQ
   module PolicyTarget
@@ -18,7 +19,9 @@ module AvalancheMQ
       end
     end
 
-    JSON.mapping(
+    include SortableJSON
+
+    SortableJSON.mapping(
       name: {type: String, setter: false},
       vhost: {type: String, setter: false},
       pattern: {type: Regex, setter: false},

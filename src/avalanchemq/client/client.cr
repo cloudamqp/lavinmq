@@ -5,10 +5,12 @@ require "../message"
 require "./channel"
 require "../user"
 require "../stats"
+require "../sortable_json"
 
 module AvalancheMQ
   abstract class Client
     include Stats
+    include SortableJSON
 
     abstract def send(frame : AMQP::Frame)
     abstract def to_json(json : JSON::Builder)

@@ -127,7 +127,7 @@ module AvalancheMQ
       super
     end
 
-    def to_json(json : JSON::Builder)
+    def details_tuple
       {
         channels:          @channels.size,
         connected_at:      @connected_at,
@@ -146,7 +146,7 @@ module AvalancheMQ
         name:              @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         state:             @socket.closed? ? "closed" : "running",
-      }.merge(stats_details).to_json(json)
+      }.merge(stats_details)
     end
 
     private def read_loop

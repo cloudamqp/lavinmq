@@ -23,7 +23,7 @@ module AvalancheMQ
 
         get "/api/channels/:name" do |context, params|
           with_channel(context, params) do |channel|
-            channel.details.merge({
+            channel.details_tuple.merge({
               consumer_details: channel.consumers,
             }).to_json(context.response)
           end

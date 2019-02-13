@@ -12,7 +12,7 @@ module AvalancheMQ
       super(name, vhost, user, log, client_properties)
     end
 
-    def to_json(json : JSON::Builder)
+    def details_tuple
       {
         channels:          @channels.size,
         connected_at:      @connected_at,
@@ -22,7 +22,7 @@ module AvalancheMQ
         protocol:          "Direct 0-9-1",
         name:              @name,
         state:             @running ? "running" : "closed",
-      }.to_json(json)
+      }
     end
 
     def channel_name_prefix

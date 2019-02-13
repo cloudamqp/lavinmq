@@ -1,9 +1,11 @@
 require "logger"
+require "../../sortable_json"
 
 module AvalancheMQ
   abstract class Client
     class Channel
       class Consumer
+        include SortableJSON
         getter no_ack, queue, unacked, tag, exclusive
         @log : Logger
 
@@ -70,8 +72,8 @@ module AvalancheMQ
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, true)
         end
 
-        def details
-          channel_details = @channel.details
+        def details_tuple
+          channel_details = @channel.details_tuple
           {
             queue: {
               name:  @queue.name,
@@ -90,10 +92,6 @@ module AvalancheMQ
               name:            channel_details[:name],
             },
           }
-        end
-
-        def to_json(json : JSON::Builder)
-          details.to_json(json)
         end
       end
     end

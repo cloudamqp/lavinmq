@@ -2,6 +2,7 @@ require "crypto/bcrypt/password"
 require "json"
 require "./password"
 require "./regex_to_json"
+require "./sortable_json"
 
 module AvalancheMQ
   enum Tag
@@ -16,12 +17,14 @@ module AvalancheMQ
   end
 
   class User
+    include SortableJSON
     getter name, password, permissions, hash_algorithm, tags
     setter tags
+    alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
 
     @name : String
     @hash_algorithm : String
-    @permissions = Hash(String, NamedTuple(config: Regex, read: Regex, write: Regex)).new
+    @permissions = Hash(String, Permissions).new
     @password = nil
     @tags = Array(Tag).new
 
@@ -108,8 +111,8 @@ module AvalancheMQ
       @password = User.hash_password(password, hash_algorithm)
     end
 
-    def to_json(json)
-      user_details.merge(permissions: @permissions).to_json(json)
+    def details_tuple
+      user_details.merge(permissions: @permissions)
     end
 
     def user_details

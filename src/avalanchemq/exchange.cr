@@ -3,11 +3,16 @@ require "./policy"
 require "./stats"
 require "./amqp"
 require "./queue"
+require "./sortable_json"
 
 module AvalancheMQ
+  alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
+  alias Destination = Set(Queue | Exchange)
+
   abstract class Exchange
     include PolicyTarget
     include Stats
+    include SortableJSON
 
     getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type,
       alternate_exchange
@@ -17,8 +22,6 @@ module AvalancheMQ
 
     rate_stats(%w(publish_in publish_out))
     property publish_in_count, publish_out_count
-    alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
-    alias Destination = Set(Queue | Exchange)
 
     def_equals_and_hash @vhost, @name
 
@@ -54,13 +57,13 @@ module AvalancheMQ
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
     end
 
-    def to_json(builder : JSON::Builder)
+    def details_tuple
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
         policy: @policy.try &.name, effective_policy_definition: @policy,
         message_stats: stats_details,
-      }.to_json(builder)
+      }
     end
 
     def self.make(vhost, name, type, durable, auto_delete, internal, arguments)
@@ -109,14 +112,7 @@ module AvalancheMQ
     end
 
     def binding_details(key, destination)
-      {
-        source:           name,
-        vhost:            vhost.name,
-        destination:      destination.name,
-        destination_type: destination.is_a?(Queue) ? "queue" : "exchange",
-        routing_key:      key[0],
-        arguments:        key[1],
-      }
+      BindingDetails.new(name, vhost.name, key, destination)
     end
 
     private def after_unbind
@@ -136,6 +132,36 @@ module AvalancheMQ
     abstract def unbind(destination : Queue | Exchange, routing_key : String,
                         headers : Hash(String, AMQP::Field)?)
     abstract def matches(routing_key : String, headers : Hash(String, AMQP::Field)?) : Set(Queue | Exchange)
+  end
+
+  struct BindingDetails
+    include SortableJSON
+    getter source, vhost, key, destination
+
+    def initialize(@source : String, @vhost : String,
+                   @key : BindingKey, @destination : Queue | Exchange)
+    end
+
+    def details_tuple
+      {
+        source:           @source,
+        vhost:            @vhost,
+        destination:      @destination.name,
+        destination_type: @destination.is_a?(Queue) ? "queue" : "exchange",
+        routing_key:      @key[0],
+        arguments:        @key[1],
+        properties_key:   BindingDetails.hash_key(@key),
+      }
+    end
+
+    def self.hash_key(key : BindingKey)
+      if key[1].nil? || key[1].try &.empty?
+        key[0]
+      else
+        hsh = Base64.urlsafe_encode(key[1].to_s)
+        "#{key[0]}~#{hsh}"
+      end
+    end
   end
 
   class DirectExchange < Exchange
