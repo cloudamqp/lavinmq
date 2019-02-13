@@ -551,6 +551,18 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "supports recover for basic get" do
+    with_channel do |ch|
+      q = ch.queue
+      q.publish "m1"
+      q.publish "m2"
+      ch.basic_get(q.name, no_ack: false)
+      ch.basic_recover(requeue: true)
+      msg = ch.basic_get(q.name, no_ack: false)
+      msg.not_nil!.body_io.to_s.should eq("m1")
+    end
+  end
+
   pending "compacts queue index correctly" do
     with_channel do |ch|
       q = ch.queue("durable_queue_index", durable: true)
