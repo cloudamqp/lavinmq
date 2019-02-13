@@ -556,7 +556,7 @@ describe AvalancheMQ::Server do
       q = ch.queue
       q.publish "m1"
       q.publish "m2"
-      msg = ch.basic_get(q.name, no_ack: false)
+      ch.basic_get(q.name, no_ack: false)
       ch.basic_recover(requeue: true)
       msg = ch.basic_get(q.name, no_ack: false)
       msg.not_nil!.body_io.to_s.should eq("m1")
