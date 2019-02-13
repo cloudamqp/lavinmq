@@ -1,6 +1,7 @@
 require "router"
 require "logger"
 require "../slice_to_json"
+require "../sortable_json"
 
 module AvalancheMQ
   module HTTP
@@ -31,14 +32,10 @@ module AvalancheMQ
       end
 
       private def match_value(value)
-        if value.responds_to?(:name)
-          value.name
-        else
-          value[:name]? || value["name"]?
-        end
+        value[:name]? || value["name"]?
       end
 
-      private def page(context, iterator)
+      private def page(context, iterator : Iterator(SortableJSON))
         params = query_params(context)
         total_count = iterator.size
         iterator.rewind
@@ -49,9 +46,19 @@ module AvalancheMQ
           end
           return context
         end
-        all_items = filter_values(params, iterator)
-        filtered_count = all_items.size
-        all_items.rewind
+        all_items = filter_values(params, iterator.map(&.details_tuple))
+        if sort_by = params["sort"]?
+          sorted_items = all_items.to_a
+          filtered_count = sorted_items.size
+          if sorted_items.first.has_key?(sort_by)
+            sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
+          end
+          sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
+          all_items = sorted_items.each
+        else
+          filtered_count = all_items.size
+          all_items.rewind
+        end
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size

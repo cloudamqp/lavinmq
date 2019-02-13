@@ -7,10 +7,12 @@ require "./parameter"
 require "./shovel/shovel_store"
 require "./federation/upstream_store"
 require "./client/direct_client"
+require "./sortable_json"
 require "digest/sha1"
 
 module AvalancheMQ
   class VHost
+    include SortableJSON
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
       direct_reply_channels, upstreams, default_user
 
@@ -138,11 +140,7 @@ module AvalancheMQ
       end
     end
 
-    def to_json(json : JSON::Builder)
-      vhost_details.to_json(json)
-    end
-
-    def vhost_details
+    def details_tuple
       {
         name: @name,
         dir:  @dir,

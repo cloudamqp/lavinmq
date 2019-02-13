@@ -1,18 +1,31 @@
 require "../controller"
+require "../../sortable_json"
 
 module AvalancheMQ
   module HTTP
+    struct VHostView
+      include SortableJSON
+
+      def initialize(@vhost : VHost)
+      end
+
+      def details_tuple
+        @vhost.details_tuple.merge(@vhost.message_details)
+      end
+    end
+
     class VHostsController < Controller
       private def register_routes
         get "/api/vhosts" do |context, _params|
-          page(context, vhosts(user(context)).map { |v| v.vhost_details.merge(v.message_details) })
+          vhosts = vhosts(user(context)).map { |v| VHostView.new(v) }
+          page(context, vhosts)
         end
 
         get "/api/vhosts/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             v = @amqp_server.vhosts[vhost]
-            v.vhost_details.merge(v.message_details).to_json(context.response)
+            VHostView.new(v).to_json(context.response)
           end
         end
 

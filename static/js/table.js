@@ -35,7 +35,7 @@
 
     if (options.pagination) {
       let page = getQueryVariable('page') || 1
-      let pageSize = getQueryVariable('page_size') || 20
+      let pageSize = getQueryVariable('page_size') || 100
       query += `&page=${page}&page_size=${pageSize}`
       let footer = `<tfoot><tr>
                       <td colspan="999"><div id="pagination"></div></td>
@@ -76,8 +76,7 @@
           }
           const t = table.tBodies[0]
           clearRows(t)
-          const raw = window.sessionStorage.getItem(url)
-          updateTable(raw)
+          fetchAndUpdate()
         })
       })
     }
@@ -92,6 +91,9 @@
       let fullUrl = `${url}?${query.replace(/^&/, '')}`
       if (searchTerm) {
         fullUrl += `&name=${searchTerm}&use_regex=true`
+      }
+      if (sortKey !== '') {
+        fullUrl += `&sort=${sortKey}&sort_reverse=${reverseOrder}`
       }
       const tableError = document.getElementById(id + '-error')
       return avalanchemq.http.request('GET', fullUrl).then(function (response) {

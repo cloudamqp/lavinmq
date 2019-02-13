@@ -2,6 +2,17 @@ require "../controller"
 
 module AvalancheMQ
   module HTTP
+    struct UserView
+      include SortableJSON
+
+      def initialize(@user : User)
+      end
+
+      def details_tuple
+        @user.user_details
+      end
+    end
+
     module UserHelpers
       private def user(context, params, key = "name")
         name = URI.unescape(params[key])
@@ -17,14 +28,14 @@ module AvalancheMQ
       private def register_routes
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.users.each_value.map(&.user_details))
+          page(context, @amqp_server.users.each_value.map { |u| UserView.new(u) })
         end
 
         get "/api/users/without-permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
           itr = @amqp_server.users.each_value
             .select { |u| u.permissions.empty? }
-            .map(&.user_details)
+            .map { |u| UserView.new(u) }
           page(context, itr)
         end
 

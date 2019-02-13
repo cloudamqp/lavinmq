@@ -1,7 +1,24 @@
 require "../controller"
+require "../../sortable_json"
 
 module AvalancheMQ
   module HTTP
+    struct ParameterView
+      include SortableJSON
+
+      def initialize(@p : Parameter, @vhost : String?)
+      end
+
+      def details_tuple
+        {
+          name:      @p.parameter_name,
+          value:     @p.value,
+          component: @p.component_name,
+          vhost:     @vhost,
+        }
+      end
+    end
+
     class ParametersController < Controller
       private def register_routes
         get "/api/parameters" do |context, _params|
@@ -163,12 +180,7 @@ module AvalancheMQ
       end
 
       private def map_parameter(vhost, p)
-        {
-          "name"      => p.parameter_name,
-          "component" => p.component_name,
-          "vhost"     => vhost,
-          "value"     => p.value,
-        }.compact
+        ParameterView.new(p, vhost)
       end
 
       private def param(context, parameters, id)

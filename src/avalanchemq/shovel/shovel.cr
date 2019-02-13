@@ -1,9 +1,11 @@
 require "logger"
 require "./consumer"
 require "./publisher"
+require "../sortable_json"
 
 module AvalancheMQ
   class Shovel
+    include SortableJSON
     @pub : Publisher?
     @sub : Consumer?
     @log : Logger
@@ -33,12 +35,12 @@ module AvalancheMQ
       Fiber.yield
     end
 
-    def to_json(json : JSON::Builder)
+    def details_tuple
       {
         name:  @name,
         vhost: @vhost.name,
         state: @state,
-      }.to_json(json)
+      }
     end
 
     private def run_loop
