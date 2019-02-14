@@ -198,7 +198,9 @@ module AvalancheMQ
     end
 
     def matches(routing_key, headers = nil)
-      @bindings.each_value.reduce { |acc, i| acc.concat(i) }
+      bindings = @bindings.each_value
+      return Set(Queue | Exchange).new(0) if bindings.empty?
+      bindings.reduce { |acc, i| acc.concat(i) }
     end
   end
 
