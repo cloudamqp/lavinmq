@@ -98,4 +98,35 @@ describe AvalancheMQ::Federation::Upstream do
     UpstreamSpecHelpers.cleanup
     upstream.not_nil!.close
   end
+
+  pending "should resume federation after downstream reconnects" do
+    vhost = s.vhosts["/"]
+    upstream = AvalancheMQ::Federation::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1")
+    msgs = [] of AMQP::Client::Message
+
+    with_channel do |ch|
+      x, q2 = UpstreamSpecHelpers.setup_qs ch
+      UpstreamSpecHelpers.publish x, "q1", "federate me"
+      upstream.link(vhost.queues["q2"])
+      q2.subscribe do |msg|
+        msgs << msg
+      end
+      wait_for { msgs.size == 1 }
+      msgs.size.should eq 1
+    end
+
+    with_channel do |ch|
+      x, q2 = UpstreamSpecHelpers.setup_qs ch
+      UpstreamSpecHelpers.publish x, "q1", "federate me"
+      q2.subscribe do |msg|
+        msgs << msg
+      end
+      wait_for { msgs.size == 2 }
+      msgs.size.should eq 2
+      vhost.queues["q1"].message_count.should eq 0
+    end
+  ensure
+    UpstreamSpecHelpers.cleanup
+    upstream.not_nil!.close
+  end
 end
