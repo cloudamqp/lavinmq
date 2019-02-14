@@ -471,7 +471,7 @@ a[data-tag] {
 }
 
 .form input:not([type="radio"]):not([type="checkbox"]), .form select {
-  max-width: 300px;
+  max-width: 400px;
   width: calc(100% - 160px);
 }
 
