@@ -318,11 +318,11 @@
       document.querySelector('#addBinding').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const data = new window.FormData(this)
-        const e = encodeURIComponent(data.get('source'))
+        const e = encodeURIComponent(data.get('source').trim())
         const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue
         const args = avalanchemq.dom.parseJSON(data.get('arguments'))
         const body = {
-          routing_key: data.get('routing_key'),
+          routing_key: data.get('routing_key').trim(),
           arguments: args
         }
         avalanchemq.http.request('POST', url, { body })
@@ -403,7 +403,7 @@
         evt.preventDefault()
         const shovel = 'Move from ' + queue
         const url = '/api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(shovel)
-        const dest = document.querySelector('[name=shovel-destination]').value
+        const dest = document.querySelector('[name=shovel-destination]').value.trim()
         const body = {
           name: shovel,
           value: {

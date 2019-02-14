@@ -72,7 +72,6 @@
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
-          const raw = window.sessionStorage.getItem(permissionsUrl)
           avalanchemq.http.request('GET', permissionsUrl).then(permissions => {
             window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
             resolve(permissions)
@@ -97,7 +96,7 @@
       document.querySelector('#createVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const data = new window.FormData(this)
-        const name = encodeURIComponent(data.get('name'))
+        const name = encodeURIComponent(data.get('name').trim())
         const url = '/api/vhosts/' + name
         avalanchemq.http.request('PUT', url)
           .then(() => {

@@ -131,7 +131,7 @@
         evt.preventDefault()
         const data = new window.FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
-        const exchange = encodeURIComponent(data.get('name'))
+        const exchange = encodeURIComponent(data.get('name').trim())
         const url = '/api/exchanges/' + vhost + '/' + exchange
         const body = {
           durable: data.get('durable') === '1',

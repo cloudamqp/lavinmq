@@ -226,7 +226,7 @@
       document.querySelector('#createShovel').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const data = new window.FormData(this)
-        const name = encodeURIComponent(data.get('name'))
+        const name = encodeURIComponent(data.get('name').trim())
         const vhost = encodeURIComponent(data.get('vhost'))
         const url = '/api/parameters/shovel/' + vhost + '/' + name
         const body = {

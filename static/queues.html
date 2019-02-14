@@ -125,7 +125,7 @@
         evt.preventDefault()
         const data = new window.FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
-        const queue = encodeURIComponent(data.get('name'))
+        const queue = encodeURIComponent(data.get('name').trim())
         const url = '/api/queues/' + vhost + '/' + queue
         const body = {
           durable: data.get('durable') === '1',

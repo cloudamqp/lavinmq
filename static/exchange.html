@@ -192,12 +192,12 @@
       document.querySelector('#addBinding').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const data = new window.FormData(this)
-        const d = encodeURIComponent(data.get('destination'))
+        const d = encodeURIComponent(data.get('destination').trim())
         const t = data.get('dest-type')
         const url = '/api/bindings/' + urlEncodedVhost + '/e/' + urlEncodedExchange + '/' + t + '/' + d
         const args = avalanchemq.dom.parseJSON(data.get('arguments'))
         const body = {
-          routing_key: data.get('routing_key'),
+          routing_key: data.get('routing_key').trim(),
           arguments: args
         }
         avalanchemq.http.request('POST', url, { body })
@@ -217,7 +217,7 @@
         const body = {
           payload: data.get('payload'),
           payload_encoding: 'string',
-          routing_key: data.get('routing_key'),
+          routing_key: data.get('routing_key').trim(),
           properties
         }
         avalanchemq.http.request('POST', url, { body })
