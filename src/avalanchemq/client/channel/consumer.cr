@@ -62,8 +62,9 @@ module AvalancheMQ
               @queue.reject(sp, requeue: true)
             else
               # redeliver to the original recipient
-              env = @queue.read(sp)
-              deliver(env.message, sp, redelivered: true)
+              @queue.read_message(sp) do |env|
+                deliver(env.message, sp, redelivered: true)
+              end
             end
           end
         end
