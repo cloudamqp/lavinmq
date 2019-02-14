@@ -13,7 +13,6 @@
     return avalanchemq.http.request('GET', url).then(function (vhosts) {
       if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
         window.sessionStorage.removeItem('vhost')
-        window.location.reload()
       }
       try {
         window.sessionStorage.setItem('/api/vhosts', JSON.stringify(vhosts))

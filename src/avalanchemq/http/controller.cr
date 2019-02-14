@@ -143,16 +143,11 @@ module AvalancheMQ
         user
       end
 
-      def vhosts(user : User, require_amqp_access = false)
+      def vhosts(user : User)
         @amqp_server.vhosts.each_value.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
-          mgmt = user.tags.any? { |t| t.management? || t.policy_maker? }
-          if require_amqp_access
-            next amqp_access && (full_view_vhosts_access || mgmt)
-          else
-            next full_view_vhosts_access || mgmt
-          end
+          full_view_vhosts_access || (amqp_access && user.tags.any?)
         end
       end
 
