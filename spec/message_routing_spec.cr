@@ -7,7 +7,32 @@ describe AvalancheMQ::DirectExchange do
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
     x = AvalancheMQ::DirectExchange.new(vhost, "")
     x.bind(q1, "q1", Hash(String, AvalancheMQ::AMQP::Field).new)
-    x.matches("q1", Hash(String, AvalancheMQ::AMQP::Field).new).should eq(Set{q1})
+    x.matches("q1").should eq(Set{q1})
+  end
+
+  it "matches no rk" do
+    log = Logger.new(File.open("/dev/null", "w"))
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
+    x = AvalancheMQ::DirectExchange.new(vhost, "")
+    x.matches("q1").should be_empty
+  end
+end
+
+describe AvalancheMQ::FanoutExchange do
+  it "matches any rk" do
+    log = Logger.new(File.open("/dev/null", "w"))
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
+    q1 = AvalancheMQ::Queue.new(vhost, "q1")
+    x = AvalancheMQ::FanoutExchange.new(vhost, "")
+    x.bind(q1, "")
+    x.matches("any").should eq(Set{q1})
+  end
+
+  it "matches no rk" do
+    log = Logger.new(File.open("/dev/null", "w"))
+    vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
+    x = AvalancheMQ::FanoutExchange.new(vhost, "")
+    x.matches("q1").should be_empty
   end
 end
 
