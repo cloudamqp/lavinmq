@@ -40,8 +40,6 @@ module AvalancheMQ
             @upstream.stop_link(@federated_q)
           when :add_consumer
             @consumer_available.send(nil) unless @consumer_available.closed?
-          when :rm_consumer
-            @upstream.stop_link(@federated_q) unless @federated_q.consumer_count > 0
           end
         end
 
