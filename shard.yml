@@ -10,6 +10,8 @@ targets:
     main: src/avalanchemq.cr
   avalanchemqctl:
     main: src/avalanchemqctl.cr
+  avalanchemqperf:
+    main: src/avalanchemqperf.cr
 
 dependencies:
   amq-protocol:
@@ -22,12 +24,12 @@ dependencies:
   cache_hash:
     github: samueleaton/cache-hash
     branch: master
-
-development_dependencies:
   amqp-client:
     github: cloudamqp/amqp-client.cr
     branch: master
     # path: ../amqp-client.cr
+
+development_dependencies:
   ameba:
     github: veelenga/ameba
     version: 0.8.0
