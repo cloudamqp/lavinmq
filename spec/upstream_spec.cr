@@ -99,7 +99,7 @@ describe AvalancheMQ::Federation::Upstream do
     upstream.not_nil!.close
   end
 
-  pending "should resume federation after downstream reconnects" do
+  it "should resume federation after downstream reconnects" do
     vhost = s.vhosts["/"]
     upstream = AvalancheMQ::Federation::QueueUpstream.new(vhost, "test", AMQP_BASE_URL, "q1")
     msgs = [] of AMQP::Client::Message

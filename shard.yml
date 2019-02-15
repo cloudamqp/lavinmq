@@ -26,6 +26,7 @@ dependencies:
 development_dependencies:
   amqp-client:
     github: cloudamqp/amqp-client.cr
+    branch: master
     # path: ../amqp-client.cr
   ameba:
     github: veelenga/ameba

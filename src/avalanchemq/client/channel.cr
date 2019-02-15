@@ -194,6 +194,7 @@ module AvalancheMQ
         unless frame.no_wait
           @client.send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
+        Fiber.yield # Notify :add_consumer observers
       end
 
       def basic_get(frame)
