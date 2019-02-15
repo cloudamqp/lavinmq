@@ -359,9 +359,9 @@ module AvalancheMQ
 
     private def load!
       load_definitions!
-      apply_parameters
-      spawn(name: "Load policies") do
+      spawn(name: "Load parameters") do
         sleep 0.05
+        apply_parameters
         apply_policies
       end
     end
