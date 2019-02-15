@@ -109,7 +109,7 @@ module AvalancheMQ
         close_on_ok(socket, log)
       end
       nil
-    rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
+    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
       nil
     rescue ex : Exception
@@ -123,7 +123,10 @@ module AvalancheMQ
     end
 
     private def cleanup
-      @socket.close unless @socket.closed?
+      begin
+        @socket.close unless @socket.closed?
+      rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
+      end
       super
     end
 
@@ -197,7 +200,7 @@ module AvalancheMQ
         return false
       end
       true
-    rescue ex : IO::Error | Errno
+    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
       @log.info { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup
       false
@@ -240,7 +243,7 @@ module AvalancheMQ
         @socket.flush
       end
       true
-    rescue ex : IO::Error | Errno
+    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
       @log.info { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
