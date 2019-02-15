@@ -26,6 +26,8 @@ module AvalancheMQ
         {error: "bad_request", reason: "#{ex.message}"}.to_json(context.response)
       rescue ex : Controller::HaltRequest
         @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
+      rescue ex : Errno
+        @log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.message}\"" }
       rescue ex : Exception
         @log.error "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}"
         context.response.status_code = 500
