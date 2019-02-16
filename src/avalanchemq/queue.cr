@@ -453,7 +453,9 @@ module AvalancheMQ
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @consumer_available.send nil unless @consumer_available.full?
-      spawn { notify_observers(:add_consumer, consumer) }
+      spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
+        notify_observers(:add_consumer, consumer)
+      end
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
