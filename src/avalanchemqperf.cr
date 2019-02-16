@@ -82,16 +82,22 @@ class Perf
   def pub
     a = AMQP::Client.new(@url).connect
     ch = a.channel
-    exchange = @exchange
-    rk = @routing_key
     data = "0" * @size
     loop do
-      if @rate.zero? || @pubs < @rate
-        ch.basic_publish data, exchange, rk
-        @pubs += 1
+      if @confirm
+        ch.basic_publish_confirm data, @exchange, @routing_key
+      else
+        ch.basic_publish data, @exchange, @routing_key
       end
-      Fiber.yield if @pubs % 1000 == 0
+      @pubs += 1
+      if @rate.zero?
+        Fiber.yield if @pubs % 1000 == 0
+      else
+        sleep 1.0 / @rate
+      end
     end
+  ensure
+    a.try &.close
   end
 
   def consume
@@ -100,9 +106,15 @@ class Perf
     ch.queue(@queue).subscribe(no_ack: @no_ack) do |m|
       m.ack unless @no_ack
       @consumes += 1
-      Fiber.yield if @consumes % 1000 == 0
+      if @consume_rate.zero?
+        Fiber.yield if @consumes % 1000 == 0
+      else
+        sleep 1.0 / @consume_rate
+      end
     end
     sleep
+  ensure
+    a.try &.close
   end
 end
 
