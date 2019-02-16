@@ -7,11 +7,11 @@ module AvalancheMQ
       {% for name in stats_keys %}
       @{{name.id}}_count = 0
       @{{name.id}}_rate = 0_f32
-      @{{name.id}}_log = Array(Float32).new(Config.instance.stats_log_size)
+      @{{name.id}}_log = Deque(Float32).new(Config.instance.stats_log_size)
       {% end %}
 
       {% for name in log_keys %}
-      @{{name.id}}_log = Array(UInt32).new(Config.instance.stats_log_size)
+      @{{name.id}}_log = Deque(UInt32).new(Config.instance.stats_log_size)
       getter {{name.id}}_log
       {% end %}
 

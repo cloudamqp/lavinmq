@@ -1,5 +1,6 @@
 require "router"
 require "logger"
+require "../deque_to_json"
 require "../slice_to_json"
 require "../sortable_json"
 

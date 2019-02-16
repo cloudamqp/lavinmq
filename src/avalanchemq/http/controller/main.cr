@@ -5,18 +5,14 @@ module AvalancheMQ
   module HTTP
     module StatsHelpers
       def add_logs!(logs_a, logs_b)
-        a_size = logs_a.size
-        b_dup = logs_b.dup
-        logs_a.reverse!.map! do |a|
-          b = b_dup.pop?
-          b ? (a + b) : a
-        end.reverse!
-        while b_dup.size > 0
-          if a_size < logs_b.size
-            logs_a.unshift(b_dup.pop)
-          else
-            logs_a.push(b_dup.pop)
-          end
+        until logs_a.size >= logs_b.size
+          logs_a.unshift 0
+        end
+        until logs_b.size >= logs_a.size
+          logs_b.unshift 0
+        end
+        logs_a.size.times do |i|
+          logs_a[i] += logs_b[i]
         end
         logs_a
       end
@@ -35,13 +31,13 @@ module AvalancheMQ
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
           recv_rate, send_rate = 0, 0
-          ready_log = Array(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
-          unacked_log = Array(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
-          recv_rate_log = Array(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
-          send_rate_log = Array(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
+          ready_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
+          unacked_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
+          recv_rate_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
+          send_rate_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
           {% for name in QUEUE_STATS %}
           {{name.id}}_rate = 0_f32
-          {{name.id}}_log = Array(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
+          {{name.id}}_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
           {% end %}
 
           vhosts(user(context)).each do |vhost|
