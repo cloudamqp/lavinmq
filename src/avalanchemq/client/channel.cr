@@ -81,6 +81,8 @@ module AvalancheMQ
         end
       end
 
+      MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
+
       def next_msg_headers(frame)
         @log.debug { "Next msg headers: #{frame.inspect}" }
         if direct_reply_request?(frame.properties.reply_to)
@@ -90,6 +92,11 @@ module AvalancheMQ
             @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
             return
           end
+        end
+        if frame.body_size > MAX_MESSAGE_BODY_SIZE
+          error = "message size #{frame.body_size} larger than max size #{MAX_MESSAGE_BODY_SIZE}"
+          @client.send_precondition_failed(frame, error)
+          return
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
