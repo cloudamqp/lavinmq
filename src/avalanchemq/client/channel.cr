@@ -321,9 +321,9 @@ module AvalancheMQ
       end
 
       def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        @delivery_tag += 1
-        @map[@delivery_tag] = {queue, sp, consumer} unless no_ack
-        @delivery_tag
+        tag = @delivery_tag += 1
+        @map[tag] = {queue, sp, consumer} unless no_ack
+        tag
       end
 
       def cancel_consumer(frame)
