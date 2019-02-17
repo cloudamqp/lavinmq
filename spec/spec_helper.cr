@@ -53,14 +53,13 @@ module TestHelpers
     with_channel(args) { |ch| yield ch }
   end
 
-  def wait_for(t = 5.seconds)
-    timeout = Time.now + t
-    until yield
+  def wait_for(timeout = 5.seconds)
+    s = Time.monotonic
+    until res = yield
       Fiber.yield
-      if Time.now > timeout
-        raise "Execuction expired"
-      end
+      raise "Execuction expired" if Time.monotonic - s > timeout
     end
+    res
   rescue e
     puts "\n#{e.inspect_with_backtrace}"
   end

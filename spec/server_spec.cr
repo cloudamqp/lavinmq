@@ -179,9 +179,12 @@ describe AvalancheMQ::Server do
       q = ch.queue("", args: args)
       dlq = ch.queue("dlq")
       q.publish_confirm "queue dlx"
-      sleep 0.05
-      msg = dlq.get(no_ack: true)
-      msg.not_nil!.body_io.to_s.should eq("queue dlx")
+      msg = wait_for { dlq.get(no_ack: true) }
+      if msg
+        msg.body_io.to_s.should eq("queue dlx")
+      else
+        msg.should_not be_nil
+      end
     end
   ensure
     s.vhosts["/"].delete_queue("dlq")
@@ -198,11 +201,12 @@ describe AvalancheMQ::Server do
       x = ch.exchange("", "direct", passive: true)
       x.publish_confirm "dead letter", "exp", props: AMQP::Client::Properties.new(expiration: "0", headers: hdrs)
 
-      msgs = [] of AMQP::Client::Message
-      dlq.subscribe { |m| msgs << m }
-      Fiber.yield
-      msgs.size.should eq 1
-      msgs.first.not_nil!.body_io.to_s.should eq("dead letter")
+      msg = wait_for { dlq.get(no_ack: true) }
+      if msg
+        msg.body_io.to_s.should eq("dead letter")
+      else
+        msg.should_not be_nil
+      end
     end
   end
 
