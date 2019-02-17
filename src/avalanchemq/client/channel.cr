@@ -233,11 +233,13 @@ module AvalancheMQ
       def basic_ack(frame)
         if qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }
-              .each_value do |queue, sp, consumer|
-                do_ack(frame, queue, sp, consumer, flush: false)
-              end
-            @map.delete_if { |k, _| k < frame.delivery_tag }
+            tags = @map.select { |k, _| k < frame.delivery_tag }
+            tags.each_value do |queue, sp, consumer|
+              do_ack(frame, queue, sp, consumer, flush: false)
+            end
+            tags.each_key do |k|
+              @map.delete(k)
+            end
           end
           queue, sp, consumer = qspc
           do_ack(frame, queue, sp, consumer)
@@ -271,11 +273,13 @@ module AvalancheMQ
           @map.clear
         elsif qspc = @map.delete(frame.delivery_tag)
           if frame.multiple
-            @map.select { |k, _| k < frame.delivery_tag }
-              .each_value do |queue, sp, consumer|
-                do_reject(frame, queue, sp, consumer)
-              end
-            @map.delete_if { |k, _| k < frame.delivery_tag }
+            tags = @map.select { |k, _| k < frame.delivery_tag }
+            tags.each_value do |queue, sp, consumer|
+              do_reject(frame, queue, sp, consumer)
+            end
+            tags.each_key do |k|
+              @map.delete k
+            end
           end
           queue, sp, consumer = qspc
           do_reject(frame, queue, sp, consumer)
