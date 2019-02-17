@@ -422,7 +422,7 @@ module AvalancheMQ
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
-      return if @closed
+      return if @deleted
       @log.debug { "Acking #{sp}" }
       @unacked_count -= 1
       @ack_count += 1
@@ -430,7 +430,7 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @closed
+      return if @deleted
       @log.debug { "Rejecting #{sp}" }
       @unacked_count -= 1
       @reject_count += 1
