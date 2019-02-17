@@ -329,18 +329,18 @@ module AvalancheMQ
           msg = env.message
           msg.exchange_name = dlx.to_s
           msg.routing_key = dlrk.to_s
-          msg.properties.expiration = nil
-          msg.properties.headers ||= Hash(String, AMQP::Field).new
-          msg.properties.headers.not_nil!.delete("x-dead-letter-exchange")
-          msg.properties.headers.not_nil!.delete("x-dead-letter-routing-key")
+          props = msg.properties
+          headers = (props.headers ||= Hash(String, AMQP::Field).new)
+          headers.delete("x-dead-letter-exchange")
+          headers.delete("x-dead-letter-routing-key")
 
-          unless msg.properties.headers.not_nil!.has_key? "x-death"
-            msg.properties.headers.not_nil!["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
+          unless headers.has_key? "x-death"
+            headers["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
           end
-          xdeaths = msg.properties.headers.not_nil!.fetch("x-death", nil).as(Array(Hash(String, AMQP::Field)))
+          xdeaths = headers["x-death"].as(Array(Hash(String, AMQP::Field)))
           xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
           xdeaths.delete(xd)
-          count = xd ? xd["count"].as(Int32) : 0
+          count = xd ? xd["count"].as?(Int32) || 0 : 0
           death = Hash(String, AMQP::Field){
             "exchange"     => meta.exchange_name,
             "queue"        => @name,
@@ -349,9 +349,13 @@ module AvalancheMQ
             "count"        => count + 1,
             "time"         => Time.utc_now,
           }
-          death["original-expiration"] = meta.properties.expiration if meta.properties.expiration
+          if props.expiration
+            death["original-expiration"] = props.expiration
+            props.expiration = nil
+          end
           xdeaths.unshift death
 
+          msg.properties = props
           @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
           @vhost.publish msg
         end
