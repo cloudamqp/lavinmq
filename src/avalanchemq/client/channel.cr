@@ -18,7 +18,7 @@ module AvalancheMQ
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
-      @next_msg_body = IO::Memory.new
+      @next_msg_body = IO::Memory.new(4096)
       @log : Logger
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
