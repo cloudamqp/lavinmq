@@ -59,7 +59,7 @@ module AvalancheMQ
       end
 
       def send(frame)
-        @client.send frame
+        @client.send frame if @running
       end
 
       def confirm_select(frame)
