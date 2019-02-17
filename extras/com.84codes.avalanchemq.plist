@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.84codes.avalanchemq</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/opt/avalanchemq/bin/avalanchemq</string>
+    <string>-D</string>
+    <string>/usr/local/var/avalanchemq</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/usr/local</string>
+  <key>StandardOutPath</key>
+  <string>/usr/local/var/log/avalanchemq.log</string>
+  <key>StandardErrorPath</key>
+  <string>/usr/local/var/log/avalanchemq.log</string>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>10240</integer>
+  </dict>
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>10240</integer>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
