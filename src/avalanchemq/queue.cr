@@ -426,6 +426,7 @@ module AvalancheMQ
       @log.debug { "Acking #{sp}" }
       @unacked_count -= 1
       @ack_count += 1
+      Fiber.yield if @ack_count % 1000 == 0
       @consumer_available.send nil unless @consumer_available.full?
     end
 
@@ -444,6 +445,7 @@ module AvalancheMQ
       else
         expire_msg(sp, :rejected)
       end
+      Fiber.yield if @reject_count % 1000 == 0
     end
 
     private def drophead
