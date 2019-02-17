@@ -3,7 +3,7 @@ require "option_parser"
 require "amqp-client"
 
 class Perf
-  @url = "amqp://guest:guest@localhost"
+  @uri = "amqp://guest:guest@localhost"
   @publishers = 1
   @consumers = 1
   @size = 1024
@@ -17,8 +17,8 @@ class Perf
   def parser
     parser = OptionParser.new
     parser.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
-    parser.on("-u url", "--url=URL", "URL to connect to (default amqp://guest:guest@localhost)") do |v|
-      @url = v
+    parser.on("--uri=URI", "URI to connect to (default amqp://guest:guest@localhost)") do |v|
+      @uri = v
     end
     parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
       @publishers = v.to_i
@@ -35,8 +35,12 @@ class Perf
     parser.on("-c", "--confirm", "Confirm publishes (default false)") do
       @confirm = true
     end
-    parser.on("-q queue", "--queue=name", "Queue name (default perf-test)") do |v|
+    parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
       @queue = v
+      @routing_key = v
+    end
+    parser.on("-k routing-key", "--routing-key=name", "Routing key (default queue name)") do |v|
+      @routing_key = v
     end
     parser.on("-e exchange", "--exchange=name", "Exchange to publish to (default \"\")") do |v|
       @exchange = v
@@ -80,8 +84,9 @@ class Perf
   @consumes = 0
 
   def pub
-    a = AMQP::Client.new(@url).connect
+    a = AMQP::Client.new(@uri).connect
     ch = a.channel
+    ch.queue(@queue)
     data = "0" * @size
     loop do
       if @confirm
@@ -101,7 +106,7 @@ class Perf
   end
 
   def consume
-    a = AMQP::Client.new(@url).connect
+    a = AMQP::Client.new(@uri).connect
     ch = a.channel
     ch.queue(@queue).subscribe(no_ack: @no_ack) do |m|
       m.ack unless @no_ack
