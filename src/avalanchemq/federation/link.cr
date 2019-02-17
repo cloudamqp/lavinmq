@@ -18,6 +18,7 @@ module AvalancheMQ
         @state = 0_u8
         @consumer_available = Channel(Nil).new
         @done = Channel(Nil).new
+        @connected_at : Int64?
 
         def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
           @log.progname += " link=#{@federated_q.name}"
@@ -47,7 +48,7 @@ module AvalancheMQ
           {
             upstream:  @upstream.name,
             vhost:     @upstream.vhost.name,
-            timestamp: @connected_at.to_s,
+            timestamp: @connected_at ? Time.unix_ms(@connected_at.not_nil!) : nil,
             type:      @upstream.is_a?(QueueUpstream) ? "queue" : "exchange",
             uri:       @upstream.uri.to_s,
             resource:  @federated_q.name,
@@ -77,7 +78,7 @@ module AvalancheMQ
             p.run
             c.run
             @state = State::Running
-            @connected_at = Time.utc_now
+            @connected_at = Time.now.to_unix_ms
             @done.receive
             break
           rescue ex
