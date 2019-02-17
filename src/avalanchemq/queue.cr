@@ -140,6 +140,7 @@ module AvalancheMQ
     end
 
     private def deliver_loop
+      i = 0_u16
       loop do
         break if @closed
         empty = @ready_lock.synchronize { @ready.empty? }
@@ -153,6 +154,7 @@ module AvalancheMQ
         else
           schedule_expiration_and_wait
         end
+        Fiber.yield if i % 1000 == 0
       rescue ex : Errno
         sp = @ready_lock.synchronize { @ready.shift }
         @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
