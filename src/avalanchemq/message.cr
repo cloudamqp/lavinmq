@@ -7,6 +7,11 @@ module AvalancheMQ
                    @routing_key : String, @properties : AMQP::Properties,
                    @size : UInt64, @body_io : IO)
     end
+
+    def bytesize
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize +
+        sizeof(UInt64) + @size
+    end
   end
 
   struct MessageMetadata
@@ -14,6 +19,10 @@ module AvalancheMQ
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQP::Properties)
+    end
+
+    def bytesize
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize
     end
   end
 

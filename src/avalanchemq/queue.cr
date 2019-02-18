@@ -48,6 +48,9 @@ module AvalancheMQ
       @unacked_count = 0_u32
       @ready = Deque(SegmentPosition).new
       @ready_lock = Mutex.new
+      @segment_pos = Hash(UInt32, UInt32).new do |h, seg|
+        h[seg] = 0_u32
+      end
       @segments = Hash(UInt32, File).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = File.open(path, "r")
@@ -272,12 +275,18 @@ module AvalancheMQ
     private def metadata(sp) : MessageMetadata?
       @read_lock.synchronize do
         seg = @segments[sp.segment]
-        seg.seek(sp.position, IO::Seek::Set)
+        if @segment_pos[sp.segment] != sp.position
+          @log.debug { "Seeking" }
+          seg.seek(sp.position, IO::Seek::Set)
+          @segment_pos[sp.segment] = sp.position
+        end
         ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
         ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
         rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
         pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
-        MessageMetadata.new(ts, ex, rk, pr)
+        meta = MessageMetadata.new(ts, ex, rk, pr)
+        @segment_pos[sp.segment] += meta.bytesize
+        meta
       end
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
@@ -404,13 +413,18 @@ module AvalancheMQ
 
     private def read(sp : SegmentPosition) : Envelope?
       seg = @segments[sp.segment]
-      seg.seek(sp.position, IO::Seek::Set)
+      if @segment_pos[sp.segment] != sp.position
+        @log.debug { "Seeking" }
+        seg.seek(sp.position, IO::Seek::Set)
+        @segment_pos[sp.segment] = sp.position
+      end
       ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
       ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
       rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
       msg = Message.new(ts, ex, rk, pr, sz, seg)
+      @segment_pos[sp.segment] += msg.bytesize
       redelivered = @requeued.includes?(sp)
       # TODO: optimize
       @requeued.delete(sp) if redelivered
