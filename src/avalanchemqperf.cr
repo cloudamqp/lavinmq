@@ -1,4 +1,5 @@
 require "./avalanchemq/version"
+require "./avalanchemq/io_tweak"
 require "option_parser"
 require "amqp-client"
 

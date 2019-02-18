@@ -1,4 +1,5 @@
 require "./avalanchemq/version"
+require "./avalanchemq/io_tweak"
 require "./avalanchemq/stdlib_fixes"
 require "./avalanchemq/config"
 require "./avalanchemq/server"
