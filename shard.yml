@@ -25,8 +25,8 @@ dependencies:
     github: samueleaton/cache-hash
     branch: master
   amqp-client:
-    github: cloudamqp/amqp-client.cr
-    # path: ../amqp-client.cr
+    # github: cloudamqp/amqp-client.cr
+    path: ../amqp-client.cr
 
 development_dependencies:
   ameba:

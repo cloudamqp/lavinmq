@@ -188,9 +188,9 @@ module AvalancheMQ
         io = IO::Memory.new
         Process.run(command, shell: true, output: io)
         io.close
-        available = io.to_s.to_i
+        available = io.to_s.to_i64
         @log.debug { "Available disk space: #{available/1024**2} GB" }
-        if available < Config.instance.segment_size
+        if available*1024 < Config.instance.segment_size
           if @flow
             @log.info { "Low disk space: #{available/1024} MB, stopping flow" }
             flow(false)
