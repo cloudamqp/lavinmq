@@ -130,8 +130,6 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.tcp_nodelay = true
       socket.write_timeout = 15
-      socket.recv_buffer_size = 131072
-      socket.send_buffer_size = 131072
       client = NetworkClient.start(socket, ssl_client, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})
