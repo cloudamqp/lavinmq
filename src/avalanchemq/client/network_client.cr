@@ -1,4 +1,5 @@
 require "./client"
+require "../stdlib_fixes"
 
 module AvalancheMQ
   class NetworkClient < Client
@@ -29,6 +30,7 @@ module AvalancheMQ
       @auth_mechanism = start_ok.mechanism
       name = "#{@remote_address} -> #{@local_address}"
       super(name, vhost, user, log, start_ok.client_properties)
+      @log.info "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}"
       spawn heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
