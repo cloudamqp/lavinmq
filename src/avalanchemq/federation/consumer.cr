@@ -41,6 +41,9 @@ module AvalancheMQ
                 false
               when AMQP::Frame::Connection::CloseOk
                 false
+              when AMQP::Frame::Channel::Flow
+                write AMQP::Frame::Channel::FlowOk.new frame.channel, frame.active
+                true
               else
                 raise UnexpectedFrame.new(frame)
               end

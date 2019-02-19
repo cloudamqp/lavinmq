@@ -97,6 +97,10 @@ module AvalancheMQ
         send AMQP::Frame::Channel::CloseOk.new(frame.channel)
       when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
+      when AMQP::Frame::Channel::Flow
+        @channels[frame.channel].client_flow = false
+      when AMQP::Frame::Channel::FlowOk
+        # noop
       when AMQP::Frame::Confirm::Select
         with_channel frame, &.confirm_select(frame)
       when AMQP::Frame::Exchange::Declare

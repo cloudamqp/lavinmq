@@ -43,7 +43,7 @@ module TestHelpers
   end
 
   def with_channel(**args)
-    AMQP::Client.start(**args.merge(port: AMQP_PORT)) do |conn|
+    AMQP::Client.start(**args.merge(port: AMQP_PORT, log_level: LOG_LEVEL)) do |conn|
       ch = conn.channel
       yield ch
     end

@@ -21,7 +21,8 @@ module AvalancheMQ
         end
 
         def accepts?
-          @channel.prefetch_count.zero? || @unacked.size < @channel.prefetch_count
+          (@channel.prefetch_count.zero? || (@unacked.size < @channel.prefetch_count)) &&
+            @channel.client_flow?
         end
 
         def deliver(msg, sp, redelivered = false)

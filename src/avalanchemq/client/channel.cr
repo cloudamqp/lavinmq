@@ -13,6 +13,7 @@ module AvalancheMQ
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
       property? running = true
+      property? client_flow = true
 
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
@@ -65,7 +66,7 @@ module AvalancheMQ
       def confirm_select(frame)
         @confirm = true
         unless frame.no_wait
-          @client.send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
+          send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
         end
       end
 
@@ -104,6 +105,7 @@ module AvalancheMQ
       end
 
       def add_content(frame)
+        send AMQP::Frame::Channel::Flow.new(frame.channel, false) unless server_flow?
         @log.debug { "Adding content #{frame.inspect}" }
         if frame.body_size == @next_msg_size
           finish_publish(frame.body)
@@ -114,6 +116,10 @@ module AvalancheMQ
             finish_publish(@next_msg_body)
           end
         end
+      end
+
+      private def server_flow?
+        @client.vhost.flow?
       end
 
       private def finish_publish(message_body)
@@ -153,11 +159,11 @@ module AvalancheMQ
         if @confirm
           @confirm_total += 1
           @confirm_count += 1 # Stats
-          @client.send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
+          send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
         end
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
-        @client.send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
+        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
         raise ex
       ensure
         @next_msg_size = 0_u64
@@ -199,7 +205,7 @@ module AvalancheMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         unless frame.no_wait
-          @client.send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
         Fiber.yield # Notify :add_consumer observers
       end
@@ -218,7 +224,7 @@ module AvalancheMQ
                 deliver(get_ok, env.message)
                 @redeliver_count += 1 if env.redelivered
               else
-                @client.send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
+                send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
               end
             end
           end
@@ -299,14 +305,14 @@ module AvalancheMQ
         @prefetch_size = frame.prefetch_size
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
-        @client.send AMQP::Frame::Basic::QosOk.new(frame.channel)
+        send AMQP::Frame::Basic::QosOk.new(frame.channel)
       end
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
         @map.each_value { |queue, sp, consumer| queue.reject(sp, true) if consumer.nil? }
         @map.clear
-        @client.send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+        send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
 
       def close
@@ -331,13 +337,13 @@ module AvalancheMQ
         if c = @consumers.find { |conn| conn.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
           unless frame.no_wait
-            @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
           # text = "No consumer for tag '#{frame.consumer_tag}' on channel '#{frame.channel}'"
-          # @client.send AMQP::Frame::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
+          # send AMQP::Frame::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
           unless frame.no_wait
-            @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         end
       end
