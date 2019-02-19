@@ -41,11 +41,10 @@ module AvalancheMQ
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
       loop do
-        if socket = s.accept?
-          spawn handle_connection(socket), name: "Server#handle_connection"
-        else
-          break
-        end
+        client = s.accept? || break
+        client.sync = false
+        client.read_buffering = true
+        spawn handle_connection(client), name: "Server#handle_connection"
       end
     rescue ex : Errno
       abort "Unrecoverable error in listener: #{ex.to_s}"
@@ -62,19 +61,19 @@ module AvalancheMQ
       context.certificate_chain = cert_path
       context.private_key = key_path
       context.ca_certificates = ca_path if ca_path
+      #context.ciphers = "ECDHE-RSA-AES128-SHA256"
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
-        if client = s.accept?
-          begin
-            ssl_client = OpenSSL::SSL::Socket::Server.new(client, context)
-            ssl_client.sync_close = true
-            spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
-          rescue e : OpenSSL::SSL::Error
-            @log.error "Error accepting OpenSSL connection from #{client.remote_address}: #{e.inspect}"
-          end
-        else
-          break
-        end
+        client = s.accept? || break
+        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+        client.sync = true
+        client.read_buffering = false
+        # only do buffering on the tls socket
+        ssl_client.sync = false
+        ssl_client.read_buffering = true
+        spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
+      rescue e : OpenSSL::SSL::Error
+        @log.error "Error accepting OpenSSL connection from #{client.try &.remote_address}: #{e.inspect}"
       end
     rescue ex : Errno | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.to_s}"
@@ -125,7 +124,6 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
-      socket.sync = false
       socket.keepalive = true
       socket.tcp_keepalive_idle = 60
       socket.tcp_keepalive_count = 3
