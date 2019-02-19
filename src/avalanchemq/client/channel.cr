@@ -105,7 +105,9 @@ module AvalancheMQ
       end
 
       def add_content(frame)
-        send AMQP::Frame::Channel::Flow.new(frame.channel, false) unless server_flow?
+        if !server_flow? && @client.client_properties["server_flow"]?
+          send AMQP::Frame::Channel::Flow.new(frame.channel, false)
+        end
         @log.debug { "Adding content #{frame.inspect}" }
         if frame.body_size == @next_msg_size
           finish_publish(frame.body)

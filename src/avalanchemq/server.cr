@@ -184,13 +184,13 @@ module AvalancheMQ
     private def health_loop
       loop do
         break if closed?
-        command = "df -P | grep /Volumes/RAMDisk | awk '{print $4}'"
+        command = "df -P -k #{data_dir} | awk '{print $4}' | tail -n1"
         io = IO::Memory.new
         Process.run(command, shell: true, output: io)
         io.close
         available = io.to_s.to_i
-        @log.debug { "Available disk space: #{available/1024} MB" }
-        if available < 256 * 1024
+        @log.debug { "Available disk space: #{available/1024**2} GB" }
+        if available < Config.instance.segment_size
           if @flow
             @log.info { "Low disk space: #{available/1024} MB, stopping flow" }
             flow(false)
@@ -203,7 +203,7 @@ module AvalancheMQ
       end
     end
 
-    private def flow(active : Bool)
+    def flow(active : Bool)
       @flow = active
       @vhosts.each_value { |v| v.flow = active }
     end

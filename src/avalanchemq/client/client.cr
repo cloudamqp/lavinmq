@@ -21,7 +21,7 @@ module AvalancheMQ
 
     setter direct_reply_consumer_tag
     getter vhost, channels, log, exclusive_queues,
-      name, direct_reply_consumer_tag
+      name, direct_reply_consumer_tag, client_properties
 
     @client_properties : Hash(String, AMQP::Field)
     @connected_at : Int64
@@ -98,7 +98,7 @@ module AvalancheMQ
       when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow
-        @channels[frame.channel].client_flow = false
+        @channels[frame.channel].client_flow = frame.active
       when AMQP::Frame::Channel::FlowOk
         # noop
       when AMQP::Frame::Confirm::Select

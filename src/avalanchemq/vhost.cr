@@ -17,7 +17,7 @@ module AvalancheMQ
       direct_reply_channels, upstreams, default_user
     property? flow = true
 
-    MAX_SEGMENT_SIZE = 256 * 1024**2
+    MAX_SEGMENT_SIZE = Config.instance.segment_size
     @segment : UInt32
     @wfile : File
     @log : Logger
