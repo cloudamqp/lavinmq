@@ -1,11 +1,10 @@
 #!/bin/sh
 set -eu
-[ $# -eq 1 ] || (echo "usage: $(basename $0) pkg_revision"; exit 1)
 which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
 which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
 which help2man > /dev/null || (echo "help2man required"; exit 1)
-pkg_version=$(crystal eval 'require "./src/avalanchemq/version"; puts AvalancheMQ::VERSION')
-pkg_revision=$1
+pkg_version=$(shards version)
+pkg_revision=${1:-1}
 root=avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
 
 rm -rf $root
