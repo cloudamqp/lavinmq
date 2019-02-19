@@ -90,7 +90,28 @@ describe AvalancheMQ::TopicExchange do
     q8 = AvalancheMQ::Queue.new(vhost, "q63")
     ex = AvalancheMQ::TopicExchange.new(vhost, "t63", false, false, true)
     ex.bind(q8, "rk63.rk63")
-    ex.matches("rk63").should eq(Set(AvalancheMQ::Queue).new)
+    ex.matches("rk63").should be_empty
+  end
+
+  it "# should consider what's comes after" do
+    q9 = AvalancheMQ::Queue.new(vhost, "q9")
+    x.bind(q9, "#.a")
+    x.matches("a.a.b").should be_empty
+    x.matches("a.a.a").should eq(Set{q9})
+  end
+
+  it "# can be followed by *" do
+    q0 = AvalancheMQ::Queue.new(vhost, "q0")
+    x.bind(q0, "#.*.d")
+    x.matches("a.d.a").should be_empty
+    x.matches("a.a.d").should eq(Set{q0})
+  end
+
+  it "can handle multiple #" do
+    q11 = AvalancheMQ::Queue.new(vhost, "q11")
+    x.bind(q11, "#.a.#")
+    x.matches("a.b.a").should be_empty
+    x.matches("b.b.a.b.b").should eq(Set{q11})
   end
 end
 
