@@ -87,7 +87,6 @@ class Perf
   def pub
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
-    ch.queue(@queue)
     data = "0" * @size
     loop do
       if @confirm
