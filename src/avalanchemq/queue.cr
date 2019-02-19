@@ -60,6 +60,10 @@ module AvalancheMQ
       schedule_expiration_of_queue(@last_get_time)
     end
 
+    def inspect(io : IO)
+      io << "#<" << self.class << ": " << "@name=" << @name << " @vhost=" << @vhost.name << ">"
+    end
+
     def self.generate_name
       "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
     end

@@ -49,6 +49,10 @@ module AvalancheMQ
       spawn save!, name: "VHost/#{@name}#save!"
     end
 
+    def inspect(io : IO)
+      io << "#<" << self.class << ": " << "@name=" << @name << ">"
+    end
+
     def publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
