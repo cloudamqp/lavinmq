@@ -64,19 +64,21 @@ module AvalancheMQ
       #context.ciphers = "ECDHE-RSA-AES128-SHA256"
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
-        client = s.accept? || break
-        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-        client.sync = true
-        client.read_buffering = false
-        # only do buffering on the tls socket
-        ssl_client.sync = false
-        ssl_client.read_buffering = true
-        spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
-      rescue ex
-        @log.error "Error accepting OpenSSL connection from #{client.try &.remote_address}: #{ex.inspect}"
+        begin
+          client = s.accept? || break
+          ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+          client.sync = true
+          client.read_buffering = false
+          # only do buffering on the tls socket
+          ssl_client.sync = false
+          ssl_client.read_buffering = true
+          spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
+        rescue ex : Exception
+          @log.error "Error accepting OpenSSL connection from #{client.try &.remote_address}: #{ex.inspect}"
+        end
       end
     rescue ex : Errno | OpenSSL::Error
-      abort "Unrecoverable error in TLS listener: #{ex.to_s}"
+      abort "Unrecoverable error in TLS listener: #{ex.inspect}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
     ensure
