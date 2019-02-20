@@ -72,7 +72,7 @@ module AvalancheMQ
         ssl_client.sync = false
         ssl_client.read_buffering = true
         spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
-      rescue ex : OpenSSL::SSL::Error | Errno | OpenSSL::Error
+      rescue ex
         @log.error "Error accepting OpenSSL connection from #{client.try &.remote_address}: #{ex.inspect}"
       end
     rescue ex : Errno | OpenSSL::Error
