@@ -72,13 +72,11 @@ AvalancheMQ only requires one argument, and it's a path to a data directory:
 
 ## OS configuration
 
-There are a couple of OS kernel parameters you need to modify for optimal performance.
+There are a couple of OS kernel parameters you need to modify for better performance:
 
 ```
 sysctl -w net.core.somaxconn=2048
-sysctl -w net.core.somaxconn=2048
-
-
+...
 ```
 
 ## Performance
