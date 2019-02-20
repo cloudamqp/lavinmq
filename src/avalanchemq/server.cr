@@ -47,7 +47,7 @@ module AvalancheMQ
         spawn handle_connection(client), name: "Server#handle_connection"
       end
     rescue ex : Errno
-      abort "Unrecoverable error in listener: #{ex.to_s}"
+      abort "Unrecoverable error in listener: #{ex.inspect}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
     ensure
@@ -73,8 +73,14 @@ module AvalancheMQ
           ssl_client.sync = false
           ssl_client.read_buffering = true
           spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
-        rescue ex : Exception
-          @log.error "Error accepting OpenSSL connection from #{client.try &.remote_address}: #{ex.inspect}"
+        rescue ex
+          remote_address =
+            begin
+              client.try &.remote_address.to_s
+            rescue
+              "unknown"
+            end
+          @log.error "Error accepting OpenSSL connection from #{remote_address}: #{ex.inspect}"
         end
       end
     rescue ex : Errno | OpenSSL::Error
