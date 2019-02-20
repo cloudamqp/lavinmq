@@ -121,9 +121,9 @@ module AvalancheMQ
         spawn gc_segments!, name: "GC Segments #{@name}"
       end
 
-      pos = @pos
+      sp = SegmentPosition.new(@segment, @pos)
       @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
-                    size=#{msg.size}" }
+                    size=#{msg.bytesize} sp=#{sp}" }
       @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
       @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::NetworkEndian
       @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::NetworkEndian
@@ -132,7 +132,7 @@ module AvalancheMQ
       IO.copy(msg.body_io, @wfile, msg.size)
       @wfile.flush
       @pos += msg.bytesize
-      SegmentPosition.new(@segment, pos)
+      sp
     ensure
       @wfile_lock.unlock
     end

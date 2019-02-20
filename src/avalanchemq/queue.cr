@@ -280,7 +280,7 @@ module AvalancheMQ
       @read_lock.synchronize do
         seg = @segments[sp.segment]
         if @segment_pos[sp.segment] != sp.position
-          @log.debug { "Seeking" }
+          @log.debug { "Seeking to #{sp.position}" }
           seg.seek(sp.position, IO::Seek::Set)
           @segment_pos[sp.segment] = sp.position
         end
@@ -288,12 +288,14 @@ module AvalancheMQ
         ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
         rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
         pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
-        meta = MessageMetadata.new(ts, ex, rk, pr)
+        sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
+        meta = MessageMetadata.new(ts, ex, rk, pr, sz)
         @segment_pos[sp.segment] += meta.bytesize
         meta
       end
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
+      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       nil
     end
 
@@ -335,47 +337,57 @@ module AvalancheMQ
     private def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       @unacked_count += 1
+      meta_bytesize = meta.bytesize
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
       if dlx
+        props = meta.properties
+        headers = (props.headers ||= Hash(String, AMQP::Field).new)
+        headers.delete("x-dead-letter-exchange")
+        headers.delete("x-dead-letter-routing-key")
+
+        unless headers.has_key? "x-death"
+          headers["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
+        end
+        xdeaths = headers["x-death"].as(Array(Hash(String, AMQP::Field)))
+        xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
+        xdeaths.delete(xd)
+        count = xd ? xd["count"].as?(Int32) || 0 : 0
+        death = Hash(String, AMQP::Field){
+          "exchange"     => meta.exchange_name,
+          "queue"        => @name,
+          "routing_keys" => [meta.routing_key.as(AMQP::Field)],
+          "reason"       => reason.to_s,
+          "count"        => count + 1,
+          "time"         => Time.utc_now,
+        }
+        if props.expiration
+          death["original-expiration"] = props.expiration
+          props.expiration = nil
+        end
+        xdeaths.unshift death
+
         @read_lock.synchronize do
-          env = read(sp)
-          next unless env
-          msg = env.message
-          msg.exchange_name = dlx.to_s
-          msg.routing_key = dlrk.to_s
-          props = msg.properties
-          headers = (props.headers ||= Hash(String, AMQP::Field).new)
-          headers.delete("x-dead-letter-exchange")
-          headers.delete("x-dead-letter-routing-key")
-
-          unless headers.has_key? "x-death"
-            headers["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
+          seg = @segments[sp.segment]
+          body_pos = sp.position + meta_bytesize
+          if @segment_pos[sp.segment] != body_pos
+            @log.debug { "Current pos #{@segment_pos[sp.segment]}" }
+            @log.debug { "Message position: #{sp.position}" }
+            @log.debug { "Metadata size #{meta_bytesize}" }
+            @log.debug { "Seeking to body pos #{body_pos}" }
+            seg.seek(body_pos, IO::Seek::Set)
+            @segment_pos[sp.segment] = body_pos
           end
-          xdeaths = headers["x-death"].as(Array(Hash(String, AMQP::Field)))
-          xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
-          xdeaths.delete(xd)
-          count = xd ? xd["count"].as?(Int32) || 0 : 0
-          death = Hash(String, AMQP::Field){
-            "exchange"     => meta.exchange_name,
-            "queue"        => @name,
-            "routing_keys" => [meta.routing_key.as(AMQP::Field)],
-            "reason"       => reason.to_s,
-            "count"        => count + 1,
-            "time"         => Time.utc_now,
-          }
-          if props.expiration
-            death["original-expiration"] = props.expiration
-            props.expiration = nil
-          end
-          xdeaths.unshift death
-
-          msg.properties = props
+          msg = Message.new(meta.timestamp, dlx.to_s,
+                            dlrk.to_s, props, meta.size, seg)
           @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
           @vhost.publish msg
         end
       end
       ack(sp, true)
+    rescue IO::EOFError
+      @log.error { "EOF while dead-lettering sp=#{sp}" }
+      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
     end
 
     private def schedule_expiration_of_queue(now)
@@ -418,7 +430,7 @@ module AvalancheMQ
     private def read(sp : SegmentPosition) : Envelope?
       seg = @segments[sp.segment]
       if @segment_pos[sp.segment] != sp.position
-        @log.debug { "Seeking" }
+        @log.debug { "Seeking to sp #{sp}" }
         seg.seek(sp.position, IO::Seek::Set)
         @segment_pos[sp.segment] = sp.position
       end
@@ -434,6 +446,7 @@ module AvalancheMQ
       @requeued.delete(sp) if redelivered
       Envelope.new(sp, msg, redelivered)
     rescue ex : IO::EOFError
+      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
       reject(sp, false)
       nil

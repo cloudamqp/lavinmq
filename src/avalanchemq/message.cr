@@ -15,14 +15,15 @@ module AvalancheMQ
   end
 
   struct MessageMetadata
-    getter timestamp, exchange_name, routing_key, properties
+    getter timestamp, exchange_name, routing_key, properties, size
 
     def initialize(@timestamp : Int64, @exchange_name : String,
-                   @routing_key : String, @properties : AMQP::Properties)
+                   @routing_key : String, @properties : AMQP::Properties,
+                   @size : UInt64)
     end
 
     def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize + sizeof(UInt64)
     end
   end
 
