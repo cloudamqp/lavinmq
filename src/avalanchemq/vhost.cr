@@ -110,18 +110,18 @@ module AvalancheMQ
     end
 
     @wfile_lock = Mutex.new
+    @pos = 0_u32
 
     private def write_to_disk(msg) : SegmentPosition
       @wfile_lock.lock
-      pos = @wfile.pos.to_u32
-      if pos >= MAX_SEGMENT_SIZE
+      if @pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
         @wfile = open_wfile
-        pos = 0_u32
         spawn gc_segments!, name: "GC Segments #{@name}"
       end
 
+      pos = @pos
       @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                     size=#{msg.size}" }
       @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
@@ -131,6 +131,7 @@ module AvalancheMQ
       @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
       IO.copy(msg.body_io, @wfile, msg.size)
       @wfile.flush
+      @pos += msg.bytesize
       SegmentPosition.new(@segment, pos)
     ensure
       @wfile_lock.unlock
@@ -141,6 +142,7 @@ module AvalancheMQ
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
       File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.seek(0, IO::Seek::End)
+        @pos = f.pos.to_u32
       end
     end
 
