@@ -70,6 +70,17 @@ AvalancheMQ only requires one argument, and it's a path to a data directory:
 
 `avalanchemq -D /var/lib/avalanchemq`
 
+## OS configuration
+
+There are a couple of OS kernel parameters you need to modify for optimal performance.
+
+```
+sysctl -w net.core.somaxconn=2048
+sysctl -w net.core.somaxconn=2048
+
+
+```
+
 ## Performance
 
 A single m5.large EC2 instance, with a 500 GB GP2 EBS drive (XFS formatted),
