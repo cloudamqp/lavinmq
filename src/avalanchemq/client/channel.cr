@@ -54,9 +54,13 @@ module AvalancheMQ
           transactional:           false,
           messages_unacknowledged: @map.size,
           connection_details:      @client.connection_details,
-          state:                   @running ? "running" : "closed",
+          state:                   state,
           message_stats:           stats_details,
         }
+      end
+
+      def state
+        !@running ? "closed" : (@client.vhost.flow? ? "running" : "flow")
       end
 
       def send(frame)

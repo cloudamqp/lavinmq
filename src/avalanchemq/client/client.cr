@@ -21,7 +21,7 @@ module AvalancheMQ
 
     setter direct_reply_consumer_tag
     getter vhost, channels, log, exclusive_queues,
-      name, direct_reply_consumer_tag, client_properties
+      name, direct_reply_consumer_tag, client_properties, user
 
     @client_properties : Hash(String, AMQP::Field)
     @connected_at : Int64
@@ -57,8 +57,8 @@ module AvalancheMQ
       @exclusive_queues = Array(Queue).new
     end
 
-    def user
-      nil
+    def state
+      !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
     private def with_channel(frame)

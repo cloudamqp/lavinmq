@@ -150,7 +150,7 @@ module AvalancheMQ
         peer_port:         @remote_address.port,
         name:              @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
-        state:             @socket.closed? ? "closed" : "running",
+        state:             state,
       }.merge(stats_details)
     end
 
