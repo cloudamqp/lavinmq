@@ -75,8 +75,11 @@ AvalancheMQ only requires one argument, and it's a path to a data directory:
 There are a couple of OS kernel parameters you need to modify for better performance:
 
 ```
-sysctl -w net.core.somaxconn=2048
-...
+# increase from default 512 if you expect many connections
+# to be established at the same time (eg. after a restart)
+# when you see "kernel: Possible SYN flooding on port 5671"
+# in the syslog
+sysctl -w net.ipv4.tcp_max_syn_backlog=2048
 ```
 
 ## Performance
