@@ -105,7 +105,7 @@ module AvalancheMQ
     private def restore_index
       @log.info "Restoring index"
       @ack.pos = 0
-      acked = Set(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
+      acked = Array(SegmentPosition).new(@ack.size / sizeof(SegmentPosition))
       loop do
         acked << SegmentPosition.from_io @ack
         @acks += 1
