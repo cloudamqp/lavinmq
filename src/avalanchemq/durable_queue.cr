@@ -112,6 +112,9 @@ module AvalancheMQ
       rescue IO::EOFError
         break
       end
+      # to avoid repetetive allocations in Dequeue#increase_capacity
+      # we redeclare the ready queue with a lager initial capacity
+      @ready = Deque(SegmentPosition).new((@enq.size - @ack.size) / sizeof(SegmentPosition))
       @enq.pos = 0
       loop do
         sp = SegmentPosition.from_io @enq
