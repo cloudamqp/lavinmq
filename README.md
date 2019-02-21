@@ -35,8 +35,9 @@ in-memory array, and write the segment-position to an "ack" file. That way
 we can restore the queue index on boot by read all the segment-position stored
 in the queue index file, then exclude all the segment-position read from the
 "ack" file.  The queue index is rewritten when the "ack" file becomes 16 MB,
-that is, every 16*1024*1024/8=2097152 message. Then the current in-memory queue
-index is written to a new file and the "ack" file is truncated.
+that is, every 16 * 1024 * 1024 / 8 = 2097152 message.
+Then the current in-memory queue index is written to a new file and the
+"ack" file is truncated.
 
 Segments in the vhost's message store are being deleted when no queue index as
 a reference to a position in that segment.
