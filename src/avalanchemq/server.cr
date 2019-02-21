@@ -16,11 +16,12 @@ require "./config"
 module AvalancheMQ
   class Server
     getter connections, vhosts, users, data_dir, log, parameters
-    getter? closed
+    getter? closed, flow
     alias ConnectionsEvents = Channel::Buffered(Tuple(Client, Symbol))
     include ParameterTarget
 
     @closed = false
+    @flow = true
 
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
@@ -34,6 +35,7 @@ module AvalancheMQ
       apply_parameter
       spawn handle_connection_events, name: "Server#handle_connection_events"
       spawn stats_loop, name: "Server#stats_loop"
+      spawn health_loop, name: "Server#health_loop"
     end
 
     def listen(port = 5672)
@@ -177,6 +179,36 @@ module AvalancheMQ
           connection.channels.each_value(&.update_rates)
         end
       end
+    end
+
+    private def health_loop
+      sleep 2.seconds
+      loop do
+        break if closed?
+        command = "df -P -k #{data_dir} | awk '{print $4}' | tail -n1"
+        io = IO::Memory.new
+        Process.run(command, shell: true, output: io)
+        io.close
+        available = io.to_s.to_i64
+        @log.debug { "Available disk space: #{available/1024**2} GB" }
+        if available*1024 < Config.instance.segment_size
+          if @flow
+            @log.info { "Low disk space: #{available/1024} MB, stopping flow" }
+            flow(false)
+          end
+        elsif !@flow
+          @log.info { "Low disk space resolved, starting flow" }
+          flow(true)
+        elsif available*1024 < Config.instance.segment_size*3
+          @log.warn { "Low disk space: #{available/1024} MB" }
+        end
+        sleep 60.seconds
+      end
+    end
+
+    def flow(active : Bool)
+      @flow = active
+      @vhosts.each_value { |v| v.flow = active }
     end
   end
 end

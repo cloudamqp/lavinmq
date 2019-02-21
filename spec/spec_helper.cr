@@ -43,7 +43,7 @@ module TestHelpers
   end
 
   def with_channel(**args)
-    AMQP::Client.start(**args.merge(port: AMQP_PORT)) do |conn|
+    AMQP::Client.start(**args.merge(port: AMQP_PORT, log_level: LOG_LEVEL)) do |conn|
       ch = conn.channel
       yield ch
     end
@@ -79,6 +79,7 @@ module TestHelpers
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     log = Logger.new(STDOUT, level: level)
     AvalancheMQ::LogFormatter.use(log)
+    AvalancheMQ::Config.instance.segment_size = 32 * 1024**2
     @@s = AvalancheMQ::Server.new(dir, log.dup)
     @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, HTTP_PORT, log.dup)
     Spec.after_each do

@@ -22,7 +22,7 @@ module AvalancheMQ
         vhost:             @vhost.name,
         protocol:          "Direct 0-9-1",
         name:              @name,
-        state:             @running ? "running" : "closed",
+        state:             state,
       }
     end
 

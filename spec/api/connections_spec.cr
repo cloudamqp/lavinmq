@@ -76,15 +76,19 @@ describe AvalancheMQ::HTTP::ConnectionsController do
     end
 
     it "should return 401 if user doesn't have access" do
+      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         name = URI.escape(body[0]["name"].as_s)
-        response = delete("/api/connections/#{name}")
+        response = get("/api/connections/#{name}", headers: hdrs)
       ensure
-        response.try &.status_code.should eq 204
+        response.try &.status_code.should eq 401
       end
+    ensure
+      s.users.delete("arnold")
     end
   end
 

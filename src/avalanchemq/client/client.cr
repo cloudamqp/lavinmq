@@ -21,7 +21,7 @@ module AvalancheMQ
 
     setter direct_reply_consumer_tag
     getter vhost, channels, log, exclusive_queues,
-      name, direct_reply_consumer_tag
+      name, direct_reply_consumer_tag, client_properties, user
 
     @client_properties : Hash(String, AMQP::Field)
     @connected_at : Int64
@@ -57,8 +57,8 @@ module AvalancheMQ
       @exclusive_queues = Array(Queue).new
     end
 
-    def user
-      nil
+    def state
+      !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
     private def with_channel(frame)
@@ -97,6 +97,10 @@ module AvalancheMQ
         send AMQP::Frame::Channel::CloseOk.new(frame.channel)
       when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
+      when AMQP::Frame::Channel::Flow
+        @channels[frame.channel].client_flow = frame.active
+      when AMQP::Frame::Channel::FlowOk
+        # noop
       when AMQP::Frame::Confirm::Select
         with_channel frame, &.confirm_select(frame)
       when AMQP::Frame::Exchange::Declare
@@ -191,7 +195,7 @@ module AvalancheMQ
 
     def close_channel(frame, code, text)
       case frame
-      when AMQP::Frame::Header
+      when AMQP::Frame::Header, AMQP::Frame::Body
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       else
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, frame.class_id, frame.method_id)

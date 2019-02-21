@@ -112,10 +112,9 @@
           policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
           policyLink.textContent = item.policy
         }
-        const state = item.state === 'running' ? 'state-ok' : 'state-error'
         avalanchemq.table.renderCell(tr, 3, policyLink, 'center')
         avalanchemq.table.renderCell(tr, 4, item.consumers, 'right')
-        avalanchemq.table.renderCell(tr, 5, null, 'center ' + state)
+        avalanchemq.table.renderCell(tr, 5, null, 'center ' + 'state-' + item.state)
         avalanchemq.table.renderCell(tr, 6, item.ready, 'right')
         avalanchemq.table.renderCell(tr, 7, item.unacked, 'right')
         avalanchemq.table.renderCell(tr, 8, item.messages, 'right')

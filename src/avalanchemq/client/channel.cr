@@ -13,6 +13,7 @@ module AvalancheMQ
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
       property? running = true
+      property? client_flow = true
 
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
@@ -53,9 +54,13 @@ module AvalancheMQ
           transactional:           false,
           messages_unacknowledged: @map.size,
           connection_details:      @client.connection_details,
-          state:                   @running ? "running" : "closed",
+          state:                   state,
           message_stats:           stats_details,
         }
+      end
+
+      def state
+        !@running ? "closed" : (@client.vhost.flow? ? "running" : "flow")
       end
 
       def send(frame)
@@ -65,12 +70,11 @@ module AvalancheMQ
       def confirm_select(frame)
         @confirm = true
         unless frame.no_wait
-          @client.send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
+          send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
         end
       end
 
       def start_publish(frame)
-        @log.debug { "Start publish #{frame.inspect}" }
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -84,7 +88,6 @@ module AvalancheMQ
       MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
 
       def next_msg_headers(frame)
-        @log.debug { "Next msg headers: #{frame.inspect}" }
         if direct_reply_request?(frame.properties.reply_to)
           if @client.direct_reply_channel
             frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
@@ -104,7 +107,6 @@ module AvalancheMQ
       end
 
       def add_content(frame)
-        @log.debug { "Adding content #{frame.inspect}" }
         if frame.body_size == @next_msg_size
           finish_publish(frame.body)
         else
@@ -116,8 +118,17 @@ module AvalancheMQ
         end
       end
 
+      private def server_flow?
+        @client.vhost.flow?
+      end
+
       private def finish_publish(message_body)
-        @log.debug { "Finishing publish #{message_body.inspect}" }
+        if !server_flow?
+          send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
+          text = "Server out of resources"
+          send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 0, 0)
+          return
+        end
         @publish_count += 1
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
@@ -153,11 +164,11 @@ module AvalancheMQ
         if @confirm
           @confirm_total += 1
           @confirm_count += 1 # Stats
-          @client.send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
+          send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
         end
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
-        @client.send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
+        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
         raise ex
       ensure
         @next_msg_size = 0_u64
@@ -199,7 +210,7 @@ module AvalancheMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         unless frame.no_wait
-          @client.send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
         Fiber.yield # Notify :add_consumer observers
       end
@@ -218,7 +229,7 @@ module AvalancheMQ
                 deliver(get_ok, env.message)
                 @redeliver_count += 1 if env.redelivered
               else
-                @client.send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
+                send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
               end
             end
           end
@@ -299,14 +310,14 @@ module AvalancheMQ
         @prefetch_size = frame.prefetch_size
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
-        @client.send AMQP::Frame::Basic::QosOk.new(frame.channel)
+        send AMQP::Frame::Basic::QosOk.new(frame.channel)
       end
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
         @map.each_value { |queue, sp, consumer| queue.reject(sp, true) if consumer.nil? }
         @map.clear
-        @client.send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+        send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
 
       def close
@@ -331,13 +342,11 @@ module AvalancheMQ
         if c = @consumers.find { |conn| conn.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
           unless frame.no_wait
-            @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
-          # text = "No consumer for tag '#{frame.consumer_tag}' on channel '#{frame.channel}'"
-          # @client.send AMQP::Frame::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
           unless frame.no_wait
-            @client.send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
+            send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         end
       end

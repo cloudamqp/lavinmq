@@ -21,12 +21,12 @@ class TestConnection < AvalancheMQ::Connection
           end
         end || break
       end
+    rescue IO::Error
     end
   end
 
   def cleanup
-    close
-    @socket.close
+    @socket.close unless @socket.closed?
   end
 end
 

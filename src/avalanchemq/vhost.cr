@@ -15,8 +15,9 @@ module AvalancheMQ
     include SortableJSON
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
       direct_reply_channels, upstreams, default_user
+    property? flow = true
 
-    MAX_SEGMENT_SIZE = 256 * 1024**2
+    MAX_SEGMENT_SIZE = Config.instance.segment_size
     @segment : UInt32
     @wfile : File
     @log : Logger
