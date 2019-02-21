@@ -328,9 +328,12 @@ module AvalancheMQ
     end
 
     def expire_msg(sp : SegmentPosition, reason : Symbol)
-      meta = metadata(sp)
-      return unless meta
-      expire_msg(meta, sp, reason)
+      if @dlx
+        meta = metadata(sp) || return
+        expire_msg(meta, sp, reason)
+      else
+        ack(sp, true)
+      end
     end
 
     private def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
