@@ -38,6 +38,14 @@ index is written to a new file and the "ack" file is truncated.
 Segments in the vhost's message store are being deleted when no queue index as
 a reference to a position in that segment.
 
+## Performance
+
+A single m5.large EC2 instance, with a 500 GB GP2 EBS drive (XFS formatted),
+can sustain about 150.000 messages/s (1KB each, single queue, single producer,
+single consumer). Enqueueing 10 million messages only uses 80MB RAM. 8000
+connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
+MB RAM.
+
 ## Installation
 
 In Debian/Ubuntu:
@@ -70,25 +78,44 @@ AvalancheMQ only requires one argument, and it's a path to a data directory:
 
 `avalanchemq -D /var/lib/avalanchemq`
 
+More configuration options can be viewed with `-h`,
+and you can specify a configration file too, see [extras/config.ini](extras/config.ini)
+for an example.
+
 ## OS configuration
 
-There are a couple of OS kernel parameters you need to modify for better performance:
+There are a couple of OS kernel parameters you may want to modify:
+
+If you have a lot of clients that open connections
+at the same time, eg. after a restart, you may see
+"kernel: Possible SYN flooding on port 5671" in the syslog.
+Then you probably should increase `net.ipv4.tcp_max_syn_backlog`:
 
 ```
-# increase from default 512 if you expect many connections
-# to be established at the same time (eg. after a restart)
-# when you see "kernel: Possible SYN flooding on port 5671"
-# in the syslog
-sysctl -w net.ipv4.tcp_max_syn_backlog=2048
+sysctl -w net.ipv4.tcp_max_syn_backlog=2048 # default 512
 ```
 
-## Performance
+## Debugging
 
-A single m5.large EC2 instance, with a 500 GB GP2 EBS drive (XFS formatted),
-can sustain about 150.000 messages/s (1KB each, single queue, single producer,
-single consumer). Enqueueing 10 million messages only uses 80MB RAM. 8000
-connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
-MB RAM.
+In linux `strace` is pretty good for understanding what the process is doing at any given time,
+at least which system calls it's doing.
+
+Run `strace` with `-c` for some time and get a table of system calls made and how long time
+they took.
+
+```
+sudo strace -fp $(ps -C avalanchemq -o pid=) -c
+```
+
+Run `strace` with `-e trace=` and the syscalls you want to monitor
+for more details of which files it's writing to and what etc.
+
+```
+sudo strace -fytTp $(ps -C avalanchemq -o pid=) -e trace=file,read,write
+```
+
+In OS X the app Instruments that's bundled with Xcode can be to trace
+what the app is spending time at.
 
 ## Contributing
 
