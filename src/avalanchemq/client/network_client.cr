@@ -178,7 +178,7 @@ module AvalancheMQ
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
+    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
       @log.info { "Lost connection, while reading (#{ex.inspect})" } unless closed?
       cleanup
     rescue ex : Exception
