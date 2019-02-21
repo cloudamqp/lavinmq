@@ -71,7 +71,6 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
-        @log.debug { "Start publish #{frame.inspect}" }
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -85,7 +84,6 @@ module AvalancheMQ
       MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
 
       def next_msg_headers(frame)
-        @log.debug { "Next msg headers: #{frame.inspect}" }
         if direct_reply_request?(frame.properties.reply_to)
           if @client.direct_reply_channel
             frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
