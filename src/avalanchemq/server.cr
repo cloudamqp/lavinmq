@@ -213,7 +213,7 @@ module AvalancheMQ
     end
 
     def uptime
-      (Time.monotonic - @start).total_seconds
+      (Time.monotonic - @start).to_i
     end
   end
 end
