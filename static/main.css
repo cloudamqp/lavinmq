@@ -582,12 +582,17 @@ a, a:visited {
   color: #fff;
 }
 
-.state-ok:after {
+.state-running:after {
   content: '●';
   color: green;
 }
 
-.state-error:after {
+.state-flow:after {
+  content: '●';
+  color: yellow;
+}
+
+.state-closed:after {
   content: '●';
   color: red;
 }

@@ -92,8 +92,7 @@
           avalanchemq.table.renderHtmlCell(tr, 8, `${client}<br><small>${clientVersion}</small>`)
           avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString(), 'center')
         }
-        const state = item.state === 'running' ? 'state-ok' : 'state-error'
-        avalanchemq.table.renderCell(tr, 3, null, `center ${state}`)
+        avalanchemq.table.renderCell(tr, 3, null, `center state-${item.state}`)
         avalanchemq.table.renderCell(tr, 6, item.channels, 'right')
       })
     </script>
