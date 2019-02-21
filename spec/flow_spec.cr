@@ -16,9 +16,11 @@ describe "Flow" do
 
   it "should support server flow" do
     s.flow(false)
-    with_channel do |ch|
-      q = ch.queue
-      Benchmark.realtime { q.publish_confirm("m1") }.milliseconds.should be > 50
+    expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+      with_channel do |ch|
+        q = ch.queue
+        q.publish_confirm("m1").should be_false
+      end
     end
   ensure
     s.flow(true)

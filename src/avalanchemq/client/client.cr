@@ -195,7 +195,7 @@ module AvalancheMQ
 
     def close_channel(frame, code, text)
       case frame
-      when AMQP::Frame::Header
+      when AMQP::Frame::Header, AMQP::Frame::Body
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       else
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, frame.class_id, frame.method_id)

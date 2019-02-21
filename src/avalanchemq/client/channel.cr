@@ -105,10 +105,6 @@ module AvalancheMQ
       end
 
       def add_content(frame)
-        if !server_flow? && @client.client_properties["server_flow"]?
-          send AMQP::Frame::Channel::Flow.new(frame.channel, false)
-        end
-        @log.debug { "Adding content #{frame.inspect}" }
         if frame.body_size == @next_msg_size
           finish_publish(frame.body)
         else
@@ -125,7 +121,13 @@ module AvalancheMQ
       end
 
       private def finish_publish(message_body)
-        @log.debug { "Finishing publish #{message_body.inspect}" }
+        if !server_flow?
+          send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
+          text = "Server out of resources"
+          send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 0, 0)
+          message_body.skip_to_end
+          return
+        end
         @publish_count += 1
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
@@ -342,8 +344,6 @@ module AvalancheMQ
             send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end
         else
-          # text = "No consumer for tag '#{frame.consumer_tag}' on channel '#{frame.channel}'"
-          # send AMQP::Frame::Channel::Close.new(frame.channel, 406_u16, text, frame.class_id, frame.method_id)
           unless frame.no_wait
             send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
           end

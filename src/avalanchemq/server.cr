@@ -182,6 +182,7 @@ module AvalancheMQ
     end
 
     private def health_loop
+      sleep 2.seconds
       loop do
         break if closed?
         command = "df -P -k #{data_dir} | awk '{print $4}' | tail -n1"
@@ -198,6 +199,8 @@ module AvalancheMQ
         elsif !@flow
           @log.info { "Low disk space resolved, starting flow" }
           flow(true)
+        elsif available*1024 < Config.instance.segment_size*3
+          @log.warn { "Low disk space: #{available/1024} MB" }
         end
         sleep 60.seconds
       end
