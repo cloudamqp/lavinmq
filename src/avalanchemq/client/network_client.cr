@@ -167,7 +167,6 @@ module AvalancheMQ
             end
             next true
           end
-          sleep 50.milliseconds unless @vhost.flow?
           process_frame(frame)
         end || break
         Fiber.yield if (i += 1) % 1000 == 0

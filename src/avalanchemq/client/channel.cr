@@ -127,7 +127,6 @@ module AvalancheMQ
           send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
           text = "Server out of resources"
           send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 0, 0)
-          message_body.skip_to_end
           return
         end
         @publish_count += 1
