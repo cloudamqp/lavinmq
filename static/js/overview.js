@@ -53,6 +53,7 @@
       Object.keys(data.object_totals).forEach(function (key) {
         table.querySelector('.' + key).innerText = data.object_totals[key]
       })
+      table.querySelector('.uptime').innerText = data.uptime
     }
   }
 
