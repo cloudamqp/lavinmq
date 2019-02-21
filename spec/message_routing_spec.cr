@@ -43,38 +43,44 @@ describe AvalancheMQ::TopicExchange do
 
   it "matches exact rk" do
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
-    x.bind(q1, "rk1", Hash(String, AvalancheMQ::AMQP::Field).new)
+    x.bind(q1, "rk1")
     x.matches("rk1", nil).should eq(Set{q1})
+    x.unbind(q1, "rk1")
   end
 
   it "matches star-wildcards" do
     q2 = AvalancheMQ::Queue.new(vhost, "q2")
     x.bind(q2, "*")
     x.matches("rk2").should eq(Set{q2})
+    x.unbind(q2, "*")
   end
 
   it "matches star-wildcards but not too much" do
-    q2 = AvalancheMQ::Queue.new(vhost, "q2")
-    x.bind(q2, "*")
-    x.matches("rk2.a").empty?.should be_true
+    q22 = AvalancheMQ::Queue.new(vhost, "q22")
+    x.bind(q22, "*")
+    x.matches("rk2.a").should be_empty
+    x.unbind(q22, "*")
   end
 
   it "should not match with too many star-wildcards" do
     q3 = AvalancheMQ::Queue.new(vhost, "q3")
     x.bind(q3, "a.*")
-    x.matches("b.c").empty?.should be_true
+    x.matches("b.c").should be_empty
+    x.unbind(q3, "a.*")
   end
 
   it "should match star-wildcards in the middle" do
     q4 = AvalancheMQ::Queue.new(vhost, "q4")
     x.bind(q4, "c.*.d")
     x.matches("c.a.d").should eq(Set{q4})
+    x.unbind(q4, "c.*.d")
   end
 
   it "should match catch-all" do
     q5 = AvalancheMQ::Queue.new(vhost, "q5")
     x.bind(q5, "d.#")
     x.matches("d.a.d").should eq(Set{q5})
+    x.unbind(q5, "d.#")
   end
 
   it "should match multiple bindings" do
@@ -84,6 +90,8 @@ describe AvalancheMQ::TopicExchange do
     ex.bind(q6, "rk")
     ex.bind(q7, "rk")
     ex.matches("rk").should eq(Set{q6, q7})
+    ex.unbind(q6, "rk")
+    ex.unbind(q7, "rk")
   end
 
   it "should not get index out of bound when matching routing keys" do
@@ -91,6 +99,7 @@ describe AvalancheMQ::TopicExchange do
     ex = AvalancheMQ::TopicExchange.new(vhost, "t63", false, false, true)
     ex.bind(q8, "rk63.rk63")
     ex.matches("rk63").should be_empty
+    ex.unbind(q8, "rk63.rk63")
   end
 
   it "# should consider what's comes after" do
@@ -98,6 +107,7 @@ describe AvalancheMQ::TopicExchange do
     x.bind(q9, "#.a")
     x.matches("a.a.b").should be_empty
     x.matches("a.a.a").should eq(Set{q9})
+    x.unbind(q9, "#.a")
   end
 
   it "# can be followed by *" do
@@ -105,6 +115,7 @@ describe AvalancheMQ::TopicExchange do
     x.bind(q0, "#.*.d")
     x.matches("a.d.a").should be_empty
     x.matches("a.a.d").should eq(Set{q0})
+    x.unbind(q0, "#.*.d")
   end
 
   it "can handle multiple #" do
@@ -112,6 +123,7 @@ describe AvalancheMQ::TopicExchange do
     x.bind(q11, "#.a.#")
     x.matches("a.b.a").should be_empty
     x.matches("b.b.a.b.b").should eq(Set{q11})
+    x.unbind(q11, "#.a.#")
   end
 end
 
