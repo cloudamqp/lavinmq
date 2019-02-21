@@ -22,7 +22,7 @@ module AvalancheMQ
     @expires : ArgumentNumber?
     @dlx : String?
     @dlrk : String?
-    @overflow : String?
+    @reject_on_overflow = false
     @closed = false
     @deleted = false
     @exclusive_consumer = false
@@ -82,7 +82,7 @@ module AvalancheMQ
         when "message-ttl"
           @message_ttl = v.as_i64
         when "overflow"
-          @overflow = v.as_s
+          @reject_on_overflow = v.as_s == "reject-publish"
         when "expires"
           @expires = v.as_i64
         when "dead-letter-exchange"
@@ -113,7 +113,7 @@ module AvalancheMQ
       @dlrk = @arguments["x-dead-letter-routing-key"]?.try &.to_s
       max_length = @arguments["x-max-length"]?
       @max_length = max_length if max_length.is_a? ArgumentNumber
-      @overflow = @arguments.fetch("x-overflow", "drop-head").try &.to_s
+      @reject_on_overflow = @arguments.fetch("x-overflow", "").to_s == "reject-publish"
     end
 
     def immediate_delivery?
@@ -258,12 +258,11 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, flush = false)
       if @max_length.try { |ml| @ready.size >= ml }
-        @log.debug { "Overflow #{@max_length} #{@overflow}" }
-        case @overflow
-        when "reject-publish"
+        @log.debug { "Overflow #{@max_length} #{@reject_on_overflow ? "reject-publish" : "drop-head"}" }
+        if @reject_on_overflow
           @log.debug { "Overflow reject message sp=#{sp}" }
           return false
-        when "drop-head"
+        else
           drophead
         end
       end
