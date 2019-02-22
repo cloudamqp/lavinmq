@@ -9,8 +9,8 @@ module AvalancheMQ
     macro mapping(**_properties_)
       ::JSON.mapping({{_properties_}})
       def details_tuple
-        { {% for key, _value in _properties_ %}
-          {{key.id}}: @{{key.id}},
+        { {% for key, value in _properties_ %}
+          {{value[:key] || key.id}}: @{{key.id}},
         {% end %} }
       end
     end
