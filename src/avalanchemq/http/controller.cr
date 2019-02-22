@@ -40,25 +40,29 @@ module AvalancheMQ
         params = query_params(context)
         total_count = iterator.size
         iterator.rewind
-        unless params.has_key?("page")
-          raise Server::PayloadTooLarge.new if total_count > 10000
-          JSON.build(context.response) do |json|
-            array_iterator_to_json(json, iterator)
-          end
-          return context
-        end
         all_items = filter_values(params, iterator.map(&.details_tuple))
         if sort_by = params["sort"]?
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          if sorted_items.first.has_key?(sort_by)
-            sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
+          if sorted_items.dig?(0, sort_by)
+            if sorted_items.first[sort_by].is_a?(Int)
+              sorted_items.sort_by! { |i| i[sort_by].as(Int) }
+            else
+              sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
+            end
           end
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         else
           filtered_count = all_items.size
           all_items.rewind
+        end
+        unless params.has_key?("page")
+          raise Server::PayloadTooLarge.new if filtered_count > 10000
+          JSON.build(context.response) do |json|
+            array_iterator_to_json(json, all_items)
+          end
+          return context
         end
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
