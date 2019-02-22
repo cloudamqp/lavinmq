@@ -222,10 +222,12 @@ module AvalancheMQ
       s = Set(Queue | Exchange).new
       @bindings.each do |bt, q|
         ok = false
-        prev = :none
-        bk_parts = bt[0].split(".") # rk
+        prev_hash = false
+        size = 1_u8 # binding keys can max be 256 chars long anyway
+        bt[0].each_char { |c| size += 1 if c == '.' }
         j = 0
-        bk_parts.each_with_index do |part, i|
+        i = 0
+        bt[0].split(".") do |part|
           if rk_parts.size <= j
             ok = false
             break
@@ -233,26 +235,24 @@ module AvalancheMQ
           case part
           when "#"
             j += 1
-            prev = :hash
+            prev_hash = true
             ok = true
           when "*"
+            prev_hash = false
             # Is this the last bk and the last rk?
-            prev = :none if prev == :hash
-            if bk_parts.size == i + 1 && rk_parts.size == j + 1
+            if size == i + 1 && rk_parts.size == j + 1
               ok = true
               break
             # More than 1 rk left ok move on
             elsif rk_parts.size > j + 1
               j += 1
-              next
             else
               ok = false
               j += 1
-              next
             end
           else
-            if prev == :hash
-              if bk_parts.size == (i + 1)
+            if prev_hash
+              if size == (i + 1)
                 ok = rk_parts.last == part
                 j += 1
               else
@@ -269,6 +269,7 @@ module AvalancheMQ
             end
           end
           break unless ok
+          i += 1
         end
         s.concat(q) if ok
       end
