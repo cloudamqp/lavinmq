@@ -102,7 +102,11 @@ Wish list
 
 A single m5.large EC2 instance, with a 500 GB GP2 EBS drive (XFS formatted),
 can sustain about 150.000 messages/s (1KB each, single queue, single producer,
-single consumer). Enqueueing 10 million messages only uses 80MB RAM. 8000
+single consumer). When the message size is 1MB the instance's network speed
+becomes the bottleneck at 10 Gbit/s. When the OS disk cache is full
+the EBS performance becomes the bottleneck, at about 250 MB/s.
+
+Enqueueing 10 million messages only uses 80MB RAM. 8000
 connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
 MB RAM. About 20.000 bindings per second can be made to both durable and
 non-durable queues.
