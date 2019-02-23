@@ -24,6 +24,8 @@ describe AvalancheMQ::VHost do
     vhost.delete_policy("test")
     Fiber.yield
     vhost.queues["test"].policy.should be_nil
+  ensure
+    vhost.delete_queue("test")
   end
 
   it "should be able to list policies" do
@@ -50,6 +52,7 @@ describe AvalancheMQ::VHost do
     vhost.queues["test"].policy.not_nil!.name.should eq "ml"
   ensure
     vhost.delete_policy("ml")
+    vhost.delete_queue("test")
   end
 
   it "should respect priroty" do
@@ -59,5 +62,7 @@ describe AvalancheMQ::VHost do
     vhost.add_policy("ml1", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 0_i8)
     Fiber.yield
     vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
+  ensure
+    vhost.delete_queue("test2")
   end
 end
