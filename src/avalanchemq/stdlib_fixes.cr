@@ -24,3 +24,27 @@ abstract class OpenSSL::SSL::Socket
     String.new(LibSSL.ssl_get_version(@ssl))
   end
 end
+
+lib LibC
+  {% if flag?(:linux) %}
+    fun get_phys_pages : Int32
+    fun getpagesize : Int32
+  {% end %}
+
+  {% if flag?(:darwin) %}
+    SC_PAGESIZE = 29
+    SC_PHYS_PAGES = 200
+  {% end %}
+end
+
+module System
+  def self.physical_memory
+    {% if flag?(:linux) %}
+      LibC.get_phys_pages * LibC.getpagesize
+    {% elsif flag?(:darwin) %}
+      LibC.sysconf(LibC::SC_PHYS_PAGES) * LibC.sysconf(LibC::SC_PAGESIZE)
+    {% else %}
+      raise NotImplementedError.new("System.physical_memory")
+    {% end %}
+  end
+end

@@ -1,6 +1,7 @@
 require "./avalanchemq/version"
 require "./avalanchemq/io_tweak"
 require "./avalanchemq/stdlib_fixes"
+require "./avalanchemq/resource"
 require "./avalanchemq/config"
 require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
@@ -44,7 +45,7 @@ end
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 
-fd_limit = `ulimit -n`.to_i
+fd_limit = System.file_descriptor_limit.soft_limit
 puts "FD limit: #{fd_limit}"
 puts "The file descriptor limit is very low, consider raising it. You need one for each connection and two for each queue." if fd_limit < 1025
 
