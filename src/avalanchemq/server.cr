@@ -64,7 +64,7 @@ module AvalancheMQ
       context.certificate_chain = cert_path
       context.private_key = key_path
       context.ca_certificates = ca_path if ca_path
-      #context.ciphers = "ECDHE-RSA-AES128-SHA256"
+      # context.ciphers = "ECDHE-RSA-AES128-SHA256"
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         begin
