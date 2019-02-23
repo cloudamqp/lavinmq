@@ -28,11 +28,11 @@
             <thead>
               <tr>
                 <th>Virtual host</th>
-                <th data-sort-key="name">Name</th>
-                <th>Pattern</th>
-                <th>Apply to</th>
-                <th>Definition</th>
-                <th>Priority</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th class="left">Pattern</th>
+                <th class="left">Apply to</th>
+                <th class="left">Definition</th>
+                <th class="left">Priority</th>
                 <th></th>
               </tr>
             </thead>
@@ -68,7 +68,7 @@
         </label>
         <label>
           <span>Priority</span>
-          <input type="number" name="priority" required>
+          <input type="number" name="priority" value="0" max="10" min="-10" step="1" required>
         </label>
         <button type="submit" class="btn-primary">Add policy</button>
       </form>
@@ -116,7 +116,7 @@
               avalanchemq.dom.removeNodes(tr)
             }).catch(avalanchemq.http.standardErrorHandler)
         }
-        avalanchemq.table.renderCell(tr, 7, btn, 'right')
+        avalanchemq.table.renderCell(tr, 6, btn, 'right')
       })
 
       document.querySelector('#createPolicy').addEventListener('submit', function (evt) {
