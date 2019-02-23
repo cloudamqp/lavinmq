@@ -9,7 +9,7 @@
       var pair = vars[i].split('=')
       if (pair[0] === variable) { return pair[1] }
     }
-    return (false)
+    return ''
   }
 
   function renderTable (id, options = {}, renderRow) {
@@ -54,7 +54,7 @@
     }
 
     function makeHeadersSortable () {
-      const sortHeader = table.querySelector(`th[data-sort-key=${sortKey}]`)
+      const sortHeader = table.querySelector(`th[data-sort-key="${sortKey}"]`)
       if (sortHeader) {
         const sortClass = reverseOrder ? 'sorting_desc' : 'sorting_asc'
         sortHeader.classList.add(sortClass)
@@ -77,6 +77,7 @@
             e.target.classList.add('sorting_asc')
             e.target.classList.remove('sorting_desc')
           }
+          updateQueryState({ sort: sortKey, reverseOrder })
           const t = table.tBodies[0]
           clearRows(t)
           fetchAndUpdate()
@@ -191,10 +192,7 @@
 
     function renderSearch () {
       const debouncedUpdate = debounce(() => {
-        let searchParams = new URLSearchParams(window.location.search)
-        searchParams.set('name', searchTerm)
-        let newurl = window.location.pathname + '?' + searchParams.toString()
-        window.history.replaceState(null, '', newurl)
+        updateQueryState({ name: searchTerm })
         fetchAndUpdate()
       })
       let str = `<form class="form" action="javascript:void(0);">
@@ -369,6 +367,15 @@
       timeout = setTimeout(later, wait || 200)
       if (callNow) func.apply(context, args)
     }
+  }
+
+  function updateQueryState (params) {
+    let searchParams = new URLSearchParams(window.location.search)
+    Object.keys(params).forEach(k => {
+      searchParams.set(k, params[k])
+    })
+    let newurl = window.location.pathname + '?' + searchParams.toString()
+    window.history.replaceState(null, '', newurl)
   }
 
   Object.assign(window.avalanchemq, {
