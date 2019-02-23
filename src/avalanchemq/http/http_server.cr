@@ -21,10 +21,6 @@ module AvalancheMQ
       def initialize(@amqp_server : AvalancheMQ::Server, @port : Int32, @log : Logger)
         @log.progname = "httpserver"
         @cache = JSONCacheHandler.new(@log.dup)
-      end
-
-      def listen
-        @running = true
         handlers = [
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log.dup),
@@ -46,13 +42,18 @@ module AvalancheMQ
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new) if @log.level == Logger::DEBUG
         @http = ::HTTP::Server.new(handlers)
-        addr = @http.not_nil!.bind_tcp "::", @port, true
+      end
+
+      def listen
+        @running = true
+        addr = @http.bind_tcp "::", @port, true
         @log.info { "Listening on #{addr}" }
-        @http.not_nil!.listen
+        @http.listen
       end
 
       def close
         @http.try &.close
+        @running = false
       end
 
       def closed?
