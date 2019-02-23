@@ -84,4 +84,5 @@ shutdown = ->(_s : Signal) do
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
+GC.collect
 sleep
