@@ -12,6 +12,7 @@ require "./durable_queue"
 require "./parameter"
 require "./chained_logger"
 require "./config"
+require "./filesystem"
 
 module AvalancheMQ
   class Server
@@ -186,22 +187,18 @@ module AvalancheMQ
       sleep 2.seconds
       loop do
         break if closed?
-        command = "df -P -k #{data_dir} | awk '{print $4}' | tail -n1"
-        io = IO::Memory.new
-        Process.run(command, shell: true, output: io)
-        io.close
-        available = io.to_s.to_i64
-        @log.debug { "Available disk space: #{available/1024**2} GB" }
-        if available*1024 < Config.instance.segment_size
+        available = Filesystem.info(@data_dir).available
+        @log.debug { "Available disk space: #{available / 1024**3} GB" }
+        if available < Config.instance.segment_size
           if @flow
-            @log.info { "Low disk space: #{available/1024} MB, stopping flow" }
+            @log.info { "Low disk space: #{available / 1024**2} MB, stopping flow" }
             flow(false)
           end
         elsif !@flow
           @log.info { "Low disk space resolved, starting flow" }
           flow(true)
-        elsif available*1024 < Config.instance.segment_size*3
-          @log.warn { "Low disk space: #{available/1024} MB" }
+        elsif available < Config.instance.segment_size * 3
+          @log.warn { "Low disk space: #{available} MB" }
         end
         sleep 60.seconds
       end
