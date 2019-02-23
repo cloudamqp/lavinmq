@@ -361,6 +361,24 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "drop overflow when max-length is applied" do
+    with_channel do |ch|
+      q = ch.queue("mlq")
+      q.publish_confirm("m1").should be_true
+      q.publish_confirm("m2").should be_true
+      definitions = {
+        "max-length" => JSON::Any.new(1_i64),
+      } of String => JSON::Any
+      s.vhosts["/"]
+        .add_policy("test", /^mlq$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
+      Fiber.yield
+      s.vhosts["/"].queues["mlq"].message_count.should eq 1
+    end
+  ensure
+    s.vhosts["/"].delete_queue("mlq")
+    s.vhosts["/"].delete_policy("test")
+  end
+
   it "disallows creating queues starting with amq." do
     expect_raises(AMQP::Client::Channel::ClosedException, /REFUSED/) do
       with_channel do |ch|

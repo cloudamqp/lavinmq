@@ -79,6 +79,7 @@ module AvalancheMQ
         case k
         when "max-length"
           @max_length = v.as_i64
+          drop_overflow
         when "message-ttl"
           @message_ttl = v.as_i64
         when "overflow"
@@ -102,6 +103,12 @@ module AvalancheMQ
       handle_arguments
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
+    end
+
+    private def drop_overflow
+      while @ready.size > @max_length.not_nil!
+        drophead
+      end
     end
 
     private def handle_arguments
@@ -381,7 +388,7 @@ module AvalancheMQ
             @segment_pos[sp.segment] = body_pos
           end
           msg = Message.new(meta.timestamp, dlx.to_s,
-                            dlrk.to_s, props, meta.size, seg)
+            dlrk.to_s, props, meta.size, seg)
           @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
           @vhost.publish msg
         end
