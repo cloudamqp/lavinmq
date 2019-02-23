@@ -70,7 +70,9 @@ end
 Signal::HUP.trap do
   puts "Reloading"
   Fiber.list { |f| puts f.inspect }
+  pp GC.stats
 end
+
 shutdown = ->(_s : Signal) do
   puts "Shutting down gracefully..."
   http_server.close
