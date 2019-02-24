@@ -347,6 +347,8 @@ module AvalancheMQ
         match = sorted_policies.find { |p| p.match?(r) }
         match.nil? ? r.clear_policy : r.apply_policy(match)
       end
+    rescue ex : TypeCastError
+      @log.warn { "Invalid policy. #{ex.message}" }
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
