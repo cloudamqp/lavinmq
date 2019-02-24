@@ -71,7 +71,9 @@ end
 Signal::HUP.trap do
   puts "Reloading"
   Fiber.list { |f| puts f.inspect }
+  pp System.resource_usage
   pp GC.stats
+  puts "Uptime: #{amqp_server.uptime}s"
 end
 
 shutdown = ->(_s : Signal) do

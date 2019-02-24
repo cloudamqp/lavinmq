@@ -46,12 +46,12 @@ module System
       @user_time = Time::Span.from_timeval(usage.utime)
       @sys_time = Time::Span.from_timeval(usage.stime)
       @max_rss = usage.maxrss
-      @blocks_in = usage.blocks_in
-      @blocks_out = usage.blocks_out
+      @blocks_in = usage.inblock
+      @blocks_out = usage.oublock
     end
 
-    getter user_time : Int64
-    getter sys_time : Int64
+    getter user_time : Time::Span
+    getter sys_time : Time::Span
     getter max_rss : UInt64
     getter blocks_in : UInt64
     getter blocks_out : UInt64
