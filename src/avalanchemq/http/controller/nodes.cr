@@ -12,7 +12,7 @@ module AvalancheMQ
               {
                 uptime: @amqp_server.uptime,
                 os_pid: Process.pid,
-                fd_total: System.file_descriptor_limit.soft_limit,
+                fd_total: System.file_descriptor_limit,
                 fd_used: 0,
                 mem_limit: System.physical_memory,
                 mem_used: gc_stats.total_bytes,

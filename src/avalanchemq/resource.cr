@@ -1,10 +1,4 @@
 lib Resource
-  RLIMIT_NOFILE = 8
-
-  struct RLimit
-    soft_limit : UInt64
-    hard_limit : UInt64
-  end
 
   RUSAGE_SELF = 0
   RLIM_INFINITY = (1_u64 << 63) - 1
@@ -29,8 +23,21 @@ lib Resource
   end
 
   fun getrusage(who : Int32, rusage : RUsage*) : Int32
-  fun getrlimit(resource : Int32, rlimit : RLimit*) : Int32
-  fun setrlimit(resource : Int32, rlimit : RLimit*) : Int32
+end
+
+lib LibC
+  {% if flag? :darwin %}
+    alias RlimT = ULongLong
+
+    struct Rlimit
+      rlim_cur : RlimT
+      rlim_max : RlimT
+    end
+
+    fun getrlimit(Int, Rlimit*) : Int
+  {% end %}
+  RLIMIT_NOFILE = 8
+  fun setrlimit(Int, Rlimit*) : Int
 end
 
 struct Time::Span
@@ -66,16 +73,16 @@ module System
   end
 
   def self.file_descriptor_limit
-    rlimit = uninitialized Resource::RLimit
-    if Resource.getrlimit(Resource::RLIMIT_NOFILE, pointerof(rlimit)) != 0
+    rlimit = uninitialized LibC::Rlimit
+    if LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
       raise Errno.new("getrlimit")
     end
-    rlimit
+    rlimit.rlim_cur
   end
 
   def self.file_descriptor_limit=(limit) : Nil
-    rlimit = Resource::RLimit.new(soft_limit: limit, hard_limit: limit)
-    if Resource.setrlimit(Resource::RLIMIT_NOFILE, pointerof(rlimit)) != 0
+    rlimit = LibC::Rimit.new(limit, limit)
+    if LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
       raise Errno.new("setrlimit")
     end
   end
