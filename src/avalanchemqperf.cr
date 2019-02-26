@@ -2,9 +2,25 @@ require "./avalanchemq/version"
 require "./avalanchemq/io_tweak"
 require "option_parser"
 require "amqp-client"
+require "benchmark"
 
 class Perf
   @uri = "amqp://guest:guest@localhost"
+
+  def initialize
+    @parser = OptionParser.new
+    @parser.banner = "Usage: #{PROGRAM_NAME} [command] [arguments]"
+    @parser.on("-h", "--help", "Show this help") { puts @parser; exit 1 }
+    @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
+    @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
+    @parser.on("--uri=URI", "URI to connect to (default amqp://guest:guest@localhost)") do |v|
+      @uri = v
+    end
+  end
+
+end
+
+class Throughput < Perf
   @publishers = 1
   @consumers = 1
   @size = 1024
@@ -14,52 +30,48 @@ class Perf
   @no_ack = true
   @rate = 0
   @consume_rate = 0
+  @confirm = false
 
-  def parser
-    parser = OptionParser.new
-    parser.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
-    parser.on("--uri=URI", "URI to connect to (default amqp://guest:guest@localhost)") do |v|
-      @uri = v
-    end
-    parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
+  def initialize
+    super
+    @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
       @publishers = v.to_i
     end
-    parser.on("-y consumers", "--consumers=number", "Number of consumers (default 1)") do |v|
+    @parser.on("-y consumers", "--consumers=number", "Number of consumers (default 1)") do |v|
       @consumers = v.to_i
     end
-    parser.on("-s msgsize", "--size=bytes", "Size of each message (default 1KB)") do |v|
+    @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 1KB)") do |v|
       @size = v.to_i
     end
-    parser.on("-a", "--ack", "Ack consumed messages (default false)") do
+    @parser.on("-a", "--ack", "Ack consumed messages (default false)") do
       @no_ack = false
     end
-    parser.on("-c", "--confirm", "Confirm publishes (default false)") do
+    @parser.on("-c", "--confirm", "Confirm publishes (default false)") do
       @confirm = true
     end
-    parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
+    @parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
       @queue = v
       @routing_key = v
     end
-    parser.on("-k routing-key", "--routing-key=name", "Routing key (default queue name)") do |v|
+    @parser.on("-k routing-key", "--routing-key=name", "Routing key (default queue name)") do |v|
       @routing_key = v
     end
-    parser.on("-e exchange", "--exchange=name", "Exchange to publish to (default \"\")") do |v|
+    @parser.on("-e exchange", "--exchange=name", "Exchange to publish to (default \"\")") do |v|
       @exchange = v
     end
-    parser.on("-r pub-rate", "--rate=number", "Max publish rate (default 0)") do |v|
+    @parser.on("-r pub-rate", "--rate=number", "Max publish rate (default 0)") do |v|
       @rate = v.to_i
     end
-    parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate (default 0)") do |v|
+    @parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate (default 0)") do |v|
       @consume_rate = v.to_i
     end
-    parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
-    parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
-    parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
-    parser
   end
 
+  @pubs = 0
+  @consumes = 0
+
   def run
-    parser.parse!
+    @parser.parse!
 
     @publishers.times do
       spawn pub
@@ -81,10 +93,7 @@ class Perf
     end
   end
 
-  @pubs = 0
-  @consumes = 0
-
-  def pub
+  private def pub
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
     data = "0" * @size
@@ -105,7 +114,7 @@ class Perf
     a.try &.close
   end
 
-  def consume
+  private def consume
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
     ch.queue(@queue).subscribe(no_ack: @no_ack) do |m|
@@ -123,4 +132,69 @@ class Perf
   end
 end
 
-Perf.new.run
+class BindChurn < Perf
+  def run
+    @parser.parse!
+
+    r = Random.new
+    AMQP::Client.start(@uri) do |c|
+      ch = c.channel
+      temp_q = ch.queue
+      durable_q = ch.queue("durable")
+
+      Benchmark.ips do |x|
+        x.report("bind non-durable queue") do
+          temp_q.bind "amq.direct", r.hex(16)
+        end
+        x.report("bind durable queue") do
+          durable_q.bind "amq.direct", r.hex(10)
+        end
+      end
+      durable_q.delete
+    end
+  end
+end
+
+class QueueChurn < Perf
+  def run
+    @parser.parse!
+
+    AMQP::Client.start(@uri) do |c|
+      ch = c.channel
+      durable_q = ch.queue("durable")
+
+      Benchmark.ips do |x|
+        x.report("create/delete transient queue") do
+          q = ch.queue
+          q.delete
+        end
+        x.report("create/delete durable queue") do
+          q = ch.queue("durable")
+          q.delete
+        end
+      end
+      durable_q.delete
+    end
+  end
+end
+
+class ConnectionChurn < Perf
+  def run
+    @parser.parse!
+    Benchmark.ips do |x|
+      x.report("open-close connection and channel") do
+        AMQP::Client.start(@uri) do |c|
+          c.channel
+        end
+      end
+    end
+  end
+end
+
+case ARGV.shift?
+when "throughput"       then Throughput.new.run
+when "bind-churn"       then BindChurn.new.run
+when "queue-churn"      then QueueChurn.new.run
+when "connection-churn" then ConnectionChurn.new.run
+else                    abort "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn] [arguments]"
+end
