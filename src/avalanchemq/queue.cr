@@ -43,7 +43,7 @@ module AvalancheMQ
       @log.progname += " queue=#{@name}"
       handle_arguments
       @consumers = Deque(Client::Channel::Consumer).new
-      @message_available = Channel(Nil).new(1)
+      @message_available = Channel(Nil).new
       @consumer_available = Channel(Nil).new(1)
       @unacked_count = 0_u32
       @ready = Deque(SegmentPosition).new
