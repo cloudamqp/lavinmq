@@ -61,12 +61,13 @@ module AvalancheMQ
       FileUtils.rm_rf @index_dir if super
     end
 
-    def publish(sp : SegmentPosition, persistent = false)
+    def publish(sp : SegmentPosition, persistent = false) : Bool
       return false unless super
       @lock.synchronize do
         @enq.write_bytes sp
         @enq.flush if persistent
       end
+      true
     end
 
     def get(no_ack : Bool, &blk : Envelope? -> Nil)
