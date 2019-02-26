@@ -166,7 +166,14 @@ module AvalancheMQ
         if c = find_consumer
           deliver_to_consumer(c)
         else
-          schedule_expiration_and_wait
+          break if @closed
+          @log.debug "No consumer available"
+          now = Time.now.to_unix_ms
+          schedule_expiration_of_queue(now)
+          next if schedule_expiration_of_next_msg(now)
+          @log.debug "Waiting for consumer"
+          @consumer_available.receive
+          @log.debug "Consumer available"
         end
         Fiber.yield if (i += 1) % 1000 == 0
       rescue Channel::ClosedError
@@ -211,17 +218,6 @@ module AvalancheMQ
           @log.debug { "Consumer found, but not a message" }
         end
       end
-    end
-
-    private def schedule_expiration_and_wait
-      return if @closed
-      @log.debug "No consumer available"
-      now = Time.now.to_unix_ms
-      schedule_expiration_of_queue(now)
-      schedule_expiration_of_next_msg(now)
-      @log.debug "Waiting for consumer"
-      @consumer_available.receive
-      @log.debug "Consumer available"
     end
 
     def close : Bool
@@ -309,22 +305,32 @@ module AvalancheMQ
       nil
     end
 
-    private def schedule_expiration_of_next_msg(now)
-      sp = @ready_lock.synchronize { @ready[0]? }
-      return unless sp
-      @log.debug { "Checking if next message has to be expired" }
-      meta = metadata(sp)
-      return unless meta
-      @log.debug { "Next message: #{meta}" }
-      exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
-      if exp_ms
-        expire_at = meta.timestamp + exp_ms
-        expire_in = expire_at - now
-        spawn(expire_later(expire_in, meta, sp),
-          name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
-      else
-        @log.debug { "No message to expire" }
+    private def schedule_expiration_of_next_msg(now) : Bool
+      expired_msg = false
+      loop do
+        sp = @ready_lock.synchronize { @ready[0]? } || break
+        @log.debug { "Checking if next message has to be expired" }
+        meta = metadata(sp) || break
+        @log.debug { "Next message: #{meta}" }
+        exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
+        if exp_ms
+          expire_at = meta.timestamp + exp_ms
+          expire_in = expire_at - now
+          if expire_in <= 0
+            @ready_lock.synchronize { @ready.shift }
+            expired_msg = true
+            expire_msg(meta, sp, :expired)
+          else
+            spawn(expire_later(expire_in, meta, sp),
+              name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+            break
+          end
+        else
+          @log.debug { "No message to expire" }
+          break
+        end
       end
+      expired_msg
     end
 
     private def expire_later(expire_in, meta, sp)
