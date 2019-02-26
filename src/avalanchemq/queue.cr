@@ -169,13 +169,16 @@ module AvalancheMQ
           schedule_expiration_and_wait
         end
         Fiber.yield if (i += 1) % 1000 == 0
+      rescue Channel::ClosedError
+        @log.debug "Delivery loop channel closed"
+        break
       rescue ex : Errno
         sp = @ready_lock.synchronize { @ready.shift }
         @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+      rescue ex
+        @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
       @log.debug "Exiting delivery loop"
-    rescue Channel::ClosedError
-      @log.debug "Delivery loop channel closed"
     end
 
     private def find_consumer
