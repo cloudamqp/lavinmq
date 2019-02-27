@@ -530,7 +530,6 @@ module AvalancheMQ
     def purge
       purged_count = message_count
       @ready_lock.synchronize { @ready.clear }
-      @consumers.each { |c| c.unacked.clear }
       @log.debug { "Purged #{purged_count} messages" }
       purged_count
     end

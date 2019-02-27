@@ -8,13 +8,14 @@ Thread.new do
     puts "Consumed: #{i} msgs/s"
   end
 end
-
-Bunny.run("amqp://guest:guest@localhost/default") do |b|
+puts "Starting"
+Bunny.run("amqp://guest:guest@localhost") do |b|
   ch = b.create_channel
+  ch.prefetch(1)
   q1 = ch.queue "f1", durable: true
   q1.bind "amq.fanout"
   q1.subscribe(block: true, manual_ack: true) do |d, _h, _p|
     i += 1
-    d.ack
+    ch.ack(d.delivery_tag)
   end
 end
