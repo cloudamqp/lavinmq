@@ -124,6 +124,8 @@ module AvalancheMQ
 
       private def finish_publish(message_body)
         if !server_flow?
+          @log.debug "Skipping body because wasn't written to disk"
+          message_body.skip(@next_msg_size)
           send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
           text = "Server out of resources"
           send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 0, 0)
