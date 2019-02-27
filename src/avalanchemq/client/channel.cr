@@ -75,6 +75,10 @@ module AvalancheMQ
       end
 
       def start_publish(frame)
+        unless server_flow?
+          @client.send_precondition_failed(frame, "Server low on disk space")
+          return
+        end
         @next_publish_exchange_name = frame.exchange
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
@@ -123,14 +127,6 @@ module AvalancheMQ
       end
 
       private def finish_publish(message_body)
-        if !server_flow?
-          @log.debug "Skipping body because wasn't written to disk"
-          message_body.skip(@next_msg_size)
-          send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
-          text = "Server out of resources"
-          send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 0, 0)
-          return
-        end
         @publish_count += 1
         ts = Time.utc_now
         props = @next_msg_props.not_nil!
