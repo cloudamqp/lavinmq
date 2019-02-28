@@ -182,11 +182,11 @@ describe AvalancheMQ::Server do
       dlq = ch.queue("dlq")
       q.publish_confirm "queue dlx"
       msg = wait_for { dlq.get(no_ack: true) }
-      if msg
-        msg.body_io.to_s.should eq("queue dlx")
-      else
-        msg.should_not be_nil
-      end
+      msg.not_nil!.body_io.to_s.should eq("queue dlx")
+      s.vhosts["/"].queues["dlq"].empty?.should be_true
+      q.publish_confirm "queue dlx"
+      msg = wait_for { dlq.get(no_ack: true) }
+      msg.not_nil!.body_io.to_s.should eq("queue dlx")
     end
   ensure
     s.vhosts["/"].delete_queue("dlq")
@@ -202,14 +202,11 @@ describe AvalancheMQ::Server do
       hdrs["x-dead-letter-routing-key"] = dlq.name
       x = ch.exchange("", "direct", passive: true)
       x.publish_confirm "dead letter", "exp", props: AMQP::Client::Properties.new(expiration: "0", headers: hdrs)
-
       msg = wait_for { dlq.get(no_ack: true) }
-      if msg
-        msg.body_io.to_s.should eq("dead letter")
-      else
-        msg.should_not be_nil
-      end
+      msg.not_nil!.body_io.to_s.should eq("dead letter")
     end
+  ensure
+    s.vhosts["/"].delete_queue("exp")
   end
 
   it "handle immediate flag" do
