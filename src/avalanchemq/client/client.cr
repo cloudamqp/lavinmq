@@ -98,7 +98,7 @@ module AvalancheMQ
       when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow
-        @channels[frame.channel].client_flow = frame.active
+        @channels[frame.channel].client_flow(frame.active)
       when AMQP::Frame::Channel::FlowOk
         # noop
       when AMQP::Frame::Confirm::Select

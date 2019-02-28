@@ -13,7 +13,7 @@ module AvalancheMQ
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
         confirm, log, consumers, name
       property? running = true
-      property? client_flow = true
+      getter? client_flow
 
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
@@ -21,6 +21,7 @@ module AvalancheMQ
       @next_msg_props : AMQP::Properties?
       @next_msg_body = IO::Memory.new(4096)
       @log : Logger
+      @client_flow = true
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
@@ -57,6 +58,12 @@ module AvalancheMQ
           state:                   state,
           message_stats:           stats_details,
         }
+      end
+
+      def client_flow(active : Bool)
+        @client_flow = active
+        return unless active
+        @consumers.each { |c| c.queue.consumer_available }
       end
 
       def state

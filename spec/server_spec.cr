@@ -587,6 +587,27 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "should handle consumer flow" do
+    with_channel do |ch|
+      q = ch.queue
+      ch.prefetch 1
+      q.publish "msg"
+      msgs = [] of AMQP::Client::Message
+      q.subscribe(no_ack: false) do |m|
+        msgs << m
+      end
+      wait_for { msgs.size == 1 }
+      ch.flow(false)
+      msgs.pop.ack
+      q.publish "msg"
+      sleep 0.05 # wait little so a new message could be delivered
+      msgs.size.should eq 0
+      ch.flow(true)
+      wait_for { msgs.size == 1 }
+      msgs.size.should eq 1
+    end
+  end
+
   pending "compacts queue index correctly" do
     with_channel do |ch|
       q = ch.queue("durable_queue_index", durable: true)

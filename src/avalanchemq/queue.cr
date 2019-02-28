@@ -105,6 +105,10 @@ module AvalancheMQ
       @vhost.upstreams.try &.stop_link(self)
     end
 
+    def consumer_available
+      @consumer_available.send nil unless @consumer_available.full?
+    end
+
     private def drop_overflow
       while @ready.size > @max_length.not_nil!
         drophead
@@ -477,7 +481,7 @@ module AvalancheMQ
       @unacked_count -= 1
       @ack_count += 1
       Fiber.yield if @ack_count % 1000 == 0
-      @consumer_available.send nil unless @consumer_available.full?
+      consumer_available
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
@@ -510,7 +514,7 @@ module AvalancheMQ
       @consumers.push consumer
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
-      @consumer_available.send nil unless @consumer_available.full?
+      consumer_available
       spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
         notify_observers(:add_consumer, consumer)
       end
