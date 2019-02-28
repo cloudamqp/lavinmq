@@ -27,12 +27,13 @@ module AvalancheMQ
     @deleted = false
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
+    @get_unacked = Deque(SegmentPosition).new
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
 
     property last_get_time : Int64
-    getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers, unacked_count
+    getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers
     getter? closed
     def_equals_and_hash @vhost, @name
 
@@ -45,7 +46,6 @@ module AvalancheMQ
       @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new
       @consumer_available = Channel(Nil).new(1)
-      @unacked_count = 0_u32
       @ready = Deque(SegmentPosition).new
       @ready_lock = Mutex.new
       @segment_pos = Hash(UInt32, UInt32).new do |h, seg|
@@ -103,6 +103,10 @@ module AvalancheMQ
       handle_arguments
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
+    end
+
+    def unacked_count : UInt32
+      (@consumers.reduce(0) { |memo, c| memo + c.unacked.size } + @get_unacked.size).to_u32
     end
 
     def consumer_available
@@ -251,13 +255,14 @@ module AvalancheMQ
     end
 
     def details_tuple
+      unacked = unacked_count
       {
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
         consumers: @consumers.size, vhost: @vhost.name,
-        messages: @ready.size + @unacked_count,
+        messages: @ready.size + unacked,
         ready: @ready.size,
-        unacked: @unacked_count,
+        unacked: unacked,
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? :closed : :running,
@@ -280,7 +285,7 @@ module AvalancheMQ
       @log.debug { "Enqueuing message sp=#{sp}" }
       @ready_lock.synchronize { @ready.push sp }
       @message_available.send nil unless @message_available.full?
-      @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{@unacked_count} \
+      @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
       @publish_count += 1
       true
@@ -359,7 +364,6 @@ module AvalancheMQ
 
     private def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      @unacked_count += 1
       meta_bytesize = meta.bytesize
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
@@ -426,7 +430,10 @@ module AvalancheMQ
 
     def basic_get(no_ack, &blk : Envelope? -> Nil)
       get(no_ack) do |env|
-        @get_count += 1 if env
+        if env
+          @get_count += 1
+          @get_unacked << env.segment_position unless no_ack
+        end
         yield env
       end
     end
@@ -444,7 +451,6 @@ module AvalancheMQ
       return yield nil if @closed
       sp = @ready_lock.synchronize { @ready.shift? }
       return yield nil if sp.nil?
-      @unacked_count += 1 unless no_ack
       @read_lock.synchronize do
         yield read(sp)
       end
@@ -478,7 +484,8 @@ module AvalancheMQ
     def ack(sp : SegmentPosition, flush : Bool)
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @unacked_count -= 1
+      idx = @get_unacked.index(sp)
+      @get_unacked.delete_at(idx) if idx
       @ack_count += 1
       Fiber.yield if @ack_count % 1000 == 0
       consumer_available
@@ -487,7 +494,8 @@ module AvalancheMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
       @log.debug { "Rejecting #{sp}" }
-      @unacked_count -= 1
+      idx = @get_unacked.index(sp)
+      @get_unacked.delete_at(idx) if idx
       @reject_count += 1
       if requeue
         @ready_lock.synchronize do
