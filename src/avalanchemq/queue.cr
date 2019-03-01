@@ -20,6 +20,7 @@ module AvalancheMQ
     @message_ttl : ArgumentNumber?
     @max_length : ArgumentNumber?
     @expires : ArgumentNumber?
+    @delivery_limit : ArgumentNumber?
     @dlx : String?
     @dlrk : String?
     @reject_on_overflow = false
@@ -27,6 +28,7 @@ module AvalancheMQ
     @deleted = false
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
+    @deliveries = Hash(SegmentPosition, Int32).new
     @get_unacked = Deque(SegmentPosition).new
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
@@ -94,6 +96,8 @@ module AvalancheMQ
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
+        when "delivery-limit"
+          @delivery_limit = v.as_i64
         end
       end
       @policy = policy
@@ -128,6 +132,8 @@ module AvalancheMQ
       @dlrk = @arguments["x-dead-letter-routing-key"]?.try &.to_s
       max_length = @arguments["x-max-length"]?
       @max_length = max_length if max_length.is_a? ArgumentNumber
+      delivery_limit = @arguments["x-delivery-limit"]?
+      @delivery_limit = delivery_limit if delivery_limit.is_a? ArgumentNumber
       @reject_on_overflow = @arguments.fetch("x-overflow", "").to_s == "reject-publish"
     end
 
@@ -211,8 +217,19 @@ module AvalancheMQ
       get(c.no_ack) do |env|
         if env
           sp = env.segment_position
+          msg = env.message
+          if !c.no_ack && @delivery_limit
+            headers = msg.properties.headers || Hash(String, AMQP::Field).new
+            delivery_count = @deliveries[sp]? || 0
+            if delivery_count > @delivery_limit.not_nil!
+              @deliveries.delete(sp)
+              return expire_msg(sp, :delivery_limit)
+            end
+            headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
+            msg.properties.headers = headers
+          end
           @log.debug { "Delivering #{sp} to consumer" }
-          if c.deliver(env.message, sp, env.redelivered)
+          if c.deliver(msg, sp, env.redelivered)
             if env.redelivered
               @redeliver_count += 1
             else
@@ -238,6 +255,10 @@ module AvalancheMQ
         c.cancel
       end
       @segments.each_value &.close
+      @deliveries.clear
+      @requeued.clear
+      @get_unacked.clear
+      # @ready.clear
       @vhost.delete_queue(@name) if @auto_delete || @exclusive
       Fiber.yield
       notify_observers(:close)
@@ -486,6 +507,7 @@ module AvalancheMQ
       @log.debug { "Acking #{sp}" }
       idx = @get_unacked.index(sp)
       @get_unacked.delete_at(idx) if idx
+      @deliveries.delete(sp)
       @ack_count += 1
       Fiber.yield if @ack_count % 1000 == 0
       consumer_available

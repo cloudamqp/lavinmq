@@ -5,12 +5,21 @@ describe "Flow" do
   it "should support consumer flow" do
     with_channel do |ch|
       q = ch.queue
-      q.publish "test"
-      ch.flow(false)
+      ch.prefetch 1
+      q.publish "msg"
       msgs = [] of AMQP::Client::Message
-      q.subscribe { |msg| msgs << msg }
-      sleep 0.05
+      q.subscribe(no_ack: false) do |m|
+        msgs << m
+      end
+      wait_for { msgs.size == 1 }
+      ch.flow(false)
+      msgs.pop.ack
+      q.publish "msg"
+      sleep 0.05 # wait little so a new message could be delivered
       msgs.size.should eq 0
+      ch.flow(true)
+      wait_for { msgs.size == 1 }
+      msgs.size.should eq 1
     end
   end
 
