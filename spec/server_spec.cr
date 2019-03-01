@@ -584,24 +584,25 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "should handle consumer flow" do
+  it "supports delivery-limit" do
     with_channel do |ch|
-      q = ch.queue
-      ch.prefetch 1
-      q.publish "msg"
-      msgs = [] of AMQP::Client::Message
-      q.subscribe(no_ack: false) do |m|
-        msgs << m
-      end
-      wait_for { msgs.size == 1 }
-      ch.flow(false)
-      msgs.pop.ack
-      q.publish "msg"
-      sleep 0.05 # wait little so a new message could be delivered
-      msgs.size.should eq 0
-      ch.flow(true)
-      wait_for { msgs.size == 1 }
-      msgs.size.should eq 1
+      args = AMQP::Client::Arguments.new
+      args["x-delivery-limit"] = 2
+      q = ch.queue("delivery_limit", args: args)
+      q.publish "m1"
+      msg = nil
+      q.subscribe(no_ack: false) { |m| msg = m }
+      wait_for { msg }
+      msg.not_nil!.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
+      msg.not_nil!.reject(requeue: true)
+      msg = nil
+      wait_for { msg }
+      msg.not_nil!.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 2
+      msg.not_nil!.reject(requeue: true)
+      msg = nil
+      Fiber.yield
+      msg.should be_nil
+      s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
     end
   end
 
