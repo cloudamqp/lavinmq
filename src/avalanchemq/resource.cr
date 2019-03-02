@@ -32,10 +32,8 @@ lib LibC
     rlim_max : RlimT
   end
 
-  {% if flag? :darwin %}
-    fun getrlimit(Int, Rlimit*) : Int
-  {% end %}
   RLIMIT_NOFILE = 8
+  fun getrlimit(Int, Rlimit*) : Int
   fun setrlimit(Int, Rlimit*) : Int
 end
 
