@@ -10,7 +10,9 @@ jobs:
   - stage: GitHub Release
     addons:
       apt:
+        sources: llvm-toolchain-xenial-6.0
         packages:
+        - llvm-6-dev
         - fakeroot
         - help2man
     script: build/deb 1
