@@ -1,39 +1,38 @@
 lib Resource
-
-  RUSAGE_SELF = 0
+  RUSAGE_SELF   = 0
   RLIM_INFINITY = (1_u64 << 63) - 1
 
   struct RUsage
     utime : LibC::Timeval # user time used
     stime : LibC::Timeval # system time used
-    maxrss : UInt64 # max resident set size
-    ixrss : UInt64 # integral shared text memory size
-    idrss : UInt64 # integral unshared data size
-    isrss : UInt64 # integral unshared stack size
-    minflt : UInt64 # page reclaims
-    majflt : UInt64 # page faults
-    nswap : UInt64 # swaps
-    inblock : UInt64 # block input operations
-    oublock : UInt64 # block output operations
-    msgsnd : UInt64 # messages sent
-    msgrcv : UInt64 # messages received
-    nsignals : UInt64 # signals received
-    nvcsw : UInt64 # voluntary context switches
-    nivcsw : UInt64 # involuntary context switches
+    maxrss : UInt64       # max resident set size
+    ixrss : UInt64        # integral shared text memory size
+    idrss : UInt64        # integral unshared data size
+    isrss : UInt64        # integral unshared stack size
+    minflt : UInt64       # page reclaims
+    majflt : UInt64       # page faults
+    nswap : UInt64        # swaps
+    inblock : UInt64      # block input operations
+    oublock : UInt64      # block output operations
+    msgsnd : UInt64       # messages sent
+    msgrcv : UInt64       # messages received
+    nsignals : UInt64     # signals received
+    nvcsw : UInt64        # voluntary context switches
+    nivcsw : UInt64       # involuntary context switches
   end
 
   fun getrusage(who : Int32, rusage : RUsage*) : Int32
 end
 
 lib LibC
+  alias RlimT = ULongLong
+
+  struct Rlimit
+    rlim_cur : RlimT
+    rlim_max : RlimT
+  end
+
   {% if flag? :darwin %}
-    alias RlimT = ULongLong
-
-    struct Rlimit
-      rlim_cur : RlimT
-      rlim_max : RlimT
-    end
-
     fun getrlimit(Int, Rlimit*) : Int
   {% end %}
   RLIMIT_NOFILE = 8
@@ -43,7 +42,7 @@ end
 struct Time::Span
   def self.from_timeval(val)
     self.new(seconds: val.tv_sec.to_i64,
-             nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
+      nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
   end
 end
 
