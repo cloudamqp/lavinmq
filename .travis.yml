@@ -6,6 +6,7 @@ addons:
     sources: llvm-toolchain-xenial-6.0
     packages:
     - llvm-6.0-dev
+env: LLVM_VERSION=6.0.0
 install:
 - shards install
 jobs:
