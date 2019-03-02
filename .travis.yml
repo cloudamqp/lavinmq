@@ -3,6 +3,8 @@ sudo: false
 language: crystal
 install:
 - shards install
+before-script:
+- llvm-config --host-target
 jobs:
   include:
   - script: crystal spec
