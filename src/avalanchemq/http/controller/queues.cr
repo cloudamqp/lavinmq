@@ -20,7 +20,7 @@ module AvalancheMQ
       include QueueHelpers
 
       private def register_routes
-        get "/api/queues" do |context, params|
+        get "/api/queues" do |context, _|
           itr = Iterator(Queue).chain(vhosts(user(context)).map { |v| v.queues.each_value })
           page(context, itr)
         end

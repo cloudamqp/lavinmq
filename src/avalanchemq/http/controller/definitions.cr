@@ -167,7 +167,6 @@ module AvalancheMQ
           destination = b["destination"].as_s
           destination_type = b["destination_type"].as_s
           routing_key = b["routing_key"].as_s
-          json_args = b["arguments"].as_h
           arguments = parse_arguments(b)
           next unless v = fetch_vhost?(vhosts, vhost)
           case destination_type

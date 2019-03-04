@@ -33,7 +33,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            itr = e.bindings.each.select { |(_k, v)| v.includes?(q) }
+            itr = e.bindings.each.select { |(_, v)| v.includes?(q) }
               .map { |(k, _)| e.binding_details(k, q) }
             page(context, itr)
           end
@@ -101,7 +101,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
-            page(context, source.bindings.each.select { |(_k, v)| v.includes?(destination) }
+            page(context, source.bindings.each.select { |(_, v)| v.includes?(destination) }
               .map { |(k, _)| source.binding_details(k, destination) })
           end
         end
