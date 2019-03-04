@@ -10,14 +10,13 @@ jobs:
   - stage: Validate
     script: crystal spec
     script: bin/ameba
-  - stage: Build
-    script: make bin/avalanchemq
-  - stage: GitHub Release
+  - stage: Release
     addons:
       apt:
         packages:
         - fakeroot
         - help2man
+    script: make bin/avalanchemq
     script: build/deb 1
     deploy:
       provider: releases
