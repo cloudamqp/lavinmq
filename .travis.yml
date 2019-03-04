@@ -7,8 +7,11 @@ before_script:
 - llvm-config --host-target
 jobs:
   include:
-  - script: crystal spec
-  - script: bin/ameba
+  - stage: Validate
+    script: crystal spec
+    script: bin/ameba
+  - stage: Build
+    script: make bin/avalanchemq
   - stage: GitHub Release
     addons:
       apt:
