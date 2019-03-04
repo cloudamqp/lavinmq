@@ -1,8 +1,6 @@
 [![Build Status](https://travis-ci.com/84codes/avalanchemq.svg?token=rfwynuMNGnX9tuyspVud&branch=master)](https://travis-ci.com/84codes/avalanchemq)
 
-<img src="avalanche.png" align="right" />
-
-# AvalancheMQ
+# ![AvalancheMQ](static/img/logo-avalanche-mq.png)
 
 A message queue server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
@@ -35,7 +33,7 @@ in-memory array, and write the segment-position to an "ack" file. That way
 we can restore the queue index on boot by read all the segment-position stored
 in the queue index file, then exclude all the segment-position read from the
 "ack" file.  The queue index is rewritten when the "ack" file becomes 16 MB,
-that is, every 16 * 1024 * 1024 / 8 = 2097152 message.
+that is, every 16 \* 1024 \* 1024 / 8 = 2097152 message.
 Then the current in-memory queue index is written to a new file and the
 "ack" file is truncated.
 
@@ -92,6 +90,7 @@ Currently missing features
 * Transactions (probably won't implement)
 
 Wish list
+
 * Rewindable queues (all messages that is published to an exchanged
   is stored and can be dumped into a queue when a certain binding is
   made, even if they already have been consumed once before)
@@ -115,7 +114,7 @@ non-durable queues.
 
 In Debian/Ubuntu:
 
-```
+```bash
 cat > /etc/apt/sources.list.d/avalanchemq.list << EOF
 deb [trusted=yes] https://apt.avalanchemq.com stable main
 EOF
@@ -126,7 +125,7 @@ apt install avalanchemq
 
 From source:
 
-```
+```bash
 git clone git@github.com:avalanchemq/avalanchemq.git
 cd avalanchemq
 shards build --release --production
@@ -154,7 +153,7 @@ at the same time, eg. after a restart, you may see
 "kernel: Possible SYN flooding on port 5671" in the syslog.
 Then you probably should increase `net.ipv4.tcp_max_syn_backlog`:
 
-```
+```bash
 sysctl -w net.ipv4.tcp_max_syn_backlog=2048 # default 512
 ```
 
@@ -166,20 +165,20 @@ at least which system calls it's doing.
 Run `strace` with `-c` for some time and get a table of system calls made and how long time
 they took.
 
-```
+```bash
 sudo strace -fp $(ps -C avalanchemq -o pid=) -c
 ```
 
 Run `strace` with `-e trace=` and the syscalls you want to monitor
 for more details of which files it's writing to and what etc.
 
-```
+```bash
 sudo strace -fytTp $(ps -C avalanchemq -o pid=) -e trace=file,read,write
 ```
 
 `perf` can be used to trace the application's method calls in Linux:
 
-```
+```bash
 sudo perf top -p $(ps -C avalanchemq -o pid=)
 ```
 
@@ -194,8 +193,8 @@ Fork, create feature branch, submit pull request.
 
 ## Contributors
 
-- [Carl Hörberg](carl@84codes.com)
-- [Anders Bälter](anders@84codes.com)
+* [Carl Hörberg](carl@84codes.com)
+* [Anders Bälter](anders@84codes.com)
 
 ## License
 
