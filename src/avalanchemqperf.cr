@@ -6,10 +6,12 @@ require "benchmark"
 
 class Perf
   @uri = "amqp://guest:guest@localhost"
+  getter banner
 
   def initialize
     @parser = OptionParser.new
-    @parser.banner = "Usage: #{PROGRAM_NAME} [command] [arguments]"
+    @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn] [arguments]"
+    @parser.banner = @banner
     @parser.on("-h", "--help", "Show this help") { puts @parser; exit 1 }
     @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
@@ -18,6 +20,9 @@ class Perf
     end
   end
 
+  def run(args = ARGV)
+    @parser.parse(args)
+  end
 end
 
 class Throughput < Perf
@@ -71,7 +76,7 @@ class Throughput < Perf
   @consumes = 0
 
   def run
-    @parser.parse!
+    super
 
     @publishers.times do
       spawn pub
@@ -134,7 +139,7 @@ end
 
 class BindChurn < Perf
   def run
-    @parser.parse!
+    super
 
     r = Random.new
     AMQP::Client.start(@uri) do |c|
@@ -157,7 +162,7 @@ end
 
 class QueueChurn < Perf
   def run
-    @parser.parse!
+    super
 
     AMQP::Client.start(@uri) do |c|
       ch = c.channel
@@ -180,7 +185,7 @@ end
 
 class ConnectionChurn < Perf
   def run
-    @parser.parse!
+    super
     Benchmark.ips do |x|
       x.report("open-close connection and channel") do
         AMQP::Client.start(@uri) do |c|
@@ -191,10 +196,12 @@ class ConnectionChurn < Perf
   end
 end
 
-case ARGV.shift?
+arg = ARGV.shift?
+case arg
 when "throughput"       then Throughput.new.run
 when "bind-churn"       then BindChurn.new.run
 when "queue-churn"      then QueueChurn.new.run
 when "connection-churn" then ConnectionChurn.new.run
-else                    abort "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn] [arguments]"
+when /^.+$/             then Perf.new.run([arg.not_nil!])
+else                         abort Perf.new.banner
 end
