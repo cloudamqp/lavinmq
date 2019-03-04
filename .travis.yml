@@ -3,17 +3,20 @@ sudo: false
 language: crystal
 install:
 - shards install
+before_script:
+- llvm-config --host-target
 jobs:
   include:
-  - script: crystal spec
-  - script: bin/ameba
-  - stage: GitHub Release
+  - stage: Validate
+    script: crystal spec
+    script: bin/ameba
+  - stage: Release
     addons:
       apt:
         packages:
         - fakeroot
         - help2man
-    script: build/deb 1
+    script: shards build --release && build/deb 1
     deploy:
       provider: releases
       file_glob: true
