@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.com/84codes/avalanchemq.svg?token=rfwynuMNGnX9tuyspVud&branch=master)](https://travis-ci.com/84codes/avalanchemq)
 
-# ![AvalancheMQ](static/img/logo-avalanche-mq.png)
+# ![AvalancheMQ](static/img/logo-avalanche-mq-black.png)
 
 A message queue server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
