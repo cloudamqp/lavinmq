@@ -16,7 +16,7 @@ jobs:
         packages:
         - fakeroot
         - help2man
-    script: make bin/avalanchemq && build/deb 1
+    script: shards build --release && build/deb 1
     deploy:
       provider: releases
       file_glob: true
