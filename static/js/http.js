@@ -75,6 +75,14 @@
     throw e
   }
 
+  function notFoundErrorHandler (e) {
+    if (e.status === 404) {
+      window.location.assign('/404')
+    } else {
+      standardErrorHandler(e)
+    }
+  }
+
   class HTTPError extends Error {
     constructor (status, body) {
       super(`${status}: ${body}`)
@@ -87,7 +95,7 @@
 
   Object.assign(window.avalanchemq, {
     http: {
-      request, redirect, standardErrorHandler
+      request, redirect, standardErrorHandler, notFoundErrorHandler
     }
   })
 })()
