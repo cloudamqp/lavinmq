@@ -153,7 +153,6 @@
           <label>
             <span>Mode</span>
             <select name="mode">
-              <option value="peek">Peek</option>
               <option value="ack_requeue_true">Ack and requeue</option>
               <option value="ack_requeue_false">Ack</option>
               <option value="reject_requeue_true">Reject and requeue</option>
@@ -387,7 +386,7 @@
               const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange
               msgNode.querySelector('.message-exchange').textContent = exchange
               msgNode.querySelector('.message-routing-key').textContent = message.routing_key
-              const mode = message.peek ? 'peek' : (message.redelivered ? 'redelivered' : 'get')
+              const mode = message.redelivered ? 'redelivered' : 'get'
               msgNode.querySelector('.message-mode').textContent = mode
               msgNode.querySelector('.message-properties').textContent = avalanchemq.dom.jsonToText(message.properties)
               msgNode.querySelector('.message-size').textContent = message.payload_bytes

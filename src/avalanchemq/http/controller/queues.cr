@@ -121,16 +121,11 @@ module AvalancheMQ
             end
             body = parse_body(context)
             get_count = body["count"]?.try(&.as_i) || 1
-            ack_mode = body["ack_mode"]?.try(&.as_s) || "peek"
+            ack_mode = body["ack_mode"]?.try(&.as_s) || "ack_requeue_true"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
-            requeue =
-              case ack_mode
-              when "ack_requeue_true", "reject_requeue_true", "peek"  then true
-              when "ack_requeue_false", "reject_requeue_false", "get" then false
-              else                                                         body["requeue"]?.try(&.as_bool) || true
-              end
-            msg_count = q.message_count
+            requeue = body["requeue"]?.try(&.as_bool) || ack_mode.ends_with?("requeue_true")
+            ack = ack_mode.starts_with?(/(ack_|get)/)
             JSON.build(context.response) do |j|
               j.array do
                 get_count.times do
@@ -140,7 +135,12 @@ module AvalancheMQ
                     payload = String.build(size) do |io|
                       IO.copy env.message.body_io, io, size
                     end
-                    q.reject(env.segment_position, requeue)
+                    if ack
+                      q.ack(env.segment_position, true)
+                      q.publish(env.segment_position) if requeue
+                    else
+                      q.reject(env.segment_position, requeue)
+                    end
                     case encoding
                     when "auto"
                       if payload.valid_encoding?
@@ -161,11 +161,10 @@ module AvalancheMQ
                       j.field("redelivered", env.redelivered)
                       j.field("exchange", env.message.exchange_name)
                       j.field("routing_key", env.message.routing_key)
-                      j.field("message_count", msg_count)
+                      j.field("message_count", q.message_count)
                       j.field("properties", env.message.properties)
                       j.field("payload", content)
                       j.field("payload_encoding", payload_encoding)
-                      j.field("peek", ack_mode == "peek")
                     end
                   end
                 end
