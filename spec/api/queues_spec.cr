@@ -120,7 +120,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         sleep 0.05
         body = %({
           "count": 1,
-          "ack_mode": "peek",
+          "ack_mode": "reject_requeue_true",
           "encoding": "auto"
         })
         response = post("/api/queues/%2f/q3/get", body: body)
