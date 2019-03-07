@@ -178,18 +178,19 @@ describe AvalancheMQ::Server do
       args["x-message-ttl"] = 1
       args["x-dead-letter-exchange"] = ""
       args["x-dead-letter-routing-key"] = "dlq"
-      q = ch.queue("", args: args)
+      q = ch.queue("ttl", args: args)
       dlq = ch.queue("dlq")
       q.publish_confirm "queue dlx"
       msg = wait_for { dlq.get(no_ack: true) }
       msg.not_nil!.body_io.to_s.should eq("queue dlx")
-      s.vhosts["/"].queues["dlq"].empty?.should be_true
+      s.vhosts["/"].queues["ttl"].empty?.should be_true
       q.publish_confirm "queue dlx"
       msg = wait_for { dlq.get(no_ack: true) }
       msg.not_nil!.body_io.to_s.should eq("queue dlx")
     end
   ensure
     s.vhosts["/"].delete_queue("dlq")
+    s.vhosts["/"].delete_queue("ttl")
   end
 
   it "dead-letter expired messages" do
