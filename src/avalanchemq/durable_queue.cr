@@ -114,8 +114,8 @@ module AvalancheMQ
         break
       end
       # to avoid repetetive allocations in Dequeue#increase_capacity
-      # we redeclare the ready queue with a lager initial capacity
-      @ready = Deque(SegmentPosition).new((@enq.size - @ack.size) / sizeof(SegmentPosition))
+      # we redeclare the ready queue with a larger initial capacity
+      @ready = Deque(SegmentPosition).new(Math.max(@enq.size - @ack.size, 0) / sizeof(SegmentPosition))
       @enq.pos = 0
       loop do
         sp = SegmentPosition.from_io @enq
