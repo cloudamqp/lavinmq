@@ -327,7 +327,7 @@
         avalanchemq.http.request('POST', url, { body })
           .then(() => {
             bindingsTable.fetchAndUpdate()
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(avalanchemq.http.alertErrorHandler)
       })
 
       function addProperty (key, value) { // eslint-disable-line no-unused-vars
@@ -354,7 +354,7 @@
           .then(() => {
             avalanchemq.dom.toast('Published message to ' + queue)
             updateQueue(false)
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(avalanchemq.http.alertErrorHandler)
       })
 
       document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -395,7 +395,7 @@
               msgNode.classList.remove('hide')
               messagesContainer.appendChild(msgNode)
             }
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(avalanchemq.http.alertErrorHandler)
       })
 
       document.querySelector('#moveMessages').addEventListener('submit', function (evt) {

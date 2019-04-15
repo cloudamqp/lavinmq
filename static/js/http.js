@@ -55,20 +55,23 @@
           }
           return json
         }).catch(function (e) {
-          // not json
           if (!response.ok) {
-            throw new HTTPError(response.status, e.body || response.statusText)
+            throw new HTTPError(response.status, e.body || e.message || response.statusText)
           }
           return e
         })
       })
   }
 
+  function alertErrorHandler (e) {
+    window.alert(e.body || e.message)
+  }
+
   function standardErrorHandler (e) {
     if (e.status === 404) {
       console.warn(`Not found: ${e.message}`)
     } else if (e.body) {
-      window.alert(e.body)
+      alertErrorHandler(e)
     } else {
       console.error(e)
     }
@@ -95,7 +98,7 @@
 
   Object.assign(window.avalanchemq, {
     http: {
-      request, redirect, standardErrorHandler, notFoundErrorHandler
+      request, redirect, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
     }
   })
 })()

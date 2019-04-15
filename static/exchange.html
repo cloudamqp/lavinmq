@@ -204,7 +204,7 @@
           .then(() => {
             bindingsTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(avalanchemq.http.alertErrorHandler)
       })
 
       document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -222,7 +222,7 @@
         }
         avalanchemq.http.request('POST', url, { body })
           .then(() => { avalanchemq.dom.toast('Published message to ' + exchange) })
-          .catch(avalanchemq.http.standardErrorHandler)
+          .catch(avalanchemq.http.alertErrorHandler)
       })
 
       document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
