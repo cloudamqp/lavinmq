@@ -53,6 +53,18 @@ describe AvalancheMQ::HTTP::QueuesController do
     end
   end
 
+  describe "GET /api/queues/vhost/name/bindings" do
+    it "should return queue bindings" do
+      s.vhosts["/"].declare_queue("q0", false, false)
+      response = get("/api/queues/%2f/q0/bindings?page=1&page_size=100")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body["items"].as_a.size.should eq 1
+    ensure
+      s.vhosts["/"].delete_queue("q0")
+    end
+  end
+
   describe "PUT /api/queues/vhost/name" do
     it "should create queue" do
       body = %({
