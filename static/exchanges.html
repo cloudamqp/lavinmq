@@ -81,16 +81,17 @@
       /* globals avalanchemq */
       avalanchemq.vhosts.addVhostOptions('addExchange')
 
-      const exchangeTypes = avalanchemq.overview.data.exchange_types
-      const select = document.forms['addExchange'].elements['type']
-      while (select.options.length) {
-        select.remove(0)
-      }
-      for (let i = 0; i < exchangeTypes.length; i++) {
-        const opt = document.createElement('option')
-        opt.text = exchangeTypes[i].name
-        select.add(opt)
-      }
+      avalanchemq.overview.get('exchange_types').then(exchangeTypes => {
+        const select = document.forms['addExchange'].elements['type']
+        while (select.options.length) {
+          select.remove(0)
+        }
+        for (let i = 0; i < exchangeTypes.length; i++) {
+          const opt = document.createElement('option')
+          opt.text = exchangeTypes[i].name
+          select.add(opt)
+        }
+      })
 
       const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/exchanges'

@@ -21,6 +21,10 @@
     }
   }
 
+  if (data === null) {
+    update(render)
+  }
+
   function cacheKey () {
     const vhost = window.sessionStorage.getItem('vhost')
     return url + '/' + vhost
@@ -68,9 +72,25 @@
     }
   }
 
+  function get (key) {
+    return new Promise(function (resolve, reject) {
+      try {
+        if (data) {
+          resolve(data[key])
+        } else {
+          update(data => {
+            resolve(data[key])
+          })
+        }
+      } catch (e) {
+        reject(e.message)
+      }
+    })
+  }
+
   Object.assign(window.avalanchemq, {
     overview: {
-      update, start, stop, render, data
+      update, start, stop, render, get
     }
   })
 })()
