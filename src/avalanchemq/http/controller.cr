@@ -38,41 +38,36 @@ module AvalancheMQ
 
       private def page(context, iterator : Iterator(SortableJSON))
         params = query_params(context)
-        total_count = iterator.size
-        iterator.rewind
         all_items = filter_values(params, iterator.map(&.details_tuple))
         if sort_by = params["sort"]?
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
           if sorted_items.dig?(0, sort_by)
-            if sorted_items.first[sort_by].is_a?(Int)
-              sorted_items.sort_by! { |i| i[sort_by].as(Int) }
+            if sorted_items.first[sort_by].is_a?(UInt8)
+              sorted_items.sort_by! { |i| i[sort_by].as(UInt8) }
             else
               sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
             end
           end
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
-        else
-          filtered_count = all_items.size
-          all_items.rewind
         end
         unless params.has_key?("page")
-          raise Server::PayloadTooLarge.new if filtered_count > 10000
           JSON.build(context.response) do |json|
-            array_iterator_to_json(json, all_items)
+            array_iterator_to_json(json, all_items, 0, nil)
           end
           return context
         end
         page = params["page"].to_i
         page_size = params["page_size"]?.try(&.to_i) || 1000
         start = (page - 1) * page_size
-        start = 0 if start > filtered_count
-        items = all_items.skip(start).first(page_size)
         JSON.build(context.response) do |json|
           json.object do
+            item_count, total_count = json.field("items") do
+              array_iterator_to_json(json, all_items, start, page_size)
+            end
+            filtered_count ||= total_count
             json.field("filtered_count", filtered_count)
-            item_count = json.field("items") { array_iterator_to_json(json, items) }
             json.field("item_count", item_count)
             json.field("page", page)
             json.field("page_size", page_size)
@@ -82,15 +77,20 @@ module AvalancheMQ
         context
       end
 
-      private def array_iterator_to_json(json, iterator)
+      private def array_iterator_to_json(json, iterator, start, page_size)
         size = 0
+        total = 0
         json.array do
-          iterator.each do |i|
-            i.to_json(json)
+          iterator.each_with_index do |o, i|
+            raise Server::PayloadTooLarge.new if i > 10000
+            total += 1
+            next if i < start
+            next unless page_size.nil? || i < start + page_size
+            o.to_json(json)
             size += 1
           end
         end
-        size
+        {size, total}
       end
 
       private def redirect_back(context)
