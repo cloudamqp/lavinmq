@@ -125,6 +125,17 @@ describe AvalancheMQ::TopicExchange do
     x.matches("b.b.a.b.b").should eq(Set{q11})
     x.unbind(q11, "#.a.#")
   end
+
+  it "can differentiate a.b.c from a.b" do
+    q = AvalancheMQ::Queue.new(vhost, "")
+    x.bind(q, "a.b.c")
+    x.matches("a.b.c").should eq(Set{q})
+    x.matches("a.b").should be_empty
+    x.unbind(q, "a.b.c")
+    x.bind(q, "a.b")
+    x.matches("a.b").should eq(Set{q})
+    x.matches("a.b.c").should be_empty
+  end
 end
 
 describe AvalancheMQ::HeadersExchange do
