@@ -264,7 +264,12 @@ module AvalancheMQ
                 end
               end
             else
-              ok = rk_parts[j] == part
+              # Is this the last bk but not the last rk?
+              if size == i + 1 && rk_parts.size > j +1
+                ok = false
+              else
+                ok = rk_parts[j] == part
+              end
               j += 1
             end
           end
