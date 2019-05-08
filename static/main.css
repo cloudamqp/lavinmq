@@ -638,6 +638,10 @@ fieldset.inline {
   font-weight: bold;
 }
 
+.message-payload {
+  word-break: break-all;
+}
+
 .message table {
   table-layout: fixed;
 }
