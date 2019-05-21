@@ -9,11 +9,11 @@ module AvalancheMQ
     @channel_max : UInt16
     @heartbeat : UInt16
     @auth_mechanism : String
-    @remote_address : Socket::IPAddress
-    @local_address : Socket::IPAddress
-    @socket : TCPSocket | OpenSSL::SSL::Socket
+    @remote_address : Socket::Address
+    @local_address : Socket::Address
+    @socket : Socket | OpenSSL::SSL::Socket
 
-    def initialize(tcp_socket : TCPSocket,
+    def initialize(tcp_socket : Socket,
                    ssl_client : OpenSSL::SSL::Socket?,
                    vhost : VHost,
                    user : User,
@@ -144,10 +144,10 @@ module AvalancheMQ
         user:              @user.name,
         protocol:          "AMQP 0-9-1",
         auth_mechanism:    @auth_mechanism,
-        host:              @local_address.address,
-        port:              @local_address.port,
-        peer_host:         @remote_address.address,
-        peer_port:         @remote_address.port,
+        #host:              @local_address.address,
+        #port:              @local_address.port,
+        #peer_host:         @remote_address.address,
+        #peer_port:         @remote_address.port,
         name:              @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         state:             state,
@@ -217,8 +217,8 @@ module AvalancheMQ
 
     def connection_details
       {
-        peer_host: @remote_address.address,
-        peer_port: @remote_address.port,
+        #peer_host: @remote_address.address,
+        #peer_port: @remote_address.port,
         name:      @name,
       }
     end

@@ -27,7 +27,7 @@ module AvalancheMQ
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
-      @listeners = Array(TCPServer).new(1)
+      @listeners = Array(Socket).new(3)
       @connections = Array(Client).new
       @connection_events = ConnectionsEvents.new(16)
       @users = UserStore.new(@data_dir, @log)
@@ -94,6 +94,24 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
+    def listen_unix(path : String)
+      s = UNIXServer.new(path)
+      @listeners << s
+      @log.info { "Listening on #{s.local_address}" }
+      loop do
+        client = s.accept? || break
+        client.sync = false
+        client.read_buffering = true
+        spawn handle_connection(client), name: "Server#handle_connection"
+      end
+    rescue ex : Errno
+      abort "Unrecoverable error in listener: #{ex.inspect}"
+      puts "Fibers:"
+      Fiber.list { |f| puts f.inspect }
+    ensure
+      @listeners.delete(s)
+    end
+
     def close
       @closed = true
       @log.debug "Closing listeners"
@@ -115,11 +133,19 @@ module AvalancheMQ
 
     def listeners
       @listeners.map do |l|
-        addr = l.local_address
-        {
-          "ip_address": addr.address,
-          "port":       addr.port,
-        }
+        case l
+        when UNIXServer
+          addr = l.local_address
+          {
+            "path": addr.path,
+          }
+        when TCPServer
+          addr = l.local_address
+          {
+            "ip_address": addr.address,
+            "port":       addr.port,
+          }
+        end
       end
     end
 
@@ -134,12 +160,13 @@ module AvalancheMQ
       end
     end
 
-    private def handle_connection(socket : TCPSocket, ssl_client : OpenSSL::SSL::Socket? = nil)
-      socket.keepalive = true
-      socket.tcp_keepalive_idle = 60
-      socket.tcp_keepalive_count = 3
-      socket.tcp_keepalive_interval = 10
-      socket.tcp_nodelay = true
+    private def handle_connection(socket : Socket, ssl_client : OpenSSL::SSL::Socket? = nil)
+      # FIXME
+      #socket.keepalive = true
+      #socket.tcp_keepalive_idle = 60
+      #socket.tcp_keepalive_count = 3
+      #socket.tcp_keepalive_interval = 10
+      #socket.tcp_nodelay = true
       socket.write_timeout = 15
       client = NetworkClient.start(socket, ssl_client, @vhosts, @users, @log)
       if client

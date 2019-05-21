@@ -8,6 +8,7 @@ module AvalancheMQ
       @bind = "::",
       @port = 5672,
       @tls_port = 5671,
+      @unix_path = "",
       @cert_path = "",
       @key_path = "",
       @mgmt_bind = "::",
@@ -23,7 +24,7 @@ module AvalancheMQ
       @@instance = self
     end
 
-    property data_dir, log_level, bind, port, tls_port, cert_path, key_path, mgmt_bind, mgmt_port,
+    property data_dir, log_level, bind, port, tls_port, unix_path, cert_path, key_path, mgmt_bind, mgmt_port,
       mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat, segment_size, stats_interval,
       stats_log_size
 
@@ -47,6 +48,7 @@ module AvalancheMQ
           @bind = settings["bind"]? || @bind
           @port = settings["port"]?.try &.to_i32 || @port
           @tls_port = settings["tls_port"]?.try &.to_i32 || @tls_port
+          @unix_path = settings["unix_cert"]? || @unix_path
           @cert_path = settings["tls_cert"]? || @cert_path
           @key_path = settings["tls_key"]? || @key_path
           @heartbeat = settings["heartbeat"]?.try &.to_u16 || @heartbeat
