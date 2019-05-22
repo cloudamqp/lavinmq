@@ -48,7 +48,7 @@ module AvalancheMQ
           @bind = settings["bind"]? || @bind
           @port = settings["port"]?.try &.to_i32 || @port
           @tls_port = settings["tls_port"]?.try &.to_i32 || @tls_port
-          @unix_path = settings["unix_cert"]? || @unix_path
+          @unix_path = settings["unix_path"]? || @unix_path
           @cert_path = settings["tls_cert"]? || @cert_path
           @key_path = settings["tls_key"]? || @key_path
           @heartbeat = settings["heartbeat"]?.try &.to_u16 || @heartbeat

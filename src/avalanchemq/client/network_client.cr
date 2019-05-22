@@ -9,19 +9,17 @@ module AvalancheMQ
     @channel_max : UInt16
     @heartbeat : UInt16
     @auth_mechanism : String
-    @remote_address : Socket::Address
-    @local_address : Socket::Address
+    @remote_address : Socket::IPAddress
+    @local_address : Socket::IPAddress
     @socket : Socket | OpenSSL::SSL::Socket
 
-    def initialize(tcp_socket : Socket,
-                   ssl_client : OpenSSL::SSL::Socket?,
+    def initialize(@socket,
+                   @remote_address,
+                   @local_address,
                    vhost : VHost,
                    user : User,
                    tune_ok,
                    start_ok)
-      @socket = ssl_client || tcp_socket
-      @remote_address = tcp_socket.remote_address
-      @local_address = tcp_socket.local_address
       log = vhost.log.dup
       log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
@@ -30,14 +28,11 @@ module AvalancheMQ
       @auth_mechanism = start_ok.mechanism
       name = "#{@remote_address} -> #{@local_address}"
       super(name, vhost, user, log, start_ok.client_properties)
-      @log.info "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}"
       spawn heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(tcp_socket, ssl_client, vhosts, users, log)
-      socket = ssl_client || tcp_socket
-      remote_address = tcp_socket.remote_address
+    def self.start(socket, remote_address, local_address, vhosts, users, log)
       proto = uninitialized UInt8[8]
       socket.read_fully(proto.to_slice)
       if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
@@ -94,7 +89,7 @@ module AvalancheMQ
         if user.permissions[open.vhost]? || nil
           socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
           socket.flush
-          return self.new(tcp_socket, ssl_client, vhost, user, tune_ok, start_ok)
+          return self.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
         else
           log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
           reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
@@ -144,10 +139,10 @@ module AvalancheMQ
         user:              @user.name,
         protocol:          "AMQP 0-9-1",
         auth_mechanism:    @auth_mechanism,
-        #host:              @local_address.address,
-        #port:              @local_address.port,
-        #peer_host:         @remote_address.address,
-        #peer_port:         @remote_address.port,
+        host:              @local_address.address,
+        port:              @local_address.port,
+        peer_host:         @remote_address.address,
+        peer_port:         @remote_address.port,
         name:              @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         state:             state,
@@ -217,8 +212,8 @@ module AvalancheMQ
 
     def connection_details
       {
-        #peer_host: @remote_address.address,
-        #peer_port: @remote_address.port,
+        peer_host: @remote_address.address,
+        peer_port: @remote_address.port,
         name:      @name,
       }
     end

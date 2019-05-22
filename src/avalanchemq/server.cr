@@ -13,6 +13,7 @@ require "./parameter"
 require "./chained_logger"
 require "./config"
 require "./filesystem"
+require "./proxy_header"
 
 module AvalancheMQ
   class Server
@@ -48,7 +49,8 @@ module AvalancheMQ
         client = s.accept? || break
         client.sync = false
         client.read_buffering = true
-        spawn handle_connection(client), name: "Server#handle_connection"
+        set_socket_options(client)
+        spawn handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection"
       end
     rescue ex : Errno
       abort "Unrecoverable error in listener: #{ex.inspect}"
@@ -71,12 +73,14 @@ module AvalancheMQ
         begin
           client = s.accept? || break
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+          @log.info "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}"
           client.sync = true
           client.read_buffering = false
           # only do buffering on the tls socket
           ssl_client.sync = false
           ssl_client.read_buffering = true
-          spawn handle_connection(client, ssl_client), name: "Server#handle_connection(tls)"
+          set_socket_options(client)
+          spawn handle_connection(ssl_client, client.remote_address, client.local_address), name: "Server#handle_connection(tls)"
         rescue ex
           @log.error "Error accepting OpenSSL connection: #{ex.inspect}"
           begin
@@ -95,6 +99,7 @@ module AvalancheMQ
     end
 
     def listen_unix(path : String)
+      File.delete(path) if File.exists?(path)
       s = UNIXServer.new(path)
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
@@ -102,7 +107,8 @@ module AvalancheMQ
         client = s.accept? || break
         client.sync = false
         client.read_buffering = true
-        spawn handle_connection(client), name: "Server#handle_connection"
+        proxyheader = ProxyHeader.parse_v1(client)
+        spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
       end
     rescue ex : Errno
       abort "Unrecoverable error in listener: #{ex.inspect}"
@@ -160,24 +166,26 @@ module AvalancheMQ
       end
     end
 
-    private def handle_connection(socket : Socket, ssl_client : OpenSSL::SSL::Socket? = nil)
+    private def handle_connection(socket, remote_address, local_address)
       # FIXME
-      #socket.keepalive = true
-      #socket.tcp_keepalive_idle = 60
-      #socket.tcp_keepalive_count = 3
-      #socket.tcp_keepalive_interval = 10
-      #socket.tcp_nodelay = true
-      socket.write_timeout = 15
-      client = NetworkClient.start(socket, ssl_client, @vhosts, @users, @log)
+      client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})
         client.on_close do |c|
           @connection_events.send({c, :disconnected})
         end
       else
-        ssl_client.close if ssl_client
         socket.close
       end
+    end
+
+    private def set_socket_options(socket)
+      socket.keepalive = true
+      socket.tcp_keepalive_idle = 60
+      socket.tcp_keepalive_count = 3
+      socket.tcp_keepalive_interval = 10
+      socket.tcp_nodelay = true
+      socket.write_timeout = 15
     end
 
     private def handle_connection_events
