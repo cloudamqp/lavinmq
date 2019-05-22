@@ -167,7 +167,6 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket, remote_address, local_address)
-      # FIXME
       client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})
