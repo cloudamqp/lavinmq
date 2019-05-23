@@ -15,13 +15,19 @@ module AvalancheMQ
     def initialize(@src, @dst)
     end
 
+    def self.local
+      src = Socket::IPAddress.new("127.0.0.1", 0)
+      dst = Socket::IPAddress.new("127.0.0.1", 0)
+      return new(src, dst)
+    end
+
     def self.parse_v1(io)
       io.read_timeout = 5
       io.write_timeout = 5
       header = io.gets('\n', 107) || raise IO::EOFError.new
 
-      src_addr = "255.255.255.255"
-      dst_addr = "255.255.255.255"
+      src_addr = "127.0.0.1"
+      dst_addr = "127.0.0.1"
       src_port = 0
       dst_port = 0
 

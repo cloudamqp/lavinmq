@@ -98,7 +98,7 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
-    def listen_unix(path : String)
+    def listen_unix(path : String, proxy_protocol_version = 1)
       File.delete(path) if File.exists?(path)
       s = UNIXServer.new(path)
       @listeners << s
@@ -107,11 +107,17 @@ module AvalancheMQ
         client = s.accept? || break
         client.sync = false
         client.read_buffering = true
-        proxyheader = ProxyHeader.parse_v1(client)
+        client.write_timeout = 15
+        proxyheader =
+          case proxy_protocol_version
+          when 0 then ProxyHeader.local
+          when 1 then ProxyHeader.parse_v1(client)
+          else raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+          end
         spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
       end
     rescue ex : Errno
-      abort "Unrecoverable error in listener: #{ex.inspect}"
+      abort "Unrecoverable error in unix listener: #{ex.inspect}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
     ensure
