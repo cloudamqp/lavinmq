@@ -16,6 +16,8 @@ module AvalancheMQ
     end
 
     def self.parse_v1(io)
+      io.read_timeout = 5
+      io.write_timeout = 5
       header = io.gets('\n', 107) || raise IO::EOFError.new
 
       src_addr = "255.255.255.255"
@@ -36,6 +38,7 @@ module AvalancheMQ
       end
       src = Socket::IPAddress.new(src_addr, src_port)
       dst = Socket::IPAddress.new(dst_addr, dst_port)
+      io.read_timeout = nil
       return new(src, dst)
     end
 
