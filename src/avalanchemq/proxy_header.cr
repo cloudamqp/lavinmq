@@ -15,24 +15,27 @@ module AvalancheMQ
     def initialize(@src, @dst)
     end
 
-    enum Family : UInt8
-      UNSPEC = 0
-      TCPv4 = 17
-      UDPv4 = 18
-      TCPv6 = 33
-      UDPv6 = 34
-      UNIXStream = 49
-      UNIXDatagram = 50
-    end
-
     def self.parse_v1(io)
       header = io.gets('\n', 107) || raise IO::EOFError.new
-      unless header[0, 5] == "PROXY"
-        raise InvalidSignature.new(header[0, 5])
+
+      src_addr = "255.255.255.255"
+      dst_addr = "255.255.255.255"
+      src_port = 0
+      dst_port = 0
+
+      i = 0
+      header.split(' ') do |v|
+        case i
+        when 0 then raise InvalidSignature.new(v) if v != "PROXY"
+        when 2 then src_addr = v
+        when 3 then dst_addr = v
+        when 4 then src_port = v.to_i32
+        when 5 then dst_port = v.to_i32
+        end
+        i += 1
       end
-      args = header.split
-      src = Socket::IPAddress.new(args[2], args[4].to_i32)
-      dst = Socket::IPAddress.new(args[3], args[5].to_i32)
+      src = Socket::IPAddress.new(src_addr, src_port)
+      dst = Socket::IPAddress.new(dst_addr, dst_port)
       return new(src, dst)
     end
 
@@ -83,5 +86,16 @@ module AvalancheMQ
       else raise InvalidFamily.new family.to_s
       end
     end
+
+    enum Family : UInt8
+      UNSPEC = 0
+      TCPv4 = 17
+      UDPv4 = 18
+      TCPv6 = 33
+      UDPv6 = 34
+      UNIXStream = 49
+      UNIXDatagram = 50
+    end
+
   end
 end
