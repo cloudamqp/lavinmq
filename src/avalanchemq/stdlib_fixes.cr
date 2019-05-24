@@ -31,7 +31,16 @@ abstract class OpenSSL::SSL::Socket
     if io.responds_to? :read_timeout
       io.read_timeout = read_timeout
     else
-      raise "read_timeout not supported on #{io.class}"
+      raise NotImplementedError.new("#{io.class}#read_timeout")
+    end
+  end
+
+  def write_timeout=(write_timeout)
+    io = @bio.io
+    if io.responds_to? :write_timeout
+      io.write_timeout = write_timeout
+    else
+      raise NotImplementedError.new("#{io.class}#write_timeout")
     end
   end
 end
