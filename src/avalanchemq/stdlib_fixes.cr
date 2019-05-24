@@ -13,6 +13,8 @@ lib LibSSL
   fun ssl_get_version = SSL_get_version(ssl : SSL) : UInt8*
 end
 
+require "io"
+
 abstract class OpenSSL::SSL::Socket
   # Returns the cipher currently in use
   def cipher : String
@@ -22,6 +24,15 @@ abstract class OpenSSL::SSL::Socket
   # Returns the TLS version currently in use
   def tls_version : String
     String.new(LibSSL.ssl_get_version(@ssl))
+  end
+
+  def read_timeout=(read_timeout)
+    io = @bio.io
+    if io.responds_to? :read_timeout
+      io.read_timeout = read_timeout
+    else
+      raise "read_timeout not supported on #{io.class}"
+    end
   end
 end
 

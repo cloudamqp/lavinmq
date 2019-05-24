@@ -33,6 +33,7 @@ module AvalancheMQ
     end
 
     def self.start(socket, remote_address, local_address, vhosts, users, log)
+      socket.read_timeout = 15
       proto = uninitialized UInt8[8]
       socket.read_fully(proto.to_slice)
       if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
@@ -113,6 +114,8 @@ module AvalancheMQ
       log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
       socket.try &.close unless socket.try &.closed?
       nil
+    ensure
+      socket.read_timeout = nil
     end
 
     def channel_name_prefix
