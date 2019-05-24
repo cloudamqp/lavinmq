@@ -13,7 +13,7 @@ require "./parameter"
 require "./chained_logger"
 require "./config"
 require "./filesystem"
-require "./proxy_header"
+require "./proxy_protocol"
 
 module AvalancheMQ
   class Server
@@ -110,8 +110,8 @@ module AvalancheMQ
         client.write_timeout = 15
         proxyheader =
           case proxy_protocol_version
-          when 0 then ProxyHeader.local
-          when 1 then ProxyHeader.parse_v1(client)
+          when 0 then ProxyProtocol::Header.local
+          when 1 then ProxyProtocol::V1.parse(client)
           else raise "Unsupported proxy protocol version #{proxy_protocol_version}"
           end
         spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
