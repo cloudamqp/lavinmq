@@ -21,6 +21,10 @@ module AvalancheMQ
     end
 
     module V1
+      # Examples:
+      # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
+      # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
+      # PROXY UNKNOWN\r\n
       def self.parse(io)
         io.read_timeout = 15
         header = io.gets('\n', 107) || raise IO::EOFError.new
@@ -46,6 +50,12 @@ module AvalancheMQ
         return Header.new(src, dst)
       ensure
         io.read_timeout = nil
+      end
+
+      def self.encode(header, io)
+        ipv = header.src.family.inet6? ? 6 : 4
+        io.print "PROXY TCP#{ipv} #{header.src.address} #{header.dst.address} #{header.src.port} #{header.dst.port}\r\n"
+        io.flush
       end
     end
 
