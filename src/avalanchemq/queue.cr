@@ -500,6 +500,14 @@ module AvalancheMQ
       @log.error { "Could not read sp=#{sp}, rejecting" }
       reject(sp, false)
       nil
+    rescue ex
+      @log.error "Error reading message at #{sp}: #{ex.inspect}"
+      @log.error "Hexdump of the first 1024 bytes on disk:"
+      seg.seek(sp.position, IO::Seek::Set)
+      buffer = uninitialized UInt8[1024]
+      io = IO::Hexdump.new(sp, output: STDERR, read: true)
+      io.read(buffer.to_slice)
+      raise ex
     end
 
     def ack(sp : SegmentPosition, flush : Bool)
