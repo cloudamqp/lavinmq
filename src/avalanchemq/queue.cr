@@ -501,12 +501,14 @@ module AvalancheMQ
       reject(sp, false)
       nil
     rescue ex
-      @log.error "Error reading message at #{sp}: #{ex.inspect}"
-      @log.error "Hexdump of the first 1024 bytes on disk:"
-      seg.seek(sp.position, IO::Seek::Set)
-      buffer = uninitialized UInt8[1024]
-      io = IO::Hexdump.new(sp, output: STDERR, read: true)
-      io.read(buffer.to_slice)
+      if seg
+        @log.error "Error reading message at #{sp}: #{ex.inspect}"
+        @log.error "Hexdump of the first 1024 bytes on disk:"
+        seg.seek(sp.position, IO::Seek::Set)
+        buffer = uninitialized UInt8[1024]
+        io = IO::Hexdump.new(seg, output: STDERR, read: true)
+        io.read(buffer.to_slice)
+      end
       raise ex
     end
 
