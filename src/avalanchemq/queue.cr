@@ -394,10 +394,11 @@ module AvalancheMQ
         headers.delete("x-dead-letter-exchange")
         headers.delete("x-dead-letter-routing-key")
 
-        unless headers.has_key? "x-death"
-          headers["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
+        if headers.has_key? "x-death"
+          xdeaths = headers["x-death"].as(Array(AMQP::Field)).map(&.as(Hash(String, AMQP::Field)))
+        else
+          xdeaths = headers["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
         end
-        xdeaths = headers["x-death"].as(Array(Hash(String, AMQP::Field)))
         xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
         xdeaths.delete(xd)
         count = xd ? xd["count"].as?(Int32) || 0 : 0
