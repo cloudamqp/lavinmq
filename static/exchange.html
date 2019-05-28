@@ -102,6 +102,7 @@
         <label>
           <span>Properties</span>
           <textarea name="properties" placeholder='{ "key": value }' style="height: 65px;"></textarea>
+          <a onclick="addProperty('content_type', 'application/json')">JSON</a>
         </label>
         <label>
           <span>Payload</span>
@@ -224,6 +225,13 @@
           .then(() => { avalanchemq.dom.toast('Published message to ' + exchange) })
           .catch(avalanchemq.http.alertErrorHandler)
       })
+
+      function addProperty (key, value) { // eslint-disable-line no-unused-vars
+        const el = document.querySelector('#publishMessage textarea[name=properties]')
+        let properties = avalanchemq.dom.parseJSON(el.value || '{}')
+        properties[key] = value
+        el.value = JSON.stringify(properties)
+      }
 
       document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
         evt.preventDefault()
