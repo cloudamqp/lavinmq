@@ -59,6 +59,10 @@
           </tr>
         </table>
       </section>
+      <section class="card cols-4">
+        <h3>Arguments</h3>
+        <pre class="arguments" id="q-arguments"></pre>
+      </section>
       <section class="card">
         <h3>Rates</h3>
         <div class="chart-container" id="chart">
@@ -282,6 +286,12 @@
               policyLink.textContent = item.policy
               avalanchemq.dom.setChild('#q-policy', policyLink)
             }
+            const qArgs = document.getElementById('q-arguments')
+            let args = ''
+            for (let arg in item.arguments) {
+              args += `<div>${arg}: ${item.arguments[arg]}</div>`
+            }
+            qArgs.innerHTML = args
           }
         }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(qTimer))
       }

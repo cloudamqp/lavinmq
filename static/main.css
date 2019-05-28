@@ -747,3 +747,8 @@ fieldset.inline {
   top: 5px;
   right: 5px;
 }
+
+pre.arguments > div {
+  padding-left: 1em;
+  text-indent: -1em;
+}
