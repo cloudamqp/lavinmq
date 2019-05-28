@@ -405,7 +405,7 @@ module AvalancheMQ
         death = Hash(String, AMQP::Field){
           "exchange"     => meta.exchange_name,
           "queue"        => @name,
-          "routing_keys" => [meta.routing_key.as(AMQP::Field)],
+          "routing-keys" => [meta.routing_key.as(AMQP::Field)],
           "reason"       => reason.to_s,
           "count"        => count + 1,
           "time"         => Time.utc_now,
