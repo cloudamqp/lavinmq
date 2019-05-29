@@ -17,9 +17,9 @@ model](https://crystal-lang.org/docs/guides/concurrency.html) and complies down
 to a single binary. You can liken it to Go but with a nicer syntax.
 
 Instead of trying to cache message in RAM we write all messages as fast as we can to
-disk and let the OS cache do the cacheing.
+disk and let the OS cache do the caching.
 
-Each vhost is backed by message store on disk, it's just a series of files (segments),
+Each vhost is backed by a message store on disk, it's just a series of files (segments),
 that can grow to 256 MB each. Each incoming message is appended to the last segment,
 prefixed with a timestamp, its exchange name, routing key and message headers.
 If the message is routed to a queue then the segment number and the position in
@@ -48,13 +48,13 @@ of all delete events). This file is read on boot to restore all definitions.
 
 All non-AMQP objects like users, vhosts, policies etc. are stored in
 JSON files. Most often these type of objects does not have a high
-turnover rate so we believe that JSON in this case makes it easy for
+turnover rate, so we believe that JSON in this case makes it easy for
 operators to modify things when the server is not running if ever needed.
 
 In the data directory we store `users.json` and `vhosts.json` as mentioned earlier,
 and each vhost has a directory in which we store `definitions.amqp`
 (encoded as AMQP frames), `policies.json` and the messages named such as `msgs.0000000124`.
-Each vhost directory is named after the sha1 hash of its real name. Same goes
+Each vhost directory is named after the sha1 hash of its real name. The same goes
 for the queue directories in the vhost directory. The queue directories only has two files,
 `ack` and `enq`, also described earlier.
 
@@ -91,8 +91,8 @@ Currently missing features
 
 Wish list
 
-* Rewindable queues (all messages that is published to an exchanged
-  is stored and can be dumped into a queue when a certain binding is
+* Rewindable queues (all messages that are published to an exchange
+  are stored and can be dumped into a queue when a certain binding is
   made, even if they already have been consumed once before)
 * Horizontal scaling
 * Built in stream processor engine
@@ -204,6 +204,6 @@ Fork, create feature branch, submit pull request.
 
 The software is licensed under the [Apache License 2.0](LICENSE).
 
-Copyright 2018 84codes AB
+Copyright 2018-2019 84codes AB
 
 AvalancheMQ is a trademark of 84codes AB
