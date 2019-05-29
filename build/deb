@@ -14,13 +14,23 @@ mkdir -p $root/lib/systemd/system
 mkdir -p $root/etc/avalanchemq
 mkdir -p $root/usr/share/doc/avalanchemq
 mkdir -p $root/usr/share/man/man1
-install bin/avalanchemq $root/usr/bin
-install bin/avalanchemqctl $root/usr/bin
-install bin/avalanchemqperf $root/usr/bin
+install -s bin/avalanchemq $root/usr/bin
+install -s bin/avalanchemqctl $root/usr/bin
+install -s bin/avalanchemqperf $root/usr/bin
 cp extras/avalanchemq.service $root/lib/systemd/system
 cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
 cp NOTICE $root/usr/share/doc/avalanchemq/
 cp README.md $root/usr/share/doc/avalanchemq/README
+cp CHANGELOG.md $root/usr/share/doc/avalanchemq/changelog
+gzip -9 -n $root/usr/share/doc/avalanchemq/changelog
+cat > $root/usr/share/doc/avalanchemq/changelog.Debian << EOF
+avalanchemq ($pkg_version-$pkg_revision) whatever; urgency=medium
+
+  * New upstream release.
+
+ -- AvalancheMQ Team <contact@84codes.com>  Wed, 17 Apr 2019 18:01:24 +0000
+EOF
+gzip -9 -n $root/usr/share/doc/avalanchemq/changelog.Debian
 cat > $root/usr/share/doc/avalanchemq/copyright << EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: AvalancheMQ
@@ -33,7 +43,7 @@ License: Apache-2.0
 EOF
 help2man -Nn "fast and advanced message queue server" bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
 help2man -Nn "control utility for avalanchemq server" bin/avalanchemqctl > $root/usr/share/man/man1/avalanchemqctl.1
-help2man -Nn "performance testing too for avalanchemq server" bin/avalanchemqperf > $root/usr/share/man/man1/avalanchemqperf.1
+help2man -Nn "performance testing tool for amqp servers" bin/avalanchemqperf > $root/usr/share/man/man1/avalanchemqperf.1
 gzip -9 -n $root/usr/share/man/man1/avalanchemq.1
 gzip -9 -n $root/usr/share/man/man1/avalanchemqctl.1
 gzip -9 -n $root/usr/share/man/man1/avalanchemqperf.1
@@ -53,7 +63,7 @@ Homepage: https://github.com/84codes/avalanchemq
 Section: net
 Priority: optional
 Architecture: $(dpkg --print-architecture)
-Depends: systemd, adduser
+Depends: openssl, systemd, libc6, adduser
 Installed-Size: $(du -ks $root/usr | cut -f 1)
 Maintainer: 84codes <contact@84codes.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
