@@ -1,8 +1,8 @@
 #!/bin/bash -eux
 revision=$1
-vagrant up ubuntu18
-vagrant ssh ubuntu18 -c "cd /vagrant; shards build --release --production && build/deb $revision"
-vagrant halt ubuntu18
-vagrant up ubuntu16
-vagrant ssh ubuntu16 -c "cd /vagrant; shards build --release --production && build/deb $revision"
-vagrant halt ubuntu16
+for dist in ubuntu18 ubuntu16 debian9
+do
+  vagrant up $dist
+  vagrant ssh $dist -c "cd /vagrant; shards build --release --production && build/deb $revision"
+  vagrant halt $dist
+done
