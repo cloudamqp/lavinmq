@@ -115,12 +115,10 @@ non-durable queues.
 In Debian/Ubuntu:
 
 ```bash
-cat > /etc/apt/sources.list.d/avalanchemq.list << EOF
-deb [trusted=yes] https://apt.avalanchemq.com stable main
-EOF
-
-apt update
-apt install avalanchemq
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 379CE192D401AB61
+echo "deb https://dl.bintray.com/84codes/debian $(lsb_release -cs) avalanchemq" | sudo tee /etc/apt/sources.list.d/avalanchemq.list
+sudo apt update
+sudo apt install avalanchemq
 ```
 
 From source:
