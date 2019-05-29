@@ -24,11 +24,11 @@ cp README.md $root/usr/share/doc/avalanchemq/README
 cat > $root/usr/share/doc/avalanchemq/copyright << EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: AvalancheMQ
-Upstream-Contact: contact@avalanchemq.com
-Source: https://github.com/avalanchemq/avalanchemq
+Upstream-Contact: contact@84codes.com
+Source: https://github.com/84codes/avalanchemq
 
 Files: *
-Copyright: 2018, 84codes AB
+Copyright: 2019, 84codes AB
 License: Apache-2.0
 EOF
 help2man -Nn "fast and advanced message queue server" bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
@@ -49,13 +49,13 @@ EOF
 cat > $root/DEBIAN/control << EOF
 Package: avalanchemq
 Version: $pkg_version-$pkg_revision
-Homepage: https://github.com/cloudamqp/avalanchemq
+Homepage: https://github.com/84codes/avalanchemq
 Section: net
 Priority: optional
 Architecture: $(dpkg --print-architecture)
 Depends: systemd, adduser
 Installed-Size: $(du -ks $root/usr | cut -f 1)
-Maintainer: CloudAMQP <contact@cloudamqp.com>
+Maintainer: 84codes <contact@84codes.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
  Aims to be very fast, have low RAM requirements,
  handle extreamly long queues, many connections and
@@ -82,7 +82,7 @@ chmod +x $root/DEBIAN/prerm
 fakeroot dpkg-deb --build $root
 rm -r $root
 
-mkdir -p builds
-mv $root.deb builds/
+mkdir -p builds/debian/$(lsb_release -cs)
+mv $root.deb builds/debian/$(lsb_release -cs)
 
-lintian builds/$root.deb || true
+lintian builds/debian/$(lsb_release -cs)/$root.deb

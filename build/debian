@@ -1,0 +1,8 @@
+#!/bin/bash -eux
+revision=$1
+vagrant up ubuntu16
+vagrant ssh ubuntu16 -c "cd /vagrant; sudo shards build --release --production && build/deb $revision"
+vagrant halt ubuntu16
+vagrant up ubuntu18
+vagrant ssh ubuntu18 -c "cd /vagrant; sudo shards build --release --production && build/deb $revision"
+vagrant halt ubuntu18

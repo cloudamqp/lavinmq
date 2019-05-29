@@ -20,7 +20,7 @@ Vagrant.configure("2") do |config|
     SHELL
   end
 
-  config.vm.define "ubuntu" do |node|
+  config.vm.define "ubuntu16" do |node|
     node.vm.box = "ubuntu/xenial64"
     node.vm.provision "shell", inline: <<~SHELL
       apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
