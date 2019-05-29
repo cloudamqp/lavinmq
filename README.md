@@ -191,6 +191,12 @@ deb packages.
 
 Fork, create feature branch, submit pull request.
 
+### Release
+
+1. Bump version in `shards.yml` & `src/avalanchemq/version.cr`
+1. Create and push tag
+1. `build/linux 1 && build/release-deb`
+
 ## Contributors
 
 * [Carl Hörberg](carl@84codes.com)
