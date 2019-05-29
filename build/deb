@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -eu
 which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
 which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)

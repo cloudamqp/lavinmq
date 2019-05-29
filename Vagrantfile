@@ -50,7 +50,7 @@ Vagrant.configure("2") do |config|
       echo "deb http://dist.crystal-lang.org/apt crystal main" > /etc/apt/sources.list.d/crystal.list
       apt-get update
       apt-get upgrade -y
-      apt-get install -y crystal help2man lintian
+      apt-get install -y crystal help2man lintian fakeroot
     SHELL
   end
 end

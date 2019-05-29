@@ -1,6 +1,6 @@
 #!/bin/bash -eux
 revision=$1
-for dist in ubuntu18 ubuntu16 debian9
+for dist in ubuntu18 ubuntu16
 do
   vagrant up $dist
   vagrant ssh $dist -c "cd /vagrant; shards build --release --production && build/deb $revision"
