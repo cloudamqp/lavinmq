@@ -4,9 +4,10 @@ pkg_version=$(shards version)
 pkg_revision=$1
 arch=amd64
 
-for dist in $(find builds/debian -type d -d 1)
+for dir in $(find builds/debian -type d -d 1)
 do
+  dist=$(basename $dir)
   name=avalanchemq_${pkg_version}-${pkg_revision}_amd64.deb
-  path=builds/debian/$dist/$name
-  curl -nT $path "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=amd64"
+  path=$dir/$name
+  curl -nT $path "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=amd64"
 done
