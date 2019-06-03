@@ -5,4 +5,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-
+- chmod the unix domain socket to 777, authentication is done on the protocol level anyway
+- CHANGELOG file
