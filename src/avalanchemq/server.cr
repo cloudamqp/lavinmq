@@ -102,6 +102,7 @@ module AvalancheMQ
       File.delete(path) if File.exists?(path)
       s = UNIXServer.new(path)
       @listeners << s
+      File.chmod(path, 0o777)
       @log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
