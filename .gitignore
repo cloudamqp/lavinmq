@@ -6,5 +6,6 @@
 /.vagrant/
 /node_modules/
 /builds/
+/test/
 *.log
 .icr_*
