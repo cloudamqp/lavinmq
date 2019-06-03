@@ -191,9 +191,10 @@ Fork, create feature branch, submit pull request.
 
 ### Release
 
+1. Update `CHANGELOG.md`
 1. Bump version in `shards.yml` & `src/avalanchemq/version.cr`
 1. Create and push tag
-1. `build/linux 1 && build/release-deb`
+1. `build/debian 1 && build/bintray-push`
 
 ## Contributors
 
