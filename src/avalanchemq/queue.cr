@@ -464,8 +464,9 @@ module AvalancheMQ
 
     def read_message(sp : SegmentPosition, &blk : Envelope -> Nil)
       @read_lock.synchronize do
-        next unless env = read(sp)
-        yield env
+        read(sp) do |env|
+          yield env
+        end
       end
     end
 
@@ -474,11 +475,13 @@ module AvalancheMQ
       sp = @ready_lock.synchronize { @ready.shift? }
       return yield nil if sp.nil?
       @read_lock.synchronize do
-        yield read(sp)
+        read(sp) do |env|
+          yield env
+        end
       end
     end
 
-    private def read(sp : SegmentPosition) : Envelope?
+    private def read(sp : SegmentPosition, &blk : Envelope -> Nil)
       seg = @segments[sp.segment]
       if @segment_pos[sp.segment] != sp.position
         @log.debug { "Seeking to sp #{sp}" }
@@ -491,16 +494,14 @@ module AvalancheMQ
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
       msg = Message.new(ts, ex, rk, pr, sz, seg)
-      @segment_pos[sp.segment] += msg.bytesize
       redelivered = @requeued.includes?(sp)
-      # TODO: optimize
+      yield Envelope.new(sp, msg, redelivered)
       @requeued.delete(sp) if redelivered
-      Envelope.new(sp, msg, redelivered)
+      @segment_pos[sp.segment] += sz
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
       reject(sp, false)
-      nil
     rescue ex
       if seg
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
@@ -510,6 +511,7 @@ module AvalancheMQ
         io = IO::Hexdump.new(seg, output: STDERR, read: true)
         io.read(buffer.to_slice)
       end
+      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       raise ex
     end
 
