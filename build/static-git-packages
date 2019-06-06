@@ -1,9 +1,5 @@
 #!/bin/bash -eux
-revision=$1
-vagrant up || vagrant reload
-vagrant ssh alpine -c "cd /vagrant; sudo shards build --release --production --static"
-vagrant ssh ubuntu -c "cd /vagrant; build/tar $revision"
-vagrant ssh ubuntu -c "cd /vagrant; build/deb $revision"
-vagrant ssh alpine -c "sudo halt"
-vagrant halt ubuntu
-vagrant halt alpine --force
+revision=git-`git rev-parse --short HEAD`_static
+shards build --release --production --static
+build/tar $revision
+build/deb $revision
