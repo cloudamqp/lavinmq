@@ -138,7 +138,10 @@ module AvalancheMQ
       @pos += msg.bytesize
       sp
     rescue ex
-      @pos = @wfile.pos
+      @log.error "Rotating segment because failed to write message"
+      @segment += 1
+      @wfile.close
+      @wfile = open_wfile
       raise ex
     ensure
       @wfile_lock.unlock
