@@ -43,7 +43,7 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define "debian9" do |node|
-    node.vm.box = "debian/stretch64"
+    node.vm.box = "debian/contrib-stretch64"
     node.vm.provision "shell", inline: <<~SHELL
       apt-get install dirmngr -y
       apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
