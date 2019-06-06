@@ -16,7 +16,7 @@ module AvalancheMQ
       def self.local
         src = Socket::IPAddress.new("127.0.0.1", 0)
         dst = Socket::IPAddress.new("127.0.0.1", 0)
-        return new(src, dst)
+        new(src, dst)
       end
     end
 
@@ -47,7 +47,7 @@ module AvalancheMQ
         end
         src = Socket::IPAddress.new(src_addr, src_port)
         dst = Socket::IPAddress.new(dst_addr, dst_port)
-        return Header.new(src, dst)
+        Header.new(src, dst)
       ensure
         io.read_timeout = nil
       end
@@ -94,7 +94,7 @@ module AvalancheMQ
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
           io.skip(length - 12)
-          return Header.new(src, dst)
+          Header.new(src, dst)
           #when Family::TCPv6
           #  buf = uninitialized UInt8[36]
           #  io.read_fully(buf.to_slice)
