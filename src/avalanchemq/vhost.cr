@@ -130,10 +130,16 @@ module AvalancheMQ
       @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::NetworkEndian
       @wfile.write_bytes msg.properties, IO::ByteFormat::NetworkEndian
       @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
-      IO.copy(msg.body_io, @wfile, msg.size)
+      copied = IO.copy(msg.body_io, @wfile, msg.size)
+      if copied != msg.size
+        raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
+      end
       @wfile.flush
       @pos += msg.bytesize
       sp
+    rescue ex
+      @pos = @wfile.pos
+      raise ex
     ensure
       @wfile_lock.unlock
     end
