@@ -14,9 +14,10 @@ mkdir -p $root/lib/systemd/system
 mkdir -p $root/etc/avalanchemq
 mkdir -p $root/usr/share/doc/avalanchemq
 mkdir -p $root/usr/share/man/man1
-install -s bin/avalanchemq $root/usr/bin
-install -s bin/avalanchemqctl $root/usr/bin
-install -s bin/avalanchemqperf $root/usr/bin
+cp bin/avalanchemq $root/usr/bin
+cp bin/avalanchemqctl $root/usr/bin
+cp bin/avalanchemqperf $root/usr/bin
+strip --strip-unneeded --remove-section=.comment --remove-section=.note $root/usr/bin/*
 cp extras/avalanchemq.service $root/lib/systemd/system
 cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
 cp NOTICE $root/usr/share/doc/avalanchemq/
