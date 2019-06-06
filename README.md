@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.com/84codes/avalanchemq.svg?token=rfwynuMNGnX9tuyspVud&branch=master)](https://travis-ci.com/84codes/avalanchemq)
+[![Download](https://api.bintray.com/packages/84codes/debian/avalanchemq/images/download.svg)](https://bintray.com/84codes/debian/avalanchemq/_latestVersion)
 
 # ![AvalancheMQ](static/img/logo-avalanche-mq-black.png)
 
