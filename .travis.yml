@@ -7,25 +7,8 @@ before_script:
 - llvm-config --host-target
 jobs:
   include:
-  - stage: Validate
-    script: crystal spec
-    script: bin/ameba
-  - stage: Release
-    addons:
-      apt:
-        packages:
-        - fakeroot
-        - help2man
-    script: shards build --release && build/deb 1
-    deploy:
-      provider: releases
-      file_glob: true
-      file: builds/*
-      api_key:
-        secure: aX6zFIvJcKkheCk5SNgiLeJ2IWIUwjPE8Jvh6x+K2ScqA7NyTLX7KouM7TTOb+o/n0TJdF+M9xQKJwok02/89yhV5TsBvWqNYsaUKrZnbC/mSHhtnZSfOawDML2P+jc8pDHj/heejgC+HrhdLtt5U7YgmoUu1Ps0PbEATuIygrMuVKYJSLqRXd/gEC3Mfl+KZbLyg17pPCLFL6hTJUZ8EfXj1iImyyXr6Ms4CjvEbtdu+tyKS1aF5E04O87Z/5IzQDA9B/qUd8adr3DXWyOlgt5dsfQPUhmRoUkuYwwspWhOzjMcdLyxLGJ0OXWMlGhqzbgglB7j1OKC4ky0E5kMHoK8F5Tknws8WRJLMr8dblEnFxVsmqv1rnQe9FnNRSdJHrfDOyYyDcM1Ez4bosA9gByNeZh+KNfRt/fQvnK1YLnGtcO2Jer/W7Hvoo2vyYgQT9enAp5bygr/Tf5Q3lQj3B4I7XH6PHkKJu6906w2Rei19ycWCSuWxLWPWA60wr8uL6TIULq1LkLean5ho/HpGE+4t8/XjqyPzktWi7XhH3vZKKrxcNxAudJEdBvZDSxS0z+Ugy3jsm0v8iJ7I7fXt/s7ewXNZJEc8VRLhBdJJMRIB0DzxcZNsOegVtpaCs7m+jYjgcE6hDgQVVk3Uc2QU5Fnxf1JzZ4se9dpTYmLAW8=
-      skip_cleanup: true
-      on:
-        tags: true
+  - script: crystal spec
+  - script: bin/ameba
 notifications:
   slack:
     secure: swXk/RxCX1PaG1rf+XGFEzvMNwo0a3E0xM1X311Nd0l0r4FBoVtXsYcWT6HLtUlxeQB+Bo2YXG8deffpfaUv2JFXnJOwACFfRAK5dn/q+aSjfASkFBL8kus/uyDdX+n+/HP+OccSDVqF+DefAdWr5JcB8gh1QuLdlq3yuDHDWTZrRia8JjSj/P0gJAZkst+F8LzGqAQLCcR2X8nJQEL6bWik5n11YFz/foek77d8sDuhpYURJcqI4GKk9XRmyJFFAFnAsFg4k/A+XJozyBCn8GPHXb9Hb4+cLJIF1n7lkUbaO1Rhe83D+izGX1MNb2kV/NKlezapIJPu+yS8aTuKry9XHIdOHCv7tPQ34R1VsQ1jza5XXfaVOZbQ05/R0yBEqd5zXXjswVIECcwPElIntPub7SmXuoj6Imm9aQhrX/E4cYAJxZv2xRxiCheYgXz7zTmgjQvjxLEpjrRNoo5Yrshh1glNw8xpk4je6uO9u+NDnDUwmkwysx8dTPNhCVroExwS2lRlbnPdTxhyOQ0gUSwODOqZSTtIJcsKsV08GPa98g2MTo9oESc5FD4QRXhcotU45gFtA6uZdCuegFs7Uyws/88KCdqIEse8xl+m8G/HFSOjjbu/Yh6/QY3GErygv3P+USRMlb3LsS/QE7N0n1mecJVRZpDTx/Zp41bIdYQ=
