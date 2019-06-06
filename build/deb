@@ -5,7 +5,7 @@ which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
 which help2man > /dev/null || (echo "help2man required"; exit 1)
 pkg_version=$(shards version)
 pkg_revision=${1:-1}
-root=avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
+root=builds/debian/$(lsb_release -cs)/avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
 
 rm -rf $root
 mkdir -p $root/DEBIAN
@@ -92,7 +92,4 @@ chmod +x $root/DEBIAN/prerm
 fakeroot dpkg-deb --build $root
 rm -r $root
 
-mkdir -p builds/debian/$(lsb_release -cs)
-mv $root.deb builds/debian/$(lsb_release -cs)
-
-lintian builds/debian/$(lsb_release -cs)/$root.deb
+lintian $root.deb
