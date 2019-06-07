@@ -65,7 +65,7 @@ module AvalancheMQ
       def self.parse(io)
         io.read_timeout = 15
         buffer = uninitialized UInt8[16]
-        io.read_fully(buffer.to_slice)
+        io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
         unless signature == SIGNATURE
           raise InvalidSignature.new(signature.to_s)
@@ -85,7 +85,7 @@ module AvalancheMQ
         case family
         when Family::TCPv4
           buf = uninitialized UInt8[12]
-          io.read_fully(buf.to_slice)
+          io.read(buf.to_slice)
           src_addr = buf.to_slice[0, 4].map(&.to_u8).join(".")
           dst_addr = buf.to_slice[4, 4].map(&.to_u8).join(".")
           src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, buf.to_slice[8, 2])
@@ -97,7 +97,7 @@ module AvalancheMQ
           Header.new(src, dst)
           #when Family::TCPv6
           #  buf = uninitialized UInt8[36]
-          #  io.read_fully(buf.to_slice)
+          #  io.read(buf.to_slice)
           #  src_addr = buf.to_slice[0, 16].map(&.to_u8).slice(2).join(":")
           #  dst_addr = buf.to_slice[16, 16].map(&.to_u8).join(".")
           #  src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, buf.to_slice[8, 2])
