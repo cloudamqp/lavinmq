@@ -35,7 +35,7 @@ module AvalancheMQ
     def self.start(socket, remote_address, local_address, vhosts, users, log)
       socket.read_timeout = 15
       proto = uninitialized UInt8[8]
-      socket.read_fully(proto.to_slice)
+      socket.read(proto.to_slice)
       if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
         socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
