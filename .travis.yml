@@ -19,7 +19,7 @@ jobs:
         - musl-tools
     script: shards build --release --static --production
     script: build/tar 1.static
-    script: build/deb 1_static
+    script: build/deb 1.static
     deploy:
       provider: releases
       file_glob: true
