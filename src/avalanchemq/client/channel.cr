@@ -118,14 +118,10 @@ module AvalancheMQ
       end
 
       def add_content(frame)
-        if frame.body_size == @next_msg_size
-          finish_publish(frame.body)
-        else
-          IO.copy(frame.body, @next_msg_body, frame.body_size)
-          if @next_msg_body.pos == @next_msg_size
-            @next_msg_body.rewind
-            finish_publish(@next_msg_body)
-          end
+        IO.copy(frame.body, @next_msg_body, frame.body_size)
+        if @next_msg_body.pos == @next_msg_size
+          @next_msg_body.rewind
+          finish_publish(@next_msg_body)
         end
       end
 
