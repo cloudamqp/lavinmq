@@ -1,5 +1,5 @@
 #!/bin/bash -eux
-revision=git-`git rev-parse --short HEAD`_static
+revision=git~`git rev-parse --short HEAD`.static
 shards build --release --production --static
 build/tar $revision
 build/deb $revision
