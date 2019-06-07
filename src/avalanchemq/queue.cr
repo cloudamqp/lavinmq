@@ -545,6 +545,21 @@ module AvalancheMQ
       Fiber.yield if @reject_count % 1000 == 0
     end
 
+    private def requeue_many(sps : Deque(SegmentPosition))
+      return if @deleted
+      return if sps.empty?
+      @log.debug { "Returning #{sps.size} msgs to ready state" }
+      @reject_count += sps.size
+      @ready_lock.synchronize do
+        sps.reverse_each do |sp|
+          i = @ready.index { |rsp| rsp > sp } || 0
+          @ready.insert(i, sp)
+          @requeued << sp
+        end
+      end
+      @message_available.send nil unless @message_available.full?
+    end
+
     private def drophead
       if sp = @ready_lock.synchronize { @ready.shift? }
         @log.debug { "Overflow drop head sp=#{sp}" }
@@ -566,9 +581,9 @@ module AvalancheMQ
     def rm_consumer(consumer : Client::Channel::Consumer)
       if @consumers.delete consumer
         @exclusive_consumer = false if consumer.exclusive
-        consumer.unacked.each { |sp| reject(sp, true) }
+        requeue_many(consumer.unacked)
         @log.debug { "Removing consumer with #{consumer.unacked.size} unacked messages \
-                      (#{@consumers.size} left)" }
+                      (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
         delete if @consumers.size == 0 && @auto_delete
       end
