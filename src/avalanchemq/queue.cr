@@ -497,7 +497,7 @@ module AvalancheMQ
       redelivered = @requeued.includes?(sp)
       yield Envelope.new(sp, msg, redelivered)
       @requeued.delete(sp) if redelivered
-      @segment_pos[sp.segment] += sz
+      @segment_pos[sp.segment] += msg.bytesize
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
