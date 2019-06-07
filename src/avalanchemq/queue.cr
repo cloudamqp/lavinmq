@@ -316,7 +316,7 @@ module AvalancheMQ
       @read_lock.synchronize do
         seg = @segments[sp.segment]
         if @segment_pos[sp.segment] != sp.position
-          @log.debug { "Seeking to #{sp.position}" }
+          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos[sp.segment]}" }
           seg.seek(sp.position, IO::Seek::Set)
           @segment_pos[sp.segment] = sp.position
         end
@@ -484,7 +484,7 @@ module AvalancheMQ
     private def read(sp : SegmentPosition, &blk : Envelope -> Nil)
       seg = @segments[sp.segment]
       if @segment_pos[sp.segment] != sp.position
-        @log.debug { "Seeking to sp #{sp}" }
+        @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos[sp.segment]}" }
         seg.seek(sp.position, IO::Seek::Set)
         @segment_pos[sp.segment] = sp.position
       end
