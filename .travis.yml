@@ -9,7 +9,7 @@ jobs:
   include:
   - stage: Validate
     script: crystal spec
-    script: bin/ameba
+    script: bin/ameba --except Metrics/CyclomaticComplexity
   - stage: Release
     addons:
       apt:
