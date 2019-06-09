@@ -53,7 +53,7 @@ module AvalancheMQ
         { username: resp[1...i], password: resp[(i + 1)..-1] }
       when "AMQPLAIN"
         io = ::IO::Memory.new(start_ok.response)
-        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
+        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
         { username: tbl["LOGIN"].as(String), password: tbl["PASSWORD"].as(String) }
       else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
       end
