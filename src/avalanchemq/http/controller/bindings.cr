@@ -51,10 +51,10 @@ module AvalancheMQ
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             end
             body = parse_body(context)
-            routing_key = body["routing_key"].as_s?
+            routing_key = body["routing_key"]?.try &.as_s?
             arguments = parse_arguments(body)
-            unless routing_key && arguments
-              bad_request(context, "Fields 'routing_key' and 'arguments' are required")
+            unless routing_key
+              bad_request(context, "Field 'routing_key' is required")
             end
             e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
             props = BindingDetails.hash_key({routing_key, arguments})
@@ -118,10 +118,10 @@ module AvalancheMQ
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             end
             body = parse_body(context)
-            routing_key = body["routing_key"].as_s?
+            routing_key = body["routing_key"]?.try &.as_s?
             arguments = parse_arguments(body)
-            unless routing_key && arguments
-              bad_request(context, "Fields 'routing_key' and 'arguments' are required")
+            unless routing_key
+              bad_request(context, "Field 'routing_key' is required")
             end
             source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
             props = BindingDetails.hash_key({routing_key, arguments})
