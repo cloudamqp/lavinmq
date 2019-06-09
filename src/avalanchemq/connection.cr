@@ -41,7 +41,6 @@ module AvalancheMQ
       socket.tcp_keepalive_count = 3
       socket.tcp_keepalive_interval = 10
       socket.write_timeout = 15
-      socket.recv_buffer_size = 131072
 
       if tls
         context = OpenSSL::SSL::Context::Client.new
