@@ -30,25 +30,6 @@ module AvalancheMQ
     @running = true
     rate_stats(%w(send_oct recv_oct))
 
-    def self.close_on_ok(socket, log)
-      loop do
-        AMQP::Frame.from_io(socket, IO::ByteFormat::NetworkEndian) do |frame|
-          log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-          if frame.is_a?(AMQP::Frame::Body)
-            log.debug "Skipping body"
-            frame.body.skip(frame.body_size)
-          end
-          frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
-        end && break
-      end
-    rescue IO::EOFError
-      log.debug { "Client closed socket without sending CloseOk" }
-    rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
-      log.warn { "#{ex.inspect} when waiting for CloseOk" }
-    ensure
-      socket.close
-    end
-
     def initialize(@name : String, @vhost : VHost, @user : User,
                    @log : Logger,
                    @client_properties = Hash(String, AMQP::Field).new)

@@ -1,5 +1,6 @@
 require "./client"
 require "../stdlib_fixes"
+require "./amqp_connection"
 
 module AvalancheMQ
   class NetworkClient < Client
@@ -33,89 +34,7 @@ module AvalancheMQ
     end
 
     def self.start(socket, remote_address, local_address, vhosts, users, log)
-      socket.read_timeout = 15
-      proto = uninitialized UInt8[8]
-      socket.read(proto.to_slice)
-      if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
-        socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
-        socket.flush
-        socket.close
-        log.debug { "Unknown protocol #{proto}, closing socket" }
-        return
-      end
-
-      start = AMQP::Frame::Connection::Start.new
-      socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
-      socket.flush
-      start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
-
-      username = password = ""
-      case start_ok.mechanism
-      when "PLAIN"
-        resp = start_ok.response
-        i = resp.index('\u0000', 1).not_nil!
-        username = resp[1...i]
-        password = resp[(i + 1)..-1]
-      when "AMQPLAIN"
-        io = ::IO::Memory.new(start_ok.response)
-        tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian)
-        username = tbl["LOGIN"].as(String)
-        password = tbl["PASSWORD"].as(String)
-      else "Unsupported authentication mechanism: #{start_ok.mechanism}"
-      end
-
-      user = users[username]?
-      unless user && user.password == password
-        log.warn "Access denied for #{remote_address} using username \"#{username}\""
-        props = start_ok.client_properties
-        capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
-        if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
-          socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED",
-            start_ok.class_id,
-            start_ok.method_id), IO::ByteFormat::NetworkEndian
-          socket.flush
-          close_on_ok(socket, log)
-        else
-          socket.close
-        end
-        return
-      end
-      socket.write_bytes AMQP::Frame::Connection::Tune.new(channel_max: 0_u16,
-        frame_max: 131072_u32,
-        heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
-      socket.flush
-      tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
-      open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
-      if vhost = vhosts[open.vhost]? || nil
-        if user.permissions[open.vhost]? || nil
-          socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
-          socket.flush
-          return self.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
-        else
-          log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
-          reply_text = "NOT_ALLOWED - '#{username}' doesn't have access to '#{vhost.name}'"
-          socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
-            open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
-          socket.flush
-          close_on_ok(socket, log)
-        end
-      else
-        log.warn "Access denied for #{remote_address} to vhost \"#{open.vhost}\""
-        socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
-          open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
-        socket.flush
-        close_on_ok(socket, log)
-      end
-      nil
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
-      log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
-      nil
-    rescue ex : Exception
-      log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
-      socket.try &.close unless socket.try &.closed?
-      nil
-    ensure
-      socket.read_timeout = nil
+      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log)
     end
 
     def channel_name_prefix
