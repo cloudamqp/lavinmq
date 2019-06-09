@@ -68,7 +68,6 @@ module AvalancheMQ
         return false
       when AMQP::Frame::Connection::CloseOk
         @log.info "Disconnected"
-        @log.debug { "Closing socket" }
         cleanup
         return false
       when AMQP::Frame::Channel::Open
