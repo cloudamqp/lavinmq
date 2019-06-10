@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.9] - 2019-06-10
+
 ### Fixed
 - Restore ability to login with AMQPLAIN mechanism
 - Making a binding via the HTTP API without a routing key threw an exception
