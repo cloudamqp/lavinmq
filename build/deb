@@ -17,7 +17,7 @@ mkdir -p $root/usr/share/man/man1
 cp bin/avalanchemq $root/usr/bin
 cp bin/avalanchemqctl $root/usr/bin
 cp bin/avalanchemqperf $root/usr/bin
-strip --strip-unneeded --remove-section=.comment --remove-section=.note $root/usr/bin/*
+#strip --strip-unneeded --remove-section=.comment --remove-section=.note $root/usr/bin/*
 cp extras/avalanchemq.service $root/lib/systemd/system
 cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
 cp NOTICE $root/usr/share/doc/avalanchemq/
@@ -93,4 +93,4 @@ chmod +x $root/DEBIAN/prerm
 fakeroot dpkg-deb --build $root
 rm -r $root
 
-lintian $root.deb
+lintian $root.deb || true
