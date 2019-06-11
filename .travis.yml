@@ -7,9 +7,8 @@ before_script:
 - llvm-config --host-target
 jobs:
   include:
-  - stage: Test
-    script: crystal spec
-    script: bin/ameba --except Metrics/CyclomaticComplexity
+  - script: crystal spec
+  - script: bin/ameba --except Metrics/CyclomaticComplexity
   - stage: GitHub Release
     addons:
       apt:
