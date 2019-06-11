@@ -149,20 +149,25 @@ module AvalancheMQ
             return true
           end
         end
-        unless @client.vhost.publish(msg, immediate: @next_publish_immediate)
+        puts "before publish"
+        if !@client.vhost.publish(msg, immediate: @next_publish_immediate)
+          puts "not published"
           if @next_publish_immediate
-            retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "No consumers", msg.exchange_name, msg.routing_key)
+            retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
           elsif @next_publish_mandatory
-            retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "No Route", msg.exchange_name, msg.routing_key)
+            @return_unroutable_count += 1
+            retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
           else
-            @log.debug "Skipping body because wasn't written to disk"
-            message_body.skip(@next_msg_size)
+            # @log.debug "Skipping body because wasn't written to disk"
+            # puts "before skip"
+            # message_body.skip(@next_msg_size)
+            puts "send nack"
+            send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
+            puts "sent"
           end
-          @return_unroutable_count += 1
-        end
-        if @confirm
+        elsif @confirm
           @confirm_total += 1
           @confirm_count += 1 # Stats
           send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
@@ -172,10 +177,12 @@ module AvalancheMQ
         send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
         raise ex
       ensure
+        puts "ensure"
         @next_msg_size = 0_u64
         @next_msg_body.clear
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
+        puts "ensure done"
       end
 
       def deliver(frame, msg)

@@ -94,7 +94,7 @@ describe AvalancheMQ::Server do
         ch.basic_publish("m1", "amq.direct", "amq.direct.reply-to.random", mandatory: true)
         reply_code, reply_text = ch1.receive
         reply_code.should eq 312
-        reply_text.should eq "No Route"
+        reply_text.should eq "NO_ROUTE"
       end
     end
   end

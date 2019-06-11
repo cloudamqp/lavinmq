@@ -31,7 +31,9 @@ module TestHelpers
   class_property s, h
 
   def self.setup
-    create_servers
+    {% unless flag?(:skipServerSetup) %}
+      create_servers
+    {% end %}
   end
 
   def s
