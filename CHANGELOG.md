@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- AMQPLAIN support in shovels is implemented correctly
+
 ## [0.7.9] - 2019-06-10
 
 ### Fixed
