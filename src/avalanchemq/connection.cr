@@ -84,7 +84,8 @@ module AvalancheMQ
         } of String => AMQP::Field)
         io = IO::Memory.new
         tbl.to_io(io, ::IO::ByteFormat::NetworkEndian)
-        response = io.to_s
+        tbl_wo_size = io.to_slice[4, io.bytesize - 4]
+        response = String.new(tbl_wo_size.to_unsafe, io.bytesize - 4)
       else
         response = "\u0000#{user}\u0000#{password}"
       end
