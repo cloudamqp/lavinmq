@@ -169,6 +169,7 @@ module AvalancheMQ
       ensure
         @next_msg_size = 0_u64
         @next_msg_body.clear
+        @next_msg_props = nil
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
       end
