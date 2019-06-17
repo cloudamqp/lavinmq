@@ -80,6 +80,7 @@ end
 Signal::HUP.trap do
   puts "Reloading"
   Fiber.list { |f| puts f.inspect }
+  puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   pp System.resource_usage
   pp GC.stats
   puts "Uptime: #{amqp_server.uptime}s"
@@ -87,6 +88,9 @@ end
 
 shutdown = ->(_s : Signal) do
   puts "Shutting down gracefully..."
+  puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
+  pp System.resource_usage
+  pp GC.stats
   http_server.close
   amqp_server.close
   Fiber.yield
