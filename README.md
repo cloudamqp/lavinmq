@@ -13,9 +13,9 @@ many connections and require minimal configuration.
 
 AvalancheMQ is written in [Crystal](https://crystal-lang.org/), a modern
 language built on the LLVM, that has a Ruby-like syntax, uses an event loop
-library for IO, is garbage collected, adopts a CSP like [concurrency
-model](https://crystal-lang.org/docs/guides/concurrency.html) and complies down
-to a single binary. You can liken it to Go but with a nicer syntax.
+library for IO, is garbage collected, adopts a CSP-like [concurrency
+model](https://crystal-lang.org/docs/guides/concurrency.html) and compiles down
+to a single binary. You can liken it to Go, but with a nicer syntax.
 
 Instead of trying to cache message in RAM we write all messages as fast as we can to
 disk and let the OS cache do the caching.
@@ -31,7 +31,7 @@ the message index is also appended to a file.
 
 When a message is being consumed it removes the segment-position from the queue's
 in-memory array, and write the segment-position to an "ack" file. That way
-we can restore the queue index on boot by read all the segment-position stored
+we can restore the queue index on boot by reading all the segment-position stored
 in the queue index file, then exclude all the segment-position read from the
 "ack" file.  The queue index is rewritten when the "ack" file becomes 16 MB,
 that is, every 16 \* 1024 \* 1024 / 8 = 2097152 message.
@@ -44,13 +44,13 @@ a reference to a position in that segment.
 Declarations of queues, exchanges and bindings are written to a definitions
 file (if the target is durable), encoded as the AMQP frame they came in as.
 Periodically this file is garbage collected
-by writing only the current in memory state to the file (getting rid
+by writing only the current in-memory state to the file (getting rid
 of all delete events). This file is read on boot to restore all definitions.
 
-All non-AMQP objects like users, vhosts, policies etc. are stored in
+All non-AMQP objects like users, vhosts, policies, etc. are stored in
 JSON files. Most often these type of objects does not have a high
 turnover rate, so we believe that JSON in this case makes it easy for
-operators to modify things when the server is not running if ever needed.
+operators to modify things when the server is not running, if ever needed.
 
 In the data directory we store `users.json` and `vhosts.json` as mentioned earlier,
 and each vhost has a directory in which we store `definitions.amqp`
@@ -69,7 +69,7 @@ for the queue directories in the vhost directory. The queue directories only has
 * HTTP API
 * Queue federation
 * Dead-lettering
-* TTL support on queue, message and policy level
+* TTL support on queue, message, and policy level
 * CC/BCC
 * Alternative exchange
 * Exchange to exchange bindings
@@ -82,7 +82,7 @@ for the queue directories in the vhost directory. The queue directories only has
 
 Currently missing features
 
-* Websockets
+* WebSockets
 * Exchange federation
 * Clustering
 * Plugins
@@ -94,9 +94,9 @@ Wish list
 
 * Rewindable queues (all messages that are published to an exchange
   are stored and can be dumped into a queue when a certain binding is
-  made, even if they already have been consumed once before)
+  made, even if they have already been consumed before)
 * Horizontal scaling
-* Built in stream processor engine
+* Built-in stream processor engine
 
 ## Performance
 
