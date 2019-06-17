@@ -251,9 +251,7 @@ describe AvalancheMQ::Server do
       x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
       msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
-      until msgs.size == 1
-        Fiber.yield
-      end
+      wait_for { msgs.size == 1 }
       msgs.size.should eq 1
     end
   end
@@ -272,7 +270,7 @@ describe AvalancheMQ::Server do
       x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
       msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
-      Fiber.yield
+      wait_for { msgs.size == 2 }
       msgs.size.should eq 2
     end
   end
