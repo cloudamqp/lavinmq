@@ -164,7 +164,7 @@ module AvalancheMQ
         @socket.flush
       end
       true
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
+    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
       @log.info { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
