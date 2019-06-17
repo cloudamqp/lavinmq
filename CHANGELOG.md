@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Make setting the timestamp property optional through a config setting (set_timestamp), default to false
+
 ### Fixed
 - AMQPLAIN support in shovels is implemented correctly
 

@@ -533,6 +533,7 @@ describe AvalancheMQ::Server do
   end
 
   it "sets correct message timestamp" do
+    AvalancheMQ::Config.instance.set_timestamp = true
     with_channel do |ch|
       q = ch.queue
       t = Time.utc_now.to_unix
@@ -542,6 +543,7 @@ describe AvalancheMQ::Server do
       wait_for { msg }
       msg.not_nil!.properties.timestamp.not_nil!.to_unix.should be_close(t, 1)
     end
+    AvalancheMQ::Config.instance.set_timestamp = false
   end
 
   it "supports recover requeue" do
