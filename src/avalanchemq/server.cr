@@ -71,7 +71,7 @@ module AvalancheMQ
         begin
           client = s.accept? || break
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          @log.info "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}"
+          @log.info { "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}" }
           client.sync = true
           client.read_buffering = false
           # only do buffering on the tls socket
