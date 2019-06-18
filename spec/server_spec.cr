@@ -159,7 +159,7 @@ describe AvalancheMQ::Server do
       ch.basic_publish(pmsg, "amq.direct", "none", mandatory: true)
       reply_code, reply_text = ch1.receive
       reply_code.should eq 312
-      reply_text.should eq "No Route"
+      reply_text.should eq "NO_ROUTE"
     end
   end
 
@@ -349,7 +349,7 @@ describe AvalancheMQ::Server do
       args["x-overflow"] = "reject-publish"
       q = ch.queue("", args: args)
       q.publish_confirm("m1").should be_true
-      q.publish_confirm("m2").should be_true
+      q.publish_confirm("m2").should be_false
       msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
@@ -602,6 +602,16 @@ describe AvalancheMQ::Server do
       Fiber.yield
       msg.should be_nil
       s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
+    end
+  end
+
+  it "supports sends nack if all queues reject" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-max-length"] = 0_i64
+      args["x-overflow"] = "reject-publish"
+      q = ch.queue("", args: args)
+      q.publish_confirm("m1").should be_false
     end
   end
 
