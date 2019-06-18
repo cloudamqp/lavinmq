@@ -127,11 +127,9 @@ module AvalancheMQ
       queues
     end
 
-    @wfile_lock = Mutex.new
     @pos = 0_u32
 
     private def write_to_disk(msg) : SegmentPosition
-      @wfile_lock.lock
       if @pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
@@ -160,8 +158,6 @@ module AvalancheMQ
       @wfile.close
       @wfile = open_wfile
       raise ex
-    ensure
-      @wfile_lock.unlock
     end
 
     private def open_wfile : File
