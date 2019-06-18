@@ -48,19 +48,36 @@ module AvalancheMQ
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
+      spawn publish_loop, name: "VHost/#{@name}#publish_loop"
     end
 
     def inspect(io : IO)
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    def publish(msg : Message, immediate = false) : Bool
+    @publishes = Channel(Message).new
+    @responses = Channel(Bool).new
+
+    def publish(msg : Message) : Bool
+      @publishes.send(msg)
+      @responses.receive
+    end
+
+    private def publish_loop
+      loop do
+        msg = @publishes.receive
+        ok = internal_publish(msg)
+        @responses.send(ok)
+      end
+    end
+
+    private def internal_publish(msg)
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers)
       @log.debug { "publish queues#found=#{queues.size}" }
       return false if queues.empty?
-      return false if immediate && !queues.any? { |q| q.immediate_delivery? }
+      return false if msg.immediate && !queues.any? { |q| q.immediate_delivery? }
       sp = write_to_disk(msg)
       flush = msg.properties.delivery_mode == 2_u8
       responses = queues.map do |q|

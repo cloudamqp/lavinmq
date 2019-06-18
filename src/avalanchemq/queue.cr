@@ -428,7 +428,7 @@ module AvalancheMQ
             @segment_pos[sp.segment] = body_pos
           end
           msg = Message.new(meta.timestamp, dlx.to_s,
-            dlrk.to_s, props, meta.size, seg)
+            dlrk.to_s, false, props, meta.size, seg)
           @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
           @vhost.publish msg
         end
@@ -493,7 +493,7 @@ module AvalancheMQ
       rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
-      msg = Message.new(ts, ex, rk, pr, sz, seg)
+      msg = Message.new(ts, ex, rk, false, pr, sz, seg)
       redelivered = @requeued.includes?(sp)
       yield Envelope.new(sp, msg, redelivered)
       @requeued.delete(sp) if redelivered

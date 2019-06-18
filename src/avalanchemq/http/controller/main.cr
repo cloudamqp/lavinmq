@@ -117,6 +117,7 @@ module AvalancheMQ
             msg = Message.new(Time.utc_now.to_unix_ms,
               "amq.direct",
               "aliveness-test",
+              false,
               AMQP::Properties.new,
               4_u64,
               IO::Memory.new("test"))
