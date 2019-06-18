@@ -349,7 +349,7 @@ describe AvalancheMQ::Server do
       args["x-overflow"] = "reject-publish"
       q = ch.queue("", args: args)
       q.publish_confirm("m1").should be_true
-      q.publish_confirm("m2").should be_true
+      q.publish_confirm("m2").should be_false
       msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }

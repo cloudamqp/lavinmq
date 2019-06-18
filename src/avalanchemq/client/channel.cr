@@ -149,40 +149,41 @@ module AvalancheMQ
             return true
           end
         end
-        puts "before publish"
-        if !@client.vhost.publish(msg, immediate: @next_publish_immediate)
-          puts "not published"
+        if @client.vhost.publish(msg, immediate: @next_publish_immediate)
+          confirm_ack
+        else
+          @return_unroutable_count += 1
           if @next_publish_immediate
             retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
           elsif @next_publish_mandatory
-            @return_unroutable_count += 1
             retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
             deliver(retrn, msg)
-          else
-            # @log.debug "Skipping body because wasn't written to disk"
-            # puts "before skip"
-            # message_body.skip(@next_msg_size)
-            puts "send nack"
-            send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
-            puts "sent"
           end
-        elsif @confirm
-          @confirm_total += 1
-          @confirm_count += 1 # Stats
-          send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
+          confirm_nack
         end
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
-        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false) if @confirm
+        confirm_nack
         raise ex
       ensure
-        puts "ensure"
         @next_msg_size = 0_u64
         @next_msg_body.clear
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
-        puts "ensure done"
+      end
+
+      private def confirm_nack
+        return unless @confirm
+        @confirm_total += 1
+        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false)
+      end
+
+      private def confirm_ack
+        return unless @confirm
+        @confirm_total += 1
+        @confirm_count += 1 # Stats
+        send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
       end
 
       def deliver(frame, msg)
