@@ -11,6 +11,8 @@ ShortStrings are now added to StringPool for reduced GC pressure, the pool size 
 
 ### Changed
 - Make setting the timestamp property optional through a config setting (set_timestamp), default to false
+- Optimized topic exchange and fanout routing, giving ~5% and ~30% throughput boost respectively
+- Using a Channel to communicate between Client and Vhost when publishing, removed the need for a lock
 
 ### Fixed
 - AMQPLAIN support in shovels is implemented correctly
