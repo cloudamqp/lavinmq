@@ -304,6 +304,7 @@ module AvalancheMQ
       @log.debug { "Enqueuing message sp=#{sp}" }
       @ready_lock.synchronize { @ready.push sp }
       @message_available.send nil unless @message_available.full?
+      Fiber.yield if @ready.size > 10000 && !@consumers.empty?
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
       @publish_count += 1
