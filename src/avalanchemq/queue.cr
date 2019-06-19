@@ -290,6 +290,25 @@ module AvalancheMQ
       }
     end
 
+    def publish_async(sp : SegmentPosition, flush = false)
+      @publishes.send({ sp, flush })
+    end
+
+    def publish_response : Bool
+      @publish_responses.receive
+    end
+
+    @publishes = Channel(Tuple(SegmentPosition, Bool)).new
+    @publish_responses = Channel(Bool).new
+
+    def publish_loop
+      loop do
+        sp, flush = @publish.receive
+        ok = publish(sp, flush)
+        @publish_responses.send(ok)
+      end
+    end
+
     def publish(sp : SegmentPosition, flush = false) : Bool
       return false if @closed
       if @max_length.try { |ml| @ready.size >= ml }
