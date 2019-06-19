@@ -184,50 +184,64 @@ module AvalancheMQ
   end
 
   class FanoutExchange < Exchange
+    def initialize(*args)
+      super(*args)
+      @destinations = Set(Queue | Exchange).new
+    end
+
     def type
       "fanout"
     end
 
     def bind(destination, routing_key, headers = nil)
       @bindings[{routing_key, nil}] << destination
+      @destinations << destination
     end
 
     def unbind(destination, routing_key, headers = nil)
       @bindings[{routing_key, nil}].delete destination
+      @destinations.delete destination
       after_unbind
     end
 
     def matches(routing_key, headers = nil)
-      bindings = Set(Queue | Exchange).new
-      @bindings.each_value.reduce(bindings) { |acc, i| acc.concat(i) }
+      @destinations
     end
   end
 
   class TopicExchange < Exchange
+    def initialize(*args)
+      super(*args)
+      @binding_keys = Hash(Array(String), Destination).new do |h, k|
+        h[k] = Set(Queue | Exchange).new
+      end
+    end
+
     def type
       "topic"
     end
 
     def bind(destination, routing_key, headers = nil)
       @bindings[{routing_key, nil}] << destination
+      @binding_keys[routing_key.split(".")] << destination
     end
 
     def unbind(destination, routing_key, headers = nil)
       @bindings[{routing_key, nil}].delete destination
+      @binding_keys[routing_key.split(".")].delete destination
       after_unbind
     end
 
     def matches(routing_key, headers = nil)
       rk_parts = routing_key.split(".")
       s = Set(Queue | Exchange).new
-      @bindings.each do |bt, q|
+      @binding_keys.each do |bks, dst|
         ok = false
         prev_hash = false
-        size = 1_u8 # binding keys can max be 256 chars long anyway
-        bt[0].each_char { |c| size += 1 if c == '.' }
+        size = bks.size # binding keys can max be 256 chars long anyway
         j = 0
         i = 0
-        bt[0].split(".") do |part|
+        bks.each do |part|
           if rk_parts.size <= j
             ok = false
             break
@@ -276,7 +290,7 @@ module AvalancheMQ
           break unless ok
           i += 1
         end
-        s.concat(q) if ok
+        s.concat(dst) if ok
       end
       s
     end
