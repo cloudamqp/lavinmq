@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.10] - 2019-06-19
+
 ### Added
 ShortStrings are now added to StringPool for reduced GC pressure, the pool size is printed on HUP
 
