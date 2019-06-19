@@ -80,11 +80,12 @@ module AvalancheMQ
       return false if msg.immediate && !queues.any? { |q| q.immediate_delivery? }
       sp = write_to_disk(msg)
       flush = msg.properties.delivery_mode == 2_u8
-      responses = queues.map do |q|
+      ok = false
+      queues.each do |q|
         ex.publish_out_count += 1
-        q.publish(sp, flush)
+        ok = true if q.publish(sp, flush)
       end
-      responses.any?
+      ok
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
