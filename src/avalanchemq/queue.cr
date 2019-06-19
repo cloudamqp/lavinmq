@@ -48,7 +48,7 @@ module AvalancheMQ
       @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new
       @consumer_available = Channel(Nil).new(1)
-      @ready = Deque(SegmentPosition).new
+      @ready = Deque(SegmentPosition).new(1024)
       @ready_lock = Mutex.new
       @segment_pos = Hash(UInt32, UInt32).new do |h, seg|
         h[seg] = 0_u32
