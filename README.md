@@ -190,6 +190,12 @@ deb packages.
 
 Fork, create feature branch, submit pull request.
 
+### Develop
+
+1. Run specs with `crystal spec`
+1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
+1. Build with `shards build`
+
 ### Release
 
 1. Update `CHANGELOG.md`
