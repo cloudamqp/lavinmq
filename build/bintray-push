@@ -9,5 +9,7 @@ do
   dist=$(basename $dir)
   name=avalanchemq_${pkg_version}-${pkg_revision}_amd64.deb
   path=$dir/$name
-  curl -nT $path "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=amd64"
+  echo "Uploading $name"
+  curl -nT $path "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=amd64" > /dev/null
+  echo
 done
