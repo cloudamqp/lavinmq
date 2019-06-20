@@ -158,33 +158,22 @@ sysctl -w net.ipv4.tcp_max_syn_backlog=2048 # default 512
 
 ## Debugging
 
-In Linux `strace` is pretty good for understanding what the process is doing at any given time,
-at least which system calls it's doing.
+In Linux `perf` is the tool of choice when tracing and measuring performance.
 
-Run `strace` with `-c` for some time and get a table of system calls made and how long time
-they took.
-
-```bash
-sudo strace -fp $(ps -C avalanchemq -o pid=) -c
+To see which syscalls that are made use:
+```
+sudo perf trace -p $(ps -C avalanchemq -o pid=)
 ```
 
-Run `strace` with `-e trace=` and the syscalls you want to monitor
-for more details of which files it's writing to and what etc.
-
-```bash
-sudo strace -fytTp $(ps -C avalanchemq -o pid=) -e trace=file,read,write
-```
-
-`perf` can be used to trace the application's method calls in Linux:
+To get a live analysis of the mostly called functions, run:
 
 ```bash
 sudo perf top -p $(ps -C avalanchemq -o pid=)
 ```
 
-In OS X the app Instruments that's bundled with Xcode can be used to trace
-what the app is spending time at. However, it only works (or at least
-is meaningful) if the debug symbols haven't been stripped, which we do in the
-deb packages.
+A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
+
+In OS X the app [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
 
 ## Contributing
 
@@ -201,7 +190,7 @@ Fork, create feature branch, submit pull request.
 1. Update `CHANGELOG.md`
 1. Bump version in `shards.yml` & `src/avalanchemq/version.cr`
 1. Create and push tag
-1. `build/debian 1 && build/bintray-push`
+1. `build/debian 1 && build/bintray-push 1`
 
 ## Contributors
 
