@@ -1,10 +1,10 @@
 module AvalancheMQ
   struct Message
-    property timestamp, exchange_name, routing_key, immediate, properties
+    property timestamp, exchange_name, routing_key, properties
     getter size, body_io
 
     def initialize(@timestamp : Int64, @exchange_name : String,
-                   @routing_key : String, @immediate : Bool, @properties : AMQP::Properties,
+                   @routing_key : String, @properties : AMQP::Properties,
                    @size : UInt64, @body_io : IO)
     end
 

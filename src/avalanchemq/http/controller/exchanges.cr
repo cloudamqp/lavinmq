@@ -135,7 +135,6 @@ module AvalancheMQ
             msg = Message.new(Time.utc_now.to_unix_ms,
               e.name,
               routing_key,
-              false,
               AMQP::Properties.from_json(properties),
               size,
               IO::Memory.new(content))

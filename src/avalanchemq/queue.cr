@@ -168,6 +168,7 @@ module AvalancheMQ
     end
 
     private def deliver_loop
+      i = 0
       loop do
         break if @closed
         empty = @ready_lock.synchronize { @ready.empty? }
@@ -188,6 +189,7 @@ module AvalancheMQ
           @consumer_available.receive
           @log.debug "Consumer available"
         end
+        Fiber.yield if (i += 1) % 1000 == 0
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
         break
@@ -290,25 +292,6 @@ module AvalancheMQ
       }
     end
 
-    def publish_async(sp : SegmentPosition, flush = false)
-      @publishes.send({ sp, flush })
-    end
-
-    def publish_response : Bool
-      @publish_responses.receive
-    end
-
-    @publishes = Channel(Tuple(SegmentPosition, Bool)).new
-    @publish_responses = Channel(Bool).new
-
-    def publish_loop
-      loop do
-        sp, flush = @publish.receive
-        ok = publish(sp, flush)
-        @publish_responses.send(ok)
-      end
-    end
-
     def publish(sp : SegmentPosition, flush = false) : Bool
       return false if @closed
       if @max_length.try { |ml| @ready.size >= ml }
@@ -323,7 +306,6 @@ module AvalancheMQ
       @log.debug { "Enqueuing message sp=#{sp}" }
       @ready_lock.synchronize { @ready.push sp }
       @message_available.send nil unless @message_available.full?
-      Fiber.yield if @ready.size > 10000 && !@consumers.empty?
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
       @publish_count += 1
@@ -446,7 +428,7 @@ module AvalancheMQ
             @segment_pos[sp.segment] = body_pos
           end
           msg = Message.new(meta.timestamp, dlx.to_s,
-            dlrk.to_s, false, props, meta.size, seg)
+            dlrk.to_s, props, meta.size, seg)
           @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
           @vhost.publish msg
         end
@@ -511,7 +493,7 @@ module AvalancheMQ
       rk = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
-      msg = Message.new(ts, ex, rk, false, pr, sz, seg)
+      msg = Message.new(ts, ex, rk, pr, sz, seg)
       redelivered = @requeued.includes?(sp)
       yield Envelope.new(sp, msg, redelivered)
       @requeued.delete(sp) if redelivered

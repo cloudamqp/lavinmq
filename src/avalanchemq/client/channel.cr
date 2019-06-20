@@ -137,7 +137,6 @@ module AvalancheMQ
         msg = Message.new(ts.to_unix_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
-          @next_publish_immediate,
           props,
           @next_msg_size,
           message_body)
@@ -150,7 +149,7 @@ module AvalancheMQ
             return true
           end
         end
-        if @client.vhost.publish(msg)
+        if @client.vhost.publish(msg, immediate: @next_publish_immediate)
           confirm_ack
         else
           @return_unroutable_count += 1
