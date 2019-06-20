@@ -9,7 +9,7 @@ module AvalancheMQ
     end
 
     def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize +
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + 1 + @properties.bytesize +
         sizeof(UInt64) + @size
     end
   end
