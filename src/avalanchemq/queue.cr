@@ -309,6 +309,7 @@ module AvalancheMQ
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
       @publish_count += 1
+      Fiber.yield if !@consumers.empty? && @ready.size > 10000
       true
     end
 
