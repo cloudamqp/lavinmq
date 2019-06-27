@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Make buffer_size configurable via config and increase default from 8KB to 128KB
+
 ## [0.7.11] - 2019-06-20
 
 ### Changed
