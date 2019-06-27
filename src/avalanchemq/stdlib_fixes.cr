@@ -1,3 +1,5 @@
+require "./config"
+
 class Fiber
   def self.list(&blk : Fiber -> Nil)
     @@fibers.unsafe_each(&blk)
@@ -52,7 +54,7 @@ module System
 end
 
 module IO::Buffered
-  @buffer_size = 262_144
+  @buffer_size : Int32 = AvalancheMQ::Config.instance.buffer_size
 
   # Return the buffer size used
   def buffer_size

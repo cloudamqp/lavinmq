@@ -20,14 +20,15 @@ module AvalancheMQ
       @segment_size : Int32 = 256 * 1024**2,
       @stats_interval = 5000,
       @stats_log_size = 120, # 10 mins at 5s interval
-      @set_timestamp = false
+      @set_timestamp = false,
+      @buffer_size = 131_072
     )
       @@instance = self
     end
 
     property data_dir, log_level, bind, port, tls_port, unix_path, cert_path, key_path, mgmt_bind, mgmt_port,
       mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat, segment_size, stats_interval,
-      stats_log_size, set_timestamp
+      stats_log_size, set_timestamp, buffer_size
 
     def self.instance(*args)
       @@instance || new(*args)
@@ -46,6 +47,7 @@ module AvalancheMQ
           @stats_log_size = settings["stats_log_size"]?.try &.to_i32 || @stats_log_size
           @segment_size = settings["segment_size"]?.try &.to_i32 || @segment_size
           @set_timestamp = true?(settings["set_timestamp"]?) || @set_timestamp
+          @buffer_size = settings["buffer_size"]?.try &.to_i32 || @buffer_size
         when "amqp"
           @bind = settings["bind"]? || @bind
           @port = settings["port"]?.try &.to_i32 || @port
