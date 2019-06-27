@@ -2,12 +2,12 @@
 revision=$1
 for dist in ubuntu18 ubuntu16 debian9
 do
-  read -p "Build for $dist? " -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]
-  then
+  #read -p "Build for $dist? " -n 1 -r
+  #echo
+  #if [[ $REPLY =~ ^[Yy]$ ]]
+  #then
     vagrant up $dist
     vagrant ssh $dist -c "cd /vagrant; shards build --release --production && build/deb $revision"
     vagrant halt $dist
-  fi
+  #fi
 done
