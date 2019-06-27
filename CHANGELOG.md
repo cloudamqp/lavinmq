@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.12] - 2019-06-28
+
 ### Added
 - Make buffer_size configurable via config and increase default from 8KB to 128KB
 - Pre-allocate the max size for new segments, might improve write performance (on Linux only)
