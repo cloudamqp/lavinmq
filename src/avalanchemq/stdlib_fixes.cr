@@ -150,3 +150,26 @@ module IO::Buffered
     @out_buffer ||= GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
   end
 end
+
+class File
+  def hint_target_size(size)
+    {% if flag?(:linux) %}
+      if LibC.fallocate(fd, LibC::FALLOC_FL_KEEP_SIZE, 0, size) != 0
+        raise Errno.new("fallocate failed")
+      end
+    {% end %}
+  end
+end
+
+lib LibC
+  {% if flag?(:linux) %}
+    fun fallocate(fd : Int, mode : Int, offset : OffT, len : OffT) : Int
+    FALLOC_FL_KEEP_SIZE = 0x01
+    FALLOC_FL_PUNCH_HOLE = 0x02
+    FALLOC_FL_NO_HIDE_STALE = 0x04
+    FALLOC_FL_COLLAPSE_RANGE = 0x08
+    FALLOC_FL_ZERO_RANGE = 0x10
+    FALLOC_FL_INSERT_RANGE = 0x20
+    FALLOC_FL_UNSHARE_RANGE = 0x40
+  {% end %}
+end
