@@ -50,3 +50,101 @@ module System
     {% end %}
   end
 end
+
+module IO::Buffered
+  @buffer_size = 262_144
+
+  # Return the buffer size used
+  def buffer_size
+    @buffer_size
+  end
+
+  # Set the buffer size of both the read and write buffer
+  # Cannot be changed after any of the buffers have been allocated
+  def buffer_size=(value)
+    if @in_buffer || @out_buffer
+      raise ArgumentError.new("Cannot change buffer_size after buffers have been allocated")
+    end
+    @buffer_size = value
+  end
+
+  # Buffered implementation of `IO#read(slice)`.
+  def read(slice : Bytes)
+    check_open
+
+    count = slice.size
+    return 0 if count == 0
+
+    if @in_buffer_rem.empty?
+      # If we are asked to read more than half the buffer's size,
+      # read directly into the slice, as it's not worth the extra
+      # memory copy.
+      if !read_buffering? || count >= @buffer_size // 2
+        return unbuffered_read(slice[0, count]).to_i
+      else
+        fill_buffer
+        return 0 if @in_buffer_rem.empty?
+      end
+    end
+
+    to_read = Math.min(count, @in_buffer_rem.size)
+    slice.copy_from(@in_buffer_rem.to_unsafe, to_read)
+    @in_buffer_rem += to_read
+    to_read
+  end
+
+  # Buffered implementation of `IO#write(slice)`.
+  def write(slice : Bytes)
+    check_open
+
+    return if slice.empty?
+
+    count = slice.size
+
+    if sync?
+      return unbuffered_write(slice)
+    end
+
+    if count >= @buffer_size
+      flush
+      return unbuffered_write slice[0, count]
+    end
+
+    if count > @buffer_size - @out_count
+      flush
+    end
+
+    slice.copy_to(out_buffer + @out_count, count)
+    @out_count += count
+    nil
+  end
+
+  # :nodoc:
+  def write_byte(byte : UInt8)
+    check_open
+
+    if sync?
+      return super
+    end
+
+    if @out_count >= @buffer_size
+      flush
+    end
+    out_buffer[@out_count] = byte
+    @out_count += 1
+  end
+
+  private def fill_buffer
+    in_buffer = in_buffer()
+    size = unbuffered_read(Slice.new(in_buffer, @buffer_size)).to_i
+    @in_buffer_rem = Slice.new(in_buffer, size)
+  end
+
+  private def in_buffer
+    @in_buffer ||= GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
+  end
+
+  private def out_buffer
+    @out_buffer ||= GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
+  end
+end
