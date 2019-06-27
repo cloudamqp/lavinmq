@@ -82,7 +82,7 @@ module IO::Buffered
       # read directly into the slice, as it's not worth the extra
       # memory copy.
       if !read_buffering? || count >= @buffer_size // 2
-        return unbuffered_read(slice[0, count]).to_i
+        return unbuffered_read(slice).to_i
       else
         fill_buffer
         return 0 if @in_buffer_rem.empty?
@@ -109,7 +109,7 @@ module IO::Buffered
 
     if count >= @buffer_size
       flush
-      return unbuffered_write slice[0, count]
+      return unbuffered_write(slice)
     end
 
     if count > @buffer_size - @out_count
