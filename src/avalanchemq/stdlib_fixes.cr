@@ -189,7 +189,7 @@ lib LibC
     FALLOC_FL_INSERT_RANGE = 0x20
     FALLOC_FL_UNSHARE_RANGE = 0x40
 
-    fun posix_fadvise(fd : Int, offset : OffT, len : OffT, advice : Int)
+    fun posix_fadvise(fd : Int, offset : OffT, len : OffT, advice : Int) : Int
     POSIX_FADV_NORMAL     = 0 # No further special treatment.
     POSIX_FADV_RANDOM     = 1 # Expect random page references.
     POSIX_FADV_SEQUENTIAL = 2 # Expect sequential page references.
