@@ -45,16 +45,39 @@ module AvalancheMQ
       @wfile = open_wfile
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
+      @fsync = false
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
+      spawn fsync_loop, name: "VHost/#{@name}#fsync_loop"
     end
 
     def inspect(io : IO)
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    def publish(msg : Message, immediate = false) : Bool
+    @awaiting_confirm = Set(Client::Channel).new
+
+    def waiting4confirm(channel)
+      @awaiting_confirm.add channel
+    end
+
+    def fsync_loop
+      loop do
+        sleep 0.2
+        next if @awaiting_confirm.empty?
+        @log.debug { "fsync" }
+        @wfile_lock.synchronize do
+          @wfile.fsync(flush_metadata: false)
+          @awaiting_confirm.each do |ch|
+            ch.confirm_ack(multiple: true)
+          end
+          @awaiting_confirm.clear
+        end
+      end
+    end
+
+    def publish(msg : Message, immediate = false, confirm = false) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers)
@@ -102,7 +125,7 @@ module AvalancheMQ
 
       if queues.empty? && ex.alternate_exchange
         if ae = @exchanges[ex.alternate_exchange]?
-          visited.add(ex)
+            visited.add(ex)
           unless visited.includes?(ae)
             find_all_queues(ae, routing_key, headers, visited, queues)
           end
@@ -179,7 +202,7 @@ module AvalancheMQ
     def declare_queue(name, durable, auto_delete,
                       arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
-        auto_delete, false, arguments)
+                                            auto_delete, false, arguments)
     end
 
     def delete_queue(name)
@@ -189,7 +212,7 @@ module AvalancheMQ
     def declare_exchange(name, type, durable, auto_delete, internal = false,
                          arguments = AMQP::Table.new)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments)
+                                               auto_delete, internal, false, arguments)
     end
 
     def delete_exchange(name)
@@ -198,22 +221,22 @@ module AvalancheMQ
 
     def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+                                         routing_key, false, arguments)
     end
 
     def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+                                            routing_key, false, arguments)
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, destination, source,
-        routing_key, arguments)
+                                           routing_key, arguments)
     end
 
     def unbind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
       apply AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+                                              routing_key, false, arguments)
     end
 
     def apply(f, loading = false) : Bool?
@@ -422,8 +445,8 @@ module AvalancheMQ
           next unless e.durable
           next if e.auto_delete
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
-            false, e.durable, e.auto_delete, e.internal,
-            false, AMQP::Table.new(e.arguments))
+                                                 false, e.durable, e.auto_delete, e.internal,
+                                                 false, AMQP::Table.new(e.arguments))
           io.write_bytes f, ::IO::ByteFormat::NetworkEndian
         end
         @queues.each do |_name, q|

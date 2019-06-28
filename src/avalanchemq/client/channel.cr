@@ -140,27 +140,13 @@ module AvalancheMQ
           props,
           @next_msg_size,
           message_body)
-        if msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
-          consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
-          @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
-            deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag, 1_u64, false,
-              msg.exchange_name, msg.routing_key)
-            ch.deliver(deliver, msg)
-            return true
-          end
-        end
-        if @client.vhost.publish(msg, immediate: @next_publish_immediate)
-          confirm_ack
+        return true if direct_reply?(msg)
+        ok = @client.vhost.publish msg, immediate: @next_publish_immediate
+        @confirm_total += 1 if @confirm
+        if ok
+          @client.vhost.waiting4confirm(self) if @confirm
         else
-          @return_unroutable_count += 1
-          if @next_publish_immediate
-            retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
-            deliver(retrn, msg)
-          elsif @next_publish_mandatory
-            retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
-            deliver(retrn, msg)
-          end
-          confirm_nack
+          basic_return(msg)
         end
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
@@ -174,17 +160,43 @@ module AvalancheMQ
         @next_publish_mandatory = @next_publish_immediate = false
       end
 
-      private def confirm_nack
+      def confirm_nack(multiple = false)
         return unless @confirm
-        @confirm_total += 1
-        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, false, false)
+        @confirm_count += 1 # Stats
+        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple,
+                                          requeue: false)
       end
 
-      private def confirm_ack
+      private def direct_reply?(msg) : Bool
+        return false unless msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
+        consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
+        @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
+          deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
+                                                    1_u64, false,
+                                                    msg.exchange_name,
+                                                    msg.routing_key)
+          ch.deliver(deliver, msg)
+          return true
+        end
+        false
+      end
+
+      def confirm_ack(multiple = false)
         return unless @confirm
-        @confirm_total += 1
         @confirm_count += 1 # Stats
-        send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, false)
+        send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
+      end
+
+      private def basic_return(msg)
+        @return_unroutable_count += 1
+        if @next_publish_immediate
+          retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
+          deliver(retrn, msg)
+        elsif @next_publish_mandatory
+          retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
+          deliver(retrn, msg)
+        end
+        confirm_nack
       end
 
       def deliver(frame, msg)
