@@ -168,6 +168,7 @@ module AvalancheMQ
     end
 
     private def deliver_loop
+      i = 0
       loop do
         break if @closed
         empty = @ready_lock.synchronize { @ready.empty? }
@@ -188,6 +189,7 @@ module AvalancheMQ
           @consumer_available.receive
           @log.debug "Consumer available"
         end
+        Fiber.yield if (i += 1) % 1000 == 0
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
         break
