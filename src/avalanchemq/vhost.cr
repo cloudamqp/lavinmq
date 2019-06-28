@@ -388,7 +388,7 @@ module AvalancheMQ
 
     private def load_definitions!
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
-        io.advise(File::Advise::Sequential)
+        io.advise(File::Advice::Sequential)
         loop do
           begin
             AMQP::Frame.from_io(io, IO::ByteFormat::NetworkEndian) do |frame|

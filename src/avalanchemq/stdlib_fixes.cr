@@ -160,7 +160,7 @@ class File
     {% end %}
   end
 
-  def advise(advise)
+  def advise(advice)
     {% if flag?(:linux) %}
       if LibC.posix_fadvise(fd, 0, 0, advice) != 0
         raise Errno.new("fadvise failed")
