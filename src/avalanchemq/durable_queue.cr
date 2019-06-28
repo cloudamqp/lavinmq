@@ -23,10 +23,11 @@ module AvalancheMQ
     end
 
     private def compact_index! : Nil
-      @log.debug { "Compacting index" }
+      @log.info { "Compacting index" }
       @enq.close
       Dir.mkdir_p @index_dir
       File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+        f.advise(File::Advise::DontNeed)
         unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
         next_unacked = unacked.next
         @ready_lock.synchronize do
@@ -46,6 +47,7 @@ module AvalancheMQ
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
       @enq = File.open(File.join(@index_dir, "enq"), "a")
       @enq.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
+      @enq.advise(File::Advise::DontNeed)
       @ack.truncate
       @acks = 0
     end
@@ -108,6 +110,7 @@ module AvalancheMQ
 
     private def restore_index
       @log.info "Restoring index"
+      @ack.advise(File::Advise::Sequential)
       @ack.pos = 0
       sp_size = sizeof(SegmentPosition)
       acked = Array(SegmentPosition).new(@ack.size / sp_size)
@@ -122,6 +125,7 @@ module AvalancheMQ
       capacity = Math.max(@enq.size.to_i64 - @ack.size, sp_size) / sp_size
       @ready = Deque(SegmentPosition).new(capacity)
       @enq.pos = 0
+      @enq.advise(File::Advise::Sequential)
       loop do
         sp = SegmentPosition.from_io @enq
         @ready << sp unless acked.includes? sp
@@ -129,6 +133,8 @@ module AvalancheMQ
         break
       end
       @log.info { "#{message_count} messages" }
+      @ack.advise(File::Advise::DontNeed)
+      @enq.advise(File::Advise::DontNeed)
     rescue ex : Errno
       @log.error { "Could not restore index: #{ex.inspect}" }
     end

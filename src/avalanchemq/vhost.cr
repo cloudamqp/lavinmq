@@ -388,6 +388,7 @@ module AvalancheMQ
 
     private def load_definitions!
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
+        io.advise(File::Advise::Sequential)
         loop do
           begin
             AMQP::Frame.from_io(io, IO::ByteFormat::NetworkEndian) do |frame|
@@ -413,9 +414,10 @@ module AvalancheMQ
     end
 
     private def compact!
-      @log.debug "Compacting definitions"
+      @log.info "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
+        io.advise(File::Advice::DontNeed)
         @exchanges.each do |_name, e|
           next unless e.durable
           next if e.auto_delete
@@ -456,6 +458,7 @@ module AvalancheMQ
     private def save!
       return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
+        f.advise(File::Advice::DontNeed)
         loop do
           frame = @save.receive
           case frame

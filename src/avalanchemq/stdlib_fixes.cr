@@ -159,6 +159,23 @@ class File
       end
     {% end %}
   end
+
+  def advise(advise)
+    {% if flag?(:linux) %}
+      if LibC.posix_fadvise(fd, 0, 0, advice) != 0
+        raise Errno.new("fadvise failed")
+      end
+    {% end %}
+  end
+
+  enum Advice
+    Normal
+    Random
+    Sequential
+    WillNeed
+    DontNeed
+    NoReuse
+  end
 end
 
 lib LibC
@@ -171,5 +188,13 @@ lib LibC
     FALLOC_FL_ZERO_RANGE = 0x10
     FALLOC_FL_INSERT_RANGE = 0x20
     FALLOC_FL_UNSHARE_RANGE = 0x40
+
+    fun posix_fadvise(fd : Int, offset : OffT, len : OffT, advice : Int)
+    POSIX_FADV_NORMAL     = 0 # No further special treatment.
+    POSIX_FADV_RANDOM     = 1 # Expect random page references.
+    POSIX_FADV_SEQUENTIAL = 2 # Expect sequential page references.
+    POSIX_FADV_WILLNEED   = 3 # Will need these pages.
+    POSIX_FADV_DONTNEED   = 4 # Don't need these pages.
+    POSIX_FADV_NOREUSE    = 5 # Data will be accessed once.
   {% end %}
 end
