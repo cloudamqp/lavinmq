@@ -134,6 +134,7 @@ repo_gpgcheck=0
 enabled=1
 EOF
 sudo yum install avalanchemq
+sudo systemctl start avalanchemq
 ```
 
 From source:
