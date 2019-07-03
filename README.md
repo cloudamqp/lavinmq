@@ -122,13 +122,27 @@ sudo apt update
 sudo apt install avalanchemq
 ```
 
+In CentOS/Redhat/Amazon Linux:
+
+```bash
+sudo tee /etc/yum.repos.d/avalanchemq.repo << EOF
+[avalanchemq]
+name=avalanchemq
+baseurl=https://dl.bintray.com/84codes/rpm
+gpgcheck=0
+repo_gpgcheck=0
+enabled=1
+EOF
+sudo yum install avalanchemq
+```
+
 From source:
 
 ```bash
 git clone git@github.com:avalanchemq/avalanchemq.git
 cd avalanchemq
 shards build --release --production
-install -s bin/avalanchemq /usr/local/bin/avalanchemq
+install bin/avalanchemq /usr/local/bin/avalanchemq
 ```
 
 Refer to
