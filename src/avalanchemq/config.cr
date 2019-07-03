@@ -21,7 +21,7 @@ module AvalancheMQ
       @stats_interval = 5000,
       @stats_log_size = 120, # 10 mins at 5s interval
       @set_timestamp = false,
-      @file_buffer_size = 256 * 1024,
+      @file_buffer_size = 262_144,
       @socket_buffer_size = 8192
     )
       @@instance = self
