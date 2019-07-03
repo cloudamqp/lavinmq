@@ -67,7 +67,7 @@ exit 0
 %{_bindir}/%{name}*
 %{_unitdir}/%{name}.service
 %{_mandir}/man1/*
-%dir %attr(770, avalanchemq, avalanchemq) %{_sharedstatedir}/%{name}
+%dir %attr(750, avalanchemq, avalanchemq) %{_sharedstatedir}/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/%{name}.ini
 
 %changelog
@@ -77,4 +77,6 @@ EOF
 
 rpmlint $root/SPECS/avalanchemq.spec
 rpmbuild -bb $root/SPECS/avalanchemq.spec
+mkdir -p builds/rpm
+mv $root/RPMS/* builds/rpm/
 #rpmlint $root/RPMS/avalanchemq-$pkg_version*
