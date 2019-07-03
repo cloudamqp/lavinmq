@@ -1,0 +1,80 @@
+#!/bin/bash
+set -eux
+pkg_version=$(shards version)
+pkg_revision=${1:-1}
+root=~/rpmbuild
+
+mkdir -p $root/{RPMS,SRPMS,SOURCES,SPECS,tmp}
+
+git archive --format=tar.gz -o $root/SOURCES/avalanchemq.tar.gz --prefix=avalanchemq-$pkg_version/ master
+
+cat > $root/SPECS/avalanchemq.spec << EOF
+Name:    avalanchemq
+Version: $pkg_version
+Release: $pkg_revision%{?dist}
+Summary: Message queue server that implements the AMQP 0-9-1 protocol
+
+License: ASL 2.0
+%{?systemd_requires}
+BuildRequires: systemd crystal help2man zlib-devel openssl-devel
+Requires(pre): shadow-utils
+URL: https://github.com/84codes/avalanchemq
+#Source0: https://github.com/84codes/%{name}/archive/v%{version}.tar.gz
+Source0: %{name}.tar.gz
+
+%description
+A resource efficient message queue server implementing the AMQP protocol
+
+%prep
+%setup -q
+
+%check
+#crystal spec
+
+%build
+shards build --production --release
+
+%install
+install -D -m 0755 bin/%{name} %{buildroot}/%{_bindir}/%{name}
+install -D -m 0755 bin/%{name}ctl %{buildroot}/%{_bindir}/%{name}ctl
+install -D -m 0755 bin/%{name}perf %{buildroot}/%{_bindir}/%{name}perf
+install -D -m 0644 extras/%{name}.service %{buildroot}%{_unitdir}/%{name}.service
+install -D -m 0644 extras/config.ini %{buildroot}/%{_sysconfdir}/%{name}/%{name}.ini
+mkdir -p %{buildroot}/%{_mandir}/man1
+help2man -Nn "fast and advanced message queue server" bin/avalanchemq > %{buildroot}/%{_mandir}/man1/avalanchemq.1
+help2man -Nn "control utility for avalanchemq server" bin/avalanchemqctl > %{buildroot}/%{_mandir}/man1/avalanchemqctl.1
+help2man -Nn "performance testing tool for amqp servers" bin/avalanchemqperf > %{buildroot}/%{_mandir}/man1/avalanchemqperf.1
+mkdir -p %{buildroot}/%{_sharedstatedir}/%{name}
+
+%pre
+getent group %{name} >/dev/null || groupadd -r %{name}
+getent passwd %{name} >/dev/null || \
+    useradd -r -g %{name} -d /nonexistent -s /sbin/nologin %{name}
+exit 0
+
+%post
+%systemd_post %{name}.service
+
+%preun
+%systemd_preun %{name}.service
+
+%postun
+%systemd_postun_with_restart %{name}.service
+
+%files
+%doc README.md NOTICE CHANGELOG.md
+%license LICENSE
+%{_bindir}/%{name}*
+%{_unitdir}/%{name}.service
+%{_mandir}/man1/*
+%dir %attr(770, avalanchemq, avalanchemq) %{_sharedstatedir}/%{name}
+%config(noreplace) %{_sysconfdir}/%{name}/%{name}.ini
+
+%changelog
+* Wed Jul 03 2019 AvalancheMQ Team <contact@84codes.com>
+- Initial version of the package
+EOF
+
+rpmlint $root/SPECS/avalanchemq.spec
+rpmbuild -bb $root/SPECS/avalanchemq.spec
+#rpmlint $root/RPMS/avalanchemq-$pkg_version*
