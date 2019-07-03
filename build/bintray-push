@@ -2,14 +2,27 @@
 set -eu
 pkg_version=$(shards version)
 pkg_revision=$1
-arch=amd64
 
 for dir in $(find builds/debian -type d -d 1)
 do
+  arch=amd64
   dist=$(basename $dir)
-  name=avalanchemq_${pkg_version}-${pkg_revision}_amd64.deb
+  name=avalanchemq_${pkg_version}-${pkg_revision}_${arch}.deb
   path=$dir/$name
-  echo "Uploading $name"
-  curl -nT $path "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=amd64" > /dev/null
+  echo "Uploading $path"
+  curl -nT $path "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=$arch" > /dev/null
   echo
 done
+
+cd builds/rpm
+for arch in `ls -1`
+do
+  cd $arch
+  for name in $(ls *${pkg_version}*)
+  do
+    echo "Uploading $name"
+    curl -nT $name "https://api.bintray.com/content/84codes/rpm/avalanchemq/$pkg_version-$pkg_revision/$arch/$name" > /dev/null
+  done
+  cd -
+done
+cd -
