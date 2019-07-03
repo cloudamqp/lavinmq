@@ -15,8 +15,10 @@ module AvalancheMQ
       @log.debug { "Index dir: #{@index_dir}" }
       Dir.mkdir_p @index_dir
       @enq = File.open(File.join(@index_dir, "enq"), "a+")
+      @enq.buffer_size = Config.instance.file_buffer_size
       @enq.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
+      @ack.buffer_size = Config.instance.file_buffer_size
       @ack.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
       @acks = 0_u32
       restore_index
@@ -45,6 +47,7 @@ module AvalancheMQ
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
       @enq = File.open(File.join(@index_dir, "enq"), "a")
+      @enq.buffer_size = Config.instance.file_buffer_size
       @enq.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
       @ack.truncate
       @acks = 0

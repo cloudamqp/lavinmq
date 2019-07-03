@@ -152,6 +152,7 @@ module AvalancheMQ
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
       File.open(File.join(@data_dir, filename), "a").tap do |f|
+        f.buffer_size = Config.instance.file_buffer_size
         f.hint_target_size(MAX_SEGMENT_SIZE)
         f.seek(0, IO::Seek::End)
         @pos = f.pos.to_u32

@@ -105,6 +105,7 @@ module AvalancheMQ
         client.sync = false
         client.read_buffering = true
         client.write_timeout = 15
+        client.buffer_size = Config.instance.socket_buffer_size
         proxyheader =
           case proxy_protocol_version
           when 0 then ProxyProtocol::Header.local
@@ -186,6 +187,7 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.tcp_nodelay = true
       socket.write_timeout = 15
+      socket.buffer_size = Config.instance.socket_buffer_size
     end
 
     private def handle_connection_events

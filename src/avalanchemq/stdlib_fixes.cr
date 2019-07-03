@@ -54,7 +54,7 @@ module System
 end
 
 module IO::Buffered
-  @buffer_size : Int32 = AvalancheMQ::Config.instance.buffer_size
+  @buffer_size = 8192
 
   # Return the buffer size used
   def buffer_size
