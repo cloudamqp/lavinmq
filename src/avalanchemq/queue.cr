@@ -55,7 +55,7 @@ module AvalancheMQ
       end
       @segments = Hash(UInt32, File).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
-        h[seg] = File.open(path, "r")
+        h[seg] = File.open(path, "r").tap { |f| f.buffer_size = Config.instance.file_buffer_size }
       end
       @last_get_time = Time.now.to_unix_ms # reset when redeclared
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
