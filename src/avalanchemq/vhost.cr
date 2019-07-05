@@ -450,6 +450,8 @@ module AvalancheMQ
             end
           end
         end
+        io.fsync
+        io.advise(File::Advice::DontNeed)
       end
       File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
     end
@@ -457,7 +459,6 @@ module AvalancheMQ
     private def save!
       return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
-        f.advise(File::Advice::DontNeed)
         loop do
           frame = @save.receive
           case frame
@@ -483,7 +484,8 @@ module AvalancheMQ
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
           f.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-          f.flush
+          f.fsync
+          f.advise(File::Advice::DontNeed)
         end
       end
       @policies.save!
