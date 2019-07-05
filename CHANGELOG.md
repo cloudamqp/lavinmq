@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Separate buffer_size configuration for files and sockets
+- Fsync when writing defintions, vhosts and users
+
 ## [0.7.12] - 2019-06-28
 
 ### Added
