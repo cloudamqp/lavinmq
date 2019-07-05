@@ -91,7 +91,7 @@ module AvalancheMQ
     def save!
       @log.debug "Saving users to file"
       tmpfile = File.join(@data_dir, "users.json.tmp")
-      File.open(tmpfile, "w") { |f| to_pretty_json(f) }
+      File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
       File.rename tmpfile, File.join(@data_dir, "users.json")
     end
   end

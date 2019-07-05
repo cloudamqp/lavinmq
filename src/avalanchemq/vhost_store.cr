@@ -68,7 +68,7 @@ module AvalancheMQ
     private def save!
       @log.debug "Saving vhosts to file"
       tmpfile = File.join(@data_dir, "vhosts.json.tmp")
-      File.open(tmpfile, "w") { |f| to_pretty_json(f) }
+      File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
       File.rename tmpfile, File.join(@data_dir, "vhosts.json")
     end
   end
