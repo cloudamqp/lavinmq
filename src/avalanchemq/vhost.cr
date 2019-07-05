@@ -417,7 +417,6 @@ module AvalancheMQ
       @log.info "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
-        io.advise(File::Advice::DontNeed)
         @exchanges.each do |_name, e|
           next unless e.durable
           next if e.auto_delete
