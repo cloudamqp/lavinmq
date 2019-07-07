@@ -49,7 +49,7 @@ module AvalancheMQ
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
-      spawn fsync_loop, name: "VHost/#{@name}#fsync_loop"
+      spawn publish_loop, name: "VHost/#{@name}#publish_loop"
     end
 
     def inspect(io : IO)
@@ -59,25 +59,38 @@ module AvalancheMQ
     @awaiting_confirm = Set(Client::Channel).new
 
     def waiting4confirm(channel)
+      @fsync = true
       @awaiting_confirm.add channel
     end
 
-    def fsync_loop
+    @incoming = Channel(Tuple(Message, Bool, Bool)).new
+    @outgoing = Channel(Bool).new
+
+    def publish(msg : Message, immediate = false, confirm = false)
+      @incoming.send({ msg, immediate, confirm })
+      @outgoing.receive
+    end
+
+    def publish_loop
       loop do
-        sleep 0.2
-        next if @awaiting_confirm.empty?
-        @log.debug { "fsync" }
-        @wfile_lock.synchronize do
+        if @incoming.empty? && @fsync
+          @log.debug { "fsync" }
           @wfile.fsync(flush_metadata: false)
           @awaiting_confirm.each do |ch|
             ch.confirm_ack(multiple: true)
           end
           @awaiting_confirm.clear
+          @fsync = false
         end
+        msg, immediate, confirm = @incoming.receive
+        ok = actual_publish(msg, immediate, confirm)
+        @outgoing.send(ok)
+      rescue Channel::ClosedError
+        break
       end
     end
 
-    def publish(msg : Message, immediate = false, confirm = false) : Bool
+    def actual_publish(msg, immediate, confirm) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers)
@@ -134,11 +147,9 @@ module AvalancheMQ
       queues
     end
 
-    @wfile_lock = Mutex.new
     @pos = 0_u32
 
     private def write_to_disk(msg) : SegmentPosition
-      @wfile_lock.lock
       if @pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
@@ -167,8 +178,6 @@ module AvalancheMQ
       @wfile.close
       @wfile = open_wfile
       raise ex
-    ensure
-      @wfile_lock.unlock
     end
 
     private def open_wfile : File
@@ -359,6 +368,8 @@ module AvalancheMQ
       stop_upstream_links
       Fiber.yield
       @queues.each_value &.close
+      Fiber.yield
+      @incoming.close
       Fiber.yield
       @save.close
       Fiber.yield
