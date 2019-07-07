@@ -1,0 +1,8 @@
+#!/bin/bash -eux
+revision=$1
+for dist in centos7
+do
+  vagrant up $dist
+  vagrant ssh $dist -c "cd /vagrant; build/rpm $revision"
+  vagrant halt $dist
+done

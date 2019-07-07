@@ -77,6 +77,6 @@ EOF
 
 rpmlint $root/SPECS/avalanchemq.spec
 rpmbuild -bb $root/SPECS/avalanchemq.spec
-mkdir -p builds/rpm
-mv $root/RPMS/* builds/rpm/
+rm -rf builds/rpm
+mv $root/RPMS builds/rpm
 #rpmlint $root/RPMS/avalanchemq-$pkg_version*
