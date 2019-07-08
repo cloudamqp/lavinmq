@@ -43,6 +43,8 @@ module AvalancheMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @segment = last_segment
       @wfile = open_wfile
+      @wfile.seek(0, IO::Seek::End)
+      @pos = @wfile.pos.to_u32
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @fsync = false
@@ -71,17 +73,20 @@ module AvalancheMQ
       @outgoing.receive
     end
 
+    def fsync
+      return unless @fsync
+      @log.debug { "fsync" }
+      @wfile.fsync(flush_metadata: false)
+      @awaiting_confirm.each do |ch|
+        ch.confirm_ack(multiple: true)
+      end
+      @awaiting_confirm.clear
+      @fsync = false
+    end
+
     def publish_loop
       loop do
-        if @incoming.empty? && @fsync
-          @log.debug { "fsync" }
-          @wfile.fsync(flush_metadata: false)
-          @awaiting_confirm.each do |ch|
-            ch.confirm_ack(multiple: true)
-          end
-          @awaiting_confirm.clear
-          @fsync = false
-        end
+        fsync if @incoming.empty?
         msg, immediate, confirm = @incoming.receive
         ok = actual_publish(msg, immediate, confirm)
         @outgoing.send(ok)
@@ -153,6 +158,7 @@ module AvalancheMQ
       if @pos >= MAX_SEGMENT_SIZE
         @segment += 1
         @wfile.close
+        fsync
         @wfile = open_wfile
         spawn gc_segments!, name: "GC Segments #{@name}"
       end
@@ -186,8 +192,7 @@ module AvalancheMQ
       File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
         f.hint_target_size(MAX_SEGMENT_SIZE)
-        f.seek(0, IO::Seek::End)
-        @pos = f.pos.to_u32
+        @pos = 0
       end
     end
 
@@ -371,6 +376,7 @@ module AvalancheMQ
       Fiber.yield
       @incoming.close
       Fiber.yield
+      @outgoing.close
       @save.close
       Fiber.yield
       compact!
