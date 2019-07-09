@@ -391,14 +391,15 @@ module AvalancheMQ
       dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
       if dlx
         props = meta.properties
-        headers = (props.headers ||= AMQP::Table.new(Hash(String, AMQP::Field).new))
+        headers = (props.headers ||= AMQP::Table.new)
         headers.delete("x-dead-letter-exchange")
         headers.delete("x-dead-letter-routing-key")
 
-        if headers.has_key? "x-death" && headers["x-death"].is_a?(Array(AMQP::Table))
-          xdeaths = headers["x-death"].as(Array(AMQP::Table))
-        else
-          xdeaths = Array(AMQP::Table).new(1)
+        xdeaths = Array(AMQP::Table).new(1)
+        if headers.has_key? "x-death"
+          headers["x-death"].as?(Array(AMQP::Field)).try &.each do |tbl|
+            xdeaths << tbl.as(AMQP::Table)
+          end
         end
         xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
         xdeaths.delete(xd)
@@ -603,13 +604,13 @@ module AvalancheMQ
       @durable == frame.durable &&
         @exclusive == frame.exclusive &&
         @auto_delete == frame.auto_delete &&
-        @arguments == frame.arguments
+        @arguments == frame.arguments.to_h
     end
 
     def match?(durable, auto_delete, arguments)
       @durable == durable &&
         @auto_delete == auto_delete &&
-        @arguments == arguments
+        @arguments == arguments.to_h
     end
 
     def in_use?

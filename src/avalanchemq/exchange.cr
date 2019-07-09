@@ -6,7 +6,7 @@ require "./queue"
 require "./sortable_json"
 
 module AvalancheMQ
-  alias BindingKey = Tuple(String, AMQP::Table?)
+  alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
   alias Destination = Set(Queue | Exchange)
 
   abstract class Exchange
@@ -85,7 +85,7 @@ module AvalancheMQ
         @durable == frame.durable &&
         @auto_delete == frame.auto_delete &&
         @internal == frame.internal &&
-        @arguments == frame.arguments
+        @arguments == frame.arguments.to_h
     end
 
     def match?(type, durable, auto_delete, internal, arguments)
@@ -93,7 +93,7 @@ module AvalancheMQ
         @durable == durable &&
         @auto_delete == auto_delete &&
         @internal == internal &&
-        @arguments == arguments
+        @arguments == arguments.to_h
     end
 
     def in_use?

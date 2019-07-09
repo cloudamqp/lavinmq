@@ -53,6 +53,7 @@ module AvalancheMQ
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
             internal = body["internal"]?.try(&.as_bool?) || false
             arguments = parse_arguments(body)
+            tbl = AMQP::Table.new arguments
             ae = arguments["x-alternate-exchange"]?.try &.as?(String)
             ae_ok = ae.nil? || (user.can_write?(vhost, ae) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && ae_ok
@@ -60,7 +61,7 @@ module AvalancheMQ
             end
             e = @amqp_server.vhosts[vhost].exchanges[name]?
             if e
-              unless e.match?(type, durable, auto_delete, internal, arguments)
+              unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
               end
               context.response.status_code = 200
@@ -68,7 +69,7 @@ module AvalancheMQ
               bad_request(context, "Not allowed to use the amq. prefix")
             else
               @amqp_server.vhosts[vhost]
-                .declare_exchange(name, type.not_nil!, durable, auto_delete, internal, arguments)
+                .declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
               context.response.status_code = 204
             end
           end

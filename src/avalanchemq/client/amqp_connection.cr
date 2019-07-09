@@ -65,7 +65,7 @@ module AvalancheMQ
 
       log.warn "User \"#{username}\" not found"
       props = start_ok.client_properties
-      capabilities = props["capabilities"]?.try &.as(Hash(String, AMQP::Field))
+      capabilities = props["capabilities"]?.try &.as(AMQP::Table)
       if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
         socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED",
           start_ok.class_id,

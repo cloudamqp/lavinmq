@@ -41,15 +41,15 @@ describe AvalancheMQ::AMQP::Table do
     io.write_bytes tbl, IO::ByteFormat::NetworkEndian
     io.pos.should eq(tbl.bytesize)
     io.pos = 0
-    data2 = AvalancheMQ::AMQP::Table.from_io(io, IO::ByteFormat::NetworkEndian)
-    data2.should eq data
+    tbl2 = AvalancheMQ::AMQP::Table.from_io(io, IO::ByteFormat::NetworkEndian)
+    tbl2.should eq tbl
   end
 end
 
 describe AvalancheMQ::AMQP::Properties do
   it "can be encoded and decoded" do
     io = IO::Memory.new
-    h = Hash(String, AvalancheMQ::AMQP::Field){"s" => "båäö€", "i32" => 123, "u" => 0_u8}
+    h = AMQ::Protocol::Table.new({"s" => "båäö€", "i32" => 123, "u" => 0_u8})
     t = Time.unix(Time.utc_now.to_unix)
     props = AvalancheMQ::AMQP::Properties.new("application/json", "gzip", h, 1_u8, 9_u8, "correlation_id", "reply_to", "1000", "message_id", t, "type", "user_id", "app_id", "reserved1")
     io.write_bytes props, IO::ByteFormat::NetworkEndian

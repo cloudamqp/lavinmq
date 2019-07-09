@@ -218,7 +218,7 @@ describe AvalancheMQ::HTTP::Server do
     it "exports bindings" do
       s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
       s.vhosts["/"].declare_queue("export_q1", false, true)
-      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
+      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -309,7 +309,7 @@ describe AvalancheMQ::HTTP::Server do
     it "exports bindings" do
       s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
       s.vhosts["/"].declare_queue("export_q1", false, true)
-      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", Hash(String, AvalancheMQ::AMQP::Field).new)
+      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)

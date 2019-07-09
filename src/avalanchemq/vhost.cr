@@ -437,7 +437,7 @@ module AvalancheMQ
           next unless e.durable
           next if e.auto_delete
           e.bindings.each do |bt, destinations|
-            args = bt[1] || AMQP::Table.new
+            args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             destinations.each do |d|
               f =
                 case d

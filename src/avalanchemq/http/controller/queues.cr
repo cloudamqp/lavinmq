@@ -52,6 +52,7 @@ module AvalancheMQ
             durable = body["durable"]?.try(&.as_bool?) || false
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
             arguments = parse_arguments(body)
+            tbl = AMQP::Table.new arguments
             dlx = arguments["x-dead-letter-exchange"]?.try &.as?(String)
             dlx_ok = dlx.nil? || (user.can_write?(vhost, dlx) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && dlx_ok
@@ -59,7 +60,7 @@ module AvalancheMQ
             end
             q = @amqp_server.vhosts[vhost].queues[name]?
             if q
-              unless q.match?(durable, auto_delete, arguments)
+              unless q.match?(durable, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
               end
               context.response.status_code = 200
@@ -67,7 +68,7 @@ module AvalancheMQ
               bad_request(context, "Not allowed to use the amq. prefix")
             else
               @amqp_server.vhosts[vhost]
-                .declare_queue(name, durable, auto_delete, arguments)
+                .declare_queue(name, durable, auto_delete, tbl)
               context.response.status_code = 204
             end
           end
