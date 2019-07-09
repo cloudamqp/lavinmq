@@ -23,7 +23,7 @@ module AvalancheMQ
     getter vhost, channels, log, exclusive_queues,
       name, direct_reply_consumer_tag, client_properties, user
 
-    @client_properties : Hash(String, AMQP::Field)
+    @client_properties : AMQP::Table
     @connected_at : Int64
     @direct_reply_consumer_tag : String?
     @log : Logger
@@ -32,7 +32,7 @@ module AvalancheMQ
 
     def initialize(@name : String, @vhost : VHost, @user : User,
                    @log : Logger,
-                   @client_properties = Hash(String, AMQP::Field).new)
+                   @client_properties = AMQP::Table.new)
       @connected_at = Time.utc_now.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new

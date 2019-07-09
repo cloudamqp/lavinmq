@@ -88,7 +88,7 @@ module AvalancheMQ
             props = URI.unescape(params["props"])
             e.bindings.each do |k, destinations|
               next unless destinations.includes?(q) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || Hash(String, AMQP::Field).new
+              arguments = k[1] || AMQP::Table.new
               @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], arguments)
               break
             end
@@ -155,7 +155,7 @@ module AvalancheMQ
             props = URI.unescape(params["props"])
             source.bindings.each do |k, destinations|
               next unless destinations.includes?(destination) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || Hash(String, AMQP::Field).new
+              arguments = k[1] || AMQP::Table.new
               @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k[0], arguments)
               break
             end

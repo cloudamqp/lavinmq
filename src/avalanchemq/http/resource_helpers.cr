@@ -1,11 +1,11 @@
 module AvalancheMQ
   module HTTP
     module ResourceHelpers
-      private def parse_arguments(body) : Hash(String, AMQP::Field)
+      private def parse_arguments(body) : AMQP::Table
         if args = body["arguments"]?.try(&.as_h?)
-          AMQP::Properties.cast_to_field(args).as Hash(String, AMQP::Field)
+          AMQP::Properties.cast_to_field(args).as AMQP::Table
         else
-          Hash(String, AMQP::Field).new
+          AMQP::Table.new
         end
       end
     end

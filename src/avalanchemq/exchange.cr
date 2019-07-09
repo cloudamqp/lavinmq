@@ -6,7 +6,7 @@ require "./queue"
 require "./sortable_json"
 
 module AvalancheMQ
-  alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
+  alias BindingKey = Tuple(String, AMQP::Table?)
   alias Destination = Set(Queue | Exchange)
 
   abstract class Exchange

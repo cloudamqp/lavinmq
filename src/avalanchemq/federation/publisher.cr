@@ -10,9 +10,9 @@ module AvalancheMQ
         def initialize(@upstream : Upstream, @federated_q : Queue)
           @log = @upstream.log.dup
           @log.progname += " publisher"
-          client_properties = {
+          client_properties = AMQP::Table.new({
             "connection_name" => "Federation #{@upstream.name}",
-          } of String => AMQP::Field
+          } of String => AMQP::Field)
           @message_count = 0_u64
           @delivery_tags = Hash(UInt64, UInt64).new
           @last_delivery_tag = 0_u64
