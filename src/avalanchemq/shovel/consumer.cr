@@ -97,8 +97,7 @@ module AvalancheMQ
         queue_name = @source.queue || ""
         passive = !queue_name.empty?
         write AMQP::Frame::Queue::Declare.new(1_u16, 0_u16, queue_name, passive,
-          false, true, true, false,
-          {} of String => AMQP::Field)
+                                              false, true, true, false, AMQP::Table.new)
         frame = AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Queue::DeclareOk) }
         queue = frame.queue_name
         @message_count = frame.message_count
@@ -108,13 +107,13 @@ module AvalancheMQ
             @source.exchange.not_nil!,
             @source.exchange_key || "",
             false,
-            {} of String => AMQP::Field)
+            AMQP::Table.new)
           AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Queue::BindOk) }
         end
         no_ack = @ack_mode == AckMode::NoAck
         write AMQP::Frame::Basic::Consume.new(1_u16, 0_u16, queue, "",
           false, no_ack, false, false,
-          {} of String => AMQP::Field)
+          AMQP::Table.new)
         AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Basic::ConsumeOk) }
       end
     end

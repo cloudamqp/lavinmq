@@ -138,7 +138,7 @@ module AvalancheMQ
           vhost = q["vhost"].as_s
           durable = q["durable"].as_bool
           auto_delete = q["auto_delete"].as_bool
-          arguments = parse_arguments(q)
+          arguments = AMQP::Table.new parse_arguments(q)
           next unless v = fetch_vhost?(vhosts, vhost)
           v.declare_queue(name, durable, auto_delete, arguments)
         end
@@ -153,7 +153,7 @@ module AvalancheMQ
           durable = e["durable"].as_bool
           internal = e["internal"].as_bool
           auto_delete = e["auto_delete"].as_bool
-          arguments = parse_arguments(e)
+          arguments = AMQP::Table.new parse_arguments(e)
           next unless v = fetch_vhost?(vhosts, vhost)
           v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
         end
@@ -167,7 +167,7 @@ module AvalancheMQ
           destination = b["destination"].as_s
           destination_type = b["destination_type"].as_s
           routing_key = b["routing_key"].as_s
-          arguments = parse_arguments(b)
+          arguments = AMQP::Table.new parse_arguments(b)
           next unless v = fetch_vhost?(vhosts, vhost)
           case destination_type
           when "queue"

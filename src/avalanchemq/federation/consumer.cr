@@ -79,12 +79,12 @@ module AvalancheMQ
           queue_name = @upstream.queue.not_nil!
           write AMQP::Frame::Queue::Declare.new(1_u16, 0_u16, queue_name, true,
             false, true, true, false,
-            {} of String => AMQP::Field)
+            AMQP::Table.new)
           frame = AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Queue::DeclareOk) }
           queue = frame.queue_name
           no_ack = @upstream.ack_mode == AckMode::NoAck
           write AMQP::Frame::Basic::Consume.new(1_u16, 0_u16, queue, "downstream_consumer",
-            false, no_ack, false, false, {} of String => AMQP::Field)
+                                                false, no_ack, false, false, AMQP::Table.new)
           AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Basic::ConsumeOk) }
         end
 

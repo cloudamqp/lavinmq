@@ -74,7 +74,7 @@ module AvalancheMQ
       @socket.flush
       AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::Start) }
 
-      props = {} of String => AMQP::Field
+      props = AMQP::Table.new(Hash(String, AMQP::Field).new)
       user = URI.unescape(@uri.user || "guest")
       password = URI.unescape(@uri.password || "guest")
       if auth_mechanism == "AMQPLAIN"
@@ -82,10 +82,7 @@ module AvalancheMQ
           "LOGIN"    => user,
           "PASSWORD" => password,
         } of String => AMQP::Field)
-        io = IO::Memory.new
-        tbl.to_io(io, ::IO::ByteFormat::NetworkEndian)
-        tbl_wo_size = io.to_slice[4, io.bytesize - 4]
-        response = String.new(tbl_wo_size.to_unsafe, io.bytesize - 4)
+        response = String.new(tbl.buffer, tbl.bytesize - 4)
       else
         response = "\u0000#{user}\u0000#{password}"
       end

@@ -15,8 +15,8 @@ targets:
 
 dependencies:
   amq-protocol:
-    github: cloudamqp/amq-protocol.cr
-    # path: ../amq-protocol.cr
+    # github: cloudamqp/amq-protocol.cr
+    path: ../amq-protocol.cr
   router:
     github: tbrand/router.cr
   baked_file_system:

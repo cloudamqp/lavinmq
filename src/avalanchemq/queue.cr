@@ -219,7 +219,7 @@ module AvalancheMQ
           sp = env.segment_position
           msg = env.message
           if !c.no_ack && @delivery_limit
-            headers = msg.properties.headers || Hash(String, AMQP::Field).new
+            headers = msg.properties.headers || AMQP::Table.new
             delivery_count = @deliveries[sp]? || 0
             if delivery_count > @delivery_limit.not_nil!
               @deliveries.delete(sp)
@@ -391,14 +391,14 @@ module AvalancheMQ
       dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
       if dlx
         props = meta.properties
-        headers = (props.headers ||= Hash(String, AMQP::Field).new)
+        headers = (props.headers ||= AMQP::Table.new(Hash(String, AMQP::Field).new))
         headers.delete("x-dead-letter-exchange")
         headers.delete("x-dead-letter-routing-key")
 
-        if headers.has_key? "x-death"
-          xdeaths = headers["x-death"].as(Array(AMQP::Field)).map(&.as(Hash(String, AMQP::Field)))
+        if headers.has_key? "x-death" && headers["x-death"].is_a?(Array(AMQP::Table))
+          xdeaths = headers["x-death"].as(Array(AMQP::Table))
         else
-          xdeaths = headers["x-death"] = Array(Hash(String, AMQP::Field)).new(1)
+          xdeaths = Array(AMQP::Table).new(1)
         end
         xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
         xdeaths.delete(xd)
@@ -415,7 +415,9 @@ module AvalancheMQ
           death["original-expiration"] = props.expiration
           props.expiration = nil
         end
-        xdeaths.unshift death
+        xdeaths.unshift AMQP::Table.new(death)
+
+        headers["x-death"] = xdeaths
 
         @read_lock.synchronize do
           seg = @segments[sp.segment]
