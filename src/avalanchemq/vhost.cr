@@ -8,6 +8,7 @@ require "./shovel/shovel_store"
 require "./federation/upstream_store"
 require "./client/direct_client"
 require "./sortable_json"
+require "./queue"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -74,7 +75,7 @@ module AvalancheMQ
     end
 
     @queues_to_fsync = Set(Queue).new
-    
+
     def fsync
       return unless @fsync
       @log.debug { "fsync" }

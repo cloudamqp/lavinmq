@@ -616,5 +616,11 @@ module AvalancheMQ
     def in_use?
       !(empty? && @consumers.empty?)
     end
+
+    def fsync_enq
+    end
+
+    def fsync_ack
+    end
   end
 end
