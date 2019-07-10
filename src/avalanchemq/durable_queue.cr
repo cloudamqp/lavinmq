@@ -110,6 +110,14 @@ module AvalancheMQ
       super
     end
 
+    def fsync_enq
+      @enq.fsync(flush_metadata: false)
+    end
+
+    def fsync_ack
+      @ack.fsync(flush_metadata: false)
+    end
+
     private def restore_index
       @log.info "Restoring index"
       @ack.pos = 0

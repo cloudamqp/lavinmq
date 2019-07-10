@@ -73,10 +73,13 @@ module AvalancheMQ
       @outgoing.receive
     end
 
+    @queues_to_fsync = Set(Queue).new
+    
     def fsync
       return unless @fsync
       @log.debug { "fsync" }
       @wfile.fsync(flush_metadata: false)
+      @queues_to_fsync.each &.fsync_enq
       @awaiting_confirm.each do |ch|
         ch.confirm_ack(multiple: true)
       end
@@ -107,7 +110,10 @@ module AvalancheMQ
       ok = false
       queues.each do |q|
         ex.publish_out_count += 1
-        ok = true if q.publish(sp, flush)
+        if q.publish(sp, flush)
+          @queues_to_fsync << q if flush
+          ok = true
+        end
       end
       ok
     end
