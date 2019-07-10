@@ -5,7 +5,6 @@ module AvalancheMQ
   class DurableQueue < Queue
     MAX_ACKS = 4 * 1024**2
     @durable = true
-    @lock = Mutex.new
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
@@ -20,6 +19,7 @@ module AvalancheMQ
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
       @ack.buffer_size = Config.instance.file_buffer_size
       @ack.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
+      @ack.sync = true
       @acks = 0_u32
       restore_index
     end
@@ -69,11 +69,8 @@ module AvalancheMQ
     end
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
-      return false unless super
-      @lock.synchronize do
-        @enq.write_bytes sp
-        @enq.flush if persistent
-      end
+      super || return false
+      @enq.write_bytes sp if persistent
       true
     end
 
@@ -81,9 +78,8 @@ module AvalancheMQ
       super(no_ack) do |env|
         if env && no_ack
           persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
-          @lock.synchronize do
+          if persistent
             @ack.write_bytes env.segment_position
-            @ack.flush if persistent
             compact_index! if (@acks += 1) > MAX_ACKS
           end
         end
@@ -91,10 +87,9 @@ module AvalancheMQ
       end
     end
 
-    def ack(sp : SegmentPosition, flush : Bool)
-      @lock.synchronize do
+    def ack(sp : SegmentPosition, persistent : Bool)
+      if persistent
         @ack.write_bytes sp
-        @ack.flush if flush
         compact_index! if (@acks += 1) > MAX_ACKS
       end
       super
@@ -102,19 +97,19 @@ module AvalancheMQ
 
     def purge
       @log.info "Purging"
-      @lock.synchronize do
-        @enq.truncate
-        @ack.truncate
-        @acks = 0
-      end
+      @enq.truncate
+      @ack.truncate
+      @acks = 0
       super
     end
 
     def fsync_enq
+      @log.debug "fsyncing enq"
       @enq.fsync(flush_metadata: false)
     end
 
     def fsync_ack
+      @log.debug "fsyncing ack"
       @ack.fsync(flush_metadata: false)
     end
 
