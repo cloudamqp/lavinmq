@@ -47,7 +47,7 @@ module AvalancheMQ
       handle_arguments
       @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new
-      @consumer_available = Channel(Nil).new(1)
+      @consumer_available = Channel(Nil).new
       @ready = Deque(SegmentPosition).new(1024)
       @ready_lock = Mutex.new
       @segment_pos = Hash(UInt32, UInt32).new do |h, seg|
@@ -154,7 +154,7 @@ module AvalancheMQ
     end
 
     def close_unused_segments_and_report_used : Set(UInt32)
-      s = Set(UInt32).new
+      s = Set(UInt32).new(@ready.size + @consumers.sum { |c| c.unacked.size })
       @ready.each { |sp| s << sp.segment }
       @consumers.each { |c| c.unacked.each { |sp| s << sp.segment } }
       @segments.each do |seg, f|
@@ -168,7 +168,6 @@ module AvalancheMQ
     end
 
     private def deliver_loop
-      i = 0
       loop do
         break if @closed
         empty = @ready_lock.synchronize { @ready.empty? }
@@ -185,11 +184,11 @@ module AvalancheMQ
           now = Time.now.to_unix_ms
           schedule_expiration_of_queue(now)
           next if schedule_expiration_of_next_msg(now)
+          fsync_ack
           @log.debug "Waiting for consumer"
           @consumer_available.receive
           @log.debug "Consumer available"
         end
-        Fiber.yield if (i += 1) % 1000 == 0
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
         break
