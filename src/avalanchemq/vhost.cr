@@ -198,7 +198,7 @@ module AvalancheMQ
       File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
         f.hint_target_size(MAX_SEGMENT_SIZE)
-        @pos = 0
+        @pos = 0_u32
       end
     end
 
