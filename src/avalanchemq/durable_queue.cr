@@ -51,6 +51,7 @@ module AvalancheMQ
       @enq.buffer_size = Config.instance.file_buffer_size
       @enq.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
       @ack.truncate
+      @ack.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
       @acks = 0
     end
 
