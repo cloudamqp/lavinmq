@@ -44,6 +44,7 @@ module AvalancheMQ
           f.write_bytes next_unacked.as(SegmentPosition)
           next_unacked = unacked.next
         end
+        f.fsync
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
       @enq = File.open(File.join(@index_dir, "enq"), "a")
