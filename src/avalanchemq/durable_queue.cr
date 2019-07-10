@@ -104,18 +104,20 @@ module AvalancheMQ
     end
 
     def fsync_enq
+      return if @closed
       @log.debug "fsyncing enq"
       @enq.fsync(flush_metadata: false)
     end
 
     def fsync_ack
+      return if @closed
       @log.debug "fsyncing ack"
       @ack.fsync(flush_metadata: false)
     end
 
     private def restore_index
       @log.info "Restoring index"
-      @ack.pos = 0
+      @ack.rewind
       sp_size = sizeof(SegmentPosition)
       acked = Array(SegmentPosition).new(@ack.size / sp_size)
       loop do
@@ -128,7 +130,7 @@ module AvalancheMQ
       # we redeclare the ready queue with a larger initial capacity
       capacity = Math.max(@enq.size.to_i64 - @ack.size, sp_size) / sp_size
       @ready = Deque(SegmentPosition).new(capacity)
-      @enq.pos = 0
+      @enq.rewind
       loop do
         sp = SegmentPosition.from_io @enq
         @ready << sp unless acked.includes? sp
