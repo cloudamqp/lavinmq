@@ -16,6 +16,7 @@ module AvalancheMQ
       @enq = File.open(File.join(@index_dir, "enq"), "a+")
       @enq.buffer_size = Config.instance.file_buffer_size
       @enq.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
+      @enq.sync = true
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
       @ack.buffer_size = Config.instance.file_buffer_size
       @ack.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
@@ -48,6 +49,7 @@ module AvalancheMQ
       end
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
       @enq = File.open(File.join(@index_dir, "enq"), "a")
+      @enq.sync = true
       @enq.buffer_size = Config.instance.file_buffer_size
       @enq.hint_target_size(MAX_ACKS * sizeof(SegmentPosition))
       @ack.truncate
