@@ -16,7 +16,7 @@ targets:
 dependencies:
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-    branch: lazy_table
+    version: ~>0.3.0
     # path: ../amq-protocol.cr
   router:
     github: tbrand/router.cr
@@ -27,7 +27,6 @@ dependencies:
     branch: master
   amqp-client:
     github: cloudamqp/amqp-client.cr
-    branch: lazy_table
     # path: ../amqp-client.cr
 
 development_dependencies:
