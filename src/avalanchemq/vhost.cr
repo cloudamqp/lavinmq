@@ -8,7 +8,7 @@ require "./shovel/shovel_store"
 require "./federation/upstream_store"
 require "./client/direct_client"
 require "./sortable_json"
-require "./queue"
+require "./durable_queue"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -74,7 +74,7 @@ module AvalancheMQ
       @outgoing.receive
     end
 
-    @queues_to_fsync = Set(Queue).new
+    @queues_to_fsync = Set(DurableQueue).new
 
     def fsync
       return unless @fsync
@@ -112,7 +112,7 @@ module AvalancheMQ
       queues.each do |q|
         ex.publish_out_count += 1
         if q.publish(sp, flush)
-          @queues_to_fsync << q if flush
+          @queues_to_fsync << q if q.is_a?(DurableQueue) && flush
           ok = true
         end
       end
