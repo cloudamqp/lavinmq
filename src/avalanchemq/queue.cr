@@ -185,7 +185,7 @@ module AvalancheMQ
           now = Time.now.to_unix_ms
           schedule_expiration_of_queue(now)
           next if schedule_expiration_of_next_msg(now)
-          fsync_ack
+          #fsync_ack
           @log.debug "Waiting for consumer"
           @consumer_available.receive
           @log.debug "Consumer available"
