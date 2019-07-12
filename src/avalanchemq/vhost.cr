@@ -166,8 +166,8 @@ module AvalancheMQ
     private def write_to_disk(msg) : SegmentPosition
       if @pos >= MAX_SEGMENT_SIZE
         @segment += 1
-        @wfile.close
         fsync
+        @wfile.close
         @wfile = open_wfile
         spawn gc_segments!, name: "GC Segments #{@name}"
       end
