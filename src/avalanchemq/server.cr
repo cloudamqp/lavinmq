@@ -178,6 +178,8 @@ module AvalancheMQ
       else
         socket.close
       end
+    rescue ex : Errno
+      @log.debug { "HandleConnection exception: #{ex.inspect}" }
     end
 
     private def set_socket_options(socket)
