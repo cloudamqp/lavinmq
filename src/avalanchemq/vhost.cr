@@ -86,6 +86,10 @@ module AvalancheMQ
       end
       @awaiting_confirm.clear
       @fsync = false
+      spawn do
+        sleep 0.2
+        fsync
+      end
     end
 
     def publish_loop
