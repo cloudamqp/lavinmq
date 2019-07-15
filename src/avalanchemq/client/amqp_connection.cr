@@ -14,8 +14,9 @@ module AvalancheMQ
       else
         nil
       end
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
+    rescue ex : IO::Timeout | IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
+      socket.try &.close unless socket.try &.closed?
       nil
     rescue ex : Exception
       log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
