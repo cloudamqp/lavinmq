@@ -4,9 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-- AMQ::Protocol::Table is now backed by an IO::Memory and only parsed on-demand
+## [0.8.0] - 2019-07-16
+
+### Added
 - Fsyncing message store and queue index if publish confirm, when idle or every 200ms
+
+### Changed
+- AMQ::Protocol::Table is now backed by an IO::Memory and only parsed on-demand
 
 ## [0.7.13] - 2019-07-07
 
