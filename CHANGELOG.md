@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 - AMQ::Protocol::Table is now backed by an IO::Memory and only parsed on-demand
+- Fsyncing message store and queue index if publish confirm, when idle or every 200ms
 
 ## [0.7.13] - 2019-07-07
 
