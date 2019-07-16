@@ -47,6 +47,7 @@ if config.data_dir.empty?
 end
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
+puts "Pid: #{Process.pid}"
 
 fd_limit = System.file_descriptor_limit
 puts "FD limit: #{fd_limit}"
