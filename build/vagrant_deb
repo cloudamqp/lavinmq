@@ -7,7 +7,7 @@ do
   #if [[ $REPLY =~ ^[Yy]$ ]]
   #then
     vagrant up $dist
-    vagrant ssh $dist -c "cd /vagrant; shards build --release --production && build/deb $revision"
+    vagrant ssh $dist -c "cd /vagrant; build/deb $revision"
     vagrant halt $dist
   #fi
 done
