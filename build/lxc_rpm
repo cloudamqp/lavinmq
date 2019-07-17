@@ -1,0 +1,27 @@
+#!/bin/bash -eu
+revision=$1
+
+for name in centos_7
+do
+  if ! ( lxc-info -n $name )
+  then
+    dist=$(echo $name | cut -d_ -f1)
+    rel=$(echo $name | cut -d_ -f2)
+
+    lxc-create -t download -n $name -- -d $dist -r $rel -a amd64
+    echo "lxc.mount.entry=$PWD mnt none bind 0 0" >> /var/lib/lxc/$name/config
+
+    lxc-start -n $name
+    lxc-attach -n $name <<-EOF
+    while ! (ping 1.1.1.1 -c 1); do sleep 1; done
+    rpm --import https://dist.crystal-lang.org/rpm/RPM-GPG-KEY
+    echo [crystal] >> /etc/yum.repos.d/crystal.repo 
+    echo name = Crystal >> /etc/yum.repos.d/crystal.repo 
+    echo baseurl = https://dist.crystal-lang.org/rpm/ >> /etc/yum.repos.d/crystal.repo 
+    yum install -y crystal rpm-build rpmlint git help2man zlib-devel openssl-devel which
+EOF
+  fi
+  lxc-start -n $name > /dev/null
+  lxc-attach -n $name -- sh -c "cd /mnt; LC_ALL=en_US.UTF-8 build/rpm $revision"
+  lxc-stop -n $name
+done
