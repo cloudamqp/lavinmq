@@ -93,12 +93,10 @@ module AvalancheMQ
     end
 
     def publish_loop
-      i = 0
       loop do
         fsync if @incoming.empty?
         msg, immediate, confirm = @incoming.receive
         ok = actual_publish(msg, immediate, confirm)
-        Fiber.yield if (i += 1) % 2000 == 0
         @outgoing.send(ok)
       rescue Channel::ClosedError
         break

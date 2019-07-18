@@ -118,7 +118,10 @@ module AvalancheMQ
       end
 
       def add_content(frame)
-        IO.copy(frame.body, @next_msg_body, frame.body_size)
+        copied = IO.copy(frame.body, @next_msg_body, frame.body_size)
+        if copied != frame.body_size
+          raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
+        end
         if @next_msg_body.pos == @next_msg_size
           @next_msg_body.rewind
           finish_publish(@next_msg_body)
@@ -148,6 +151,7 @@ module AvalancheMQ
         else
           basic_return(msg)
         end
+        Fiber.yield if @publish_count % 2048 == 0
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
         confirm_nack
