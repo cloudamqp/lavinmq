@@ -9,6 +9,7 @@ require "./federation/upstream_store"
 require "./client/direct_client"
 require "./sortable_json"
 require "./durable_queue"
+require "./exchange"
 require "digest/sha1"
 
 module AvalancheMQ
@@ -103,10 +104,13 @@ module AvalancheMQ
       end
     end
 
+    @visited = Set(Exchange).new
+    @found_queues = Set(Queue).new
+
     def actual_publish(msg, immediate, confirm) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
-      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers)
+      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @visited, @found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
       return false if queues.empty?
       return false if immediate && !queues.any? { |q| q.immediate_delivery? }
@@ -120,6 +124,8 @@ module AvalancheMQ
           ok = true
         end
       end
+      @visited.clear
+      @found_queues.clear
       ok
     end
 
