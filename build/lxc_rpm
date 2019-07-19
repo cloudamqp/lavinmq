@@ -23,6 +23,11 @@ do
 EOF
   fi
   lxc-start -n $name > /dev/null
-  lxc-attach -n $name -- sh -c "cd /mnt; LC_ALL=en_US.UTF-8 build/rpm $revision"
+  lxc-attach -n $name <<-EOF
+    export LC_ALL=en_US.UTF-8
+    while ! (ping 1.1.1.1 -c 1); do sleep 1; done
+    cd /mnt
+    build/rpm $revision"
+EOF
   lxc-stop -n $name
 done
