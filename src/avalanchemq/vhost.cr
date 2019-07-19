@@ -565,16 +565,17 @@ module AvalancheMQ
       @log.info "Garbage collecting segments"
       referenced_segments = Set(UInt32).new([@segment])
       @queues.each_value do |q|
-        used = q.close_unused_segments_and_report_used
-        referenced_segments.concat used
+        q.referenced_segments(referenced_segments)
       end
       @log.info "#{referenced_segments.size} segments in use"
 
-      Dir.glob(File.join(@data_dir, "msgs.*")).each do |f|
-        seg = File.basename(f)[5, 10].to_u32
-        next if referenced_segments.includes? seg
-        @log.info "Deleting segment #{seg}"
-        File.delete f
+      Dir.each(@data_dir) do |f|
+        if f.starts_with? "msgs."
+          seg = f[5, 10].to_u32
+          next if referenced_segments.includes? seg
+          @log.info "Deleting segment #{seg}"
+          File.delete File.join(@data_dir, f)
+        end
       end
     end
   end

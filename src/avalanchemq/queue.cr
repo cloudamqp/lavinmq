@@ -153,18 +153,17 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def close_unused_segments_and_report_used : Set(UInt32)
-      s = Set(UInt32).new(@ready.size + @consumers.sum { |c| c.unacked.size })
+    def referenced_segments(s : Set(UInt32))
       @ready.each { |sp| s << sp.segment }
       @consumers.each { |c| c.unacked.each { |sp| s << sp.segment } }
-      @segments.each do |seg, f|
+      @segments.delete_if do |seg, f|
         unless s.includes? seg
           @log.debug { "Closing non referenced segment #{seg}" }
           f.close
+          next true
         end
+        false
       end
-      @segments.select! s.to_a
-      s
     end
 
     private def deliver_loop
