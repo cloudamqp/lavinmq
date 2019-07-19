@@ -1,7 +1,8 @@
 #!/bin/bash -eu
 revision=$1
+dists=${2:-centos_7}
 
-for name in centos_7
+for name in $dists
 do
   if ! ( lxc-info -n $name )
   then
@@ -15,8 +16,8 @@ do
     lxc-attach -n $name <<-EOF
     while ! (ping 1.1.1.1 -c 1); do sleep 1; done
     rpm --import https://dist.crystal-lang.org/rpm/RPM-GPG-KEY
-    echo [crystal] >> /etc/yum.repos.d/crystal.repo 
-    echo name = Crystal >> /etc/yum.repos.d/crystal.repo 
+    echo [crystal] >> /etc/yum.repos.d/crystal.repo
+    echo name = Crystal >> /etc/yum.repos.d/crystal.repo
     echo baseurl = https://dist.crystal-lang.org/rpm/ >> /etc/yum.repos.d/crystal.repo 
     yum install -y crystal rpm-build rpmlint git help2man zlib-devel openssl-devel which
 EOF

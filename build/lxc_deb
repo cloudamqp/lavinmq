@@ -1,7 +1,8 @@
 #!/bin/bash -eu
 revision=$1
+dists=${2:-ubuntu_bionic ubuntu_xenial debian_stretch debian_buster}
 
-for name in ubuntu_bionic ubuntu_xenial debian_stretch debian_buster
+for name in $dists
 do
   if ! ( lxc-info -n $name )
   then
