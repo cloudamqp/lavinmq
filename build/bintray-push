@@ -10,7 +10,7 @@ do
   arch=amd64
   name=avalanchemq_${pkg_version}-${pkg_revision}_${arch}.deb
   echo "Uploading $dist/$name"
-  curl -nT $name "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=$arch" > /dev/null
+  curl -nfT $name "https://api.bintray.com/content/84codes/debian/avalanchemq/$pkg_version-$pkg_revision/pool/$dist/$name;deb_distribution=$dist;deb_component=avalanchemq;deb_architecture=$arch" > /dev/null
   echo
   popd
 done
@@ -23,7 +23,7 @@ do
   for name in $(ls *${pkg_version}*)
   do
     echo "Uploading $name"
-    curl -nT $name "https://api.bintray.com/content/84codes/rpm/avalanchemq/$pkg_version-$pkg_revision/$arch/$name" > /dev/null
+    curl -nfT $name "https://api.bintray.com/content/84codes/rpm/avalanchemq/$pkg_version-$pkg_revision/$arch/$name" > /dev/null
   done
   popd
 done
