@@ -6,8 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2019-07-19
+
 ### Changed
 - Restored fairness between publishers
+- Use a SparseArray as channel store, for faster access times
 
 ## [0.8.0] - 2019-07-16
 
