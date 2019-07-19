@@ -6,6 +6,7 @@ require "./channel"
 require "../user"
 require "../stats"
 require "../sortable_json"
+require "../sparse_array"
 
 module AvalancheMQ
   abstract class Client
@@ -34,7 +35,7 @@ module AvalancheMQ
                    @log : Logger,
                    @client_properties = AMQP::Table.new)
       @connected_at = Time.utc_now.to_unix_ms
-      @channels = Hash(UInt16, Client::Channel).new
+      @channels = SparseArray(Client::Channel).new
       @exclusive_queues = Array(Queue).new
     end
 
