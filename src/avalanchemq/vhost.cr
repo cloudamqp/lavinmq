@@ -561,13 +561,15 @@ module AvalancheMQ
       segment
     end
 
+    @referenced_segments = Set(UInt32).new
+
     private def gc_segments!
       @log.info "Garbage collecting segments"
-      referenced_segments = Set(UInt32).new([@segment])
+      @referenced_segments << @segment
       @queues.each_value do |q|
-        q.referenced_segments(referenced_segments)
+        q.referenced_segments(@referenced_segments)
       end
-      @log.info "#{referenced_segments.size} segments in use"
+      @log.info "#{@referenced_segments.size} segments in use"
 
       Dir.each(@data_dir) do |f|
         if f.starts_with? "msgs."
@@ -577,6 +579,7 @@ module AvalancheMQ
           File.delete File.join(@data_dir, f)
         end
       end
+      @referenced_segments.clear
     end
   end
 end
