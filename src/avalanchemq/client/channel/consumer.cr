@@ -13,7 +13,8 @@ module AvalancheMQ
                        @no_ack : Bool, @exclusive : Bool)
           @log = @channel.log.dup
           @log.progname += " consumer=#{@tag}"
-          @unacked = Deque(SegmentPosition).new(@channel.prefetch_count)
+          initial_size = @channel.prefetch_count.zero? ? 1024 : @channel.prefetch_count
+          @unacked = Deque(SegmentPosition).new(initial_size)
         end
 
         def name
