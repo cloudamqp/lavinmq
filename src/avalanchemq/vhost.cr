@@ -574,7 +574,7 @@ module AvalancheMQ
       Dir.each(@data_dir) do |f|
         if f.starts_with? "msgs."
           seg = f[5, 10].to_u32
-          next if referenced_segments.includes? seg
+          next if @referenced_segments.includes? seg
           @log.info "Deleting segment #{seg}"
           File.delete File.join(@data_dir, f)
         end
