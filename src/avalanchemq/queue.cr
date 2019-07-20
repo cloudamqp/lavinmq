@@ -169,8 +169,7 @@ module AvalancheMQ
     private def deliver_loop
       loop do
         break if @closed
-        empty = @ready_lock.synchronize { @ready.empty? }
-        if empty
+        if @ready.empty?
           @log.debug { "Waiting for msgs" }
           @message_available.receive
           @log.debug { "Message available" }
@@ -302,7 +301,7 @@ module AvalancheMQ
         end
       end
       @log.debug { "Enqueuing message sp=#{sp}" }
-      @ready_lock.synchronize { @ready.push sp }
+      @ready.push sp
       @message_available.send nil unless @message_available.full?
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
@@ -474,7 +473,7 @@ module AvalancheMQ
 
     private def get(no_ack : Bool, &blk : Envelope? -> Nil)
       return yield nil if @closed
-      sp = @ready_lock.synchronize { @ready.shift? }
+      sp = @ready.shift?
       return yield nil if sp.nil?
       @read_lock.synchronize do
         read(sp) do |env|
