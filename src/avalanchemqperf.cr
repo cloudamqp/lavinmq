@@ -101,8 +101,9 @@ class Throughput < Perf
   private def pub
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
-    data = "0" * @size
+    data = IO::Memory.new(Bytes.new(@size))
     loop do
+      data.rewind
       if @confirm
         ch.basic_publish_confirm data, @exchange, @routing_key
       else
@@ -110,7 +111,7 @@ class Throughput < Perf
       end
       @pubs += 1
       if @rate.zero?
-        Fiber.yield if @pubs % 1000 == 0
+        Fiber.yield if @pubs % 2048 == 0
       else
         sleep 1.0 / @rate
       end
@@ -126,7 +127,7 @@ class Throughput < Perf
       m.ack unless @no_ack
       @consumes += 1
       if @consume_rate.zero?
-        Fiber.yield if @consumes % 1000 == 0
+        Fiber.yield if @consumes % 2048 == 0
       else
         sleep 1.0 / @consume_rate
       end
