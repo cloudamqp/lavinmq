@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Faster queue matching on publishing by reusing a Set
+- Faster GC of unused message store segments
+
 ## [0.8.1] - 2019-07-19
 
 ### Changed
