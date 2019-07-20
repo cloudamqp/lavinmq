@@ -1,5 +1,6 @@
 class IO
   def self.copy(src, dst, limit : Int)
+    return 0 if limit.zero?
     raise ArgumentError.new("Negative limit") if limit < 0
 
     buffer = uninitialized UInt8[131_072]
