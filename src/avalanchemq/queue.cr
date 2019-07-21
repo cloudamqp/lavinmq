@@ -201,6 +201,10 @@ module AvalancheMQ
 
     private def find_consumer
       @log.debug { "Looking for available consumers" }
+      if @consumers.size == 1
+        c = @consumers[0]
+        return c if c.accepts?
+      end
       @consumers.size.times do
         c = @consumers.shift
         @consumers.push c
