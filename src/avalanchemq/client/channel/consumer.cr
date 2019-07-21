@@ -39,7 +39,7 @@ module AvalancheMQ
           ok = @channel.client.deliver(deliver, msg)
           @channel.deliver_count += 1 if ok
           @channel.redeliver_count += 1 if ok && redelivered
-          Fiber.yield if @channel.deliver_count % 2048 == 0
+          Fiber.yield if @channel.deliver_count % 8192 == 0
           ok
         end
 

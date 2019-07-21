@@ -151,7 +151,7 @@ module AvalancheMQ
         else
           basic_return(msg)
         end
-        Fiber.yield if @publish_count % 2048 == 0
+        Fiber.yield if @publish_count % 8192 == 0
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
         confirm_nack
