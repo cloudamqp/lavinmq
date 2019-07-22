@@ -101,15 +101,15 @@ Wish list
 ## Performance
 
 A single m5.large EC2 instance, with a 500 GB GP2 EBS drive (XFS formatted),
-can sustain about 150.000 messages/s (1KB each, single queue, single producer,
+can sustain about 250.000 messages/s (16 byte msg body, single queue, single producer,
 single consumer). When the message size is 1MB the instance's network speed
 becomes the bottleneck at 10 Gbit/s. When the OS disk cache is full
 the EBS performance becomes the bottleneck, at about 250 MB/s.
 
 Enqueueing 10 million messages only uses 80MB RAM. 8000
 connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
-MB RAM. About 20.000 bindings per second can be made to both durable and
-non-durable queues.
+MB RAM. About 1.600 bindings per second can be made to non-durable queues,
+and about 1000 bindings/second to durable queues.
 
 ## Installation
 
@@ -189,6 +189,8 @@ sudo perf top -p $(ps -C avalanchemq -o pid=)
 A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
 
 In OS X the app [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
+
+Memory garage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment).
 
 ## Contributing
 
