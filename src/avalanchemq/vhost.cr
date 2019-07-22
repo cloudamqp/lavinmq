@@ -397,6 +397,7 @@ module AvalancheMQ
       @save.close
       Fiber.yield
       compact!
+      @wfile.close
     end
 
     def delete
