@@ -59,7 +59,7 @@ amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
 
 if !config.cert_path.empty? && !config.key_path.empty?
   spawn(name: "AMQPS listening on #{config.tls_port}") do
-    amqp_server.not_nil!.listen_tls(config.tls_port, config.cert_path, config.key_path)
+    amqp_server.not_nil!.listen_tls(config.bind, config.tls_port, config.cert_path, config.key_path)
   end
 end
 
@@ -70,7 +70,7 @@ if !config.unix_path.empty?
 end
 
 spawn(name: "AMQP listening on #{config.port}") do
-  amqp_server.not_nil!.listen(config.port)
+  amqp_server.not_nil!.listen(config.bind, config.port)
 end
 
 http_server = AvalancheMQ::HTTP::Server.new(amqp_server, config.mgmt_port, log.dup)

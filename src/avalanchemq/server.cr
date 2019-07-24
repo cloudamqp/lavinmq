@@ -41,8 +41,8 @@ module AvalancheMQ
       spawn health_loop, name: "Server#health_loop"
     end
 
-    def listen(port = 5672)
-      s = TCPServer.new("::", port)
+    def listen(bind = "::", port = 5672)
+      s = TCPServer.new(bind, port)
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
       loop do
@@ -58,8 +58,8 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
-    def listen_tls(port, cert_path : String, key_path : String, ca_path : String? = nil)
-      s = TCPServer.new("::", port)
+    def listen_tls(bind, port, cert_path : String, key_path : String, ca_path : String? = nil)
+      s = TCPServer.new(bind, port)
       @listeners << s
       context = OpenSSL::SSL::Context::Server.new
       context.certificate_chain = cert_path
