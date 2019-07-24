@@ -100,11 +100,13 @@ Wish list
 
 ## Performance
 
-A single m5.large EC2 instance, with a 500 GB GP2 EBS drive (XFS formatted),
+A single c5.large EC2 instance, with a 2 TB ST1 EBS drive (XFS formatted),
 can sustain about 250.000 messages/s (16 byte msg body, single queue, single producer,
-single consumer). When the message size is 1MB the instance's network speed
-becomes the bottleneck at 10 Gbit/s. When the OS disk cache is full
-the EBS performance becomes the bottleneck, at about 250 MB/s.
+single consumer). A single producer can push 375.000 msgs/s and if there's no producers
+consumers can receive 730.000 msgs/s. When the message size is 1MB the
+instance's network speed becomes the bottleneck at 10 Gbit/s. When the
+OS disk cache is full the EBS performance becomes the bottleneck,
+at about 500 MB/s.
 
 Enqueueing 10 million messages only uses 80MB RAM. 8000
 connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
