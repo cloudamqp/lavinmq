@@ -178,7 +178,7 @@ module AvalancheMQ
 
     def cleanup
       super
-      @heartbeat_loop.wakeup
+      @heartbeat_loop.wakeup unless @heartbeat_loop.dead?
     end
 
     private def heartbeat_loop

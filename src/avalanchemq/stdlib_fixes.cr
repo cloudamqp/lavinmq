@@ -4,7 +4,7 @@ class Fiber
   end
 
   def wakeup
-    return if dead?
+    raise "Can't wakeup dead fibers" if dead?
     raise "Can't wakeup one self" if self == Fiber.current
     @resume_event.try &.delete
     Crystal::Scheduler.enqueue(Fiber.current)
