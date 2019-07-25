@@ -1,8 +1,13 @@
-require "./config"
-
 class Fiber
   def self.list(&blk : Fiber -> Nil)
     @@fibers.unsafe_each(&blk)
+  end
+
+  def wakeup
+    raise "Can't wakeup one self" if self == Fiber.current
+    @resume_event.try &.delete
+    Crystal::Scheduler.enqueue(Fiber.current)
+    Crystal::Scheduler.resume(self)
   end
 end
 
