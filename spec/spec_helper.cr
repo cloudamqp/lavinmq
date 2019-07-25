@@ -91,7 +91,7 @@ module TestHelpers
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
-    spawn { @@s.try &.listen_tls(AMQPS_PORT, cert, key, ca) }
+    spawn { @@s.try &.listen_tls("localhost", AMQPS_PORT, cert, key, ca) }
     spawn { @@h.try &.listen }
     Fiber.yield
   end
