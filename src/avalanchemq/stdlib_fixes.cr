@@ -4,10 +4,19 @@ class Fiber
   end
 
   def wakeup
+    return if dead?
     raise "Can't wakeup one self" if self == Fiber.current
     @resume_event.try &.delete
     Crystal::Scheduler.enqueue(Fiber.current)
     Crystal::Scheduler.resume(self)
+  end
+end
+
+struct Crystal::Event
+  def delete
+    unless LibEvent2.event_del(@event) == 0
+      raise "Error deleting event"
+    end
   end
 end
 

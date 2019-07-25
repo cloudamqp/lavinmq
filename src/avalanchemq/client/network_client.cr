@@ -13,6 +13,7 @@ module AvalancheMQ
     @remote_address : Socket::IPAddress
     @local_address : Socket::IPAddress
     @socket : Socket | OpenSSL::SSL::Socket
+    @heartbeat_loop : Fiber
 
     def initialize(@socket,
                    @remote_address,
@@ -29,8 +30,8 @@ module AvalancheMQ
       @auth_mechanism = start_ok.mechanism
       name = "#{@remote_address} -> #{@local_address}"
       super(name, vhost, user, log, start_ok.client_properties)
-      spawn heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
+      @heartbeat_loop = spawn(heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}")
     end
 
     def self.start(socket, remote_address, local_address, vhosts, users, log)
@@ -173,6 +174,11 @@ module AvalancheMQ
     rescue ex
       @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
       raise ex
+    end
+
+    def cleanup
+      super
+      @heartbeat_loop.wakeup
     end
 
     private def heartbeat_loop

@@ -152,8 +152,6 @@ module AvalancheMQ
 
     def cleanup
       @running = false
-      @log.debug "Yielding before cleaning up"
-      Fiber.yield
       @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)
       @exclusive_queues.clear
