@@ -2,7 +2,10 @@ class Fiber
   def self.list(&blk : Fiber -> Nil)
     @@fibers.unsafe_each(&blk)
   end
+end
 
+# https://github.com/crystal-lang/crystal/pull/7998
+class Fiber
   def wakeup
     raise "Can't wakeup dead fibers" if dead?
     raise "Can't wakeup one self" if self == Fiber.current
@@ -23,6 +26,7 @@ end
 require "openssl"
 require "io"
 
+# https://github.com/crystal-lang/crystal/pull/7820
 abstract class OpenSSL::SSL::Socket
   def read_timeout=(read_timeout)
     io = @bio.io
@@ -43,6 +47,7 @@ abstract class OpenSSL::SSL::Socket
   end
 end
 
+# No PR yet
 lib LibC
   {% if flag?(:linux) %}
     fun get_phys_pages : Int32
@@ -67,6 +72,7 @@ module System
   end
 end
 
+# https://github.com/crystal-lang/crystal/pull/7930
 module IO::Buffered
   @buffer_size = 8192
 
@@ -165,6 +171,7 @@ module IO::Buffered
   end
 end
 
+# No PR yet
 class File
   def hint_target_size(size)
     {% if flag?(:linux) %}
