@@ -253,3 +253,115 @@ class Channel::Buffered(T) < Channel(T)
     end
   end
 end
+
+# https://github.com/crystal-lang/crystal/pull/8006
+class Channel
+  struct TimeoutAction
+    include SelectAction
+
+    def initialize(timeout : Time::Span)
+      @timeout_at = Time.monotonic + timeout
+    end
+
+    def ready?
+      Fiber.current.timed_out?
+    end
+
+    def execute : Nil
+      Fiber.current.timed_out = false
+    end
+
+    def wait
+      Fiber.timeout @timeout_at - Time.monotonic
+    end
+
+    def unwait
+      Fiber.cancel_timeout
+    end
+  end
+end
+
+def timeout_select_action(timeout)
+  Channel::TimeoutAction.new(timeout)
+end
+
+struct Crystal::Event
+  def delete
+    unless LibEvent2.event_del(@event) == 0
+      raise "Error deleting event"
+    end
+  end
+end
+
+module Crystal::EventLoop
+  def self.create_timeout_event(fiber)
+    @@eb.new_event(-1, LibEvent2::EventFlags::None, fiber) do |s, flags, data|
+      f = data.as(Fiber)
+      f.timed_out = true
+      f.resume
+    end
+  end
+end
+
+class Crystal::Scheduler
+  def self.timeout(time : Time::Span) : Nil
+    Thread.current.scheduler.timeout(time)
+  end
+
+  def self.cancel_timeout : Nil
+    Thread.current.scheduler.cancel_timeout
+  end
+
+  protected def timeout(time : Time::Span) : Nil
+    @current.timeout_event.add(time)
+  end
+
+  protected def cancel_timeout : Nil
+    @current.timeout_event.delete
+  end
+end
+
+class Fiber
+  @timeout_event : Crystal::Event?
+  property? timed_out = false
+
+  # :nodoc:
+  def timeout_event
+    @timeout_event ||= Crystal::EventLoop.create_timeout_event(self)
+  end
+
+  # The current fiber will resume after a period of time
+  # and have the property `timed_out` set to true.
+  # The timeout can be cancelled with `cancel_timeout`
+  def self.timeout(timeout : Time::Span?) : Nil
+    Crystal::Scheduler.timeout(timeout)
+  end
+
+  def self.cancel_timeout
+    Crystal::Scheduler.cancel_timeout
+  end
+
+  def run
+    GC.unlock_read
+    @proc.call
+  rescue ex
+    if name = @name
+      STDERR.print "Unhandled exception in spawn(name: #{name}): "
+    else
+      STDERR.print "Unhandled exception in spawn: "
+    end
+    ex.inspect_with_backtrace(STDERR)
+    STDERR.flush
+  ensure
+    Fiber.stack_pool.release(@stack)
+    # Remove the current fiber from the linked list
+    @@fibers.delete(self)
+
+    # Delete the resume event if it was used by `yield` or `sleep`
+    @resume_event.try &.free
+    @timeout_event.try &.free
+
+    @alive = false
+    Crystal::Scheduler.reschedule
+  end
+end
