@@ -287,13 +287,13 @@ module AvalancheMQ
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive || q.match?(frame)
           unless frame.no_wait
+            q.redeclare
             send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
               q.message_count, q.consumer_count)
           end
         else
           send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
         end
-        q.last_get_time = Time.now.to_unix_ms
       elsif frame.passive
         send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
       elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
