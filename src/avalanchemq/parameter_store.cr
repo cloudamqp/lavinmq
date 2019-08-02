@@ -44,6 +44,12 @@ module AvalancheMQ
       end
     end
 
+    def each
+      @parameters.each do |kv|
+        yield kv
+      end
+    end
+
     def close
       save!
     end

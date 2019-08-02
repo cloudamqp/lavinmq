@@ -13,6 +13,12 @@ module AvalancheMQ
 
     forward_missing_to @vhosts
 
+    def each(&blk)
+      @vhosts.each do |kv|
+        yield kv
+      end
+    end
+
     def create(name, save = true)
       if v = @vhosts[name]?
         return v
@@ -38,7 +44,7 @@ module AvalancheMQ
 
     def to_json(json : JSON::Builder)
       json.array do
-        each_value do |vhost|
+        @vhosts.each_value do |vhost|
           vhost.to_json(json)
         end
       end

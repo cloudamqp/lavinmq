@@ -43,5 +43,11 @@ module AvalancheMQ
       @vhost.log.info { "Shovel '#{name}' deleted" }
       shovel
     end
+
+    def each
+      @shovels.each_value do |v|
+        yield v
+      end
+    end
   end
 end

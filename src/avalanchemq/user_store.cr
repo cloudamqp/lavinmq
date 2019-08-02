@@ -12,6 +12,12 @@ module AvalancheMQ
 
     forward_missing_to @users
 
+    def each
+      @users.each do |kv|
+        yield kv
+      end
+    end
+
     # Adds a user to the use store
     # Returns nil if user is already created
     def create(name, password, tags = Array(Tag).new, save = true)

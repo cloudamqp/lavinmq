@@ -10,7 +10,11 @@ module AvalancheMQ
       def initialize(@vhost : VHost)
       end
 
-      forward_missing_to @upstreams.each_value
+      def each
+        @upstreams.each_value do |v|
+          yield v
+        end
+      end
 
       def create_upstream(name, config)
         delete_upstream(name)
