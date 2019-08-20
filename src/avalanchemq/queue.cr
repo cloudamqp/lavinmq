@@ -394,7 +394,7 @@ module AvalancheMQ
             expire_msg(meta, sp, :expired)
           else
             spawn(expire_later(expire_in, meta, sp),
-                  name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+              name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
             break
           end
         else
@@ -473,7 +473,7 @@ module AvalancheMQ
             @segment_pos[sp.segment] = body_pos
           end
           msg = Message.new(meta.timestamp, dlx.to_s,
-                            dlrk.to_s, props, meta.size, seg)
+            dlrk.to_s, props, meta.size, seg)
           @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
           @vhost.publish msg
         end
