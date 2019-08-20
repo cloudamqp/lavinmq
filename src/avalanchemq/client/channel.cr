@@ -167,8 +167,7 @@ module AvalancheMQ
       def confirm_nack(multiple = false)
         return unless @confirm
         @confirm_count += 1 # Stats
-        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple,
-                                          requeue: false)
+        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple, requeue: false)
       end
 
       private def direct_reply?(msg) : Bool
@@ -176,9 +175,9 @@ module AvalancheMQ
         consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
         @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
           deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
-                                                    1_u64, false,
-                                                    msg.exchange_name,
-                                                    msg.routing_key)
+            1_u64, false,
+            msg.exchange_name,
+            msg.routing_key)
           ch.deliver(deliver, msg)
           return true
         end
@@ -200,7 +199,8 @@ module AvalancheMQ
           retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
         end
-        confirm_nack
+        # basic.nack will only be delivered if an internal error occurs...
+        confirm_ack
       end
 
       def deliver(frame, msg)
