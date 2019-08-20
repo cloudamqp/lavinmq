@@ -35,7 +35,7 @@ module AvalancheMQ
                    @log : Logger,
                    @client_properties = AMQP::Table.new)
       @connected_at = Time.utc_now.to_unix_ms
-      @channels = SparseArray(Client::Channel).new
+      @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
     end
 
