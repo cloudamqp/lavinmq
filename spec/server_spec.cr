@@ -347,14 +347,22 @@ describe AvalancheMQ::Server do
       args = AMQP::Client::Arguments.new
       args["x-max-length"] = 1_i64
       args["x-overflow"] = "reject-publish"
-      q = ch.queue("", args: args)
-      q.publish_confirm("m1").should be_true
-      q.publish_confirm("m2").should be_false
+      q1 = ch.queue("test1", durable: true, args: args)
+      q2 = ch.queue("test2", durable: true)
+      x1 = ch.exchange("x345", "topic")
+      q1.bind(x1.name, "rk")
+      q2.bind(x1.name, "rk")
+      x1.publish_confirm("m1", "rk").should be_true
+      x1.publish_confirm("m2", "rk").should be_false
+      q1.publish_confirm("m3").should be_false
+      q2.publish_confirm("m4").should be_true
       msgs = [] of AMQP::Client::Message
-      q.subscribe { |msg| msgs << msg }
+      q1.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
     end
+  ensure
+    s.vhosts["/"].delete_exchange("x345")
   end
 
   it "drop overflow when max-length is applied" do

@@ -332,13 +332,15 @@ module AvalancheMQ
       }
     end
 
+    class RejectOverFlow < Exception; end
+
     def publish(sp : SegmentPosition, flush = false) : Bool
       return false if @closed
       if @max_length.try { |ml| @ready.size >= ml }
         @log.debug { "Overflow #{@max_length} #{@reject_on_overflow ? "reject-publish" : "drop-head"}" }
         if @reject_on_overflow
           @log.debug { "Overflow reject message sp=#{sp}" }
-          return false
+          raise RejectOverFlow.new
         else
           drophead
         end

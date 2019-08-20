@@ -152,6 +152,9 @@ module AvalancheMQ
           basic_return(msg)
         end
         Fiber.yield if @publish_count % 8192 == 0
+      rescue Queue::RejectOverFlow
+        @confirm_total += 1 if @confirm
+        confirm_nack
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
         confirm_nack

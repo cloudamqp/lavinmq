@@ -68,11 +68,13 @@ module AvalancheMQ
     end
 
     @incoming = Channel(Tuple(Message, Bool, Bool)).new
-    @outgoing = Channel(Bool).new
+    @outgoing = Channel(Tuple(Bool, Exception?)).new
 
     def publish(msg : Message, immediate = false, confirm = false)
-      @incoming.send({ msg, immediate, confirm })
-      @outgoing.receive
+      @incoming.send({msg, immediate, confirm})
+      ok, ex = @outgoing.receive
+      raise ex unless ex.nil?
+      ok
     end
 
     @queues_to_fsync = Set(DurableQueue).new
@@ -97,8 +99,8 @@ module AvalancheMQ
       loop do
         fsync if @incoming.empty?
         msg, immediate, confirm = @incoming.receive
-        ok = actual_publish(msg, immediate, confirm)
-        @outgoing.send(ok)
+        res_tuple = actual_publish(msg, immediate, confirm)
+        @outgoing.send(res_tuple)
       rescue Channel::ClosedError
         break
       end
@@ -107,26 +109,37 @@ module AvalancheMQ
     @visited = Set(Exchange).new
     @found_queues = Set(Queue).new
 
-    def actual_publish(msg, immediate, confirm) : Bool
-      ex = @exchanges[msg.exchange_name]? || return false
+    # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
+    # should be Acks, apart from Exceptions.
+    # As long as at least one queue reject the publish due to overflow a Nack should be sent,
+    # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
+    # So a Bool return from publish if not engough to cover all cases, hence the Tuple typed
+    # @outgoing channel / Anders
+    def actual_publish(msg, immediate, confirm) : Tuple(Bool, Exception?)
+      ex = @exchanges[msg.exchange_name]? || return {false, nil}
       ex.publish_in_count += 1
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @visited, @found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
-      return false if queues.empty?
-      return false if immediate && !queues.any? { |q| q.immediate_delivery? }
+      return {false, nil} if queues.empty?
+      return {false, nil} if immediate && !queues.any? { |q| q.immediate_delivery? }
       sp = write_to_disk(msg)
       flush = msg.properties.delivery_mode == 2_u8
       ok = false
+      error = nil
       queues.each do |q|
         ex.publish_out_count += 1
-        if q.publish(sp, flush)
+        begin
+          next unless q.publish(sp, flush)
           @queues_to_fsync << q if q.is_a?(DurableQueue) && flush
           ok = true
+        rescue e
+          error = e
         end
       end
+      {ok, error}
+    ensure
       @visited.clear
       @found_queues.clear
-      ok
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
