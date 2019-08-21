@@ -31,20 +31,10 @@ module AvalancheMQ
             @log.debug { "Read from socket #{frame.inspect}" }
             case frame
             when AMQP::Frame::Basic::Ack
-              next true unless @ack_mode == AckMode::OnConfirm
-              if frame.multiple
-                with_multiple(frame.delivery_tag) { |t| ack(t) }
-              else
-                ack(@delivery_tags[frame.delivery_tag])
-              end
+              handle_ack(frame)
               true
             when AMQP::Frame::Basic::Nack
-              next unless @ack_mode == AckMode::OnConfirm
-              if frame.multiple
-                with_multiple(frame.delivery_tag) { |t| reject(t) }
-              else
-                reject(@delivery_tags[frame.delivery_tag])
-              end
+              handle_nack(frame)
               true
             when AMQP::Frame::Basic::Return
               reject(@message_count) if @ack_mode == AckMode::OnConfirm
@@ -65,6 +55,24 @@ module AvalancheMQ
         # @done will be closed if the shovel is actually done, so we can always try to send true
         @done.send(true) unless @done.closed?
         @socket.close unless @socket.closed?
+      end
+
+      private def handle_ack(frame)
+        return unless @ack_mode == AckMode::OnConfirm
+        if frame.multiple
+          with_multiple(frame.delivery_tag) { |t| ack(t) }
+        else
+          ack(@delivery_tags[frame.delivery_tag])
+        end
+      end
+
+      private def handle_nack(frame)
+        return unless @ack_mode == AckMode::OnConfirm
+        if frame.multiple
+          with_multiple(frame.delivery_tag) { |t| reject(t) }
+        else
+          reject(@delivery_tags[frame.delivery_tag])
+        end
       end
 
       def forward(frame)

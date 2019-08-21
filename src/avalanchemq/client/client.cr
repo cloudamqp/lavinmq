@@ -61,6 +61,7 @@ module AvalancheMQ
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def process_frame(frame)
       @recv_oct_count += frame.bytesize + 8
       case frame
@@ -283,17 +284,7 @@ module AvalancheMQ
 
     private def declare_queue(frame)
       if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Exclusive queue")
-        elsif frame.passive || q.match?(frame)
-          unless frame.no_wait
-            q.redeclare
-            send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
-              q.message_count, q.consumer_count)
-          end
-        else
-          send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
-        end
+        redeclare_queue(frame, q)
       elsif frame.passive
         send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
       elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
@@ -304,22 +295,40 @@ module AvalancheMQ
       elsif frame.queue_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
-        if frame.queue_name.empty?
-          frame.queue_name = Queue.generate_name
-        end
-        dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
-        dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
-          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
-          return
-        end
-        @vhost.apply(frame)
-        if frame.exclusive
-          @exclusive_queues << @vhost.queues[frame.queue_name]
-        end
+        declare_new_queue(frame)
+      end
+    end
+
+    private def redeclare_queue(frame, q)
+      if q.exclusive && !exclusive_queues.includes? q
+        send_resource_locked(frame, "Exclusive queue")
+      elsif frame.passive || q.match?(frame)
         unless frame.no_wait
-          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+          q.redeclare
+          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
+            q.message_count, q.consumer_count)
         end
+      else
+        send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
+      end
+    end
+
+    private def declare_new_queue(frame)
+      if frame.queue_name.empty?
+        frame.queue_name = Queue.generate_name
+      end
+      dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
+      dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
+      unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
+        send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
+        return
+      end
+      @vhost.apply(frame)
+      if frame.exclusive
+        @exclusive_queues << @vhost.queues[frame.queue_name]
+      end
+      unless frame.no_wait
+        send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
       end
     end
 

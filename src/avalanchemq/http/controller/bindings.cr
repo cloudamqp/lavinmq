@@ -14,6 +14,7 @@ module AvalancheMQ
       include QueueHelpers
       include ExchangeHelpers
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/bindings" do |context, _params|
           itr = Iterator(BindingDetails)

@@ -172,63 +172,13 @@ module AvalancheMQ
       loop do
         break if @closed
         if @ready.empty?
-          @log.debug { "Waiting for msgs" }
-          now = Time.monotonic
-          queue_expires_in = expires_in(now)
-          if queue_expires_in
-            if queue_expires_in <= Time::Span.zero
-              expire_queue(now)
-              break
-            else
-              select
-              when @message_available.receive
-              when timeout(queue_expires_in)
-                expire_queue(now)
-              end
-            end
-          else
-            @message_available.receive
-          end
-          @log.debug { "Message available" }
+          break unless recieve_or_expire
         end
         if c = find_consumer
           deliver_to_consumer(c)
         else
           break if @closed
-          @log.debug "No consumer available"
-          now = Time.monotonic
-          queue_expires_in = expires_in(now)
-          if queue_expires_in && queue_expires_in <= Time::Span.zero
-            expire_queue(now)
-            break
-          end
-          msg_expires_in = expire_message
-          wakeup_in =
-            if queue_expires_in && msg_expires_in
-              if queue_expires_in < msg_expires_in
-                queue_expires_in
-              else
-                msg_expires_in
-              end
-            elsif queue_expires_in && msg_expires_in.nil?
-              queue_expires_in
-            elsif msg_expires_in && queue_expires_in.nil?
-              msg_expires_in
-            else
-              nil
-            end
-
-          @log.debug "Waiting for consumer"
-          if wakeup_in
-            select
-            when @consumer_available.receive
-              @log.debug "Consumer available"
-            when timeout(wakeup_in)
-              @log.debug "Consumer wait timeout"
-            end
-          else
-            @consumer_available.receive
-          end
+          break unless consumer_or_expire
         end
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
@@ -240,6 +190,69 @@ module AvalancheMQ
         @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
       @log.debug "Exiting delivery loop"
+    end
+
+    private def recieve_or_expire
+      @log.debug { "Waiting for msgs" }
+      now = Time.monotonic
+      queue_expires_in = expires_in(now)
+      if queue_expires_in
+        if queue_expires_in <= Time::Span.zero
+          expire_queue(now)
+          return false
+        else
+          select
+          when @message_available.receive
+          when timeout(queue_expires_in)
+            expire_queue(now)
+          end
+        end
+      else
+        @message_available.receive
+      end
+      @log.debug { "Message available" }
+      true
+    end
+
+    private def consumer_or_expire
+      @log.debug "No consumer available"
+      now = Time.monotonic
+      queue_expires_in = expires_in(now)
+      if queue_expires_in && queue_expires_in <= Time::Span.zero
+        expire_queue(now)
+        return false
+      end
+      wakeup_in = wakeup_in(queue_expires_in)
+
+      @log.debug "Waiting for consumer"
+      if wakeup_in
+        select
+        when @consumer_available.receive
+          @log.debug "Consumer available"
+        when timeout(wakeup_in)
+          @log.debug "Consumer wait timeout"
+        end
+      else
+        @consumer_available.receive
+      end
+      true
+    end
+
+    private def wakeup_in(queue_expires_in)
+      msg_expires_in = expire_message
+      if queue_expires_in && msg_expires_in
+        if queue_expires_in < msg_expires_in
+          queue_expires_in
+        else
+          msg_expires_in
+        end
+      elsif queue_expires_in && msg_expires_in.nil?
+        queue_expires_in
+      elsif msg_expires_in && queue_expires_in.nil?
+        msg_expires_in
+      else
+        nil
+      end
     end
 
     private def find_consumer
@@ -431,57 +444,65 @@ module AvalancheMQ
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
       if dlx
-        props = meta.properties
-        headers = (props.headers ||= AMQP::Table.new)
-        headers.delete("x-dead-letter-exchange")
-        headers.delete("x-dead-letter-routing-key")
-
-        xdeaths = Array(AMQP::Table).new(1)
-        if headers.has_key? "x-death"
-          headers["x-death"].as?(Array(AMQP::Field)).try &.each do |tbl|
-            xdeaths << tbl.as(AMQP::Table)
-          end
-        end
-        xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
-        xdeaths.delete(xd)
-        count = xd ? xd["count"].as?(Int32) || 0 : 0
-        death = Hash(String, AMQP::Field){
-          "exchange"     => meta.exchange_name,
-          "queue"        => @name,
-          "routing-keys" => [meta.routing_key.as(AMQP::Field)],
-          "reason"       => reason.to_s,
-          "count"        => count + 1,
-          "time"         => Time.utc_now,
-        }
-        if props.expiration
-          death["original-expiration"] = props.expiration
-          props.expiration = nil
-        end
-        xdeaths.unshift AMQP::Table.new(death)
-
-        headers["x-death"] = xdeaths
-
-        @read_lock.synchronize do
-          seg = @segments[sp.segment]
-          body_pos = sp.position + meta_bytesize
-          if @segment_pos[sp.segment] != body_pos
-            @log.debug { "Current pos #{@segment_pos[sp.segment]}" }
-            @log.debug { "Message position: #{sp.position}" }
-            @log.debug { "Metadata size #{meta_bytesize}" }
-            @log.debug { "Seeking to body pos #{body_pos}" }
-            seg.seek(body_pos, IO::Seek::Set)
-            @segment_pos[sp.segment] = body_pos
-          end
-          msg = Message.new(meta.timestamp, dlx.to_s,
-            dlrk.to_s, props, meta.size, seg)
-          @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
-          @vhost.publish msg
-        end
+        props = handle_dlx_header(meta, reason)
+        dead_letter_msg(meta, sp, props, meta_bytesize, dlx, dlrk)
       end
       ack(sp, true)
     rescue IO::EOFError
       @log.error { "EOF while dead-lettering sp=#{sp}" }
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
+    end
+
+    private def handle_dlx_header(meta, reason)
+      props = meta.properties
+      headers = (props.headers ||= AMQP::Table.new)
+      headers.delete("x-dead-letter-exchange")
+      headers.delete("x-dead-letter-routing-key")
+
+      xdeaths = Array(AMQP::Table).new(1)
+      if headers.has_key? "x-death"
+        headers["x-death"].as?(Array(AMQP::Field)).try &.each do |tbl|
+          xdeaths << tbl.as(AMQP::Table)
+        end
+      end
+      xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
+      xdeaths.delete(xd)
+      count = xd ? xd["count"].as?(Int32) || 0 : 0
+      death = Hash(String, AMQP::Field){
+        "exchange"     => meta.exchange_name,
+        "queue"        => @name,
+        "routing-keys" => [meta.routing_key.as(AMQP::Field)],
+        "reason"       => reason.to_s,
+        "count"        => count + 1,
+        "time"         => Time.utc_now,
+      }
+      if props.expiration
+        death["original-expiration"] = props.expiration
+        props.expiration = nil
+      end
+      xdeaths.unshift AMQP::Table.new(death)
+
+      headers["x-death"] = xdeaths
+      props.headers = headers
+      props
+    end
+
+    private def dead_letter_msg(meta, sp, props, meta_bytesize, dlx, dlrk)
+      @read_lock.synchronize do
+        seg = @segments[sp.segment]
+        body_pos = sp.position + meta_bytesize
+        if @segment_pos[sp.segment] != body_pos
+          @log.debug { "Current pos #{@segment_pos[sp.segment]}" }
+          @log.debug { "Message position: #{sp.position}" }
+          @log.debug { "Metadata size #{meta_bytesize}" }
+          @log.debug { "Seeking to body pos #{body_pos}" }
+          seg.seek(body_pos, IO::Seek::Set)
+          @segment_pos[sp.segment] = body_pos
+        end
+        msg = Message.new(meta.timestamp, dlx.to_s, dlrk.to_s, props, meta.size, seg)
+        @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
+        @vhost.publish msg
+      end
     end
 
     private def expires_in(now = Time.monotonic) : Time::Span?

@@ -42,30 +42,42 @@ module AvalancheMQ
       ini.each do |section, settings|
         case section
         when "main"
-          @data_dir = settings["data_dir"]? || @data_dir
-          @log_level = Logger::Severity.parse?(settings["log_level"]?.to_s) || @log_level
-          @stats_interval = settings["stats_interval"]?.try &.to_i32 || @stats_interval
-          @stats_log_size = settings["stats_log_size"]?.try &.to_i32 || @stats_log_size
-          @segment_size = settings["segment_size"]?.try &.to_i32 || @segment_size
-          @set_timestamp = true?(settings["set_timestamp"]?) || @set_timestamp
-          @file_buffer_size = settings["file_buffer_size"]?.try &.to_i32 || @file_buffer_size
-          @socket_buffer_size = settings["socket_buffer_size"]?.try &.to_i32 || @socket_buffer_size
+          parse_main(settings)
         when "amqp"
-          @bind = settings["bind"]? || @bind
-          @port = settings["port"]?.try &.to_i32 || @port
-          @tls_port = settings["tls_port"]?.try &.to_i32 || @tls_port
-          @unix_path = settings["unix_path"]? || @unix_path
-          @cert_path = settings["tls_cert"]? || @cert_path
-          @key_path = settings["tls_key"]? || @key_path
-          @heartbeat = settings["heartbeat"]?.try &.to_u16 || @heartbeat
+          parse_amqp(settings)
         when "mgmt"
-          @mgmt_bind = settings["bind"]? || @mgmt_bind
-          @mgmt_port = settings["port"]?.try &.to_i32 || @mgmt_port
-          @mgmt_tls_port = settings["tls_port"]?.try &.to_i32 || @mgmt_tls_port
-          @mgmt_cert_path = settings["tls_cert"]? || @mgmt_cert_path
-          @mgmt_key_path = settings["tls_key"]? || @mgmt_key_path
+          parse_mgmt(settings)
         end
       end
+    end
+
+    private def parse_main(settings)
+      @data_dir = settings["data_dir"]? || @data_dir
+      @log_level = Logger::Severity.parse?(settings["log_level"]?.to_s) || @log_level
+      @stats_interval = settings["stats_interval"]?.try &.to_i32 || @stats_interval
+      @stats_log_size = settings["stats_log_size"]?.try &.to_i32 || @stats_log_size
+      @segment_size = settings["segment_size"]?.try &.to_i32 || @segment_size
+      @set_timestamp = true?(settings["set_timestamp"]?) || @set_timestamp
+      @file_buffer_size = settings["file_buffer_size"]?.try &.to_i32 || @file_buffer_size
+      @socket_buffer_size = settings["socket_buffer_size"]?.try &.to_i32 || @socket_buffer_size
+    end
+
+    private def parse_amqp(settings)
+      @bind = settings["bind"]? || @bind
+      @port = settings["port"]?.try &.to_i32 || @port
+      @tls_port = settings["tls_port"]?.try &.to_i32 || @tls_port
+      @unix_path = settings["unix_path"]? || @unix_path
+      @cert_path = settings["tls_cert"]? || @cert_path
+      @key_path = settings["tls_key"]? || @key_path
+      @heartbeat = settings["heartbeat"]?.try &.to_u16 || @heartbeat
+    end
+
+    private def parse_mgmt(settings)
+      @mgmt_bind = settings["bind"]? || @mgmt_bind
+      @mgmt_port = settings["port"]?.try &.to_i32 || @mgmt_port
+      @mgmt_tls_port = settings["tls_port"]?.try &.to_i32 || @mgmt_tls_port
+      @mgmt_cert_path = settings["tls_cert"]? || @mgmt_cert_path
+      @mgmt_key_path = settings["tls_key"]? || @mgmt_key_path
     end
 
     private def true?(str : String?)

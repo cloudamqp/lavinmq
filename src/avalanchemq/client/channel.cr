@@ -143,6 +143,20 @@ module AvalancheMQ
           props,
           @next_msg_size,
           message_body)
+        publish_and_return(msg)
+      rescue ex
+        @log.warn { "Could not handle message #{ex.inspect}" }
+        confirm_nack
+        raise ex
+      ensure
+        @next_msg_size = 0_u64
+        @next_msg_body.clear
+        @next_msg_props = nil
+        @next_publish_exchange_name = @next_publish_routing_key = nil
+        @next_publish_mandatory = @next_publish_immediate = false
+      end
+
+      private def publish_and_return(msg)
         return true if direct_reply?(msg)
         ok = @client.vhost.publish msg, immediate: @next_publish_immediate
         @confirm_total += 1 if @confirm
@@ -155,16 +169,6 @@ module AvalancheMQ
       rescue Queue::RejectOverFlow
         @confirm_total += 1 if @confirm
         confirm_nack
-      rescue ex
-        @log.warn { "Could not handle message #{ex.inspect}" }
-        confirm_nack
-        raise ex
-      ensure
-        @next_msg_size = 0_u64
-        @next_msg_body.clear
-        @next_msg_props = nil
-        @next_publish_exchange_name = @next_publish_routing_key = nil
-        @next_publish_mandatory = @next_publish_immediate = false
       end
 
       def confirm_nack(multiple = false)

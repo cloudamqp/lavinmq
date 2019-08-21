@@ -20,6 +20,7 @@ module AvalancheMQ
       include ExchangeHelpers
       include BindingHelpers
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/exchanges" do |context, _params|
           itr = vhosts(user(context)).flat_map { |v| v.exchanges.each_value }

@@ -15,25 +15,20 @@ module AvalancheMQ
     def initialize(@uri : URI, @log : Logger)
       host = @uri.host || "localhost"
       tls = @uri.scheme == "amqps"
-      channel_max = 1_u16
-      heartbeat = 0_u16
-      connect_timeout = nil
-      auth_mechanism = "PLAIN"
       params = ::HTTP::Params.parse(@uri.query.to_s)
-      params.each do |key, value|
-        case key
-        when "heartbeat"
-          heartbeat = value.to_u16? || heartbeat
-        when "connection_timeout"
-          connect_timeout = value.to_u16?
-        when "channel_max"
-          channel_max = value.to_u16? || channel_max
-        when "auth_mechanism"
-          auth_mechanism = "AMQPLAIN" if value =~ /AMQPLAIN/i
-        end
-      end
+      heartbeat = params["heartbeat"]?.try(&.to_u16?) || 0_u16
+      connect_timeout = params["connection_timeout"]?.try(&.to_u16?)
+      channel_max = params["channel_max"]?.try(&.to_u16?) || 1_u16
+      auth_mechanism = params["auth_mechanism"]?.try { |v| v =~ /AMQPLAIN/i } ? "AMQPLAIN" : "PLAIN"
       port = @uri.port || (tls ? 5671 : 5672)
       @log.debug { "Connecting on #{port} with #{@uri.scheme}" }
+      socket = tcp_socket(host, port, connect_timeout)
+      @socket = tls ? tls_socket(socket, params, host) : socket
+      negotiate_connection(channel_max, heartbeat, auth_mechanism)
+      open_channel
+    end
+
+    private def tcp_socket(host, port, connect_timeout)
       socket = TCPSocket.new(host, port, connect_timeout: connect_timeout)
       socket.keepalive = true
       socket.tcp_nodelay = true
@@ -41,32 +36,28 @@ module AvalancheMQ
       socket.tcp_keepalive_count = 3
       socket.tcp_keepalive_interval = 10
       socket.write_timeout = 15
+      socket
+    end
 
-      if tls
-        context = OpenSSL::SSL::Context::Client.new
-        params.each do |key, value|
-          case key
-          when "verify"
-            case value
-            when "none"
-              @verify_mode = OpenSSL::SSL::VerifyMode::NONE
-              context.verify_mode = @verify_mode
-            end
-          when "cacertfile"
-            context.ca_certificates = value
-          when "certfile"
-            context.certificate_chain = value
-          when "keyfile"
-            context.private_key = value
+    private def tls_socket(socket, params, host)
+      context = OpenSSL::SSL::Context::Client.new
+      params.each do |key, value|
+        case key
+        when "verify"
+          case value
+          when "none"
+            @verify_mode = OpenSSL::SSL::VerifyMode::NONE
+            context.verify_mode = @verify_mode
           end
+        when "cacertfile"
+          context.ca_certificates = value
+        when "certfile"
+          context.certificate_chain = value
+        when "keyfile"
+          context.private_key = value
         end
-        @socket = OpenSSL::SSL::Socket::Client.new(socket, context: context,
-          sync_close: true, hostname: host)
-      else
-        @socket = socket
       end
-      negotiate_connection(channel_max, heartbeat, auth_mechanism)
-      open_channel
+      OpenSSL::SSL::Socket::Client.new(socket, context: context, sync_close: true, hostname: host)
     end
 
     def negotiate_connection(channel_max, heartbeat, auth_mechanism)

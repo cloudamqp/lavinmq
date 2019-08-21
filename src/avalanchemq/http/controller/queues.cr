@@ -19,6 +19,7 @@ module AvalancheMQ
       include BindingHelpers
       include QueueHelpers
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
           itr = Iterator(Queue).chain(vhosts(user(context)).map { |v| v.queues.each_value })

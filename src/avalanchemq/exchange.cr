@@ -232,6 +232,7 @@ module AvalancheMQ
       after_unbind
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def matches(routing_key, headers = nil)
       rk_parts = routing_key.split(".")
       s = Set(Queue | Exchange).new
@@ -257,7 +258,7 @@ module AvalancheMQ
             if size == i + 1 && rk_parts.size == j + 1
               ok = true
               break
-            # More than 1 rk left ok move on
+              # More than 1 rk left ok move on
             elsif rk_parts.size > j + 1
               j += 1
             else
@@ -279,7 +280,7 @@ module AvalancheMQ
               end
             else
               # Is this the last bk but not the last rk?
-              if size == i + 1 && rk_parts.size > j +1
+              if size == i + 1 && rk_parts.size > j + 1
                 ok = false
               else
                 ok = rk_parts[j] == part
