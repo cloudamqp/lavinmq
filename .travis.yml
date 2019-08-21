@@ -1,11 +1,12 @@
+# Lint with https://config.travis-ci.org/
 dist: xenial
-sudo: false
 language: crystal
+os: linux
 install:
 - shards install
 before_script:
 - llvm-config --host-target
-jobs:
+matrix:
   include:
   - script: crystal spec
   - script: bin/ameba --except Metrics/CyclomaticComplexity
@@ -28,4 +29,4 @@ jobs:
         tags: true
 notifications:
   slack:
-    secure: swXk/RxCX1PaG1rf+XGFEzvMNwo0a3E0xM1X311Nd0l0r4FBoVtXsYcWT6HLtUlxeQB+Bo2YXG8deffpfaUv2JFXnJOwACFfRAK5dn/q+aSjfASkFBL8kus/uyDdX+n+/HP+OccSDVqF+DefAdWr5JcB8gh1QuLdlq3yuDHDWTZrRia8JjSj/P0gJAZkst+F8LzGqAQLCcR2X8nJQEL6bWik5n11YFz/foek77d8sDuhpYURJcqI4GKk9XRmyJFFAFnAsFg4k/A+XJozyBCn8GPHXb9Hb4+cLJIF1n7lkUbaO1Rhe83D+izGX1MNb2kV/NKlezapIJPu+yS8aTuKry9XHIdOHCv7tPQ34R1VsQ1jza5XXfaVOZbQ05/R0yBEqd5zXXjswVIECcwPElIntPub7SmXuoj6Imm9aQhrX/E4cYAJxZv2xRxiCheYgXz7zTmgjQvjxLEpjrRNoo5Yrshh1glNw8xpk4je6uO9u+NDnDUwmkwysx8dTPNhCVroExwS2lRlbnPdTxhyOQ0gUSwODOqZSTtIJcsKsV08GPa98g2MTo9oESc5FD4QRXhcotU45gFtA6uZdCuegFs7Uyws/88KCdqIEse8xl+m8G/HFSOjjbu/Yh6/QY3GErygv3P+USRMlb3LsS/QE7N0n1mecJVRZpDTx/Zp41bIdYQ=
+    secure: ZhQxfokt4+2tNoEc95pOIlk9FfDwZfN833bIE8dFPAPwYv1ECRnHeVNneRfj5O01+iED7126ikbB4I8p6FazU2DqLg7haHb4f9yC+ie726M0/RPwH8dbJOJMFjbEfxo4bsL2qln89rE3DKCqlS4crGu9FUa3qJs/QWScWS14AOsOtevheuYGmKXmpPiHC4s4+7j7ZQfxt2RIZ11LVePfukcb1SmRTIozt+nM0NJB3ZkeOCDb7IcWs2wUjp3Vr9mFNR2WSfw4vRt15DtgdENx1zmw8o42sLv7mFwDYtgUavU04jtXB0f+WNL2+T/SlM0k0d5xbhwOlQB3Jxkn4rRWR5iLDnT+QWoukEiAkgW/w9n9odlCZIZ3fRkKz6v6lqaZTmgj2MnIaw9VmIsgra7qfcuRSfTgU4/JNB80TvSyrTvLKzqUcvTqwzrjHqwjRGxZUgSxRcPszhkNUwn0KPRCyswgeInINMxaNlNUOXi61j0ApZb7av4FJMGUEvE1K5Afrvafe1tyO7SlAitWFXabH+76gaBZRkvBNvEs4cK6fuKj5K4br9OAhyMWwQAyBHIjjFvjFdOnUqwOZoafJkaHbUCGMErNhAlxWLjMHVDmPkfWu0inYEoIfD9+zp77yw6hisdPjDc3SnUpSN/ICwLxqhOrGhrhHy7gmbIrl8y8fy8=
