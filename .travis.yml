@@ -9,7 +9,7 @@ before_script:
 matrix:
   include:
   - script: crystal spec
-  - script: bin/ameba --except Metrics/CyclomaticComplexity
+  - script: bin/ameba
   - stage: GitHub Release
     addons:
       apt:
