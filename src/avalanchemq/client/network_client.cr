@@ -1,5 +1,4 @@
 require "./client"
-require "../stdlib_fixes"
 require "./amqp_connection"
 
 module AvalancheMQ

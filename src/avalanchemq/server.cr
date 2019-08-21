@@ -2,7 +2,7 @@ require "socket"
 require "logger"
 require "openssl"
 require "./amqp"
-require "./stdlib_fixes"
+require "../stdlib/*"
 require "./client/network_client"
 require "./vhost_store"
 require "./user_store"
@@ -110,7 +110,7 @@ module AvalancheMQ
           case proxy_protocol_version
           when 0 then ProxyProtocol::Header.local
           when 1 then ProxyProtocol::V1.parse(client)
-          else raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+          else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
           end
         spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
       end

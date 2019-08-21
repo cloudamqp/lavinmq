@@ -59,3 +59,10 @@ class Fiber
     Crystal::Scheduler.reschedule
   end
 end
+
+# Fix "FATAL: can't resume a running fiber"
+class Fiber
+  def resume : Nil
+    Crystal::Scheduler.resume(self) unless self.running?
+  end
+end
