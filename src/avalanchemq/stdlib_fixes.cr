@@ -31,7 +31,7 @@ lib LibC
   {% end %}
 
   {% if flag?(:darwin) %}
-    SC_PAGESIZE = 29
+    SC_PAGESIZE   =  29
     SC_PHYS_PAGES = 200
   {% end %}
 end
@@ -178,13 +178,13 @@ end
 lib LibC
   {% if flag?(:linux) %}
     fun fallocate(fd : Int, mode : Int, offset : OffT, len : OffT) : Int
-    FALLOC_FL_KEEP_SIZE = 0x01
-    FALLOC_FL_PUNCH_HOLE = 0x02
-    FALLOC_FL_NO_HIDE_STALE = 0x04
+    FALLOC_FL_KEEP_SIZE      = 0x01
+    FALLOC_FL_PUNCH_HOLE     = 0x02
+    FALLOC_FL_NO_HIDE_STALE  = 0x04
     FALLOC_FL_COLLAPSE_RANGE = 0x08
-    FALLOC_FL_ZERO_RANGE = 0x10
-    FALLOC_FL_INSERT_RANGE = 0x20
-    FALLOC_FL_UNSHARE_RANGE = 0x40
+    FALLOC_FL_ZERO_RANGE     = 0x10
+    FALLOC_FL_INSERT_RANGE   = 0x20
+    FALLOC_FL_UNSHARE_RANGE  = 0x40
 
     fun posix_fadvise(fd : Int, offset : OffT, len : OffT, advice : Int) : Int
     POSIX_FADV_NORMAL     = 0 # No further special treatment.
