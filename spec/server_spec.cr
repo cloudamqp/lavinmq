@@ -79,10 +79,8 @@ describe AvalancheMQ::Server do
       q.publish pmsg
       msgs = [] of AMQP::Client::Message
       q.subscribe(no_ack: false) { |msg| msgs << msg }
-      Fiber.yield
-      Fiber.yield
-      Fiber.yield
-      msgs.size.should eq(2)
+      wait_for { msgs.size == 2 }
+      msgs.size.should eq 2
     end
   end
 
@@ -96,10 +94,8 @@ describe AvalancheMQ::Server do
         c += 1
         msg.ack
       end
-      until c == 4
-        Fiber.yield
-      end
-      c.should eq(4)
+      wait_for { c == 4 }
+      c.should eq 4
     end
   end
 
