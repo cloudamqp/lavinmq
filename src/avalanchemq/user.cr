@@ -1,7 +1,6 @@
 require "crypto/bcrypt/password"
 require "json"
 require "./password"
-require "./regex_to_json"
 require "./sortable_json"
 
 module AvalancheMQ
