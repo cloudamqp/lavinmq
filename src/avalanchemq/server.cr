@@ -12,7 +12,6 @@ require "./durable_queue"
 require "./parameter"
 require "./chained_logger"
 require "./config"
-require "./filesystem"
 require "./proxy_protocol"
 
 module AvalancheMQ
