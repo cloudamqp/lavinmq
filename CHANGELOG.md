@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2019-09-16
+
+### Fixed
+- Basic::GetEmpty responses are correctly encoded
+- Timestamps are correctly parsed (as seconds, not ms)
+
+### Changed
+- Logging of clients disconnected is debug level now
+
 ## [0.8.2] - 2019-07-21
 
 ### Changed
