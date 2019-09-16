@@ -37,6 +37,7 @@ module AvalancheMQ
       @connected_at = Time.utc_now.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
+      @log.debug "Connected"
     end
 
     def state
@@ -69,7 +70,7 @@ module AvalancheMQ
         send AMQP::Frame::Connection::CloseOk.new
         return false
       when AMQP::Frame::Connection::CloseOk
-        @log.info "Disconnected"
+        @log.debug "Disconnected"
         cleanup
         return false
       when AMQP::Frame::Channel::Open

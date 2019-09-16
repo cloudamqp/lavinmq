@@ -112,7 +112,7 @@ module AvalancheMQ
       @send_oct_count += frame.bytesize + 8
       case frame
       when AMQP::Frame::Connection::CloseOk
-        @log.info "Disconnected"
+        @log.debug "Disconnected"
         cleanup
         return false
       end
