@@ -67,7 +67,7 @@ Vagrant.configure("2") do |config|
       name = Crystal
       baseurl = https://dist.crystal-lang.org/rpm/
       END
-      yum install -y crystal rpm-build rpmlint git
+      yum install -y crystal rpm-build rpmlint git openssl-devel libz-devel help2man
     SHELL
   end
 end
