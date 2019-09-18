@@ -1,6 +1,6 @@
 #!/bin/bash -eux
 revision=$1
-for dist in ubuntu18 ubuntu16 debian9
+for dist in ubuntu18 ubuntu16 #debian9
 do
   #read -p "Build for $dist? " -n 1 -r
   #echo
