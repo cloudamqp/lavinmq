@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2019-09-18
+
 ### Fixed
 - Overview rate stats doesn't overflow anymore
 - Segment size in config is respected
