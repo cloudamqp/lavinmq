@@ -30,7 +30,7 @@ module AvalancheMQ
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
-          recv_rate, send_rate = 0, 0
+          recv_rate, send_rate = 0_f32, 0_f32
           ready_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
           recv_rate_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
