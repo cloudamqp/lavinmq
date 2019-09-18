@@ -29,15 +29,15 @@ module AvalancheMQ
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, consumers, ready, unacked = 0, 0, 0, 0, 0, 0, 0
-          recv_rate, send_rate = 0_f32, 0_f32
+          channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          recv_rate, send_rate = 0_f64, 0_f64
           ready_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
-          recv_rate_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
-          send_rate_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
+          recv_rate_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
+          send_rate_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
           {% for name in QUEUE_STATS %}
-          {{name.id}}_rate = 0_f32
-          {{name.id}}_log = Deque(Float32).new(AvalancheMQ::Config.instance.stats_log_size)
+          {{name.id}}_rate = 0_f64
+          {{name.id}}_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
           {% end %}
 
           vhosts(user(context)).each do |vhost|
