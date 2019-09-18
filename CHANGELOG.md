@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Sorting of numbers is done correctly
+
 ## [0.8.4] - 2019-09-18
 
 ### Fixed
