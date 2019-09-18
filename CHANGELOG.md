@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Overview rate stats doesn't overflow anymore
 - Segment size in config is respected
+- Queues now closes all FDs to segments it doesn't reference
 
 ## [0.8.3] - 2019-09-16
 
