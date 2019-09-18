@@ -40,9 +40,12 @@ module AvalancheMQ
         if sort_by = params["sort"]?
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          if sorted_items.dig?(0, sort_by)
-            if sorted_items.first[sort_by].is_a?(UInt8)
-              sorted_items.sort_by! { |i| i[sort_by].as(UInt8) }
+          if first_element = sorted_items.dig?(0, sort_by)
+            case first_element
+            when Int32
+              sorted_items.sort_by! { |i| i[sort_by].as(Int32) }
+            when UInt32
+              sorted_items.sort_by! { |i| i[sort_by].as(UInt32) }
             else
               sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
             end
