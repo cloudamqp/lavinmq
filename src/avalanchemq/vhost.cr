@@ -19,7 +19,6 @@ module AvalancheMQ
       direct_reply_channels, upstreams, default_user
     property? flow = true
 
-    MAX_SEGMENT_SIZE = Config.instance.segment_size
     @segment : UInt32
     @wfile : File
     @log : Logger
@@ -185,7 +184,7 @@ module AvalancheMQ
     @pos = 0_u32
 
     private def write_to_disk(msg) : SegmentPosition
-      if @pos >= MAX_SEGMENT_SIZE
+      if @pos >= Config.instance.segment_size
         @segment += 1
         fsync
         @wfile.close
@@ -221,7 +220,7 @@ module AvalancheMQ
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
       File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
-        f.hint_target_size(MAX_SEGMENT_SIZE)
+        f.hint_target_size(Config.instance.segment_size)
         @pos = 0_u32
       end
     end
