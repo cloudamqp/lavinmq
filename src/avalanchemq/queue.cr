@@ -314,6 +314,7 @@ module AvalancheMQ
         c.cancel
       end
       @segments.each_value &.close
+      @segments.clear
       @vhost.delete_queue(@name) if @auto_delete || @exclusive
       Fiber.yield
       notify_observers(:close)
