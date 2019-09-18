@@ -24,12 +24,19 @@ module AvalancheMQ
                 channels_closed:     0,
                 queues_declared:     0,
                 queues_deleted:      0,
+                applications:        APPLICATIONS,
               }.to_json(context.response)
             end
           end
           context
         end
       end
+
+      APPLICATIONS = [{
+        name: "avalanchemq",
+        description: "AvalancheMQ",
+        version: VERSION
+      }]
     end
   end
 end
