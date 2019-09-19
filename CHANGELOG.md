@@ -6,8 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2019-09-19
+
 ### Fixed
 - Sorting of numbers is done correctly
+
+### Changed
+- Dont wakeup the heartbeat loop on connection cleanup, might be the cause of a Invalid memory access
+- Don't fallocate/preallocate segment or index files, minimal performance gain on XFS
+
+### Added
+- Applications array with AvalancheMQ version added to /api/nodes response
 
 ## [0.8.4] - 2019-09-18
 
