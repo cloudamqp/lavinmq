@@ -34,7 +34,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "ql_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    shovel = AvalancheMQ::Shovel.new(source, dest, "ql_shovel", vhost)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ql_"
       ShovelSpecHelpers.publish x, "ql_q1", "shovel me"
@@ -45,7 +45,7 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "ql_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should shovel large messages" do
@@ -58,7 +58,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "lm_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    shovel = AvalancheMQ::Shovel.new(source, dest, "lm_shovel", vhost)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
       ShovelSpecHelpers.publish x, "lm_q1", "a" * 10_000
@@ -68,7 +68,7 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "lm_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should shovel forever" do
@@ -81,7 +81,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "sf_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    shovel = AvalancheMQ::Shovel.new(source, dest, "sf_shovel", vhost)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
       shovel.run
@@ -94,7 +94,7 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "sf_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should shovel with ack mode on-publish" do
@@ -107,7 +107,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "ap_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
+    shovel = AvalancheMQ::Shovel.new(source, dest, "ap_shovel", vhost,
       ack_mode: AvalancheMQ::Shovel::AckMode::OnPublish)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
@@ -118,7 +118,7 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "ap_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should shovel with ack mode no-ack" do
@@ -131,7 +131,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "na_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost,
+    shovel = AvalancheMQ::Shovel.new(source, dest, "na_shovel", vhost,
       ack_mode: AvalancheMQ::Shovel::AckMode::NoAck)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
@@ -142,7 +142,7 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "na_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should shovel past prefetch" do
@@ -156,7 +156,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "prefetch_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    shovel = AvalancheMQ::Shovel.new(source, dest, "prefetch_shovel", vhost)
     with_channel do |ch|
       x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
       100.times do
@@ -170,7 +170,7 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup("prefetch_")
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should shovel once qs are declared" do
@@ -182,7 +182,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "od_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    shovel = AvalancheMQ::Shovel.new(source, dest, "od_shovel", vhost)
     with_channel do |ch|
       shovel.run
       x, q2 = ShovelSpecHelpers.setup_qs ch, "od_"
@@ -193,21 +193,21 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "od_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 
   it "should reconnect and continue" do
-    p = AvalancheMQ::Parameter.new("shovel", "shovel",
+    p = AvalancheMQ::Parameter.new("shovel", "rc_shovel",
       JSON::Any.new({
         "src-uri"    => JSON::Any.new("#{AMQP_BASE_URL}"),
-        "src-queue"  => JSON::Any.new("q1d"),
+        "src-queue"  => JSON::Any.new("rc_q1"),
         "dest-uri"   => JSON::Any.new("#{AMQP_BASE_URL}"),
-        "dest-queue" => JSON::Any.new("q2d"),
+        "dest-queue" => JSON::Any.new("rc_q2"),
       } of String => JSON::Any))
     s.vhosts["/"].add_parameter(p)
     with_channel do |ch|
-      q1 = ch.queue("q1d", durable: true)
-      ch.queue("q2d", durable: true)
+      q1 = ch.queue("rc_q1", durable: true)
+      ch.queue("rc_q2", durable: true)
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
       q1.publish_confirm "shovel me", props: props
     end
@@ -216,20 +216,20 @@ describe AvalancheMQ::Shovel do
 
     Fiber.yield
     with_channel do |ch|
-      q1 = ch.queue("q1d", durable: true)
-      q2 = ch.queue("q2d", durable: true)
+      q1 = ch.queue("rc_q1", durable: true)
+      q2 = ch.queue("rc_q2", durable: true)
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
       q1.publish "shovel me", props: props
       msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 2 }
-      s.vhosts["/"].queues["q1d"].message_count.should eq 0
+      s.vhosts["/"].queues["rc_q1"].message_count.should eq 0
       msgs.size.should eq 2
     end
   ensure
-    s.vhosts["/"].delete_queue("q1d")
-    s.vhosts["/"].delete_queue("q2d")
-    s.vhosts["/"].delete_parameter("shovel", "shovel")
+    s.vhosts["/"].delete_queue("rc_q1")
+    s.vhosts["/"].delete_queue("rc_q2")
+    s.vhosts["/"].delete_parameter("shovel", "rc_shovel")
   end
 
   it "should shovel over amqps" do
@@ -241,7 +241,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}?verify=none",
       "ssl_q2"
     )
-    shovel = AvalancheMQ::Shovel.new(source, dest, "shovel", vhost)
+    shovel = AvalancheMQ::Shovel.new(source, dest, "ssl_shovel", vhost)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ssl_"
       shovel.run
@@ -253,6 +253,6 @@ describe AvalancheMQ::Shovel do
     end
   ensure
     ShovelSpecHelpers.cleanup "ssl_"
-    shovel.try &.stop
+    shovel.try &.delete
   end
 end
