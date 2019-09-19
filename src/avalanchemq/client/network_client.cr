@@ -41,14 +41,6 @@ module AvalancheMQ
       @remote_address.to_s
     end
 
-    private def cleanup
-      begin
-        @socket.close unless @socket.closed?
-      rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
-      end
-      super
-    end
-
     def details_tuple
       {
         channels:          @channels.size,
@@ -177,7 +169,11 @@ module AvalancheMQ
 
     def cleanup
       super
-      @heartbeat_loop.wakeup unless @heartbeat_loop.dead?
+      #@heartbeat_loop.wakeup unless @heartbeat_loop.dead?
+      begin
+        @socket.close unless @socket.closed?
+      rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
+      end
     end
 
     private def heartbeat_loop
