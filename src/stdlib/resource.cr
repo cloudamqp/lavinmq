@@ -4,6 +4,16 @@ end
 
 lib LibC
   RLIMIT_NOFILE = 8
+
+  {% if flag?(:linux) %}
+    alias RlimT = ULongLong
+
+    struct Rlimit
+      rlim_cur : RlimT
+      rlim_max : RlimT
+    end
+  {% end %}
+
   fun getrlimit(Int, Rlimit*) : Int
   fun setrlimit(Int, Rlimit*) : Int
 end
@@ -11,7 +21,7 @@ end
 struct Time::Span
   def self.from_timeval(val)
     self.new(seconds: val.tv_sec.to_i64,
-      nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
+             nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
   end
 end
 
