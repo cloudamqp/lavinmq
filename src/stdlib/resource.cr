@@ -1,37 +1,8 @@
 lib Resource
-  RUSAGE_SELF   = 0
   RLIM_INFINITY = (1_u64 << 63) - 1
-
-  struct RUsage
-    utime : LibC::Timeval # user time used
-    stime : LibC::Timeval # system time used
-    maxrss : UInt64       # max resident set size
-    ixrss : UInt64        # integral shared text memory size
-    idrss : UInt64        # integral unshared data size
-    isrss : UInt64        # integral unshared stack size
-    minflt : UInt64       # page reclaims
-    majflt : UInt64       # page faults
-    nswap : UInt64        # swaps
-    inblock : UInt64      # block input operations
-    oublock : UInt64      # block output operations
-    msgsnd : UInt64       # messages sent
-    msgrcv : UInt64       # messages received
-    nsignals : UInt64     # signals received
-    nvcsw : UInt64        # voluntary context switches
-    nivcsw : UInt64       # involuntary context switches
-  end
-
-  fun getrusage(who : Int32, rusage : RUsage*) : Int32
 end
 
 lib LibC
-  alias RlimT = ULongLong
-
-  struct Rlimit
-    rlim_cur : RlimT
-    rlim_max : RlimT
-  end
-
   RLIMIT_NOFILE = 8
   fun getrlimit(Int, Rlimit*) : Int
   fun setrlimit(Int, Rlimit*) : Int
@@ -47,23 +18,23 @@ end
 module System
   struct ResourceUsage
     def initialize(usage)
-      @user_time = Time::Span.from_timeval(usage.utime)
-      @sys_time = Time::Span.from_timeval(usage.stime)
-      @max_rss = usage.maxrss
-      @blocks_in = usage.inblock
-      @blocks_out = usage.oublock
+      @user_time = Time::Span.from_timeval(usage.ru_utime)
+      @sys_time = Time::Span.from_timeval(usage.ru_stime)
+      @max_rss = usage.ru_maxrss
+      @blocks_in = usage.ru_inblock
+      @blocks_out = usage.ru_oublock
     end
 
     getter user_time : Time::Span
     getter sys_time : Time::Span
-    getter max_rss : UInt64
-    getter blocks_in : UInt64
-    getter blocks_out : UInt64
+    getter max_rss : Int64
+    getter blocks_in : Int64
+    getter blocks_out : Int64
   end
 
   def self.resource_usage
-    usg = uninitialized Resource::RUsage
-    if Resource.getrusage(Resource::RUSAGE_SELF, pointerof(usg)) != 0
+    usg = uninitialized LibC::RUsage
+    if LibC.getrusage(LibC::RUSAGE_SELF, pointerof(usg)) != 0
       raise Errno.new("rusage")
     end
     ResourceUsage.new(usg)
