@@ -11,7 +11,7 @@ require "ini"
 config_file = ""
 config = AvalancheMQ::Config.new
 
-p = OptionParser.parse! do |parser|
+p = OptionParser.parse do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
   parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
   parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config_file = v }

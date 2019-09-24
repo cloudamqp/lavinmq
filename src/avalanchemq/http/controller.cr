@@ -22,7 +22,7 @@ module AvalancheMQ
 
       private def filter_values(params, iterator)
         return iterator unless raw_name = params["name"]?
-        term = URI.unescape(raw_name)
+        term = URI.decode_www_form(raw_name)
         if params["use_regex"]?.try { |v| v == "true" }
           iterator.select { |v| match_value(v).to_s =~ /#{term}/ }
         else
@@ -128,7 +128,7 @@ module AvalancheMQ
       end
 
       private def with_vhost(context, params, key = "vhost")
-        vhost = URI.unescape(params[key])
+        vhost = URI.decode_www_form(params[key])
         if @amqp_server.vhosts[vhost]?
           yield vhost
         else

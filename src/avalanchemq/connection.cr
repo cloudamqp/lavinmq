@@ -66,8 +66,8 @@ module AvalancheMQ
       AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::Start) }
 
       props = AMQP::Table.new(Hash(String, AMQP::Field).new)
-      user = URI.unescape(@uri.user || "guest")
-      password = URI.unescape(@uri.password || "guest")
+      user = URI.decode_www_form(@uri.user || "guest")
+      password = URI.decode_www_form(@uri.password || "guest")
       if auth_mechanism == "AMQPLAIN"
         tbl = AMQP::Table.new({
           "LOGIN"    => user,
@@ -82,7 +82,7 @@ module AvalancheMQ
       write AMQP::Frame::Connection::TuneOk.new(channel_max: channel_max,
         frame_max: 131072_u32, heartbeat: heartbeat)
       path = @uri.path || ""
-      vhost = path.size > 1 ? URI.unescape(path[1..-1]) : "/"
+      vhost = path.size > 1 ? URI.decode_www_form(path[1..-1]) : "/"
       write AMQP::Frame::Connection::Open.new(vhost)
       AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::OpenOk) }
     end

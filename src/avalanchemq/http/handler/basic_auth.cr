@@ -19,7 +19,7 @@ module AvalancheMQ
           begin
             username, password = Base64.decode_string(base64).split(":")
             if user = @user_store[username]?
-              if !user.tags.empty? && user.password.to_s.size > 0 && user.password == password
+              if !user.tags.empty? && user.password.to_s.size > 0 && user.password && user.password.not_nil!.verify(password)
                 context.authenticated_username = username
                 return call_next(context)
               end

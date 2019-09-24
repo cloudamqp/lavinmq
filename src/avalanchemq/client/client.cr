@@ -34,7 +34,7 @@ module AvalancheMQ
     def initialize(@name : String, @vhost : VHost, @user : User,
                    @log : Logger,
                    @client_properties = AMQP::Table.new)
-      @connected_at = Time.utc_now.to_unix_ms
+      @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       @log.debug "Connected"

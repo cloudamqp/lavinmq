@@ -18,7 +18,7 @@ module AvalancheMQ
   class Server
     getter connections, vhosts, users, data_dir, log, parameters
     getter? closed, flow
-    alias ConnectionsEvents = Channel::Buffered(Tuple(Client, Symbol))
+    alias ConnectionsEvents = Channel(Tuple(Client, Symbol))
     include ParameterTarget
 
     @closed = false

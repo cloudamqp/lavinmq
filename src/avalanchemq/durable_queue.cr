@@ -118,7 +118,7 @@ module AvalancheMQ
       @log.info "Restoring index"
       @ack.rewind
       sp_size = sizeof(SegmentPosition)
-      acked = Array(SegmentPosition).new(@ack.size / sp_size)
+      acked = Array(SegmentPosition).new(@ack.size // sp_size)
       loop do
         acked << SegmentPosition.from_io @ack
         @acks += 1
@@ -127,7 +127,7 @@ module AvalancheMQ
       end
       # to avoid repetetive allocations in Dequeue#increase_capacity
       # we redeclare the ready queue with a larger initial capacity
-      capacity = Math.max(@enq.size.to_i64 - @ack.size, sp_size) / sp_size
+      capacity = Math.max(@enq.size.to_i64 - @ack.size, sp_size) // sp_size
       @ready = Deque(SegmentPosition).new(capacity)
       @enq.rewind
       loop do

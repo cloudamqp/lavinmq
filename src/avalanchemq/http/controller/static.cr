@@ -22,7 +22,7 @@ module AvalancheMQ
         end
 
         is_dir_path = path.ends_with? "/"
-        file_path = URI.unescape(path)
+        file_path = URI.decode_www_form(path)
         file_path = "#{file_path}index.html" if is_dir_path
 
         serve(context, file_path) || call_next(context)

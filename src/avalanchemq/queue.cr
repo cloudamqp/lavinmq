@@ -477,7 +477,7 @@ module AvalancheMQ
         "routing-keys" => [meta.routing_key.as(AMQP::Field)],
         "reason"       => reason.to_s,
         "count"        => count + 1,
-        "time"         => Time.utc_now,
+        "time"         => Time.utc,
       }
       if props.expiration
         death["original-expiration"] = props.expiration
@@ -524,7 +524,7 @@ module AvalancheMQ
       true
     end
 
-    private def expire_message(now = Time.utc_now) : Time::Span?
+    private def expire_message(now = Time.utc) : Time::Span?
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
         @log.debug { "Checking if next message has to be expired" }

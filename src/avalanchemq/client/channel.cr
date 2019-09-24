@@ -134,7 +134,7 @@ module AvalancheMQ
 
       private def finish_publish(message_body)
         @publish_count += 1
-        ts = Time.utc_now
+        ts = Time.utc
         props = @next_msg_props.not_nil!
         props.timestamp = ts if Config.instance.set_timestamp && props.timestamp.nil?
         msg = Message.new(ts.to_unix_ms,

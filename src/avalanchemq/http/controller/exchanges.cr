@@ -7,7 +7,7 @@ module AvalancheMQ
   module HTTP
     module ExchangeHelpers
       private def exchange(context, params, vhost, key = "name")
-        name = URI.unescape(params[key])
+        name = URI.decode_www_form(params[key])
         name = "" if name == "amq.default"
         e = @amqp_server.vhosts[vhost].exchanges[name]?
         not_found(context, "Exchange #{name} does not exist") unless e
@@ -134,7 +134,7 @@ module AvalancheMQ
               bad_request(context, "Unknown payload_encoding #{payload_encoding}")
             end
             size = content.bytesize.to_u64
-            msg = Message.new(Time.utc_now.to_unix_ms,
+            msg = Message.new(Time.utc.to_unix_ms,
               e.name,
               routing_key,
               AMQP::Properties.from_json(properties),

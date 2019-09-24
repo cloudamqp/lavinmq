@@ -49,7 +49,7 @@ module AvalancheMQ
       end
 
       private def with_connection(context, params)
-        name = URI.unescape(params["name"])
+        name = URI.decode_www_form(params["name"])
         user = user(context)
         connection = @amqp_server.connections.find { |c| c.name == name }
         not_found(context, "Connection #{name} does not exist") unless connection

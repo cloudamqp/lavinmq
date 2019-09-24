@@ -31,7 +31,7 @@ module AvalancheMQ
 
         put "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          @amqp_server.vhosts.create(URI.unescape(params["name"]))
+          @amqp_server.vhosts.create(URI.decode_www_form(params["name"]))
           context.response.status_code = 204
           context
         end

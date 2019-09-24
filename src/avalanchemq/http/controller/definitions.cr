@@ -50,7 +50,7 @@ module AvalancheMQ
       end
 
       private def import_vhost_definitions(name, body)
-        unescaped_name = URI.unescape(name)
+        unescaped_name = URI.decode_www_form(name)
         vhosts = {unescaped_name => @amqp_server.vhosts[unescaped_name]}
         import_queues(body, vhosts)
         import_exchanges(body, vhosts)
@@ -72,7 +72,7 @@ module AvalancheMQ
       end
 
       private def export_vhost_definitions(name, response)
-        unescaped_name = URI.unescape(name)
+        unescaped_name = URI.decode_www_form(name)
         vhosts = {unescaped_name => @amqp_server.vhosts[unescaped_name]}
         JSON.build(response) do |json|
           json.object do

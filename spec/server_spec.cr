@@ -540,7 +540,7 @@ describe AvalancheMQ::Server do
     AvalancheMQ::Config.instance.set_timestamp = true
     with_channel do |ch|
       q = ch.queue
-      t = Time.utc_now.to_unix
+      t = Time.utc.to_unix
       q.publish "m1"
       msg = nil
       q.subscribe(no_ack: true) { |m| msg = m }

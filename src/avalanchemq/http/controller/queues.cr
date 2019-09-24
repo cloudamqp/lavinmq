@@ -7,7 +7,7 @@ module AvalancheMQ
   module HTTP
     module QueueHelpers
       private def queue(context, params, vhost, key = "name")
-        name = URI.unescape(params[key])
+        name = URI.decode_www_form(params[key])
         q = @amqp_server.vhosts[vhost].queues[name]?
         not_found(context, "Queue #{name} does not exist") unless q
         q
@@ -47,7 +47,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             user = user(context)
-            name = URI.unescape(params["name"])
+            name = URI.decode_www_form(params["name"])
             name = Queue.generate_name if name.empty?
             body = parse_body(context)
             durable = body["durable"]?.try(&.as_bool?) || false

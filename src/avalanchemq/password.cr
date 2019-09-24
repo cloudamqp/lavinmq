@@ -33,7 +33,7 @@ module AvalancheMQ
         end
       end
 
-      def ==(password)
+      def verify(password) : Bool
         dgst = OpenSSL::Digest.new(hash_algorithm)
         dgst.update @salt
         dgst.update password
@@ -58,7 +58,7 @@ module AvalancheMQ
     end
 
     class SHA256Password < Password
-      def digest_size
+      def digest_size : Int32
         32
       end
 
@@ -76,7 +76,7 @@ module AvalancheMQ
     end
 
     class SHA512Password < Password
-      def digest_size
+      def digest_size : Int32
         64
       end
 
@@ -94,7 +94,7 @@ module AvalancheMQ
     end
 
     class MD5Password < Password
-      def digest_size
+      def digest_size : Int32
         16
       end
 

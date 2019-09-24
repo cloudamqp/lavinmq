@@ -15,7 +15,7 @@ module AvalancheMQ
 
     module UserHelpers
       private def user(context, params, key = "name")
-        name = URI.unescape(params[key])
+        name = URI.decode_www_form(params[key])
         u = @amqp_server.users[name]?
         not_found(context, "User #{name} does not exist") unless u
         u

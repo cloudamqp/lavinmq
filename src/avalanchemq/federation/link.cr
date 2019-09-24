@@ -78,7 +78,7 @@ module AvalancheMQ
             p.run
             c.run
             @state = State::Running
-            @connected_at = Time.now.to_unix_ms
+            @connected_at = Time.utc.to_unix_ms
             @done.receive
             break
           rescue ex

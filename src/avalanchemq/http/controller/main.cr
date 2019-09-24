@@ -114,7 +114,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             @amqp_server.vhosts[vhost].declare_queue("aliveness-test", false, false)
             @amqp_server.vhosts[vhost].bind_queue("aliveness-test", "amq.direct", "aliveness-test")
-            msg = Message.new(Time.utc_now.to_unix_ms,
+            msg = Message.new(Time.utc.to_unix_ms,
               "amq.direct",
               "aliveness-test",
               AMQP::Properties.new,

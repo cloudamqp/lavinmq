@@ -69,7 +69,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            props = URI.unescape(params["props"])
+            props = URI.decode_www_form(params["props"])
             binding = binding_for_props(context, e, q, props)
             e.binding_details(binding[0], q).to_json(context.response)
           end
@@ -86,7 +86,7 @@ module AvalancheMQ
             elsif !user.can_write?(vhost, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             end
-            props = URI.unescape(params["props"])
+            props = URI.decode_www_form(params["props"])
             e.bindings.each do |k, destinations|
               next unless destinations.includes?(q) && BindingDetails.hash_key(k) == props
               arguments = k[1] || Hash(String, AMQP::Field).new
@@ -136,7 +136,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
-            props = URI.unescape(params["props"])
+            props = URI.decode_www_form(params["props"])
             binding = binding_for_props(context, source, destination, props)
             source.binding_details(binding[0], destination).to_json(context.response)
           end
@@ -153,7 +153,7 @@ module AvalancheMQ
             elsif !user.can_write?(vhost, destination.name)
               access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
             end
-            props = URI.unescape(params["props"])
+            props = URI.decode_www_form(params["props"])
             source.bindings.each do |k, destinations|
               next unless destinations.includes?(destination) && BindingDetails.hash_key(k) == props
               arguments = AMQP::Table.new(k[1] || Hash(String, AMQP::Field).new)
