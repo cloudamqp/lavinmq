@@ -203,11 +203,11 @@ module AvalancheMQ
           expire_queue(now)
           return false
         else
-          select
-          when @message_available.receive
-          when timeout(queue_expires_in)
-            expire_queue(now)
+          spawn(name: "expire_queue_later") do
+            sleep queue_expires_in.not_nil!
+            expire_queue
           end
+          @message_available.receive
         end
       else
         @message_available.receive
@@ -228,15 +228,13 @@ module AvalancheMQ
 
       @log.debug "Waiting for consumer"
       if wakeup_in
-        select
-        when @consumer_available.receive
-          @log.debug "Consumer available"
-        when timeout(wakeup_in)
-          @log.debug "Consumer wait timeout"
+        spawn(name: "wake up consumer") do
+          sleep wakeup_in.not_nil!
+          expire_queue
         end
-      else
-        @consumer_available.receive
       end
+      @consumer_available.receive
+      @log.debug "Consumer available"
       true
     end
 
