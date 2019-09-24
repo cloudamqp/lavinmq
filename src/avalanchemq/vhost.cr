@@ -534,7 +534,7 @@ module AvalancheMQ
       return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         loop do
-          frame = @save.receive
+          _, frame = Channel.select(@save.receive_select_action)
           case frame
           when AMQP::Frame::Exchange::Declare
             next unless frame.durable
