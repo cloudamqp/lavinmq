@@ -165,7 +165,7 @@ module AvalancheMQ
   end
 
   class DirectExchange < Exchange
-    def type
+    def type : String
       "direct"
     end
 
@@ -178,7 +178,7 @@ module AvalancheMQ
       after_unbind
     end
 
-    def matches(routing_key, headers = nil)
+    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       @bindings[{routing_key, nil}]
     end
   end
@@ -189,7 +189,7 @@ module AvalancheMQ
       @destinations = Set(Queue | Exchange).new
     end
 
-    def type
+    def type : String
       "fanout"
     end
 
@@ -204,7 +204,7 @@ module AvalancheMQ
       after_unbind
     end
 
-    def matches(routing_key, headers = nil)
+    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       @destinations
     end
   end
@@ -217,7 +217,7 @@ module AvalancheMQ
       end
     end
 
-    def type
+    def type : String
       "topic"
     end
 
@@ -233,7 +233,7 @@ module AvalancheMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def matches(routing_key, headers = nil)
+    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       rk_parts = routing_key.split(".")
       s = Set(Queue | Exchange).new
       @binding_keys.each do |bks, dst|
@@ -298,7 +298,7 @@ module AvalancheMQ
   end
 
   class HeadersExchange < Exchange
-    def type
+    def type : String
       "headers"
     end
 
@@ -313,7 +313,7 @@ module AvalancheMQ
       after_unbind
     end
 
-    def matches(routing_key, headers)
+    def matches(routing_key, headers) : Set(Queue | Exchange)
       matches = Set(Queue | Exchange).new
       return matches unless headers
       @bindings.each do |bt, queues|

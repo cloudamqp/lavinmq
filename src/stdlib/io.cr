@@ -1,7 +1,9 @@
 class IO
-  def self.copy(src, dst, limit : Int)
-    return 0 if limit.zero?
+  def self.copy(src, dst, limit : Int) : UInt64
+    return 0_u64 if limit.zero?
     raise ArgumentError.new("Negative limit") if limit < 0
+
+    limit = limit.to_u64
 
     buffer = uninitialized UInt8[131_072]
     remaining = limit

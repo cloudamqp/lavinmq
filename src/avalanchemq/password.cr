@@ -66,11 +66,11 @@ module AvalancheMQ
         "SHA256"
       end
 
-      def hash_algorithm
+      def hash_algorithm : String
         "SHA256"
       end
 
-      def hash_prefix
+      def hash_prefix : String
         "$5$"
       end
     end
@@ -84,11 +84,11 @@ module AvalancheMQ
         "SHA512"
       end
 
-      def hash_algorithm
+      def hash_algorithm : String
         "SHA512"
       end
 
-      def hash_prefix
+      def hash_prefix : String
         "$6$"
       end
     end
@@ -102,11 +102,11 @@ module AvalancheMQ
         "MD5"
       end
 
-      def hash_algorithm
+      def hash_algorithm : String
         "MD5"
       end
 
-      def hash_prefix
+      def hash_prefix : String
         "$1$"
       end
     end
