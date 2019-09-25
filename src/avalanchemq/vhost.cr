@@ -18,6 +18,7 @@ module AvalancheMQ
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
       direct_reply_channels, upstreams, default_user
     property? flow = true
+    getter? closed = false
 
     @segment : UInt32
     @wfile : File
@@ -25,6 +26,7 @@ module AvalancheMQ
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
+    @write_lock = Mutex.new
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def_equals_and_hash @name
@@ -52,7 +54,7 @@ module AvalancheMQ
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
-      spawn publish_loop, name: "VHost/#{@name}#publish_loop"
+      spawn fsync_loop, name: "VHost/#{@name}#fsync_loop"
     end
 
     def inspect(io : IO)
@@ -70,10 +72,17 @@ module AvalancheMQ
     @outgoing = Channel(Tuple(Bool, Exception?)).new
 
     def publish(msg : Message, immediate = false, confirm = false)
-      @incoming.send({msg, immediate, confirm})
-      ok, ex = @outgoing.receive
+      ok, ex = actual_publish(msg, immediate, confirm)
       raise ex unless ex.nil?
       ok
+    end
+
+    private def fsync_loop
+      loop do
+        sleep 0.2
+        break if @closed
+        fsync
+      end
     end
 
     @queues_to_fsync = Set(DurableQueue).new
@@ -88,21 +97,6 @@ module AvalancheMQ
       end
       @awaiting_confirm.clear
       @fsync = false
-      spawn do
-        sleep 0.2
-        fsync
-      end
-    end
-
-    def publish_loop
-      loop do
-        fsync if @incoming.empty?
-        msg, immediate, confirm = @incoming.receive
-        res_tuple = actual_publish(msg, immediate, confirm)
-        @outgoing.send(res_tuple)
-      rescue Channel::ClosedError
-        break
-      end
     end
 
     @visited = Set(Exchange).new
@@ -184,6 +178,7 @@ module AvalancheMQ
     @pos = 0_u32
 
     private def write_to_disk(msg) : SegmentPosition
+      @write_lock.lock
       if @pos >= Config.instance.segment_size
         @segment += 1
         fsync
@@ -213,6 +208,8 @@ module AvalancheMQ
       @wfile.close
       @wfile = open_wfile
       raise ex
+    ensure
+      @write_lock.unlock
     end
 
     private def open_wfile : File
@@ -397,6 +394,7 @@ module AvalancheMQ
     end
 
     def close
+      @closed = true
       @log.info("Closing")
       stop_shovels
       Fiber.yield
