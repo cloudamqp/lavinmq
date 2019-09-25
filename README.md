@@ -59,6 +59,20 @@ Each vhost directory is named after the sha1 hash of its real name. The same goe
 for the queue directories in the vhost directory. The queue directories only has two files,
 `ack` and `enq`, also described earlier.
 
+### Flows
+
+#### Publish
+
+`Client#read_loop` reads from the socket, it delegates to `Channel#start_publish` and `Channel#add_content`.
+When all content has been recieved (and appended to an `IO::Memory` object) it passes the `Message` struct to
+`VHost#publish`. `VHost` got a `publish_loop` fiber that listen for `Message`s, finds all matching queues,
+writes the message to the message store and then calls `Queue#publish` with the segment position.
+`Queue#publish` writes to the queue index file (if it's a durable queue).
+
+#### Consume
+
+TBD
+
 ## Features
 
 * AMQP 0-9-1 compatible
