@@ -110,6 +110,7 @@ module AvalancheMQ
     # @outgoing channel / Anders
     def actual_publish(msg, immediate, confirm) : Tuple(Bool, Exception?)
       ex = @exchanges[msg.exchange_name]? || return {false, nil}
+      @write_lock.lock
       ex.publish_in_count += 1
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @visited, @found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
@@ -133,6 +134,7 @@ module AvalancheMQ
     ensure
       @visited.clear
       @found_queues.clear
+      @write_lock.unlock
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
@@ -178,7 +180,6 @@ module AvalancheMQ
     @pos = 0_u32
 
     private def write_to_disk(msg) : SegmentPosition
-      @write_lock.lock
       if @pos >= Config.instance.segment_size
         @segment += 1
         fsync
@@ -208,8 +209,6 @@ module AvalancheMQ
       @wfile.close
       @wfile = open_wfile
       raise ex
-    ensure
-      @write_lock.unlock
     end
 
     private def open_wfile : File
