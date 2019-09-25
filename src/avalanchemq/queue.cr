@@ -46,7 +46,7 @@ module AvalancheMQ
       handle_arguments
       @consumers = Deque(Client::Channel::Consumer).new
       @message_available = Channel(Nil).new
-      @consumer_available = Channel(Nil).new(1)
+      @consumer_available = Channel(Nil).new
       @ready = Deque(SegmentPosition).new(1024)
       @ready_lock = Mutex.new
       @segment_pos = Hash(UInt32, UInt32).new do |h, seg|
@@ -116,7 +116,10 @@ module AvalancheMQ
     end
 
     def consumer_available
-      @consumer_available.send nil unless @consumer_available.full?
+      select
+      when @consumer_available.send nil
+      else
+      end
     end
 
     private def drop_overflow
@@ -196,41 +199,43 @@ module AvalancheMQ
 
     private def recieve_or_expire
       @log.debug { "Waiting for msgs" }
-      now = Time.monotonic
-      queue_expires_in = expires_in(now)
-      if queue_expires_in
-        if queue_expires_in <= Time::Span.zero
-          expire_queue(now)
-          return false
-        else
-          spawn(name: "expire_queue_later") do
-            sleep queue_expires_in.not_nil!
-            expire_queue
+      if @expires
+        now = Time.monotonic
+        queue_expires_in = expires_in(now)
+        if queue_expires_in
+          if queue_expires_in <= Time::Span.zero
+            expire_queue(now)
+            return false
+          else
+            spawn(name: "expire_queue_later") do
+              sleep queue_expires_in.not_nil!
+              expire_queue
+            end
           end
-          @message_available.receive
         end
-      else
-        @message_available.receive
       end
+      @message_available.receive
       @log.debug { "Message available" }
       true
     end
 
     private def consumer_or_expire
       @log.debug "No consumer available"
-      now = Time.monotonic
-      queue_expires_in = expires_in(now)
-      if queue_expires_in && queue_expires_in <= Time::Span.zero
-        expire_queue(now)
-        return false
-      end
-      wakeup_in = wakeup_in(queue_expires_in)
+      if @expires
+        now = Time.monotonic
+        queue_expires_in = expires_in(now)
+        if queue_expires_in && queue_expires_in <= Time::Span.zero
+          expire_queue(now)
+          return false
+        end
+        wakeup_in = wakeup_in(queue_expires_in)
 
-      @log.debug "Waiting for consumer"
-      if wakeup_in
-        spawn(name: "wake up consumer") do
-          sleep wakeup_in.not_nil!
-          expire_queue
+        @log.debug "Waiting for consumer"
+        if wakeup_in
+          spawn(name: "wake up consumer") do
+            sleep wakeup_in.not_nil!
+            expire_queue
+          end
         end
       end
       @consumer_available.receive
@@ -361,7 +366,10 @@ module AvalancheMQ
       end
       @log.debug { "Enqueuing message sp=#{sp}" }
       @ready.push sp
-      @message_available.send nil unless @message_available.full?
+      select
+      when @message_available.send nil
+      else
+      end
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                       consumers=#{@consumers.size}" }
       @publish_count += 1
@@ -634,7 +642,10 @@ module AvalancheMQ
           @ready.insert(i, sp)
         end
         @requeued << sp
-        @message_available.send nil unless @message_available.full?
+        select
+        when @message_available.send nil
+        else
+        end
       else
         expire_msg(sp, :rejected)
       end
@@ -653,7 +664,10 @@ module AvalancheMQ
           @requeued << sp
         end
       end
-      @message_available.send nil unless @message_available.full?
+      select
+      when @message_available.send nil
+      else
+      end
     end
 
     private def drophead
