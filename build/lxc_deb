@@ -15,6 +15,7 @@ do
     lxc-start -n $name
     lxc-attach -n $name <<-EOF
     ifup eth0
+    while ! (ping 1.1.1.1 -c 1); do sleep 1; done
     echo "deb https://dist.crystal-lang.org/apt crystal main" > /etc/apt/sources.list.d/crystal.list
     apt-get install -y gnupg2
     apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
@@ -26,6 +27,7 @@ EOF
   lxc-attach -n $name <<-EOF
   export LC_ALL=en_US.UTF-8
   ifup eth0
+  while ! (ping 1.1.1.1 -c 1); do sleep 1; done
   cd /mnt
   build/deb $revision
 EOF
