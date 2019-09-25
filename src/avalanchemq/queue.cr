@@ -188,9 +188,6 @@ module AvalancheMQ
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
         break
-      rescue ex : Errno
-        sp = @ready_lock.synchronize { @ready.shift }
-        @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       rescue ex
         @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
@@ -606,6 +603,9 @@ module AvalancheMQ
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
       reject(sp, false)
+    rescue ex : Errno
+      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+      @segments.delete sp.segment
     rescue ex
       if seg
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
