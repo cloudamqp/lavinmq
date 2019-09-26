@@ -362,7 +362,7 @@ module AvalancheMQ
         end
       end
       @log.debug { "Enqueuing message sp=#{sp}" }
-      @ready.push sp
+      @ready_lock.synchronize { @ready.push sp }
       select
       when @message_available.send nil
       else
