@@ -385,7 +385,7 @@ module AvalancheMQ
       else
       end
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
-                      consumers=#{@consumers.size}" }
+                        consumers=#{@consumers.size}" }
       @publish_count += 1
       true
     end
@@ -430,7 +430,7 @@ module AvalancheMQ
             expire_msg(meta, sp, :expired)
           else
             spawn(expire_later(expire_in, meta, sp),
-              name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+                  name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
             break
           end
         else
@@ -590,7 +590,7 @@ module AvalancheMQ
 
     private def get(no_ack : Bool, &blk : Envelope? -> Nil)
       return yield nil if @closed
-      sp = @ready.shift?
+      sp = @ready_lock.synchronize { @ready.shift? }
       return yield nil if sp.nil?
       @read_lock.synchronize do
         read(sp) do |env|
