@@ -39,8 +39,11 @@ module AvalancheMQ
         @next_publish_immediate = false
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
-        @map = {} of UInt64 => Tuple(Queue, SegmentPosition, Consumer | Nil)
+        @unacked = Deque(Unack).new
+        @unack_lock = Mutex.new
       end
+
+      record Unack, tag : UInt64, queue : Queue, sp : SegmentPosition, consumer : Consumer?
 
       def details_tuple
         {
@@ -53,7 +56,7 @@ module AvalancheMQ
           global_prefetch_count:   @global_prefetch ? @prefetch_count : 0,
           confirm:                 @confirm,
           transactional:           false,
-          messages_unacknowledged: @map.size,
+          messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
           message_stats:           stats_details,
@@ -272,68 +275,84 @@ module AvalancheMQ
         end
       end
 
-      def basic_ack(frame)
-        if qspc = @map.delete(frame.delivery_tag)
-          if frame.multiple
-            tags = @map.select { |k, _| k < frame.delivery_tag }
-            tags.each_value do |queue, sp, consumer|
-              do_ack(frame, queue, sp, consumer, flush: false)
+      # Find one (more multiple) unacked delivery tags, yielding each item
+      # Returns true if found at least one item, else false
+      private def delete_unacked(delivery_tag, multiple = false, &blk : Unack -> _) : Bool
+        found = false
+        @unack_lock.synchronize do
+          if multiple
+            loop do
+              unack = @unacked.shift?
+              if unack && (delivery_tag.zero? || unack.tag <= delivery_tag)
+                found = true
+                yield unack
+              else
+                break
+              end
             end
-            tags.each_key do |k|
-              @map.delete(k)
+          else
+            # optimization for acking first unacked
+            if @unacked[0]?.try(&.tag) == delivery_tag
+              unack = @unacked.shift
+              found = true
+              yield unack
+            else
+              # @unacked is always sorted so can do a binary search
+              idx = @unacked.bsearch_index { |ua, _| ua.tag >= delivery_tag }
+              if idx
+                found = true
+                unack = @unacked.delete_at idx
+                yield unack
+              end
             end
           end
-          queue, sp, consumer = qspc
-          do_ack(frame, queue, sp, consumer)
-        else
+        end
+        found
+      end
+
+      def basic_ack(frame)
+        found = delete_unacked(frame.delivery_tag, frame.multiple) do |unack|
+          do_ack(unack, flush: !frame.multiple)
+        end
+        unless found
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
 
-      private def do_ack(frame, queue, sp, consumer, flush = true)
-        consumer.ack(sp) if consumer
-        queue.ack(sp, flush: flush)
+      private def do_ack(unack, flush = true)
+        if c = unack.consumer
+          c.ack(unack.sp)
+        end
+        unack.queue.ack(unack.sp, flush: flush)
         @ack_count += 1
       end
 
       def basic_reject(frame)
-        if qspc = @map.delete(frame.delivery_tag)
-          queue, sp, consumer = qspc
-          do_reject(frame, queue, sp, consumer)
-        else
+        found = delete_unacked(frame.delivery_tag, false) do |unack|
+          do_reject(frame.requeue, unack)
+        end
+        unless found
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
 
       def basic_nack(frame)
-        if frame.multiple && frame.delivery_tag.zero?
-          @map.each_value do |queue, sp, consumer|
-            do_reject(frame, queue, sp, consumer)
-          end
-          @map.clear
-        elsif qspc = @map.delete(frame.delivery_tag)
-          if frame.multiple
-            tags = @map.select { |k, _| k < frame.delivery_tag }
-            tags.each_value do |queue, sp, consumer|
-              do_reject(frame, queue, sp, consumer)
-            end
-            tags.each_key do |k|
-              @map.delete k
-            end
-          end
-          queue, sp, consumer = qspc
-          do_reject(frame, queue, sp, consumer)
-        else
+        found = delete_unacked(frame.delivery_tag, frame.multiple) do |unack|
+          do_reject(frame.requeue, unack)
+        end
+        unless found
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
       end
 
-      private def do_reject(frame, queue, sp, consumer)
-        consumer.reject(sp) if consumer
-        queue.reject(sp, frame.requeue)
+      private def do_reject(requeue, unack)
+        if c = unack.consumer
+          c.reject(unack.sp)
+        end
+        unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
       end
 
@@ -346,26 +365,27 @@ module AvalancheMQ
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
-        @map.each_value { |queue, sp, consumer| queue.reject(sp, true) if consumer.nil? }
-        @map.clear
+        delete_unacked(0_u64, multiple: true) do |unack|
+          unack.queue.reject(unack.sp, true) if unack.consumer.nil?
+        end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
 
       def close
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
-        @map.each_value do |queue, sp, consumer|
-          if consumer.nil?
-            queue.reject sp, true
-          end
+        delete_unacked(0_u64, multiple: true) do |unack|
+          unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         @log.debug { "Closed" }
       end
 
       def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        tag = @delivery_tag += 1
-        @map[tag] = {queue, sp, consumer} unless no_ack
-        tag
+        @unack_lock.synchronize do
+          tag = @delivery_tag += 1
+          @unacked.push Unack.new(tag, queue, sp, consumer) unless no_ack
+          tag
+        end
       end
 
       def cancel_consumer(frame)
