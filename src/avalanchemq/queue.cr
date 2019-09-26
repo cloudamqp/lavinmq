@@ -45,6 +45,7 @@ module AvalancheMQ
       @log.progname += " queue=#{@name}"
       handle_arguments
       @consumers = Deque(Client::Channel::Consumer).new
+      @consumers_lock = Mutex.new
       @message_available = Channel(Nil).new
       @consumer_available = Channel(Nil).new
       @ready = Deque(SegmentPosition).new(1024)
@@ -112,7 +113,13 @@ module AvalancheMQ
     end
 
     def unacked_count : UInt32
-      (@consumers.reduce(0) { |memo, c| memo + c.unacked.size } + @get_unacked.size).to_u32
+      count = @get_unacked.size.to_u32
+      @consumers_lock.synchronize do
+        @consumers.each do |c|
+          count += c.unacked.size
+        end
+      end
+      count
     end
 
     def consumer_available
@@ -143,7 +150,9 @@ module AvalancheMQ
     end
 
     def immediate_delivery?
-      @consumers.any? { |c| c.accepts? }
+      @consumers_lock.synchronize do
+        @consumers.any? { |c| c.accepts? }
+      end
     end
 
     def message_count : UInt32
@@ -161,8 +170,12 @@ module AvalancheMQ
     @referenced_segments = Set(UInt32).new
 
     def referenced_segments(s : Set(UInt32))
-      @ready.each { |sp| @referenced_segments << sp.segment }
-      @consumers.each { |c| c.unacked.each { |sp| @referenced_segments << sp.segment } }
+      @ready_lock.synchronize do
+        @ready.each { |sp| @referenced_segments << sp.segment }
+      end
+      @consumers_lock.synchronize do
+        @consumers.each { |c| c.unacked.each { |sp| @referenced_segments << sp.segment } }
+      end
       @segments.delete_if do |seg, f|
         next false if @referenced_segments.includes? seg
         @log.debug { "Closing non referenced segment #{seg}" }
@@ -259,14 +272,16 @@ module AvalancheMQ
 
     private def find_consumer
       @log.debug { "Looking for available consumers" }
-      if @consumers.size == 1
-        c = @consumers[0]
-        return c if c.accepts?
-      end
-      @consumers.size.times do
-        c = @consumers.shift
-        @consumers.push c
-        return c if c.accepts?
+      @consumers_lock.synchronize do
+        if @consumers.size == 1
+          c = @consumers[0]
+          return c if c.accepts?
+        end
+        @consumers.size.times do
+          c = @consumers.shift
+          @consumers.push c
+          return c if c.accepts?
+        end
       end
       nil
     end
@@ -309,9 +324,11 @@ module AvalancheMQ
       @closed = true
       @message_available.close
       @consumer_available.close
-      loop do
-        c = @consumers.shift? || break
-        c.cancel
+      @consumers_lock.synchronize do
+        loop do
+          c = @consumers.shift? || break
+          c.cancel
+        end
       end
       @segments.each_value &.close
       @segments.clear
@@ -680,7 +697,9 @@ module AvalancheMQ
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = Time.monotonic
-      @consumers.push consumer
+      @consumers_lock.synchronize do
+        @consumers.push consumer
+      end
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       consumer_available
@@ -690,7 +709,8 @@ module AvalancheMQ
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      if @consumers.delete consumer
+      deleted = @consumers_lock.synchronize { @consumers.delete consumer }
+      if deleted
         @exclusive_consumer = false if consumer.exclusive
         requeue_many(consumer.unacked)
         @log.debug { "Removing consumer with #{consumer.unacked.size} unacked messages \
