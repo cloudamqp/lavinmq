@@ -66,7 +66,7 @@ module AvalancheMQ
     private def read_loop
       loop do
         AMQP::Frame.from_io(@socket) do |frame|
-          @log.debug { "Read #{frame.inspect}" }
+          #@log.debug { "Read #{frame.inspect}" }
           if (!@running && !frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk))
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             if frame.is_a?(AMQP::Frame::Body)
@@ -96,7 +96,7 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       return false if closed?
-      @log.debug { "Send #{frame.inspect}" }
+      #@log.debug { "Send #{frame.inspect}" }
       @write_lock.synchronize do
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
         @socket.flush
@@ -134,23 +134,23 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       @write_lock.synchronize do
-        @log.debug { "Send #{frame.inspect}" }
+        #@log.debug { "Send #{frame.inspect}" }
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += frame.bytesize + 8
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-        @log.debug { "Send #{header.inspect}" }
+        #@log.debug { "Send #{header.inspect}" }
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += header.bytesize + 8
         pos = 0
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
-          @log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
+          #@log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
           body = AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
           @socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
           @send_oct_count += body.bytesize + 8
           pos += length
         end
-        @log.debug { "Flushing" }
+        #@log.debug { "Flushing" }
         @socket.flush
       end
       true
