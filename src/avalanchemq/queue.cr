@@ -643,7 +643,9 @@ module AvalancheMQ
       @get_unacked.delete_at(idx) if idx
       @deliveries.delete(sp)
       @ack_count += 1
+      {% unless flag?(:preview_mt) %}
       Fiber.yield if @ack_count % 8192 == 0
+      {% end %}
       consumer_available
     end
 
@@ -666,7 +668,9 @@ module AvalancheMQ
       else
         expire_msg(sp, :rejected)
       end
+      {% unless flag?(:preview_mt) %}
       Fiber.yield if @reject_count % 8192 == 0
+      {% end %}
     end
 
     private def requeue_many(sps : Deque(SegmentPosition))
