@@ -20,6 +20,8 @@ module AvalancheMQ
       @ack.buffer_size = Config.instance.file_buffer_size
       @ack.sync = true
       @acks = 0_u32
+      @ack_lock = Mutex.new
+      @enq_lock = Mutex.new
       restore_index
     end
 
@@ -27,30 +29,34 @@ module AvalancheMQ
       @log.info { "Compacting index" }
       @enq.close
       Dir.mkdir_p @index_dir
-      File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-        unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
-        next_unacked = unacked.next
-        @ready_lock.synchronize do
-          @ready.each do |sp|
-            while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
-              f.write_bytes next_unacked.as(SegmentPosition)
-              next_unacked = unacked.next
-            end
-            f.write_bytes sp
-          end
-        end
-        until next_unacked == Iterator::Stop::INSTANCE
-          f.write_bytes next_unacked.as(SegmentPosition)
+      @enq_lock.synchronize do
+        File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+          unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
           next_unacked = unacked.next
+          @ready_lock.synchronize do
+            @ready.each do |sp|
+              while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
+                f.write_bytes next_unacked.as(SegmentPosition)
+                next_unacked = unacked.next
+              end
+              f.write_bytes sp
+            end
+          end
+          until next_unacked == Iterator::Stop::INSTANCE
+            f.write_bytes next_unacked.as(SegmentPosition)
+            next_unacked = unacked.next
+          end
+          f.fsync
         end
-        f.fsync
+        File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+        @enq = File.open(File.join(@index_dir, "enq"), "a")
+        @enq.sync = true
+        @enq.buffer_size = Config.instance.file_buffer_size
       end
-      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-      @enq = File.open(File.join(@index_dir, "enq"), "a")
-      @enq.sync = true
-      @enq.buffer_size = Config.instance.file_buffer_size
-      @ack.truncate
-      @acks = 0
+      @ack_lock.synchronize do
+        @ack.truncate
+        @acks = 0
+      end
     end
 
     def close : Bool
@@ -69,7 +75,11 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
       super || return false
-      @enq.write_bytes sp if persistent
+      if persistent
+        @enq_lock.synchronize do
+          @enq.write_bytes sp
+        end
+      end
       true
     end
 
@@ -78,7 +88,9 @@ module AvalancheMQ
         if env && no_ack
           persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
           if persistent
-            @ack.write_bytes env.segment_position
+            @ack_lock.synchronize do
+              @ack.write_bytes env.segment_position
+            end
             compact_index! if (@acks += 1) > MAX_ACKS
           end
         end
@@ -88,7 +100,9 @@ module AvalancheMQ
 
     def ack(sp : SegmentPosition, persistent : Bool)
       if persistent
-        @ack.write_bytes sp
+        @ack_lock.synchronize do
+          @ack.write_bytes sp
+        end
         compact_index! if (@acks += 1) > MAX_ACKS
       end
       super
@@ -96,8 +110,12 @@ module AvalancheMQ
 
     def purge
       @log.info "Purging"
-      @enq.truncate
-      @ack.truncate
+      @enq_lock.synchronize do
+        @enq.truncate
+      end
+      @ack_lock.synchronize do
+        @ack.truncate
+      end
       @acks = 0
       super
     end
