@@ -99,8 +99,10 @@ module AvalancheMQ
       @fsync = false
     end
 
-    @visited = Set(Exchange).new
-    @found_queues = Set(Queue).new
+    @[ThreadLocal]
+    @@visited = Set(Exchange).new
+    @[ThreadLocal]
+    @@found_queues = Set(Queue).new
 
     # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
     # should be Acks, apart from Exceptions.
@@ -110,31 +112,31 @@ module AvalancheMQ
     # @outgoing channel / Anders
     def actual_publish(msg, immediate, confirm) : Tuple(Bool, Exception?)
       ex = @exchanges[msg.exchange_name]? || return {false, nil}
-      @write_lock.lock
       ex.publish_in_count += 1
-      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @visited, @found_queues)
+      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @@visited, @@found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
       return {false, nil} if queues.empty?
       return {false, nil} if immediate && !queues.any? { |q| q.immediate_delivery? }
-      sp = write_to_disk(msg)
-      flush = msg.properties.delivery_mode == 2_u8
-      ok = false
-      error = nil
-      queues.each do |q|
-        ex.publish_out_count += 1
-        begin
-          next unless q.publish(sp, flush)
-          @queues_to_fsync << q if q.is_a?(DurableQueue) && flush
-          ok = true
-        rescue e
-          error = e
+      @write_lock.synchronize do
+        sp = write_to_disk(msg)
+        flush = msg.properties.delivery_mode == 2_u8
+        ok = false
+        error = nil
+        queues.each do |q|
+          ex.publish_out_count += 1
+          begin
+            next unless q.publish(sp, flush)
+            @queues_to_fsync << q if q.is_a?(DurableQueue) && flush
+            ok = true
+          rescue e
+            error = e
+          end
         end
+        {ok, error}
       end
-      {ok, error}
     ensure
-      @visited.clear
-      @found_queues.clear
-      @write_lock.unlock
+      @@visited.clear
+      @@found_queues.clear
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
