@@ -74,12 +74,6 @@ module AvalancheMQ
     @incoming = Channel(Tuple(Message, Bool, Bool)).new
     @outgoing = Channel(Tuple(Bool, Exception?)).new
 
-    def publish(msg : Message, immediate = false, confirm = false)
-      ok, ex = actual_publish(msg, immediate, confirm)
-      raise ex unless ex.nil?
-      ok
-    end
-
     private def fsync_loop
       loop do
         sleep 0.2
@@ -118,34 +112,29 @@ module AvalancheMQ
     # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
     # So a Bool return from publish if not engough to cover all cases, hence the Tuple typed
     # @outgoing channel / Anders
-    def actual_publish(msg, immediate, confirm) : Tuple(Bool, Exception?)
-      ex = @exchanges[msg.exchange_name]? || return {false, nil}
+    def publish(msg : Message, immediate = false, confirm = false) : Bool
+      ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @@visited, @@found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
-      return {false, nil} if queues.empty?
-      return {false, nil} if immediate && !queues.any? { |q| q.immediate_delivery? }
+      return false if queues.empty?
+      return false if immediate && !queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
        write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = false
-      error = nil
       queues.each do |q|
         ex.publish_out_count += 1
-        begin
-          next unless q.publish(sp, flush)
-          if q.is_a?(DurableQueue) && flush
-            @queues_to_fsync_lock.synchronize do
-              @queues_to_fsync << q
-            end
+        next unless q.publish(sp, flush)
+        if q.is_a?(DurableQueue) && flush
+          @queues_to_fsync_lock.synchronize do
+            @queues_to_fsync << q
           end
-          ok = true
-        rescue e
-          error = e
         end
+        ok = true
       end
-      {ok, error}
+      ok
     ensure
       @@visited.clear
       @@found_queues.clear
