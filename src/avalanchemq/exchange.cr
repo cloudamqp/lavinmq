@@ -23,7 +23,7 @@ module AvalancheMQ
     rate_stats(%w(publish_in publish_out))
     property publish_in_count, publish_out_count
 
-    def_equals_and_hash @vhost, @name
+    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,

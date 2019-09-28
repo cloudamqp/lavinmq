@@ -30,7 +30,7 @@ module AvalancheMQ
       priority: {type: Int8, setter: false}
     )
 
-    def_equals_and_hash @name, @vhost
+    def_equals_and_hash @vhost.name, @name
     getter name, vhost, definition, pattern, apply_to, priority
 
     def initialize(@name : String, @vhost : String, @pattern : Regex, @apply_to : Target,
