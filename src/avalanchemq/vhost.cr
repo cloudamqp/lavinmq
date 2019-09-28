@@ -61,11 +61,14 @@ module AvalancheMQ
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
+    @awaiting_confirm_lock = Mutex.new
     @awaiting_confirm = Set(Client::Channel).new
 
     def waiting4confirm(channel)
       @fsync = true
-      @awaiting_confirm.add channel
+      @awaiting_confirm_lock.synchronize do
+        @awaiting_confirm.add channel
+      end
     end
 
     @incoming = Channel(Tuple(Message, Bool, Bool)).new
@@ -85,17 +88,22 @@ module AvalancheMQ
       end
     end
 
+    @queues_to_fsync_lock = Mutex.new
     @queues_to_fsync = Set(DurableQueue).new
 
     def fsync
       return unless @fsync
       @log.debug { "fsync" }
       @wfile.fsync(flush_metadata: false)
-      @queues_to_fsync.each &.fsync_enq
-      @awaiting_confirm.each do |ch|
-        ch.confirm_ack(multiple: true)
+      @queues_to_fsync_lock.synchronize do
+        @queues_to_fsync.each &.fsync_enq
       end
-      @awaiting_confirm.clear
+      @awaiting_confirm_lock.synchronize do
+        @awaiting_confirm.each do |ch|
+          ch.confirm_ack(multiple: true)
+        end
+        @awaiting_confirm.clear
+      end
       @fsync = false
     end
 
@@ -127,7 +135,11 @@ module AvalancheMQ
         ex.publish_out_count += 1
         begin
           next unless q.publish(sp, flush)
-          @queues_to_fsync << q if q.is_a?(DurableQueue) && flush
+          if q.is_a?(DurableQueue) && flush
+            @queues_to_fsync_lock.synchronize do
+              @queues_to_fsync << q
+            end
+          end
           ok = true
         rescue e
           error = e
