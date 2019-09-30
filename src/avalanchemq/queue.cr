@@ -190,13 +190,13 @@ module AvalancheMQ
       loop do
         break if @closed
         if @ready.empty?
-          break unless recieve_or_expire
+          recieve_or_expire || break
         end
         if c = find_consumer
           deliver_to_consumer(c)
         else
           break if @closed
-          break unless consumer_or_expire
+          consumer_or_expire || break
         end
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
@@ -240,7 +240,6 @@ module AvalancheMQ
         end
         wakeup_in = wakeup_in(queue_expires_in)
 
-        @log.debug "Waiting for consumer"
         if wakeup_in
           spawn(name: "wake up consumer") do
             sleep wakeup_in.not_nil!
@@ -248,6 +247,7 @@ module AvalancheMQ
           end
         end
       end
+      @log.debug "Waiting for consumer"
       @consumer_available.receive
       @log.debug "Consumer available"
       true
@@ -275,7 +275,7 @@ module AvalancheMQ
       @consumers_lock.synchronize do
         if @consumers.size == 1
           c = @consumers[0]
-          return c if c.accepts?
+          return c.accepts? ? c : nil
         end
         @consumers.size.times do
           c = @consumers.shift
@@ -371,11 +371,12 @@ module AvalancheMQ
       return false if @closed
       handle_max_length
       @log.debug { "Enqueuing message sp=#{sp}" }
-      @ready_lock.synchronize { @ready.push sp }
-      select
-      when @message_available.send nil
-      else
+      was_empty = false
+      @ready_lock.synchronize do
+        was_empty = @ready.empty?
+        @ready.push sp
       end
+      Channel.select({ @message_available.send_select_action(nil) }, true) if was_empty
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
       @publish_count += 1
@@ -662,15 +663,14 @@ module AvalancheMQ
       @get_unacked.delete_at(idx) if idx
       @reject_count += 1
       if requeue
+        was_empty = false
         @ready_lock.synchronize do
+          was_empty = @ready.empty?
           i = @ready.index { |rsp| rsp > sp } || 0
           @ready.insert(i, sp)
         end
         @requeued << sp
-        select
-        when @message_available.send nil
-        else
-        end
+        Channel.select({ @message_available.send_select_action(nil) }, true) if was_empty
       else
         expire_msg(sp, :rejected)
       end
@@ -682,19 +682,18 @@ module AvalancheMQ
     private def requeue_many(sps : Deque(SegmentPosition))
       return if @deleted
       return if sps.empty?
+      was_empty = false
       @log.debug { "Returning #{sps.size} msgs to ready state" }
       @reject_count += sps.size
       @ready_lock.synchronize do
+        was_empty = @ready.empty?
         sps.reverse_each do |sp|
           i = @ready.index { |rsp| rsp > sp } || 0
           @ready.insert(i, sp)
           @requeued << sp
         end
       end
-      select
-      when @message_available.send nil
-      else
-      end
+      Channel.select({ @message_available.send_select_action(nil) }, true) if was_empty
     end
 
     private def drophead

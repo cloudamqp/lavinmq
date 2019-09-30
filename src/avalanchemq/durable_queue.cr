@@ -155,6 +155,7 @@ module AvalancheMQ
         break
       end
       @log.info { "#{message_count} messages" }
+      Channel.select({ @message_available.send_select_action(nil) }, true) if message_count > 0
     rescue ex : Errno
       @log.error { "Could not restore index: #{ex.inspect}" }
     end
