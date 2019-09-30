@@ -111,7 +111,9 @@ class Throughput < Perf
       end
       @pubs += 1
       if @rate.zero?
+        {% unless flag?(:preview_mt) %}
         Fiber.yield if @pubs % 8192 == 0
+        {% end %}
       else
         sleep 1.0 / @rate
       end
@@ -127,7 +129,9 @@ class Throughput < Perf
       m.ack unless @no_ack
       @consumes += 1
       if @consume_rate.zero?
+        {% unless flag?(:preview_mt) %}
         Fiber.yield if @consumes % 8192 == 0
+        {% end %}
       else
         sleep 1.0 / @consume_rate
       end
