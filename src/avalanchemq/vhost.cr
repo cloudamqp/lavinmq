@@ -532,7 +532,7 @@ module AvalancheMQ
       return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         loop do
-          _, frame = Channel.select(@save.receive_select_action)
+          frame = @save.receive? || break
           case frame
           when AMQP::Frame::Exchange::Declare
             next unless frame.durable
@@ -561,8 +561,6 @@ module AvalancheMQ
         end
       end
       @policies.save!
-    rescue Channel::ClosedError
-      @log.debug "Save channel closed"
     ensure
       @save.close
     end
