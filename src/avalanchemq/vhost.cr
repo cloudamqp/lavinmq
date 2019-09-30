@@ -101,10 +101,7 @@ module AvalancheMQ
       @fsync = false
     end
 
-    @[ThreadLocal]
-    @@visited = Set(Exchange).new
-    @[ThreadLocal]
-    @@found_queues = Set(Queue).new
+    @cache = Hash(Fiber, Tuple(Set(Exchange), Set(Queue))).new { |h, k| h[k] = { Set(Exchange).new, Set(Queue).new } }
 
     # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
     # should be Acks, apart from Exceptions.
@@ -115,7 +112,8 @@ module AvalancheMQ
     def publish(msg : Message, immediate = false, confirm = false) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
-      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, @@visited, @@found_queues)
+      visited, found_queues = @cache[Fiber.current]
+      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
       return false if queues.empty?
       return false if immediate && !queues.any? { |q| q.immediate_delivery? }
@@ -136,8 +134,8 @@ module AvalancheMQ
       end
       ok
     ensure
-      @@visited.clear
-      @@found_queues.clear
+      visited.try &.clear
+      found_queues.try &.clear
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
