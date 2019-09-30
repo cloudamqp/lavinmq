@@ -240,14 +240,14 @@ module AvalancheMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
+          unless frame.no_wait
+            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          end
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
           @consumers.push(c)
           q.add_consumer(c)
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
-        end
-        unless frame.no_wait
-          send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
         end
         Fiber.yield # Notify :add_consumer observers
       end
