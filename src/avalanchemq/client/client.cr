@@ -64,7 +64,7 @@ module AvalancheMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def process_frame(frame)
-      @recv_oct_count += 8_u64 + frame.bytesize.to_u64
+      @recv_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Connection::Close
         send AMQP::Frame::Connection::CloseOk.new
