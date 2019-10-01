@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Crystal 0.31.0 and multi threading compability
+- Make stat counters UInt64 to avoid overflows
+- Send ConfirmOk before adding consumer to queue
 
 ## [0.8.5] - 2019-09-19
 
