@@ -5,7 +5,7 @@ module AvalancheMQ
     macro rate_stats(stats_keys, log_keys = %w())
 
       {% for name in stats_keys %}
-      @{{name.id}}_count = 0_u32
+      @{{name.id}}_count = 0_u64
       @{{name.id}}_rate = 0_f64
       @{{name.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
       {% end %}
