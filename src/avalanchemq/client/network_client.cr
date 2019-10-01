@@ -101,7 +101,7 @@ module AvalancheMQ
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
         @socket.flush
       end
-      @send_oct_count += frame.bytesize + 8
+      @send_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Connection::CloseOk
         @log.debug "Disconnected"
@@ -136,18 +136,18 @@ module AvalancheMQ
       @write_lock.synchronize do
         #@log.debug { "Send #{frame.inspect}" }
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-        @send_oct_count += frame.bytesize + 8
+        @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
         #@log.debug { "Send #{header.inspect}" }
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
-        @send_oct_count += header.bytesize + 8
+        @send_oct_count += 8_u64 + header.bytesize
         pos = 0
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
           #@log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
           body = AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
           @socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
-          @send_oct_count += body.bytesize + 8
+          @send_oct_count += 8_u64 + body.bytesize
           pos += length
         end
         #@log.debug { "Flushing" }
