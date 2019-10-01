@@ -34,7 +34,8 @@ module AvalancheMQ
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
 
-    getter name, durable, exclusive, auto_delete, arguments, policy, vhost, consumers
+    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers
+    getter policy : Policy?
     getter? closed
     def_equals_and_hash @vhost.name, @name
 

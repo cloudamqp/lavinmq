@@ -14,8 +14,8 @@ module AvalancheMQ
     include Stats
     include SortableJSON
 
-    getter name, durable, auto_delete, internal, arguments, bindings, policy, vhost, type,
-      alternate_exchange
+    getter name, durable, auto_delete, internal, arguments, bindings, vhost, type, alternate_exchange
+    getter policy : Policy?
 
     @alternate_exchange : String?
     @log : Logger
