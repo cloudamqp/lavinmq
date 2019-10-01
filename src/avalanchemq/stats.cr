@@ -11,7 +11,7 @@ module AvalancheMQ
       {% end %}
 
       {% for name in log_keys %}
-      @{{name.id}}_log = Deque(UInt32).new(Config.instance.stats_log_size)
+      @{{name.id}}_log = Deque(UInt64).new(Config.instance.stats_log_size)
       getter {{name.id}}_log
       {% end %}
 
