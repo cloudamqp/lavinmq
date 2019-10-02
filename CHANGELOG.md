@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Round rates in the UI to 1 decimal
+- avalanchemqperf throughput now forks for each connection instead of spawn
+- Speed up GC of segments by using reference counting
 
 ## [0.8.5] - 2019-09-19
 
