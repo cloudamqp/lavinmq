@@ -63,15 +63,18 @@ for the queue directories in the vhost directory. The queue directories only has
 
 #### Publish
 
-`Client#read_loop` reads from the socket, it delegates to `Channel#start_publish` and `Channel#add_content`.
-When all content has been recieved (and appended to an `IO::Memory` object) it passes the `Message` struct to
-`VHost#publish`. `VHost` got a `publish_loop` fiber that listen for `Message`s, finds all matching queues,
-writes the message to the message store and then calls `Queue#publish` with the segment position.
+`Client#read_loop` reads from the socket, it calls `Channel#start_publish` for the Basic.Publish frame
+and `Channel#add_content` for Body frames.  When all content has been received
+(and appended to an `IO::Memory` object) it calls `VHost#publish` with a `Message` struct.
+`VHost#publish` finds all matching queues, writes the message to the message store and then
+calls `Queue#publish` with the segment position.
 `Queue#publish` writes to the queue index file (if it's a durable queue).
 
 #### Consume
 
-TBD
+When `Client#read_loop` receives a Basic.Consume frame it will create a `Consumer` class and add it to
+the queue's list of consumers. The Queue got a `deliver_loop` fiber that will loop over the list of
+consumers and deliver a message to each.
 
 ## Features
 
