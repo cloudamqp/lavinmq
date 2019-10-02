@@ -696,7 +696,7 @@ module AvalancheMQ
           @requeued << sp
         end
       end
-      Channel.select({ @message_available.send_select_action(nil) }, true) if was_empty
+      message_available if was_empty
     end
 
     private def drophead
