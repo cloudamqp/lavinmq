@@ -3,9 +3,13 @@ lib Resource
 end
 
 lib LibC
-  RLIMIT_NOFILE = 8
+  {% if flag?(:darwin) %}
+    RLIMIT_NOFILE = 7
+  {% end %}
 
   {% if flag?(:linux) %}
+    RLIMIT_NOFILE = 7
+
     alias RlimT = ULongLong
 
     struct Rlimit

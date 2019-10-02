@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Crystal 0.31.0 and multi threading compability
 - Make stat counters UInt64 to avoid overflows
 - Send ConfirmOk before adding consumer to queue
+- Correctly report FD limit in Linux
 
 ### Changed
 - Round rates in the UI to 1 decimal
