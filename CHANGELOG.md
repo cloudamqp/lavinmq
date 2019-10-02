@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make stat counters UInt64 to avoid overflows
 - Send ConfirmOk before adding consumer to queue
 
+### Changed
+- Round rates in the UI to 1 decimal
+
 ## [0.8.5] - 2019-09-19
 
 ### Fixed
