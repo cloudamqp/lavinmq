@@ -55,7 +55,7 @@ module AvalancheMQ
       end
       @ack_lock.synchronize do
         @ack.truncate
-        @acks = 0
+        @acks = 0_u32
       end
     end
 
@@ -116,7 +116,7 @@ module AvalancheMQ
       @ack_lock.synchronize do
         @ack.truncate
       end
-      @acks = 0
+      @acks = 0_u32
       super
     end
 
@@ -155,7 +155,7 @@ module AvalancheMQ
         break
       end
       @log.info { "#{message_count} messages" }
-      Channel.select({ @message_available.send_select_action(nil) }, true) if message_count > 0
+      message_available if message_count > 0
     rescue ex : Errno
       @log.error { "Could not restore index: #{ex.inspect}" }
     end

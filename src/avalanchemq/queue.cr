@@ -51,9 +51,7 @@ module AvalancheMQ
       @consumer_available = Channel(Nil).new
       @ready = Deque(SegmentPosition).new(1024)
       @ready_lock = Mutex.new
-      @segment_pos = Hash(UInt32, UInt32).new do |h, seg|
-        h[seg] = 0_u32
-      end
+      @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
       @segments = Hash(UInt32, File).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = File.open(path, "r").tap { |f| f.buffer_size = Config.instance.file_buffer_size }
@@ -121,6 +119,10 @@ module AvalancheMQ
         end
       end
       count
+    end
+
+    def message_available
+      Channel.select({ @message_available.send_select_action(nil) }, true)
     end
 
     def consumer_available
@@ -377,7 +379,7 @@ module AvalancheMQ
         was_empty = @ready.empty?
         @ready.push sp
       end
-      Channel.select({ @message_available.send_select_action(nil) }, true) if was_empty
+      message_available if was_empty
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
       @publish_count += 1
@@ -671,7 +673,7 @@ module AvalancheMQ
           @ready.insert(i, sp)
         end
         @requeued << sp
-        Channel.select({ @message_available.send_select_action(nil) }, true) if was_empty
+        message_available if was_empty
       else
         expire_msg(sp, :rejected)
       end
