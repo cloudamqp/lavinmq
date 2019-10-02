@@ -634,7 +634,7 @@ module AvalancheMQ
       reject(sp, false)
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      @segments.delete sp.segment
+      reject(sp, false)
     rescue ex
       if seg
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
