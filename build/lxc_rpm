@@ -1,5 +1,5 @@
 #!/bin/bash -eu
-revision=$1
+revision=${1:-1}
 dists=${2:-centos_7}
 
 for name in $dists

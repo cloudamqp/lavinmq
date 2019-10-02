@@ -2,7 +2,7 @@
 set -eux
 app=avalanchemq
 pkg_version=$(shards version)
-pkg_revision=$1
+pkg_revision=${1:-1}
 arch=amd64
 
 pushd builds/debian

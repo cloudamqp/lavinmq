@@ -61,6 +61,8 @@ for the queue directories in the vhost directory. The queue directories only has
 
 ### Flows
 
+Follows does an architectural description of the different flows in the server.
+
 #### Publish
 
 `Client#read_loop` reads from the socket, it calls `Channel#start_publish` for the Basic.Publish frame
@@ -119,7 +121,7 @@ Wish list
 
 A single c5.large EC2 instance, with a 2 TB ST1 EBS drive (XFS formatted),
 can sustain about 250.000 messages/s (16 byte msg body, single queue, single producer,
-single consumer). A single producer can push 375.000 msgs/s and if there's no producers
+single consumer). A single producer can push 550.000 msgs/s and if there's no producers
 consumers can receive 730.000 msgs/s. When the message size is 1MB the
 instance's network speed becomes the bottleneck at 10 Gbit/s. When the
 OS disk cache is full the EBS performance becomes the bottleneck,
@@ -176,13 +178,13 @@ AvalancheMQ only requires one argument, and it's a path to a data directory:
 `avalanchemq -D /var/lib/avalanchemq`
 
 More configuration options can be viewed with `-h`,
-and you can specify a configration file too, see [extras/config.ini](extras/config.ini)
+and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
 for an example.
 
 ## OS configuration
 
 If you have a lot of clients that open connections
-at the same time, eg. after a restart, you may see
+at the same time, e.g. after a restart, you may see
 "kernel: Possible SYN flooding on port 5671" in the syslog.
 Then you probably should increase `net.ipv4.tcp_max_syn_backlog`:
 
@@ -196,13 +198,13 @@ In Linux `perf` is the tool of choice when tracing and measuring performance.
 
 To see which syscalls that are made use:
 ```
-sudo perf trace -p $(ps -C avalanchemq -o pid=)
+sudo perf trace -p $(pidof avalanchemq)
 ```
 
 To get a live analysis of the mostly called functions, run:
 
 ```bash
-sudo perf top -p $(ps -C avalanchemq -o pid=)
+sudo perf top -p $(pidof avalanchemq)
 ```
 
 A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
@@ -219,14 +221,14 @@ Fork, create feature branch, submit pull request.
 
 1. Run specs with `crystal spec`
 1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
-1. Build with `shards build`
+1. Build with `shards build --release`
 
 ### Release
 
 1. Update `CHANGELOG.md`
 1. Bump version in `shards.yml` & `src/avalanchemq/version.cr`
 1. Create and push tag
-1. `build/debian 1 && build/bintray-push 1`
+1. `build/with_vagrant && build/bintray-push`
 
 ## Contributors
 
