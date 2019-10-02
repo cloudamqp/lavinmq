@@ -72,36 +72,47 @@ class Throughput < Perf
     end
   end
 
-  @pubs = 0
-  @consumes = 0
-
   def run
     super
 
+    read_pubs, write_pubs = IO.pipe
     @publishers.times do
-      spawn pub
+      fork do
+        read_pubs.close
+        pub(write_pubs)
+      end
     end
 
+    read_cons, write_cons = IO.pipe
     @consumers.times do
-      spawn consume
+      fork do
+        read_cons.close
+        consume(write_cons)
+      end
     end
 
     loop do
-      sleep 1
+      pubs = 0_u32
+      @publishers.times do
+        pubs += read_pubs.read_bytes UInt32
+      end
+      consumes = 0_u32
+      @consumers.times do
+        consumes += read_cons.read_bytes UInt32
+      end
       print "Publish rate: "
-      print @pubs
+      print pubs
       print " msgs/s Consume rate: "
-      print @consumes
+      print consumes
       print " msgs/s\n"
-      @pubs = 0
-      @consumes = 0
     end
   end
 
-  private def pub
+  private def pub(pipe)
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
     data = IO::Memory.new(Bytes.new(@size))
+    reporter = Reporter.new(pipe)
     loop do
       data.rewind
       if @confirm
@@ -109,10 +120,10 @@ class Throughput < Perf
       else
         ch.basic_publish data, @exchange, @routing_key
       end
-      @pubs += 1
+      count = reporter.inc
       if @rate.zero?
         {% unless flag?(:preview_mt) %}
-        Fiber.yield if @pubs % 8192 == 0
+        Fiber.yield if count % 8192 == 0
         {% end %}
       else
         sleep 1.0 / @rate
@@ -122,15 +133,16 @@ class Throughput < Perf
     a.try &.close
   end
 
-  private def consume
+  private def consume(pipe)
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
+    reporter = Reporter.new(pipe)
     ch.queue(@queue).subscribe(no_ack: @no_ack) do |m|
       m.ack unless @no_ack
-      @consumes += 1
+      count = reporter.inc
       if @consume_rate.zero?
         {% unless flag?(:preview_mt) %}
-        Fiber.yield if @consumes % 8192 == 0
+        Fiber.yield if count % 8192 == 0
         {% end %}
       else
         sleep 1.0 / @consume_rate
@@ -140,6 +152,29 @@ class Throughput < Perf
   ensure
     a.try &.close
   end
+
+  class Reporter
+    @t1 = Time.monotonic
+    @report_at = 2_u32
+    @count = 0_u32
+
+    def initialize(@pipe : IO::FileDescriptor)
+    end
+
+    def inc
+      @count += 1
+      if @count >= @report_at
+        t2 = Time.monotonic
+        rate = (@count / (t2 - @t1).to_f).to_u32
+        @pipe.write_bytes rate
+        @report_at = rate
+        @count = 0_u32
+        @t1 = t2
+      end
+      @count
+    end
+  end
+
 end
 
 class BindChurn < Perf
