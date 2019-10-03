@@ -124,9 +124,7 @@ class Throughput < Perf
       end
       count = reporter.inc
       if @rate.zero?
-        {% unless flag?(:preview_mt) %}
         Fiber.yield if count % 8192 == 0
-        {% end %}
       else
         sleep 1.0 / @rate
       end
@@ -144,9 +142,7 @@ class Throughput < Perf
       m.ack unless @no_ack
       count = reporter.inc
       if @consume_rate.zero?
-        {% unless flag?(:preview_mt) %}
         Fiber.yield if count % 8192 == 0
-        {% end %}
       else
         sleep 1.0 / @consume_rate
       end
