@@ -375,8 +375,8 @@ module AvalancheMQ
       @ready_lock.synchronize do
         was_empty = @ready.empty?
         @ready.push sp
+        @segment_ref_count.inc(sp.segment)
       end
-      @segment_ref_count.inc(sp.segment)
       message_available if was_empty
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
@@ -598,9 +598,12 @@ module AvalancheMQ
 
     private def get(no_ack : Bool, &blk : Envelope? -> Nil)
       return yield nil if @closed
-      sp = @ready_lock.synchronize { @ready.shift? }
+      sp = @ready_lock.synchronize do
+        @ready.shift?.tap do |v|
+          @segment_ref_count.dec(v.segment) if v && no_ack
+        end
+      end
       return yield nil if sp.nil?
-      @segment_ref_count.dec(sp.segment) if no_ack
       @read_lock.synchronize do
         read(sp) do |env|
           yield env
@@ -648,7 +651,9 @@ module AvalancheMQ
     def ack(sp : SegmentPosition, flush : Bool)
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @segment_ref_count.dec(sp.segment)
+      @ready_lock.synchronize do
+        @segment_ref_count.dec(sp.segment)
+      end
       idx = @get_unacked.index(sp)
       @get_unacked.delete_at(idx) if idx
       @deliveries.delete(sp)
