@@ -183,7 +183,7 @@ module AvalancheMQ
           s << seg
         end
       end
-      @segment_ref_count.gc!
+      @ready_lock.synchronize { @segment_ref_count.gc! }
     end
 
     private def deliver_loop
@@ -369,18 +369,18 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, flush = false) : Bool
       return false if @closed
-      handle_max_length
       @log.debug { "Enqueuing message sp=#{sp}" }
       was_empty = false
       @ready_lock.synchronize do
+        handle_max_length
         was_empty = @ready.empty?
         @ready.push sp
         @segment_ref_count.inc(sp.segment)
       end
+      @publish_count += 1
       message_available if was_empty
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
-      @publish_count += 1
       true
     rescue ex : RejectOverFlow
       @log.debug { "Overflow reject message sp=#{sp}" }
