@@ -29,8 +29,8 @@ describe AvalancheMQ::HTTP::Server do
       response.status_code.should eq 200
       s.users.select("sha256", "sha512", "bcrypt", "md5").all? do |_, u|
         u.should be_a(AvalancheMQ::User)
-        ok = u.not_nil!.password == "hej"
-        "#{u.name}:#{ok}".should eq "#{u.name}:true"
+        ok = u.not_nil!.password.not_nil!.verify "hej"
+        {u.name, ok}.should(eq({ u.name, true }))
       end
     end
 
