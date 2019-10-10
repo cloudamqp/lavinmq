@@ -114,13 +114,13 @@ module AvalancheMQ
     end
 
     def unacked_count : UInt32
-      count = @get_unacked.size.to_u32
+      count = 0_u32
       @consumers_lock.synchronize do
         @consumers.each do |c|
           count += c.unacked.size
         end
       end
-      count
+      count + @get_unacked.size
     end
 
     def message_available
@@ -207,15 +207,14 @@ module AvalancheMQ
       @log.debug "Exiting delivery loop"
     end
 
-    private def recieve_or_expire
-      @log.debug { "Waiting for msgs" }
+    private def schedule_expiration_of_queue
       if @expires
         now = Time.monotonic
         queue_expires_in = expires_in(now)
         if queue_expires_in
           if queue_expires_in <= Time::Span.zero
             expire_queue(now)
-            return false
+            return true
           else
             spawn(name: "expire_queue_later") do
               sleep queue_expires_in.not_nil!
@@ -224,6 +223,12 @@ module AvalancheMQ
           end
         end
       end
+      false
+    end
+
+    private def recieve_or_expire
+      schedule_expiration_of_queue && return false
+      @log.debug { "Waiting for msgs" }
       @message_available.receive
       @log.debug { "Message available" }
       true
@@ -231,22 +236,8 @@ module AvalancheMQ
 
     private def consumer_or_expire
       @log.debug "No consumer available"
-      if @expires
-        now = Time.monotonic
-        queue_expires_in = expires_in(now)
-        if queue_expires_in && queue_expires_in <= Time::Span.zero
-          expire_queue(now)
-          return false
-        end
-        wakeup_in = wakeup_in(queue_expires_in)
-
-        if wakeup_in
-          spawn(name: "wake up consumer") do
-            sleep wakeup_in.not_nil!
-            expire_queue
-          end
-        end
-      end
+      schedule_expiration_of_queue && return false
+      schedule_expiration_of_next_msg && return true
       @log.debug "Waiting for consumer"
       @consumer_available.receive
       @log.debug "Consumer available"
@@ -291,19 +282,8 @@ module AvalancheMQ
       get(c.no_ack) do |env|
         if env
           sp = env.segment_position
-          msg = env.message
-          if !c.no_ack && @delivery_limit
-            headers = msg.properties.headers || AMQP::Table.new
-            delivery_count = @deliveries[sp]? || 0
-            if delivery_count > @delivery_limit.not_nil!
-              @deliveries.delete(sp)
-              return expire_msg(sp, :delivery_limit)
-            end
-            headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
-            msg.properties.headers = headers
-          end
           @log.debug { "Delivering #{sp} to consumer" }
-          if c.deliver(msg, sp, env.redelivered)
+          if c.deliver(env.message, sp, env.redelivered)
             if env.redelivered
               @redeliver_count += 1
             else
@@ -421,7 +401,7 @@ module AvalancheMQ
       nil
     end
 
-    private def schedule_expiration_of_next_msg(now) : Bool
+    private def schedule_expiration_of_next_msg(now = Time.utc_now.to_unix_ms) : Bool
       expired_msg = false
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
@@ -461,12 +441,8 @@ module AvalancheMQ
     end
 
     def expire_msg(sp : SegmentPosition, reason : Symbol)
-      if @dlx
-        meta = metadata(sp) || return
-        expire_msg(meta, sp, reason)
-      else
-        ack(sp, true)
-      end
+      meta = metadata(sp) || return
+      expire_msg(meta, sp, reason)
     end
 
     private def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
@@ -606,9 +582,27 @@ module AvalancheMQ
       return yield nil if sp.nil?
       @read_lock.synchronize do
         read(sp) do |env|
+          env = add_delivery_count_header(env) unless no_ack
           yield env
         end
       end
+    end
+
+    private def add_delivery_count_header(env)
+      sp = env.segment_position
+      if @delivery_limit
+        headers = env.message.properties.headers || AMQP::Table.new
+        delivery_count = @deliveries[sp]? || 0
+        @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
+        if delivery_count >= @delivery_limit.not_nil!
+          @deliveries.delete(sp)
+          expire_msg(sp, :delivery_limit)
+          return nil
+        end
+        headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
+        env.message.properties.headers = headers
+      end
+      env
     end
 
     private def read(sp : SegmentPosition, &blk : Envelope -> Nil)

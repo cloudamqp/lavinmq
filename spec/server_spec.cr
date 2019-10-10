@@ -595,18 +595,15 @@ describe AvalancheMQ::Server do
       args["x-delivery-limit"] = 2
       q = ch.queue("delivery_limit", args: args)
       q.publish "m1"
-      msg = nil
-      q.subscribe(no_ack: false) { |m| msg = m }
-      wait_for { msg }
-      msg.not_nil!.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
-      msg.not_nil!.reject(requeue: true)
-      msg = nil
-      wait_for { msg }
-      msg.not_nil!.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 2
-      msg.not_nil!.reject(requeue: true)
-      msg = nil
+      msg = q.get(no_ack: false).not_nil!
+      p msg.properties
+      msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
+      msg.reject(requeue: true)
+      msg = q.get(no_ack: false).not_nil!
+      msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 2
+      msg.reject(requeue: true)
       Fiber.yield
-      msg.should be_nil
+      q.get(no_ack: false).should be_nil
       s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
     end
   end
