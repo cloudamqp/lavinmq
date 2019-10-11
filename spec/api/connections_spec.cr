@@ -64,7 +64,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
         response = get("/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        name = URI.escape(body[0]["name"].as_s)
+        name = URI.encode_www_form(body[0]["name"].as_s)
         response = get("/api/connections/#{name}")
         response.status_code.should eq 200
       end
@@ -82,7 +82,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
         response = get("/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        name = URI.escape(body[0]["name"].as_s)
+        name = URI.encode_www_form(body[0]["name"].as_s)
         response = get("/api/connections/#{name}", headers: hdrs)
       ensure
         response.try &.status_code.should eq 401
@@ -98,7 +98,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
         response = get("/api/vhosts/%2f/connections")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        name = URI.escape(body[0]["name"].as_s)
+        name = URI.encode_www_form(body[0]["name"].as_s)
         response = get("/api/connections/#{name}/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)

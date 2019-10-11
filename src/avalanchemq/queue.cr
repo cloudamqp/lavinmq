@@ -401,7 +401,7 @@ module AvalancheMQ
       nil
     end
 
-    private def schedule_expiration_of_next_msg(now = Time.utc_now.to_unix_ms) : Bool
+    private def schedule_expiration_of_next_msg(now = Time.utc.to_unix_ms) : Bool
       expired_msg = false
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break

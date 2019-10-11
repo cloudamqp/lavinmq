@@ -66,7 +66,7 @@ describe AvalancheMQ::HTTP::UsersController do
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
       u = s.users["alan"]
-      ok = u.not_nil!.password == "test"
+      ok = u.not_nil!.password.try &.verify("test")
       ok.should be_true
     ensure
       delete("/api/users/alan")
