@@ -150,7 +150,7 @@ describe AvalancheMQ::Shovel do
       "#{AMQP_BASE_URL}",
       "prefetch_q1",
       delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
-      prefetch: 1_u16
+      prefetch: 20_u16
     )
     dest = AvalancheMQ::Shovel::Destination.new(
       "#{AMQP_BASE_URL}",
