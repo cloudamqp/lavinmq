@@ -229,6 +229,9 @@ module AvalancheMQ
           @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
           @client.direct_reply_consumer_tag = frame.consumer_tag
           @client.vhost.direct_reply_channels[frame.consumer_tag] = self
+          unless frame.no_wait
+            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          end
         elsif q = @client.vhost.queues[frame.queue]? || nil
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
@@ -406,7 +409,7 @@ module AvalancheMQ
 
       def direct_reply_request?(str)
         # no regex for speed
-        str.try { |r| r == "amq.rabbitmq.reply-to" || r == DIRECT_REPLY_PREFIX }
+        str.try { |r| r == "amq.rabbitmq.reply-to" || r.starts_with? DIRECT_REPLY_PREFIX }
       end
     end
   end
