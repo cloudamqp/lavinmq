@@ -19,10 +19,10 @@ describe AvalancheMQ::VHost do
   it "should remove policy from resource when deleted" do
     vhost.queues["test"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
-    Fiber.yield
+    sleep 0.01
     vhost.queues["test"].policy.try(&.name).should eq "test"
     vhost.delete_policy("test")
-    Fiber.yield
+    sleep 0.01
     vhost.queues["test"].policy.should be_nil
   ensure
     vhost.delete_queue("test")
@@ -48,7 +48,7 @@ describe AvalancheMQ::VHost do
     definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
     vhost.queues["test"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 11_i8)
-    Fiber.yield
+    sleep 0.01
     vhost.queues["test"].policy.not_nil!.name.should eq "ml"
   ensure
     vhost.delete_policy("ml")
@@ -60,7 +60,7 @@ describe AvalancheMQ::VHost do
     vhost.queues["test2"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml2", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 1_i8)
     vhost.add_policy("ml1", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 0_i8)
-    Fiber.yield
+    sleep 0.01
     vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
   ensure
     vhost.delete_queue("test2")
