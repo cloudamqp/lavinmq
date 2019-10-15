@@ -114,16 +114,17 @@ describe AvalancheMQ::Server do
   it "can auto delete exchange" do
     with_channel do |ch|
       ch.confirm_select
-      code = 0
+      code = Channel(UInt16).new
       ch.on_close do |c, _reply|
-        code = c
+        code.send c
       end
       x = ch.exchange("test_ad_exchange", "topic", durable: false, auto_delete: true)
       q = ch.queue
       q.bind(x.name, "")
       q.unbind(x.name, "")
       x.publish("m1", q.name)
-      wait_for { code == 404 }
+      code.receive.should eq 404
+      sleep 0.01
       ch.closed?.should be_true
     end
   ensure
