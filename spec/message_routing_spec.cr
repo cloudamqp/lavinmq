@@ -216,7 +216,7 @@ describe AvalancheMQ::HeadersExchange do
     hdrs = {"Nil" => nil, "Bool" => true, "UInt8" => 1_u8, "UInt16" => 1_u16, "UInt32" => 1_u32,
             "Int16" => 1_u16, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
             "Float64" => 1_f64, "String" => "String", "Array(Field)" => arrf,
-            "Array(UInt8)" => arru, "Time" => Time.now, "Hash(String, Field)" => hsh,
+            "Array(UInt8)" => arru, "Time" => Time.utc, "Hash(String, Field)" => hsh,
             "x-match" => "all",
     } of String => AvalancheMQ::AMQP::Field
     x.bind(q11, "", hdrs)

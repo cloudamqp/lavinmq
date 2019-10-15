@@ -43,7 +43,7 @@ describe AvalancheMQ::HTTP::ChannelsController do
         response = get("/api/channels")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        name = URI.escape(body[0]["name"].as_s)
+        name = URI.encode_www_form(body[0]["name"].as_s)
         response = get("/api/channels/#{name}")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
