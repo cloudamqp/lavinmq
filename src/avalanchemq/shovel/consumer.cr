@@ -58,8 +58,7 @@ module AvalancheMQ
         @log.info "Consumer closed due to: #{ex.inspect}"
       ensure
         @log.debug "Closing socket"
-        # @done will be closed if the shovel is actually done, so we can always try to send true
-        @done.send(true) unless @done.closed?
+        @done.send(true)
         @socket.close unless @socket.closed?
       end
 
@@ -84,7 +83,7 @@ module AvalancheMQ
            @message_count <= @message_counter
           @log.debug { "Queue length #{@message_count} reached (#{@message_counter}), closing" }
           write AMQP::Frame::Connection::Close.new(320_u16, "Shovel done", 0_u16, 0_u16)
-          @done.send(false) unless @done.closed?
+          @done.send(false)
         end
       end
 

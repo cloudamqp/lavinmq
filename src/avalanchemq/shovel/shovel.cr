@@ -58,7 +58,6 @@ module AvalancheMQ
         c.run
         @state = State::Running
         continue = done.receive
-        done.close
         if continue
           c.close("Shovel failure")
           p.close("Shovel failure")
@@ -77,7 +76,6 @@ module AvalancheMQ
         end
         @consumer.try &.close("Shovel stopped")
         @publisher.try &.close("Shovel stopped")
-        done.try &.close
         break if stopped?
         sleep @reconnect_delay.seconds
       end

@@ -52,8 +52,7 @@ module AvalancheMQ
         @log.info "Closed due to: #{ex.inspect}"
       ensure
         @log.debug "Closing socket"
-        # @done will be closed if the shovel is actually done, so we can always try to send true
-        @done.send(true) unless @done.closed?
+        @done.send(true)
         @socket.close unless @socket.closed?
       end
 
