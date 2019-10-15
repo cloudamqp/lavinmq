@@ -40,7 +40,7 @@ module AvalancheMQ
           when :delete, :close
             @upstream.stop_link(@federated_q)
           when :add_consumer
-            @consumer_available.send(nil) unless @consumer_available.closed?
+            @consumer_available.send(nil)
           end
         end
 
@@ -67,7 +67,8 @@ module AvalancheMQ
             @state = State::Starting
             if !@federated_q.immediate_delivery?
               @log.debug { "Waiting for consumers" }
-              @consumer_available.receive
+              @consumer_available.receive?
+              break if stopped?
             end
             @publisher = Publisher.new(@upstream, @federated_q)
             @consumer = Consumer.new(@upstream)
@@ -96,8 +97,6 @@ module AvalancheMQ
           end
           @log.info { "Federation link stopped" }
         ensure
-          @done.close
-          @consumer_available.close
           @connected_at = nil
         end
 
@@ -108,12 +107,18 @@ module AvalancheMQ
           @federated_q.unregister_observer(self)
           @consumer.try &.close("Federation link stopped")
           @publisher.try &.close("Federation link stopped")
-          @consumer_available.close
-          @done.send(nil) unless @done.closed?
+          done!
         end
 
         def stopped?
           @state == State::Terminated
+        end
+
+        private def done!
+          select
+          when @done.send(nil)
+          else
+          end
         end
 
         enum State
