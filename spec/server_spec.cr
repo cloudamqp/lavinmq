@@ -371,7 +371,7 @@ describe AvalancheMQ::Server do
       } of String => JSON::Any
       s.vhosts["/"]
         .add_policy("test", /^mlq$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
-      Fiber.yield
+      sleep 0.01
       s.vhosts["/"].queues["mlq"].message_count.should eq 1
     end
   ensure
