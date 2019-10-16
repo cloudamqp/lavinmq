@@ -214,7 +214,7 @@ describe AvalancheMQ::Shovel do
     close_servers
     TestHelpers.setup
 
-    Fiber.yield
+    sleep 0.01
     with_channel do |ch|
       q1 = ch.queue("rc_q1", durable: true)
       q2 = ch.queue("rc_q2", durable: true)

@@ -63,7 +63,7 @@ module AvalancheMQ
     def negotiate_connection(channel_max, heartbeat, auth_mechanism)
       @socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
       @socket.flush
-      AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::Start) }
+      AMQP::Frame.from_io(@socket) { |f| f.as?(AMQP::Frame::Connection::Start) || raise UnexpectedFrame.new(f) }
 
       props = AMQP::Table.new(Hash(String, AMQP::Field).new)
       user = URI.decode_www_form(@uri.user || "guest")
@@ -84,12 +84,12 @@ module AvalancheMQ
       path = @uri.path || ""
       vhost = path.size > 1 ? URI.decode_www_form(path[1..-1]) : "/"
       write AMQP::Frame::Connection::Open.new(vhost)
-      AMQP::Frame.from_io(@socket, IO::ByteFormat::NetworkEndian) { |f| f.as(AMQP::Frame::Connection::OpenOk) }
+      AMQP::Frame.from_io(@socket) { |f| f.as?(AMQP::Frame::Connection::OpenOk) || raise UnexpectedFrame.new(f) }
     end
 
     def open_channel
       write AMQP::Frame::Channel::Open.new(1_u16)
-      AMQP::Frame.from_io(@socket) { |f| f.as(AMQP::Frame::Channel::OpenOk) }
+      AMQP::Frame.from_io(@socket) { |f| f.as?(AMQP::Frame::Channel::OpenOk) || raise UnexpectedFrame.new(f) }
     end
 
     def close(msg = "Connection closed")
