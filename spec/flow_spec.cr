@@ -7,19 +7,24 @@ describe "Flow" do
       q = ch.queue
       ch.prefetch 1
       q.publish "msg"
-      msgs = [] of AMQP::Client::Message
+      msgs = Channel(AMQP::Client::Message).new(10)
       q.subscribe(no_ack: false) do |m|
-        msgs << m
+        msgs.send m
       end
-      wait_for { msgs.size == 1 }
+      m = msgs.receive
       ch.flow(false)
-      msgs.pop.ack
+      m.ack
       q.publish "msg"
       sleep 0.05 # wait little so a new message could be delivered
-      msgs.size.should eq 0
+      received = true
+      select
+      when msgs.receive
+      else
+        received = false
+      end
+      received.should be_false
       ch.flow(true)
-      wait_for { msgs.size == 1 }
-      msgs.size.should eq 1
+      msgs.receive.ack
     end
   end
 
