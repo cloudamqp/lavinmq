@@ -161,8 +161,8 @@ module AvalancheMQ
 
       private def publish_and_return(msg)
         return true if direct_reply?(msg)
-        ok = @client.vhost.publish msg, immediate: @next_publish_immediate
         @confirm_total += 1 if @confirm
+        ok = @client.vhost.publish msg, immediate: @next_publish_immediate
         if ok
           @client.vhost.waiting4confirm(self) if @confirm
         else
@@ -170,7 +170,6 @@ module AvalancheMQ
         end
         Fiber.yield if @publish_count % 8192 == 0
       rescue Queue::RejectOverFlow
-        @confirm_total += 1 if @confirm
         confirm_nack
       end
 
