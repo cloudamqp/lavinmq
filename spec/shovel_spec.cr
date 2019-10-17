@@ -221,8 +221,12 @@ describe AvalancheMQ::Shovel do
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
       q1.publish "shovel me", props: props
       msgs = Channel(AMQP::Client::Message).new(2)
+      spawn do
+        sleep 5
+        msgs.close
+      end
       q2.subscribe { |msg| msgs.send msg }
-      2.times { msgs.receive }
+      2.times { msgs.receive?.should_not be_nil }
       s.vhosts["/"].queues["rc_q1"].message_count.should eq 0
     end
   ensure
