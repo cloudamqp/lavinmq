@@ -113,7 +113,7 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
       ShovelSpecHelpers.publish x, "ap_q1", "shovel me"
       shovel.run
-      wait_for { shovel.stopped? }
+      sleep 0.1
       q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
@@ -137,7 +137,7 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
       ShovelSpecHelpers.publish x, "na_q1", "shovel me"
       shovel.run
-      wait_for { shovel.stopped? }
+      sleep 0.1
       q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
