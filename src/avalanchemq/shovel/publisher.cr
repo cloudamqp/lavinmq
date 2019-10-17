@@ -70,7 +70,11 @@ module AvalancheMQ
         if frame.multiple
           with_multiple(frame.delivery_tag) { |t| reject(t) }
         else
-          reject(@delivery_tags[frame.delivery_tag])
+          if consumer_delivery_tag = @delivery_tags.delete frame.delivery_tag
+            reject(consumer_delivery_tag)
+          else
+            @log.warn "Down stream nacked #{frame.delivery_tag} but we know of it"
+          end
         end
       end
 
