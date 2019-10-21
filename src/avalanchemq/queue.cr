@@ -403,6 +403,7 @@ module AvalancheMQ
 
     private def schedule_expiration_of_next_msg(now = Time.utc.to_unix_ms) : Bool
       expired_msg = false
+      i = 0_u32
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
         @log.debug { "Checking if next message has to be expired" }
@@ -416,6 +417,7 @@ module AvalancheMQ
             @ready_lock.synchronize { @ready.shift }
             expired_msg = true
             expire_msg(meta, sp, :expired)
+            Fiber.yield if (i += 1_u32) % 8192_u32 == 0_u32
           else
             spawn(expire_later(expire_in, meta, sp),
                   name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
