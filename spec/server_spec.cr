@@ -265,10 +265,10 @@ describe AvalancheMQ::Server do
       x.publish "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
       hdrs["user"] = "hest"
       x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
-      msgs = [] of AMQP::Client::Message
-      q.subscribe { |msg| msgs << msg }
-      wait_for { msgs.size == 2 }
-      msgs.size.should eq 2
+      msgs = Channel(AMQP::Client::Message).new(2)
+      q.subscribe { |msg| msgs.send msg }
+      spawn { sleep 5; msgs.close }
+      2.times { msgs.receive?.should_not be_nil }
     end
   end
 
