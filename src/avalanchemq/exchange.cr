@@ -232,10 +232,12 @@ module AvalancheMQ
       after_unbind
     end
 
+    @cache = Hash(Fiber, Set(Queue | Exchange)).new { |h, k| h[k] = Set(Queue | Exchange).new }
+
     # ameba:disable Metrics/CyclomaticComplexity
     def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       rk_parts = routing_key.split(".")
-      s = Set(Queue | Exchange).new
+      s = @cache[Fiber.current]
       @binding_keys.each do |bks, dst|
         ok = false
         prev_hash = false
@@ -294,6 +296,8 @@ module AvalancheMQ
         s.concat(dst) if ok
       end
       s
+    ensure
+      s.try &.clear
     end
   end
 
