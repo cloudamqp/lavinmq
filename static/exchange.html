@@ -172,9 +172,10 @@
           btn.classList.add('btn-secondary')
           btn.innerHTML = 'Unbind'
           btn.onclick = function () {
-            const e = encodeURIComponent(item.source)
+            const s = encodeURIComponent(item.source)
+            const d = encodeURIComponent(item.destination)
             const p = encodeURIComponent(item.properties_key)
-            const url = '/api/bindings/' + urlEncodedVhost + '/e/' + e + '/e/' + urlEncodedExchange + '/' + p
+            const url = '/api/bindings/' + urlEncodedVhost + '/e/' + s + '/e/' + d + '/' + p
             avalanchemq.http.request('DELETE', url)
               .then(() => {
                 avalanchemq.dom.removeNodes(tr)
