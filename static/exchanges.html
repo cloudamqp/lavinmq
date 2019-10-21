@@ -107,6 +107,9 @@
       }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
+          if (item.name === "") {
+            item.name = "amq.default"
+          }
           let features = ''
           features += item.durable ? ' D' : ''
           features += item.auto_delete ? ' AD' : ''
