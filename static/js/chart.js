@@ -34,7 +34,14 @@
         tooltips: {
           mode: 'x',
           intersect: false,
-          position: 'nearest'
+          position: 'nearest',
+          callbacks: {
+            label: function(tooltipItem, data) {
+              var label = data.datasets[tooltipItem.datasetIndex].label || ''
+              label += ': ' + avalanchemq.helpers.formatNumber(tooltipItem.yLabel)
+              return label
+            }
+          }
         },
         hover: {
           mode: 'x',
@@ -83,7 +90,7 @@
               <div class="color-ref" style="background-color:${dataSet.backgroundColor}"></div>
               <div>
                 <div class="legend-label">${dataSet.label}</div>
-                <div class="legend-value">${nFormatter(value)}</div>
+                <div class="legend-value">${avalanchemq.helpers.formatNumber(value)}</div>
               </div>
             </div>`)
           }
@@ -119,19 +126,26 @@
   }
 
   function nFormatter (num) {
-    if (num >= 1000000000) {
-      return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'G'
-    }
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
-    }
-    if (num >= 1000) {
-      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
-    }
+    let suffix = ''
+
     if (num === '') {
       return num
     }
-    return num.toFixed(1)
+
+    if (num >= 1000000000) {
+      suffix = 'G'
+      num = (num / 1000000000)
+    }
+    if (num >= 1000000) {
+      suffix = 'M'
+      num = (num / 1000000)
+    }
+    if (num >= 1000) {
+      suffix = 'K'
+      num = (num / 1000)
+    }
+
+    return avalanchemq.helpers.formatNumber(num) + suffix
   }
 
   function formatLabel (key) {
@@ -193,7 +207,7 @@
       }
       addToDataset(dataset, data[key], date, maxY)
       setTimeout(() => {
-        legend.children[i].querySelector('.legend-value').innerHTML = dataset.data.slice(-1)[0].y
+        legend.children[i].querySelector('.legend-value').innerHTML = avalanchemq.helpers.formatNumber(dataset.data.slice(-1)[0].y)
       }, 50)
     }
     chart.update()

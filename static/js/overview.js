@@ -66,6 +66,7 @@
     updateTimer = setInterval(() => update(cb), 5000)
   }
 
+  // Markera UI att vi är offline
   function stop () {
     if (updateTimer) {
       clearInterval(updateTimer)
