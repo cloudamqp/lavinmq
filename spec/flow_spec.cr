@@ -16,12 +16,13 @@ describe "Flow" do
       m.ack
       q.publish "msg"
       sleep 0.05 # wait little so a new message could be delivered
-      received = true
-      select
-      when msgs.receive
-      else
-        received = false
-      end
+      received =
+        select
+        when msgs.receive
+          true
+        else
+          false
+        end
       received.should be_false
       ch.flow(true)
       msgs.receive.ack
