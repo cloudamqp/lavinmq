@@ -618,6 +618,17 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "binding to empty queue name binds last queue" do
+    with_channel do |ch|
+      q = ch.queue
+      ch.queue_bind("", "amq.direct", "foo")
+      ch.basic_publish_confirm("bar", "amq.direct", "foo")
+      msg = q.get
+      msg.should_not be_nil
+      msg.not_nil!.body_io.to_s.should eq "bar"
+    end
+  end
+
   pending "compacts queue index correctly" do
     with_channel do |ch|
       q = ch.queue("durable_queue_index", durable: true)

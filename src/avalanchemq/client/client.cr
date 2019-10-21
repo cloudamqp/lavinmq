@@ -314,9 +314,11 @@ module AvalancheMQ
       end
     end
 
+    @last_tmp_queue_name : String?
+
     private def declare_new_queue(frame)
       if frame.queue_name.empty?
-        frame.queue_name = Queue.generate_name
+        @last_tmp_queue_name = frame.queue_name = Queue.generate_name
       end
       dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
       dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
@@ -334,6 +336,9 @@ module AvalancheMQ
     end
 
     private def bind_queue(frame)
+      if frame.queue_name.empty? && @last_tmp_queue_name
+        frame.queue_name = @last_tmp_queue_name.not_nil!
+      end
       if !@vhost.queues.has_key? frame.queue_name
         send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
