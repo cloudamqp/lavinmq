@@ -396,19 +396,21 @@ module AvalancheMQ
     def close
       @closed = true
       @log.info("Closing")
-      stop_shovels
-      Fiber.yield
-      stop_upstream_links
-      Fiber.yield
-      @queues.each_value &.close
-      Fiber.yield
-      @incoming.close
-      Fiber.yield
-      @outgoing.close
-      @save.close
-      Fiber.yield
-      compact!
-      @wfile.close
+      @write_lock.synchronize do
+        stop_shovels
+        Fiber.yield
+        stop_upstream_links
+        Fiber.yield
+        @queues.each_value &.close
+        Fiber.yield
+        @incoming.close
+        Fiber.yield
+        @outgoing.close
+        @save.close
+        Fiber.yield
+        compact!
+        @wfile.close
+      end
       GC.collect
     end
 
