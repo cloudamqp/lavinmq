@@ -113,8 +113,15 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
       ShovelSpecHelpers.publish x, "ap_q1", "shovel me"
       shovel.run
-      sleep 0.1
-      q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
+      msgs = Channel(AMQP::Client::Message).new
+      spawn do
+        sleep 15
+        msgs.close
+      end
+      q2.subscribe { |msg| msgs.send msg }
+      msg = msgs.receive?
+      msg.should_not be_nil
+      msg.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup "ap_"
@@ -137,8 +144,15 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
       ShovelSpecHelpers.publish x, "na_q1", "shovel me"
       shovel.run
-      sleep 0.1
-      q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
+      msgs = Channel(AMQP::Client::Message).new
+      spawn do
+        sleep 15
+        msgs.close
+      end
+      q2.subscribe { |msg| msgs.send msg }
+      msg = msgs.receive?
+      msg.should_not be_nil
+      msg.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup "na_"
