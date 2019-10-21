@@ -222,7 +222,7 @@ describe AvalancheMQ::Shovel do
       q1.publish "shovel me", props: props
       msgs = Channel(AMQP::Client::Message).new(2)
       spawn do
-        sleep 5
+        sleep 15
         msgs.close
       end
       q2.subscribe { |msg| msgs.send msg }
