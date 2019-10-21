@@ -225,18 +225,18 @@ describe AvalancheMQ::Shovel do
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
       q1.publish_confirm "shovel me", props: props
     end
+    sleep 0.01
     close_servers
     TestHelpers.setup
-
     sleep 0.01
     with_channel do |ch|
       q1 = ch.queue("rc_q1", durable: true)
       q2 = ch.queue("rc_q2", durable: true)
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
       q1.publish "shovel me", props: props
-      msgs = Channel(AMQP::Client::Message).new(2)
+      msgs = Channel(AMQP::Client::Message).new(4)
       spawn do
-        sleep 15
+        sleep 5
         msgs.close
       end
       q2.subscribe { |msg| msgs.send msg }
