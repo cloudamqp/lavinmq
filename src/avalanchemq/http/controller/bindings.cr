@@ -76,7 +76,7 @@ module AvalancheMQ
           end
         end
 
-        delete "/api/bindings/:vhost/e/:name/q/:queue/:props" do |context, params|
+        delete "/api/bindings/:vhost/e/:name/q/:queue/*props" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
@@ -146,7 +146,7 @@ module AvalancheMQ
           end
         end
 
-        delete "/api/bindings/:vhost/e/:name/e/:destination/:props" do |context, params|
+        delete "/api/bindings/:vhost/e/:name/e/:destination/*props" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             source = exchange(context, params, vhost)
