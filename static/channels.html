@@ -44,6 +44,7 @@
     <footer></footer>
     <script src="/js/layout.js"></script>
     <script src="/js/auth.js"></script>
+    <script src="/js/helpers.js"></script>
     <script src="/js/http.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/overview.js"></script>
@@ -75,11 +76,10 @@
         let mode = ''
         mode += item.confirm ? ' C' : ''
         avalanchemq.table.renderCell(tr, 3, mode, 'center')
-        avalanchemq.table.renderCell(tr, 4, item.consumer_count, 'right')
-        avalanchemq.table.renderCell(tr, 5, item.prefetch_count, 'right')
-        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged, 'right')
+        avalanchemq.table.renderCell(tr, 4, avalanchemq.helpers.formatNumber(item.consumer_count), 'right')
+        avalanchemq.table.renderCell(tr, 5, avalanchemq.helpers.formatNumber(item.prefetch_count), 'right')
+        avalanchemq.table.renderCell(tr, 6, avalanchemq.helpers.formatNumber(item.messages_unacknowledged), 'right')
       })
     </script>
   </body>
 </html>
-
