@@ -70,6 +70,8 @@
   function standardErrorHandler (e) {
     if (e.status === 404) {
       console.warn(`Not found: ${e.message}`)
+    } else if (e.status === 401) {
+      testLoggedIn()
     } else if (e.body) {
       alertErrorHandler(e)
     } else {
