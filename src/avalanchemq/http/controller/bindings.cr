@@ -52,7 +52,8 @@ module AvalancheMQ
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             end
             body = parse_body(context)
-            routing_key = body["routing_key"]?.try &.as_s?
+            routing_key = body["routing_key"]?.try(&.as_s?) ||
+                          body["routingKey"]?.try(&.as_s?)
             arguments = parse_arguments(body)
             unless routing_key
               bad_request(context, "Field 'routing_key' is required")
@@ -121,7 +122,8 @@ module AvalancheMQ
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             end
             body = parse_body(context)
-            routing_key = body["routing_key"]?.try &.as_s?
+            routing_key = body["routing_key"]?.try(&.as_s?) ||
+                          body["routingKey"]?.try(&.as_s?)
             arguments = parse_arguments(body)
             unless routing_key
               bad_request(context, "Field 'routing_key' is required")
