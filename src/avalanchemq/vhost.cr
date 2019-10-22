@@ -112,7 +112,7 @@ module AvalancheMQ
       ex.publish_in_count += 1
       visited, found_queues = @cache[Fiber.current]
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
-      @log.debug { "publish queues#found=#{queues.size}" }
+      @log.debug { "publish queues#found=#{found_queues.size}" }
       return false if found_queues.empty?
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
@@ -468,6 +468,10 @@ module AvalancheMQ
             break
           end
         end
+      end
+      # In 0.8.4 and older amq.default was a DirectExchange
+      unless @exchanges[""].is_a? DefaultExchange
+        @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
       end
     rescue Errno
       load_default_definitions
