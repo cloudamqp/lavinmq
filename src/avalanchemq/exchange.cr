@@ -192,11 +192,11 @@ module AvalancheMQ
     end
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
-      @queue_bindings[{routing_key, nil}].each
+      @queue_bindings[{routing_key, nil}].each { |q| yield q }
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
-      @exchange_bindings[{routing_key, nil}].each
+      @exchange_bindings[{routing_key, nil}].each { |x| yield x }
     end
   end
 
