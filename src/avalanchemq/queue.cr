@@ -39,7 +39,6 @@ module AvalancheMQ
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers
     getter policy : Policy?
     getter? closed
-    def_equals_and_hash @vhost.name, @name
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,

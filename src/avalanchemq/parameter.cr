@@ -10,7 +10,6 @@ module AvalancheMQ
   alias ParameterId = {String?, String} | String
 
   class Parameter
-    def_equals_and_hash @name
     getter component_name, parameter_name, value
     setter value
 

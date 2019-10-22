@@ -29,8 +29,6 @@ module AvalancheMQ
     @write_lock = Mutex.new
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
-    def_equals_and_hash @name
-
     def initialize(@name : String, @server_data_dir : String,
                    server_log : Logger, @default_user : User,
                    @connection_events = Server::ConnectionsEvents.new(16))
