@@ -394,6 +394,9 @@ module AvalancheMQ
         @segment_pos[sp.segment] += meta.bytesize
         meta
       end
+    rescue ex : Errno
+      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+      reject(sp, false)
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
