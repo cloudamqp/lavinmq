@@ -66,7 +66,6 @@
     updateTimer = setInterval(() => update(cb), 5000)
   }
 
-  // Show that we're offline in the UI
   function stop () {
     if (updateTimer) {
       clearInterval(updateTimer)
