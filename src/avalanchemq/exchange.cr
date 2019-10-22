@@ -98,7 +98,10 @@ module AvalancheMQ
     end
 
     def in_use?
-      @queue_bindings.size > 0 || @exchange_bindings.size > 0
+      return true if @queue_bindings.size > 0
+      return true if @exchange_bindings.size > 0
+      return true if @vhost.exchanges.any? { |_, x| x.exchange_bindings.any? { |_, exs| exs.includes? self } }
+      false
     end
 
     def bindings_details

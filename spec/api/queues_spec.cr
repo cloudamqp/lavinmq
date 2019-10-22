@@ -56,6 +56,7 @@ describe AvalancheMQ::HTTP::QueuesController do
   describe "GET /api/queues/vhost/name/bindings" do
     it "should return queue bindings" do
       s.vhosts["/"].declare_queue("q0", false, false)
+      s.vhosts["/"].bind_queue("q0", "amq.direct", "foo")
       response = get("/api/queues/%2f/q0/bindings?page=1&page_size=100")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
