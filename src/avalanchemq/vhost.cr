@@ -140,28 +140,22 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited = Set(Exchange).new,
                                 queues = Set(Queue).new) : Set(Queue)
-      matches = ex.matches(routing_key, headers)
+      ex.queue_matches(routing_key, headers) { |q| queues << q }
       if cc = headers.try(&.fetch("CC", nil))
         cc.as(Array(AMQP::Field)).each do |rk|
-          matches.concat(ex.matches(rk.as(String), headers))
+          ex.queue_matches(rk.as(String), headers) { |q| queues << q }
         end
       end
       if bcc = headers.try(&.delete("BCC"))
         bcc.as(Array(AMQP::Field)).each do |rk|
-          matches.concat(ex.matches(rk.as(String), headers))
+          ex.queue_matches(rk.as(String), headers) { |q| queues << q }
         end
       end
 
-      matches.each do |m|
-        case m
-        when Queue
-          queues.add m.as(Queue)
-        when Exchange
-          e2e = m.as(Exchange)
-          visited.add(ex)
-          unless visited.includes? e2e
-            find_all_queues(e2e, routing_key, headers, visited, queues)
-          end
+      ex.exchange_matches(routing_key, headers) do |e2e|
+        visited.add(ex)
+        unless visited.includes? e2e
+          find_all_queues(e2e, routing_key, headers, visited, queues)
         end
       end
 
@@ -276,57 +270,63 @@ module AvalancheMQ
         routing_key, false, arguments)
     end
 
+    @apply_count = 0_u32
+
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply(f, loading = false) : Bool?
+    def apply(f, loading = false) : Bool
+      Fiber.yield if (@apply_count += 1_u32) % 128_u32 == 0_u32
       case f
       when AMQP::Frame::Exchange::Declare
-        return if @exchanges.has_key? f.exchange_name
+        return false if @exchanges.has_key? f.exchange_name
         e = @exchanges[f.exchange_name] =
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Frame::Exchange::Delete
-        return unless @exchanges.has_key? f.exchange_name
-        @exchanges.each_value do |ex|
-          ex.bindings.each_value do |destination|
-            destination.delete f.exchange_name
+        return false unless @exchanges.has_key? f.exchange_name
+        if x = @exchanges.delete f.exchange_name
+          @exchanges.each_value do |ex|
+            ex.bindings.each_value do |destination|
+              destination.delete x
+            end
           end
+        else
+          return false
         end
-        @exchanges.delete f.exchange_name
       when AMQP::Frame::Exchange::Bind
-        source = @exchanges[f.source]? || return
-        x = @exchanges[f.destination]? || return
+        source = @exchanges[f.source]? || return false
+        x = @exchanges[f.destination]? || return false
         source.bind(x, f.routing_key, f.arguments.to_h)
       when AMQP::Frame::Exchange::Unbind
-        source = @exchanges[f.source]? || return
-        x = @exchanges[f.destination]? || return
+        source = @exchanges[f.source]? || return false
+        x = @exchanges[f.destination]? || return false
         source.unbind(x, f.routing_key, f.arguments.to_h)
       when AMQP::Frame::Queue::Declare
-        return if @queues.has_key? f.queue_name
+        return false if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] =
           if f.durable
             DurableQueue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments.to_h)
           else
             Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments.to_h)
           end
-        @exchanges[""].bind(q, f.queue_name, f.arguments.to_h)
         apply_policies([q] of Queue) unless loading
       when AMQP::Frame::Queue::Delete
-        return unless @queues.has_key? f.queue_name
-        q = @queues.delete(f.queue_name)
-        # TODO optimize
-        @exchanges.each_value do |ex|
-          ex.bindings.each_value do |destinations|
-            destinations.delete q
+        if q = @queues.delete(f.queue_name)
+          @exchanges.each_value do |ex|
+            ex.bindings.each_value do |destinations|
+              destinations.delete q
+            end
           end
+          q.delete
+        else
+          return false
         end
-        q.try &.delete
       when AMQP::Frame::Queue::Bind
-        x = @exchanges[f.exchange_name]? || return
-        q = @queues[f.queue_name]? || return
+        x = @exchanges[f.exchange_name]? || return false
+        q = @queues[f.queue_name]? || return false
         x.bind(q, f.routing_key, f.arguments.to_h)
       when AMQP::Frame::Queue::Unbind
-        x = @exchanges[f.exchange_name]? || return
-        q = @queues[f.queue_name]? || return
+        x = @exchanges[f.exchange_name]? || return false
+        q = @queues[f.queue_name]? || return false
         x.unbind(q, f.routing_key, f.arguments.to_h)
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
@@ -475,7 +475,7 @@ module AvalancheMQ
 
     private def load_default_definitions
       @log.info "Loading default definitions"
-      @exchanges[""] = DirectExchange.new(self, "", true, false, false)
+      @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
       @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
       @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
       @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, false)

@@ -14,7 +14,7 @@ module AvalancheMQ
     include Stats
     include SortableJSON
 
-    getter name, durable, auto_delete, internal, arguments, bindings, vhost, type, alternate_exchange
+    getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter policy : Policy?
 
     @alternate_exchange : String?
@@ -26,8 +26,11 @@ module AvalancheMQ
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
                    @arguments = Hash(String, AMQP::Field).new)
-      @bindings = Hash(BindingKey, Destination).new do |h, k|
-        h[k] = Set(Queue | Exchange).new
+      @queue_bindings = Hash(BindingKey, Set(Queue)).new do |h, k|
+        h[k] = Set(Queue).new
+      end
+      @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
+        h[k] = Set(Exchange).new
       end
       @log = @vhost.log.dup
       @log.progname += " exchange=#{@name}"
@@ -95,12 +98,7 @@ module AvalancheMQ
     end
 
     def in_use?
-      in_use = bindings.size > 0
-      unless in_use
-        destinations = vhost.exchanges.each_value.flat_map(&.bindings.each_value.flat_map(&.to_a))
-        in_use = destinations.includes?(self)
-      end
-      in_use
+      @queue_bindings.size > 0 || @exchange_bindings.size > 0
     end
 
     def bindings_details
@@ -130,6 +128,8 @@ module AvalancheMQ
     abstract def unbind(destination : Queue | Exchange, routing_key : String,
                         headers : Hash(String, AMQP::Field)?)
     abstract def matches(routing_key : String, headers : Hash(String, AMQP::Field)?) : Set(Queue | Exchange)
+    abstract def queue_matches(routing_key : String, headers : Hash(String, AMQP::Field)?, &blk : Queue -> _)
+    abstract def exchange_matches(routing_key : String, headers : Hash(String, AMQP::Field)?, &blk : Exchange -> _)
   end
 
   struct BindingDetails
@@ -179,6 +179,41 @@ module AvalancheMQ
     def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       @bindings[{routing_key, nil}]
     end
+
+    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+      @queue_bindings[{routing_key, nil}].each
+    end
+
+    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+      @exchange_bindings[{routing_key, nil}].each
+    end
+  end
+
+  class DefaultExchange < Exchange
+    def type : String
+      "direct"
+    end
+
+    def bind(destination, routing_key, headers = nil)
+      raise "Access refused"
+    end
+
+    def unbind(destination, routing_key, headers = nil)
+      raise "Access refused"
+    end
+
+    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
+      Set(Queue | Exchange).new(@vhost.queues[routing_key])
+    end
+
+    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+      if q = @vhost.queues[routing_key]?
+        yield q
+      end
+    end
+
+    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    end
   end
 
   class FanoutExchange < Exchange
@@ -204,6 +239,14 @@ module AvalancheMQ
 
     def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       @destinations
+    end
+
+    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+      @queue_bindings.each
+    end
+
+    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+      @exchange_bindings.each
     end
   end
 
