@@ -132,11 +132,11 @@ module AvalancheMQ
       @ack.fsync(flush_metadata: false)
     end
 
-    private def restore_index
+    private def restore_index : Nil
       @log.info "Restoring index"
       @ack.rewind
       sp_size = sizeof(SegmentPosition)
-      acked = Array(SegmentPosition).new(@ack.size // sp_size)
+      acked = Set(SegmentPosition).new(@ack.size // sp_size)
       loop do
         acked << SegmentPosition.from_io @ack
         @acks += 1
