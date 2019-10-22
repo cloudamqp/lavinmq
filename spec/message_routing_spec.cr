@@ -1,5 +1,17 @@
 require "./spec_helper"
 
+module AvalancheMQ
+  class Exchange
+    # Monkey patch for backward compability and easier testing
+    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
+      s = Set(Queue | Exchange).new
+      queue_matches(routing_key, headers) { |q| s << q }
+      exchange_matches(routing_key, headers) { |x| s << x }
+      s
+    end
+  end
+end
+
 describe AvalancheMQ::DirectExchange do
   it "matches exact rk" do
     log = Logger.new(File.open("/dev/null", "w"))

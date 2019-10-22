@@ -56,7 +56,7 @@ describe AvalancheMQ::Server do
 
     close_servers
     TestHelpers.setup
-    s.vhosts["test"].exchanges["e"].bindings[{"q", nil}].size.should eq 1
+    s.vhosts["test"].exchanges["e"].queue_bindings[{"q", nil}].size.should eq 1
   ensure
     s.vhosts.delete("test")
   end
