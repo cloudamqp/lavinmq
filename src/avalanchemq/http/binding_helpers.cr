@@ -29,13 +29,6 @@ module AvalancheMQ
         end
         binding
       end
-
-      private def unbind_prop(source : Queue | Exchange, destination : Queue | Exchange, key : String)
-        key = source.bindings.keys.find do |k|
-          BindingDetails.hash_key(k) == key
-        end
-        source.unbind(destination, key[0], key[1]) if key
-      end
     end
   end
 end
