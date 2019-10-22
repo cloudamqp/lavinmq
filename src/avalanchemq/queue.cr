@@ -660,11 +660,14 @@ module AvalancheMQ
       consumer_available
     end
 
-    private def drop(sp)
+    private def drop(sp) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
       @ready_lock.synchronize do
-        @segment_ref_count.dec(sp.segment)
+        if idx = @ready.index(sp)
+          @ready.delete_at(idx)
+          @segment_ref_count.dec(sp.segment)
+        end
       end
       idx = @get_unacked.index(sp)
       @get_unacked.delete_at(idx) if idx
