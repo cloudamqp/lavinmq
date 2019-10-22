@@ -102,9 +102,14 @@ module AvalancheMQ
     end
 
     def bindings_details
-      @bindings.flat_map do |key, desinations|
-        desinations.map { |destination| binding_details(key, destination) }
+      arr = Array(BindingDetails).new(@queue_bindings.size + @exchange_bindings.size)
+      @queue_bindings.each do |key, desinations|
+        desinations.each { |destination| arr << binding_details(key, destination) }
       end
+      @exchange_bindings.each do |key, desinations|
+        desinations.each { |destination| arr << binding_details(key, destination) }
+      end
+      arr
     end
 
     def binding_details(key, destination)
@@ -112,7 +117,9 @@ module AvalancheMQ
     end
 
     private def after_unbind
-      if @auto_delete && @bindings.each_value.none? { |s| s.size > 0 }
+      if @auto_delete &&
+          @queue_bindings.each_value.none? { |s| s.size > 0 } &&
+          @exchange_bindings.each_value.none? { |s| s.size > 0 }
         delete
       end
     end
@@ -123,11 +130,10 @@ module AvalancheMQ
     end
 
     abstract def type : String
-    abstract def bind(destination : Queue | Exchange, routing_key : String,
-                      headers : Hash(String, AMQP::Field)?)
-    abstract def unbind(destination : Queue | Exchange, routing_key : String,
-                        headers : Hash(String, AMQP::Field)?)
-    abstract def matches(routing_key : String, headers : Hash(String, AMQP::Field)?) : Set(Queue | Exchange)
+    abstract def bind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    abstract def unbind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    abstract def bind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    abstract def unbind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
     abstract def queue_matches(routing_key : String, headers : Hash(String, AMQP::Field)?, &blk : Queue -> _)
     abstract def exchange_matches(routing_key : String, headers : Hash(String, AMQP::Field)?, &blk : Exchange -> _)
   end
@@ -167,17 +173,22 @@ module AvalancheMQ
       "direct"
     end
 
-    def bind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, nil}] << destination
+    def bind(destination : Queue, routing_key, headers = nil)
+      @queue_bindings[{routing_key, nil}] << destination
     end
 
-    def unbind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, nil}].delete destination
+    def bind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}] << destination
+    end
+
+    def unbind(destination : Queue, routing_key, headers = nil)
+      @queue_bindings[{routing_key, nil}].delete destination
       after_unbind
     end
 
-    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
-      @bindings[{routing_key, nil}]
+    def unbind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}].delete destination
+      after_unbind
     end
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
@@ -202,10 +213,6 @@ module AvalancheMQ
       raise "Access refused"
     end
 
-    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
-      Set(Queue | Exchange).new(@vhost.queues[routing_key])
-    end
-
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       if q = @vhost.queues[routing_key]?
         yield q
@@ -213,48 +220,50 @@ module AvalancheMQ
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+      # noop
     end
   end
 
   class FanoutExchange < Exchange
-    def initialize(*args)
-      super(*args)
-      @destinations = Set(Queue | Exchange).new
-    end
-
     def type : String
       "fanout"
     end
 
-    def bind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, nil}] << destination
-      @destinations << destination
+    def bind(destination : Queue, routing_key, headers = nil)
+      @queue_bindings[{routing_key, nil}] << destination
     end
 
-    def unbind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, nil}].delete destination
-      @destinations.delete destination
+    def bind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}] << destination
+    end
+
+    def unbind(destination : Queue, routing_key, headers = nil)
+      @queue_bindings[{routing_key, nil}].delete destination
       after_unbind
     end
 
-    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
-      @destinations
+    def unbind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}].delete destination
+      after_unbind
     end
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
-      @queue_bindings.each
+      @queue_bindings.each_value { |s| s.each { |q| yield q } }
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
-      @exchange_bindings.each
+      @exchange_bindings.each_value { |s| s.each { |q| yield q } }
     end
   end
 
   class TopicExchange < Exchange
     def initialize(*args)
       super(*args)
-      @binding_keys = Hash(Array(String), Destination).new do |h, k|
-        h[k] = Set(Queue | Exchange).new
+      @queue_binding_keys = Hash(Array(String), Set(Queue)).new do |h, k|
+        h[k] = Set(Queue).new
+      end
+      @exchange_binding_keys = Hash(Array(String), Set(Exchange)).new do |h, k|
+        h[k] = Set(Exchange).new
       end
     end
 
@@ -262,22 +271,40 @@ module AvalancheMQ
       "topic"
     end
 
-    def bind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, nil}] << destination
-      @binding_keys[routing_key.split(".")] << destination
+    def bind(destination : Queue, routing_key, headers = nil)
+      @queue_bindings[{routing_key, nil}] << destination
+      @queue_binding_keys[routing_key.split(".")] << destination
     end
 
-    def unbind(destination, routing_key, headers = nil)
-      @bindings[{routing_key, nil}].delete destination
-      @binding_keys[routing_key.split(".")].delete destination
+    def unbind(destination : Queue, routing_key, headers = nil)
+      @queue_bindings[{routing_key, nil}].delete destination
+      @queue_binding_keys[routing_key.split(".")].delete destination
       after_unbind
     end
 
+    def bind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}] << destination
+      @exchange_binding_keys[routing_key.split(".")] << destination
+    end
+
+    def unbind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}].delete destination
+      @exchange_binding_keys[routing_key.split(".")].delete destination
+      after_unbind
+    end
+
+    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+      matches(@queue_binding_keys, routing_key, headers) { |q| yield q.as(Queue) }
+    end
+
+    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+      matches(@exchange_binding_keys, routing_key, headers) { |e| yield e.as(Exchange) }
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
-    def matches(routing_key, headers = nil) : Set(Queue | Exchange)
+    private def matches(binding_keys, routing_key, headers = nil, &blk : Queue | Exchange -> _)
       rk_parts = routing_key.split(".")
-      s = Set(Queue | Exchange).new
-      @binding_keys.each do |bks, dst|
+      binding_keys.each do |bks, dst|
         ok = false
         prev_hash = false
         size = bks.size # binding keys can max be 256 chars long anyway
@@ -332,9 +359,8 @@ module AvalancheMQ
           break unless ok
           i += 1
         end
-        s.concat(dst) if ok
+        dst.each { |d| yield d } if ok
       end
-      s
     end
   end
 
@@ -343,35 +369,52 @@ module AvalancheMQ
       "headers"
     end
 
-    def bind(destination, routing_key, headers)
+    def bind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @bindings[{routing_key, args}] << destination
+      @queue_bindings[{routing_key, args}] << destination
     end
 
-    def unbind(destination, routing_key, headers)
+    def bind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @bindings[{routing_key, args}].delete destination
+      @exchange_bindings[{routing_key, args}] << destination
+    end
+
+    def unbind(destination : Queue, routing_key, headers)
+      args = headers ? @arguments.merge(headers) : @arguments
+      @queue_bindings[{routing_key, args}].delete destination
       after_unbind
     end
 
-    def matches(routing_key, headers) : Set(Queue | Exchange)
-      matches = Set(Queue | Exchange).new
-      return matches unless headers
-      @bindings.each do |bt, queues|
+    def unbind(destination : Exchange, routing_key, headers)
+      args = headers ? @arguments.merge(headers) : @arguments
+      @exchange_bindings[{routing_key, args}].delete destination
+      after_unbind
+    end
+
+    def queue_matches(routing_key, headers = nil, &blk : Queue ->)
+      matches(@queue_bindings, routing_key, headers) { |d| yield d.as(Queue) }
+    end
+
+    def exchange_matches(routing_key, headers = nil, &blk : Exchange ->)
+      matches(@exchange_bindings, routing_key, headers) { |d| yield d.as(Exchange) }
+    end
+
+    private def matches(bindings, routing_key, headers, &blk : Queue | Exchange ->)
+      return unless headers
+      bindings.each do |bt, dst|
         args = bt[1]
         next unless args
         case args["x-match"]?
         when "any"
           if args.any? { |k, v| k != "x-match" && headers[k]? == v }
-            matches.concat(queues)
+            dst.each { |d| yield d }
           end
         else
           if args.all? { |k, v| k == "x-match" || headers[k]? == v }
-            matches.concat(queues)
+            dst.each { |d| yield d }
           end
         end
       end
-      matches
     end
   end
 end

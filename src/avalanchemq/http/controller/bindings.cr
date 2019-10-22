@@ -34,7 +34,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            itr = e.bindings.each.select { |(_, v)| v.includes?(q) }
+            itr = e.queue_bindings.each.select { |(_, v)| v.includes?(q) }
               .map { |(k, _)| e.binding_details(k, q) }
             page(context, itr)
           end
@@ -89,7 +89,7 @@ module AvalancheMQ
             end
             props = URI.decode_www_form(params["props"])
             found = false
-            e.bindings.each do |k, destinations|
+            e.queue_bindings.each do |k, destinations|
               next unless destinations.includes?(q) && BindingDetails.hash_key(k) == props
               arguments = k[1] || Hash(String, AMQP::Field).new
               @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], AMQP::Table.new arguments)
@@ -105,7 +105,7 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
-            page(context, source.bindings.each.select { |(_, v)| v.includes?(destination) }
+            page(context, source.exchange_bindings.each.select { |(_, v)| v.includes?(destination) }
               .map { |(k, _)| source.binding_details(k, destination) })
           end
         end
@@ -159,7 +159,7 @@ module AvalancheMQ
             end
             props = URI.decode_www_form(params["props"])
             found = false
-            source.bindings.each do |k, destinations|
+            source.exchange_bindings.each do |k, destinations|
               next unless destinations.includes?(destination) && BindingDetails.hash_key(k) == props
               arguments = AMQP::Table.new(k[1] || Hash(String, AMQP::Field).new)
               @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k[0], arguments)

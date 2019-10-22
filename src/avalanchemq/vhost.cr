@@ -111,16 +111,16 @@ module AvalancheMQ
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       visited, found_queues = @cache[Fiber.current]
-      queues = find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
+      find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{queues.size}" }
-      return false if queues.empty?
-      return false if immediate && !queues.any? { |q| q.immediate_delivery? }
+      return false if found_queues.empty?
+      return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
        write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = false
-      queues.each do |q|
+      found_queues.each do |q|
         ex.publish_out_count += 1
         next unless q.publish(sp, flush)
         if q.is_a?(DurableQueue) && flush
@@ -138,36 +138,36 @@ module AvalancheMQ
 
     private def find_all_queues(ex : Exchange, routing_key : String,
                                 headers : AMQP::Table?,
-                                visited = Set(Exchange).new,
-                                queues = Set(Queue).new) : Set(Queue)
+                                visited : Set(Exchange),
+                                queues : Set(Queue)) : Nil
       ex.queue_matches(routing_key, headers) { |q| queues << q }
-      if cc = headers.try(&.fetch("CC", nil))
-        cc.as(Array(AMQP::Field)).each do |rk|
-          ex.queue_matches(rk.as(String), headers) { |q| queues << q }
-        end
-      end
-      if bcc = headers.try(&.delete("BCC"))
-        bcc.as(Array(AMQP::Field)).each do |rk|
-          ex.queue_matches(rk.as(String), headers) { |q| queues << q }
-        end
-      end
 
+      visited.add(ex)
       ex.exchange_matches(routing_key, headers) do |e2e|
-        visited.add(ex)
         unless visited.includes? e2e
           find_all_queues(e2e, routing_key, headers, visited, queues)
         end
       end
 
+      if cc = headers.try(&.fetch("CC", nil))
+        cc.as(Array(AMQP::Field)).each do |rk|
+          find_all_queues(ex, rk.as(String), nil, visited, queues)
+        end
+      end
+
+      if bcc = headers.try(&.delete("BCC"))
+        bcc.as(Array(AMQP::Field)).each do |rk|
+          find_all_queues(ex, rk.as(String), nil, visited, queues)
+        end
+      end
+
       if queues.empty? && ex.alternate_exchange
         if ae = @exchanges[ex.alternate_exchange]?
-          visited.add(ex)
           unless visited.includes?(ae)
             find_all_queues(ae, routing_key, headers, visited, queues)
           end
         end
       end
-      queues
     end
 
     @pos = 0_u32
@@ -285,7 +285,7 @@ module AvalancheMQ
         return false unless @exchanges.has_key? f.exchange_name
         if x = @exchanges.delete f.exchange_name
           @exchanges.each_value do |ex|
-            ex.bindings.each_value do |destination|
+            ex.exchange_bindings.each_value do |destination|
               destination.delete x
             end
           end
@@ -312,7 +312,7 @@ module AvalancheMQ
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
           @exchanges.each_value do |ex|
-            ex.bindings.each_value do |destinations|
+            ex.queue_bindings.each_value do |destinations|
               destinations.delete q
             end
           end
@@ -505,17 +505,17 @@ module AvalancheMQ
         @exchanges.each do |_name, e|
           next unless e.durable
           next if e.auto_delete
-          e.bindings.each do |bt, destinations|
+          e.queue_bindings.each do |bt, queues|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
-            destinations.each do |d|
-              f =
-                case d
-                when Queue
-                  AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name, bt[0], false, args)
-                when Exchange
-                  AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, e.name, d.name, bt[0], false, args)
-                else raise "Unknown destination type #{d.class}"
-                end
+            queues.each do |q|
+              f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, bt[0], false, args)
+              io.write_bytes f, ::IO::ByteFormat::NetworkEndian
+            end
+          end
+          e.exchange_bindings.each do |bt, exchanges|
+            args = AMQP::Table.new(bt[1]) || AMQP::Table.new
+            exchanges.each do |ex|
+              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, e.name, ex.name, bt[0], false, args)
               io.write_bytes f, ::IO::ByteFormat::NetworkEndian
             end
           end
