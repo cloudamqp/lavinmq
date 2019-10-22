@@ -396,7 +396,7 @@ module AvalancheMQ
       end
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      reject(sp, false)
+      drop(sp)
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
@@ -629,10 +629,10 @@ module AvalancheMQ
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
-      reject(sp, false)
+      drop sp
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      reject(sp, false)
+      drop sp
     rescue ex
       if seg
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
@@ -658,6 +658,17 @@ module AvalancheMQ
       @ack_count += 1
       Fiber.yield if @ack_count % 8192 == 0
       consumer_available
+    end
+
+    private def drop(sp)
+      return if @deleted
+      @log.debug { "Dropping #{sp}" }
+      @ready_lock.synchronize do
+        @segment_ref_count.dec(sp.segment)
+      end
+      idx = @get_unacked.index(sp)
+      @get_unacked.delete_at(idx) if idx
+      @deliveries.delete(sp)
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
