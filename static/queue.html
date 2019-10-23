@@ -269,9 +269,9 @@
           avalanchemq.chart.update(chart, item.message_stats)
           document.getElementById('q-state').textContent = item.state
           document.getElementById('q-unacked').textContent = item.unacked
-          document.getElementById('q-total').textContent = avalanchemq.chart.formatNumber(item.messages)
-          document.getElementById('q-ready').textContent = avalanchemq.chart.formatNumber(item.ready)
-          document.getElementById('q-consumers').textContent = avalanchemq.chart.formatNumber(item.consumers)
+          document.getElementById('q-total').textContent = avalanchemq.helpers.formatNumber(item.messages)
+          document.getElementById('q-ready').textContent = avalanchemq.helpers.formatNumber(item.ready)
+          document.getElementById('q-consumers').textContent = avalanchemq.helpers.formatNumber(item.consumers)
           consumersTable.updateTable(item.consumer_details)
           if (all) {
             let features = ''
