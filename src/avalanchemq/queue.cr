@@ -209,13 +209,12 @@ module AvalancheMQ
     private def schedule_expiration_of_queue
       if @expires
         now = Time.monotonic
-        queue_expires_in = expires_in(now)
-        if queue_expires_in
+        if queue_expires_in = expires_in(now)
           if queue_expires_in <= Time::Span.zero
             expire_queue(now)
             return true
           else
-            spawn(name: "expire_queue_later") do
+            spawn(name: "expire_queue_later #{@name}") do
               sleep queue_expires_in.not_nil!
               expire_queue
             end
@@ -525,7 +524,7 @@ module AvalancheMQ
     private def expire_queue(now = Time.monotonic) : Bool
       exp = expires_in(now)
       return false if exp.nil?
-      return false if exp > Time::Span.zero
+      return false if exp - 1.second > Time::Span.zero
       return false unless @consumers.empty?
       @log.debug "Expired"
       @vhost.delete_queue(@name)
