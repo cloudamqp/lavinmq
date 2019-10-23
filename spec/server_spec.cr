@@ -629,6 +629,24 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "refuses binding to amq.default" do
+    with_channel do |ch|
+      q = ch.queue
+      expect_raises(AMQP::Client::Channel::ClosedException, "ACCESS_REFUSED") do
+        q.bind("", "foo")
+      end
+    end
+  end
+
+  it "refuses unbinding from amq.default" do
+    with_channel do |ch|
+      q = ch.queue
+      expect_raises(AMQP::Client::Channel::ClosedException, "ACCESS_REFUSED") do
+        q.unbind("", q.name)
+      end
+    end
+  end
+
   pending "compacts queue index correctly" do
     with_channel do |ch|
       q = ch.queue("durable_queue_index", durable: true)

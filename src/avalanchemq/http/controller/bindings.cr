@@ -50,6 +50,8 @@ module AvalancheMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
             elsif !user.can_write?(vhost, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
+            elsif e.name.empty?
+              access_refused(context, "Not allowed to bind to the default exchange")
             end
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
@@ -86,6 +88,8 @@ module AvalancheMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
             elsif !user.can_write?(vhost, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
+            elsif e.name.empty?
+              access_refused(context, "Not allowed to unbind from the default exchange")
             end
             props = URI.decode_www_form(params["props"])
             found = false
@@ -120,6 +124,8 @@ module AvalancheMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
             elsif !user.can_write?(vhost, destination.name)
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
+            elsif source.name.empty? || destination.name.empty?
+              access_refused(context, "Not allowed to bind to the default exchange")
             end
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
@@ -156,6 +162,8 @@ module AvalancheMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
             elsif !user.can_write?(vhost, destination.name)
               access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
+            elsif source.name.empty? || destination.name.empty?
+              access_refused(context, "Not allowed to unbind from the default exchange")
             end
             props = URI.decode_www_form(params["props"])
             found = false

@@ -347,6 +347,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to bind to the default exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
@@ -362,6 +364,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to unbind from the default exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -377,6 +381,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
       elsif !@user.can_write?(@vhost.name, frame.destination)
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
+      elsif frame.source.empty? || frame.destination.empty?
+        send_access_refused(frame, "Not allowed to bind to the default exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
@@ -392,6 +398,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
       elsif !@user.can_write?(@vhost.name, frame.destination)
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
+      elsif frame.source.empty? || frame.destination.empty?
+        send_access_refused(frame, "Not allowed to unbind from the default exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait

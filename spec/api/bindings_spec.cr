@@ -74,6 +74,18 @@ describe AvalancheMQ::HTTP::BindingsController do
       response = get("/api/bindings/%2f/e/404/q/404")
       response.status_code.should eq 404
     end
+
+    it "should return forbidden for the default exchange" do
+      s.vhosts["/"].declare_queue("bindings_q2", false, false)
+      body = %({
+        "routing_key": "rk",
+        "arguments": {}
+      })
+      response = post("/api/bindings/%2f/e/amq.default/q/bindings_q2", body: body)
+      response.status_code.should eq 401
+    ensure
+      s.vhosts["/"].delete_queue("bindings_q2")
+    end
   end
 
   describe "GET /api/bindings/vhost/e/exchange/q/queue/props" do
@@ -137,6 +149,15 @@ describe AvalancheMQ::HTTP::BindingsController do
     ensure
       s.vhosts["/"].delete_exchange("be1")
       s.vhosts["/"].delete_exchange("be2")
+    end
+
+    it "should return forbidden for the default exchange" do
+      body = %({
+        "routing_key": "rk",
+        "arguments": {}
+      })
+      response = post("/api/bindings/%2f/e/amq.default/e/amq.direct", body: body)
+      response.status_code.should eq 401
     end
   end
 
