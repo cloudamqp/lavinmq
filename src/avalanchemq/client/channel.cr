@@ -314,7 +314,7 @@ module AvalancheMQ
 
       def basic_ack(frame)
         found = delete_unacked(frame.delivery_tag, frame.multiple) do |unack|
-          do_ack(unack, flush: !frame.multiple)
+          do_ack(unack, persistent: !frame.multiple)
         end
         unless found
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
@@ -322,11 +322,11 @@ module AvalancheMQ
         end
       end
 
-      private def do_ack(unack, flush = true)
+      private def do_ack(unack, persistent = true)
         if c = unack.consumer
           c.ack(unack.sp)
         end
-        unack.queue.ack(unack.sp, flush: flush)
+        unack.queue.ack(unack.sp, persistent: persistent)
         @ack_count += 1
       end
 

@@ -345,7 +345,7 @@ module AvalancheMQ
 
     class RejectOverFlow < Exception; end
 
-    def publish(sp : SegmentPosition, flush = false) : Bool
+    def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
       @log.debug { "Enqueuing message sp=#{sp}" }
       was_empty = false
@@ -395,7 +395,7 @@ module AvalancheMQ
       end
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop(sp)
+      drop(sp, true)
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
@@ -415,7 +415,10 @@ module AvalancheMQ
           expire_at = meta.timestamp + exp_ms
           expire_in = expire_at - now
           if expire_in <= 0
-            @ready_lock.synchronize { @ready.shift }
+            @ready_lock.synchronize do
+              @ready.shift
+              @segment_ref_count.dec(sp.segment)
+            end
             expired_msg = true
             expire_msg(meta, sp, :expired)
             Fiber.yield if (i += 1_u32) % 8192_u32 == 0_u32
@@ -439,6 +442,7 @@ module AvalancheMQ
       @ready_lock.synchronize do
         return unless @ready[0]? == sp
         @ready.shift
+        @segment_ref_count.dec(sp.segment)
       end
       expire_msg(meta, sp, :expired)
     end
@@ -450,17 +454,16 @@ module AvalancheMQ
 
     private def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      meta_bytesize = meta.bytesize
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
-      dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
       if dlx
+        dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
         props = handle_dlx_header(meta, reason)
-        dead_letter_msg(meta, sp, props, meta_bytesize, dlx, dlrk)
+        dead_letter_msg(meta, sp, props, dlx, dlrk)
       end
-      ack(sp, true)
-    rescue IO::EOFError
-      @log.error { "EOF while dead-lettering sp=#{sp}" }
+      drop sp, false
+    rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
+      raise ex
     end
 
     private def handle_dlx_header(meta, reason)
@@ -497,14 +500,14 @@ module AvalancheMQ
       props
     end
 
-    private def dead_letter_msg(meta, sp, props, meta_bytesize, dlx, dlrk)
+    private def dead_letter_msg(meta, sp, props, dlx, dlrk)
       @read_lock.synchronize do
         seg = @segments[sp.segment]
-        body_pos = sp.position + meta_bytesize
+        body_pos = sp.position + meta.bytesize
         if @segment_pos[sp.segment] != body_pos
           @log.debug { "Current pos #{@segment_pos[sp.segment]}" }
           @log.debug { "Message position: #{sp.position}" }
-          @log.debug { "Metadata size #{meta_bytesize}" }
+          @log.debug { "Metadata size #{meta.bytesize}" }
           @log.debug { "Seeking to body pos #{body_pos}" }
           seg.seek(body_pos, IO::Seek::Set)
           @segment_pos[sp.segment] = body_pos
@@ -541,7 +544,9 @@ module AvalancheMQ
           expire_at = Time.unix_ms(meta.timestamp) + exp_ms.milliseconds
           expire_in = expire_at - now
           if expire_in <= Time::Span.zero
-            @ready_lock.synchronize { @ready.shift }
+            @ready_lock.synchronize do
+              @ready.shift && @segment_ref_count.dec(sp.segment)
+            end
             expire_msg(meta, sp, :expired)
           else
             return expire_in
@@ -628,10 +633,10 @@ module AvalancheMQ
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
-      drop sp
+      drop sp, true
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop sp
+      drop sp, true
     rescue ex
       if seg
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
@@ -645,7 +650,7 @@ module AvalancheMQ
       raise ex
     end
 
-    def ack(sp : SegmentPosition, flush : Bool)
+    def ack(sp : SegmentPosition, persistent : Bool)
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ready_lock.synchronize do
@@ -659,17 +664,29 @@ module AvalancheMQ
       consumer_available
     end
 
-    private def drop(sp) : Nil
+    private def drop(sp, delete_in_ready, persistent = true) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
       @ready_lock.synchronize do
-        if idx = @ready.index(sp)
-          @ready.delete_at(idx)
-          @segment_ref_count.dec(sp.segment)
+        if delete_in_ready
+          head = @ready.shift
+          if head == sp
+            @segment_ref_count.dec(sp.segment)
+          else
+            @log.debug { "Dropping #{sp} but #{head} was at head" }
+            if idx = @ready.index(sp)
+              @ready.delete_at(idx)
+              @ready.unshift head
+              @segment_ref_count.dec(sp.segment)
+            else
+              @log.error { "Dropping #{sp} but wasn't in ready queue" }
+            end
+          end
         end
       end
-      idx = @get_unacked.index(sp)
-      @get_unacked.delete_at(idx) if idx
+      if idx = @get_unacked.index(sp)
+        @get_unacked.delete_at(idx)
+      end
       @deliveries.delete(sp)
     end
 
@@ -714,6 +731,7 @@ module AvalancheMQ
     private def drophead
       if sp = @ready_lock.synchronize { @ready.shift? }
         @log.debug { "Overflow drop head sp=#{sp}" }
+        @segment_ref_count.dec(sp.segment)
         expire_msg(sp, :maxlen)
       end
     end

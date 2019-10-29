@@ -108,6 +108,16 @@ module AvalancheMQ
       super
     end
 
+    private def drop(sp, delete_in_ready, persistent = true) : Nil
+      if persistent
+        @ack_lock.synchronize do
+          @ack.write_bytes sp
+        end
+        compact_index! if (@acks += 1) > MAX_ACKS
+      end
+      super
+    end
+
     def purge
       @log.info "Purging"
       @enq_lock.synchronize do
