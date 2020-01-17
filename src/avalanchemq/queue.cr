@@ -424,7 +424,6 @@ module AvalancheMQ
           if expire_in <= 0
             @ready_lock.synchronize do
               @ready.shift
-              @segment_ref_count.dec(sp.segment)
             end
             expired_msg = true
             expire_msg(meta, sp, :expired)
@@ -449,9 +448,9 @@ module AvalancheMQ
       @ready_lock.synchronize do
         return unless @ready[0]? == sp
         @ready.shift
-        @segment_ref_count.dec(sp.segment)
       end
       expire_msg(meta, sp, :expired)
+      consumer_available
     end
 
     def expire_msg(sp : SegmentPosition, reason : Symbol)
