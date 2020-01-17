@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Crystal 0.32.x compatiblity (avoid reentrant mutexes)
+- Reference couting of messages in segments for GC purposes could go negative
+- Multiple dead lettering bugs
+- Faster restoring of indexes by using another data type
+- Make amq.default exchange clickable in the web UI
+- Make it possible to unbind bindings with empty routing key in web UI
+
+### Added
+- Queue bind with empty queue name default to last declared tmp queue
+- Don't allow binding/unbinding from the default exchange
+- Nicer formatting of numbers in the web UI
+- Now possible to unbind binding from the exchange view in the web UI
+
+### Changed
+- More efficent amq.default exchange
+
 ## [0.8.6] - 2019-10-03
 
 ### Fixed
