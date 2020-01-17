@@ -356,8 +356,8 @@ module AvalancheMQ
       return false if @closed
       @log.debug { "Enqueuing message sp=#{sp}" }
       was_empty = false
+      handle_max_length
       @ready_lock.synchronize do
-        handle_max_length
         was_empty = @ready.empty?
         @ready.push sp
         @segment_ref_count.inc(sp.segment)
