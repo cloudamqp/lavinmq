@@ -458,7 +458,7 @@ module AvalancheMQ
       expire_msg(meta, sp, reason)
     end
 
-    private def expire_msg(meta : MessageMetadata, sp : SegmentPosition, reason : Symbol)
+    private def expire_msg(meta : Message | MessageMetadata, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       if dlx
@@ -473,8 +473,8 @@ module AvalancheMQ
     end
 
     private def handle_dlx_header(meta, reason)
-      props = meta.properties
-      headers = (props.headers ||= AMQP::Table.new)
+      props = meta.properties.clone
+      headers = props.headers || AMQP::Table.new
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
 
