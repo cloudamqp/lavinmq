@@ -6,7 +6,7 @@ do
   #echo
   #if [[ $REPLY =~ ^[Yy]$ ]]
   #then
-    vagrant up $dist
+    vagrant up --provision $dist
     vagrant ssh $dist -c "cd /vagrant; build/deb $revision"
     vagrant halt $dist
   #fi
@@ -14,7 +14,7 @@ done
 
 for dist in centos7
 do
-  vagrant up $dist
+  vagrant up --provision $dist
   vagrant ssh $dist -c "cd /vagrant; build/rpm $revision"
   vagrant halt $dist
 done
