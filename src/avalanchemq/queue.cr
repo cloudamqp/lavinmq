@@ -555,7 +555,7 @@ module AvalancheMQ
           expire_in = expire_at - now
           if expire_in <= Time::Span.zero
             @ready_lock.synchronize do
-              @ready.shift && @segment_ref_count.dec(sp.segment)
+              @ready.shift
             end
             expire_msg(meta, sp, :expired)
           else
@@ -696,6 +696,7 @@ module AvalancheMQ
       end
       if idx = @get_unacked.index(sp)
         @get_unacked.delete_at(idx)
+        @segment_ref_count.dec(sp.segment)
       end
       @deliveries.delete(sp)
     end
@@ -739,9 +740,8 @@ module AvalancheMQ
     end
 
     private def drophead
-      if sp = @ready_lock.synchronize { @ready.shift? }
+      if sp = @ready.shift?
         @log.debug { "Overflow drop head sp=#{sp}" }
-        @segment_ref_count.dec(sp.segment)
         expire_msg(sp, :maxlen)
       end
     end
