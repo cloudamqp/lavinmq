@@ -775,11 +775,15 @@ module AvalancheMQ
       end
     end
 
-    def purge
-      purged_count = message_count
-      @ready_lock.synchronize { @ready.clear }
-      @log.debug { "Purged #{purged_count} messages" }
-      purged_count
+    def purge : UInt32
+      @ready_lock.synchronize do
+        purged_count = @ready.size
+        while sp = @ready.shift?
+          @segment_ref_count.dec(sp.segment)
+        end
+        @log.debug { "Purged #{purged_count} messages" }
+        purged_count.to_u32
+      end
     end
 
     def match?(frame)
