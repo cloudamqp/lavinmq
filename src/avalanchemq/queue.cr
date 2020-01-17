@@ -676,19 +676,20 @@ module AvalancheMQ
       consumer_available
     end
 
+    # dropping a specific message/segmentposition
+    # ready lock has be aquired before calling this method
     private def drop(sp, delete_in_ready, persistent = true) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
-      @ready_lock.synchronize do
-        if delete_in_ready
-          head = @ready.shift
-          if head == sp
+      if delete_in_ready
+        @ready_lock.synchronize do
+          if @ready.first == sp
+            @ready.shift
             @segment_ref_count.dec(sp.segment)
           else
-            @log.debug { "Dropping #{sp} but #{head} was at head" }
+            @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
             if idx = @ready.index(sp)
               @ready.delete_at(idx)
-              @ready.unshift head
               @segment_ref_count.dec(sp.segment)
             else
               @log.error { "Dropping #{sp} but wasn't in ready queue" }
