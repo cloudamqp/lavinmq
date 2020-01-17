@@ -600,21 +600,23 @@ module AvalancheMQ
       return yield nil if sp.nil?
       @read_lock.synchronize do
         read(sp) do |env|
-          env = add_delivery_count_header(env) unless no_ack
-          yield env
+          if @delivery_limit && !no_ack
+            yield with_delivery_count_header(env)
+          else
+            yield env
+          end
         end
       end
     end
 
-    private def add_delivery_count_header(env)
-      sp = env.segment_position
-      if @delivery_limit
+    private def with_delivery_count_header(env)
+      if limit = @delivery_limit
+        sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries[sp]? || 0
+        delivery_count = @deliveries.fetch(sp, 0)
         @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
-        if delivery_count >= @delivery_limit.not_nil!
-          @deliveries.delete(sp)
-          expire_msg(sp, :delivery_limit)
+        if delivery_count >= limit
+          expire_msg(env.message, sp, :delivery_limit)
           return nil
         end
         headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
