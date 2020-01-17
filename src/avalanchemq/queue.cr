@@ -506,8 +506,8 @@ module AvalancheMQ
       props
     end
 
-    private def dead_letter_msg(meta, sp, props, dlx, dlrk)
-      @read_lock.synchronize do
+    private def dead_letter_msg(meta : MessageMetadata, sp, props, dlx, dlrk)
+      msg = @read_lock.synchronize do
         seg = @segments[sp.segment]
         body_pos = sp.position + meta.bytesize
         if @segment_pos[sp.segment] != body_pos
@@ -518,10 +518,14 @@ module AvalancheMQ
           seg.seek(body_pos, IO::Seek::Set)
           @segment_pos[sp.segment] = body_pos
         end
-        msg = Message.new(meta.timestamp, dlx.to_s, dlrk.to_s, props, meta.size, seg)
-        @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
-        @vhost.publish msg
+        Message.new(meta.timestamp, dlx.to_s, dlrk.to_s, props, meta.size, seg)
       end
+      @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
+      @vhost.publish msg
+    end
+
+    private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
+      @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s, props, msg.size, msg.body_io)
     end
 
     private def expires_in(now = Time.monotonic) : Time::Span?
