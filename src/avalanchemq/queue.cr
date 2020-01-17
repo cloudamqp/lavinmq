@@ -264,18 +264,22 @@ module AvalancheMQ
 
     private def find_consumer
       @log.debug { "Looking for available consumers" }
-      @consumers_lock.synchronize do
-        if @consumers.size == 1
-          c = @consumers[0]
-          return c.accepts? ? c : nil
+      case @consumers.size
+      when 0
+        nil
+      when 1
+        c = @consumers[0]
+        c.accepts? ? c : nil
+      else
+        @consumers_lock.synchronize do
+          @consumers.size.times do
+            c = @consumers.shift
+            @consumers.push c
+            return c if c.accepts?
+          end
         end
-        @consumers.size.times do
-          c = @consumers.shift
-          @consumers.push c
-          return c if c.accepts?
-        end
+        nil
       end
-      nil
     end
 
     private def deliver_to_consumer(c)
