@@ -123,7 +123,10 @@ module AvalancheMQ
     end
 
     def message_available
-      Channel.select({ @message_available.send_select_action(nil) }, true)
+      select
+      when @message_available.send nil
+      else
+      end
     end
 
     def consumer_available
