@@ -2,11 +2,11 @@ version: 1.0
 shards:
   ameba:
     github: veelenga/ameba
-    version: 0.10.1
+    version: 0.11.0
 
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-    version: 0.3.3
+    version: 0.3.4
 
   amqp-client:
     github: cloudamqp/amqp-client.cr
