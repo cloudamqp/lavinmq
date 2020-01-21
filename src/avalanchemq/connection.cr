@@ -30,6 +30,7 @@ module AvalancheMQ
 
     private def tcp_socket(host, port, connect_timeout)
       socket = TCPSocket.new(host, port, connect_timeout: connect_timeout)
+      socket.sync = false
       socket.keepalive = true
       socket.tcp_nodelay = false
       socket.tcp_keepalive_idle = 60
