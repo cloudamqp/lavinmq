@@ -112,15 +112,16 @@ module AvalancheMQ
       ex.publish_in_count += 1
       visited, found_queues = @cache[Fiber.current]
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
+      visited.clear
       @log.debug { "publish queues#found=#{found_queues.size}" }
       return false if found_queues.empty?
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
-       write_to_disk(msg)
+        write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = false
-      found_queues.each do |q|
+      while q = found_queues.shift?
         ex.publish_out_count += 1
         next unless q.publish(sp, flush)
         if q.is_a?(DurableQueue) && flush
@@ -132,7 +133,6 @@ module AvalancheMQ
       end
       ok
     ensure
-      visited.try &.clear
       found_queues.try &.clear
     end
 
