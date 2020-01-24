@@ -111,8 +111,13 @@ module AvalancheMQ
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       visited, found_queues = @cache[Fiber.current]
+      # publish is called from Queue due to dead-lettering
+      # these cached sets won't be empty so create new sets in that case
+      unless visited.empty? && found_queues.empty?
+        visited = Set(Exchange).new
+        found_queues = Set(Queue).new
+      end
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
-      visited.clear
       @log.debug { "publish queues#found=#{found_queues.size}" }
       return false if found_queues.empty?
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
@@ -121,7 +126,7 @@ module AvalancheMQ
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = false
-      while q = found_queues.shift?
+      found_queues.each do |q|
         ex.publish_out_count += 1
         next unless q.publish(sp, flush)
         if q.is_a?(DurableQueue) && flush
@@ -133,6 +138,7 @@ module AvalancheMQ
       end
       ok
     ensure
+      visited.try &.clear
       found_queues.try &.clear
     end
 
