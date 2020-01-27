@@ -27,7 +27,7 @@ Vagrant.configure("2") do |config|
       apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
       echo "deb https://dist.crystal-lang.org/apt crystal main" > /etc/apt/sources.list.d/crystal.list
       apt-get update
-      apt-get upgrade -y
+      apt-get upgrade -y --auto-remove
       apt-get install -y crystal help2man lintian
     SHELL
   end
@@ -39,7 +39,7 @@ Vagrant.configure("2") do |config|
       apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
       echo "deb https://dist.crystal-lang.org/apt crystal main" > /etc/apt/sources.list.d/crystal.list
       apt-get update
-      apt-get upgrade -y
+      apt-get upgrade -y --auto-remove
       apt-get install -y crystal help2man lintian
     SHELL
   end
@@ -52,7 +52,7 @@ Vagrant.configure("2") do |config|
       apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
       echo "deb http://dist.crystal-lang.org/apt crystal main" > /etc/apt/sources.list.d/crystal.list
       apt-get update
-      apt-get upgrade -y
+      apt-get upgrade -y --auto-remove
       apt-get install -y crystal help2man lintian fakeroot
     SHELL
   end
