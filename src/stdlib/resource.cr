@@ -41,9 +41,16 @@ module System
 
     getter user_time : Time::Span
     getter sys_time : Time::Span
+
+    {% if flag?(:arm) %}
+    getter max_rss : Int32
+    getter blocks_in : Int32
+    getter blocks_out : Int32
+    {% else %}
     getter max_rss : Int64
     getter blocks_in : Int64
     getter blocks_out : Int64
+    {% end %}
   end
 
   def self.resource_usage
