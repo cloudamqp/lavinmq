@@ -19,7 +19,6 @@ License: ASL 2.0
 BuildRequires: systemd crystal help2man zlib-devel openssl-devel
 Requires(pre): shadow-utils
 URL: https://github.com/84codes/avalanchemq
-#Source0: https://github.com/84codes/%{name}/archive/v%{version}.tar.gz
 Source0: %{name}.tar.gz
 
 %description

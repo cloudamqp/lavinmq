@@ -1,6 +1,38 @@
-#!/bin/bash -eu
+#!/bin/bash -eux
 revision=${1:-1}
 dists=${2:-ubuntu_bionic ubuntu_xenial debian_stretch debian_buster}
+
+provision="
+set -ux
+export LC_ALL=en_US.UTF-8
+ifup eth0
+while ! (ping -c1 1.1.1.1 > /dev/null); do sleep 1; done
+echo 'deb https://dist.crystal-lang.org/apt crystal main' > /etc/apt/sources.list.d/crystal.list
+apt-get install -y gnupg2
+apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
+apt-get update
+apt-get upgrade -y
+apt-get install -y crystal help2man lintian
+useradd --create-home --uid 1000 --gid 1000 $USER || true
+"
+
+build="
+set -ux
+export LC_ALL=en_US.UTF-8
+command -v ifup && ifup eth0
+while ! (ping -c1 1.1.1.1 > /dev/null); do sleep 1; done
+cd /mnt
+user_1000=\$(getent passwd 1000 | cut -f1 -d:)
+sudo -u \$user_1000 build/deb $revision
+"
+
+[ "`whoami`" = "root" ] && echo "Don't run as root" && exit 1
+subuid=`awk -F: "/^$USER:/ { print \\$2 }" /etc/subuid`
+setfacl -m u::rwx,u:$subuid:x ~/.local ~/.local/share ~/.local/share/lxc
+setfacl -Rm u:$subuid:rwX,u:$((subuid + 1000)):rwX .
+lxc_conf=~/.config/lxc/default.conf
+grep veth $lxc_conf || echo "lxc.net.0.type = veth" >> $lxc_conf
+grep lxcbr0 $lxc_conf || echo "lxc.net.0.link = lxcbr0" >> $lxc_conf
 
 for name in $dists
 do
@@ -10,26 +42,16 @@ do
     rel=$(echo $name | cut -d_ -f2)
 
     lxc-create -t download -n $name -- -d $dist -r $rel -a amd64
-    echo "lxc.mount.entry=$PWD mnt none bind 0 0" >> /var/lib/lxc/$name/config
+    conf=$(lxc-config lxc.lxcpath)/$name/config
+    echo "lxc.mount.entry=$PWD mnt none bind 0 0" >> $conf
 
     lxc-start -n $name
-    lxc-attach -n $name <<-EOF
-    ifup eth0
-    while ! (ping 1.1.1.1 -c 1); do sleep 1; done
-    echo "deb https://dist.crystal-lang.org/apt crystal main" > /etc/apt/sources.list.d/crystal.list
-    apt-get install -y gnupg2
-    apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
-    apt-get update
-    apt-get install -y crystal help2man lintian
-EOF
+    lxc-attach -n $name <<< $provision
   fi
   lxc-start -n $name > /dev/null
-  lxc-attach -n $name <<-EOF
-  export LC_ALL=en_US.UTF-8
-  ifup eth0
-  while ! (ping 1.1.1.1 -c 1); do sleep 1; done
-  cd /mnt
-  build/deb $revision
-EOF
+
+  lxc-attach -n $name <<< $build
+  # map lxc root to our UID and chown to restore us to owners
+  lxc-usernsexec -m b:0:1000:1 -m b:1000:101000:1 -- /bin/chown root:root -R .
   lxc-stop -n $name
 done

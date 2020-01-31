@@ -92,6 +92,7 @@ deb-systemd-helper purge avalanchemq.service
 EOF
 chmod +x $root/DEBIAN/prerm
 
+chmod g-w -R $root
 fakeroot dpkg-deb --build $root
 rm -r $root
 
