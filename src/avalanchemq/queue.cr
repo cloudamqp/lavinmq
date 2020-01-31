@@ -681,7 +681,10 @@ module AvalancheMQ
     private def drop(sp, delete_in_ready, persistent = true) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
-      if delete_in_ready
+      if idx = @get_unacked.index(sp)
+        @get_unacked.delete_at(idx)
+        @segment_ref_count.dec(sp.segment)
+      elsif delete_in_ready
         @ready_lock.synchronize do
           if @ready.first == sp
             @ready.shift
@@ -696,10 +699,6 @@ module AvalancheMQ
             end
           end
         end
-      end
-      if idx = @get_unacked.index(sp)
-        @get_unacked.delete_at(idx)
-        @segment_ref_count.dec(sp.segment)
       end
       @deliveries.delete(sp)
     end
