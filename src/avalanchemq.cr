@@ -78,6 +78,7 @@ end
 
 Signal::HUP.trap do
   puts "Reloading"
+  config.parse(config_file) unless config_file.empty?
   Fiber.list { |f| puts f.inspect }
   puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   pp System.resource_usage
