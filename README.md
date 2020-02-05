@@ -138,7 +138,7 @@ In Debian/Ubuntu:
 
 ```bash
 sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 379CE192D401AB61
-echo "deb https://dl.bintray.com/84codes/debian $(lsb_release -cs) avalanchemq" | sudo tee /etc/apt/sources.list.d/avalanchemq.list
+echo "deb https://dl.bintray.com/cloudamqp/debian $(lsb_release -cs) avalanchemq" | sudo tee /etc/apt/sources.list.d/avalanchemq.list
 sudo apt update
 sudo apt install avalanchemq
 ```
@@ -149,7 +149,7 @@ In CentOS/Redhat/Amazon Linux:
 sudo tee /etc/yum.repos.d/avalanchemq.repo << EOF
 [avalanchemq]
 name=avalanchemq
-baseurl=https://dl.bintray.com/84codes/rpm
+baseurl=https://dl.bintray.com/cloudamqp/rpm
 gpgcheck=0
 repo_gpgcheck=0
 enabled=1
