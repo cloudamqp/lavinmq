@@ -3,7 +3,6 @@ require "./queue"
 
 module AvalancheMQ
   class DurableQueue < Queue
-    MAX_ACKS = 4 * 1024**2
     @durable = true
 
     def initialize(@vhost : VHost, @name : String,
@@ -91,7 +90,7 @@ module AvalancheMQ
             @ack_lock.synchronize do
               @ack.write_bytes env.segment_position
             end
-            compact_index! if (@acks += 1) > MAX_ACKS
+            compact_index! if (@acks += 1) > Config.instance.queue_max_acks
           end
         end
         yield env
@@ -103,7 +102,7 @@ module AvalancheMQ
         @ack_lock.synchronize do
           @ack.write_bytes sp
         end
-        compact_index! if (@acks += 1) > MAX_ACKS
+        compact_index! if (@acks += 1) > Config.instance.queue_max_acks
       end
       super
     end
@@ -113,7 +112,7 @@ module AvalancheMQ
         @ack_lock.synchronize do
           @ack.write_bytes sp
         end
-        compact_index! if (@acks += 1) > MAX_ACKS
+        compact_index! if (@acks += 1) > Config.instance.queue_max_acks
       end
       super
     end

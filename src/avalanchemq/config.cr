@@ -17,7 +17,9 @@ module AvalancheMQ
       @mgmt_cert_path = "",
       @mgmt_key_path = "",
       @heartbeat = 60_u16,
-      @segment_size : Int32 = 256 * 1024**2,
+      @segment_size : Int32 = 32 * 1024**2,
+      @gc_segments_interval = 60,
+      @queue_max_acks = 1_000_000,
       @stats_interval = 5000,
       @stats_log_size = 120, # 10 mins at 5s interval
       @set_timestamp = false,
@@ -27,8 +29,10 @@ module AvalancheMQ
       @@instance = self
     end
 
-    property data_dir, log_level, bind, port, tls_port, unix_path, cert_path, key_path, mgmt_bind, mgmt_port,
-      mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat, segment_size, stats_interval,
+    property data_dir, log_level, bind, port, tls_port, unix_path,
+      cert_path, key_path, mgmt_bind, mgmt_port,
+      mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat,
+      gc_segments_interval, segment_size, queue_max_acks, stats_interval,
       stats_log_size, set_timestamp, file_buffer_size, socket_buffer_size
 
     def self.instance(*args)
@@ -56,7 +60,9 @@ module AvalancheMQ
       @log_level = Logger::Severity.parse?(settings["log_level"]?.to_s) || @log_level
       @stats_interval = settings["stats_interval"]?.try &.to_i32 || @stats_interval
       @stats_log_size = settings["stats_log_size"]?.try &.to_i32 || @stats_log_size
+      @gc_segments_interval = settings["gc_segments_interval"]?.try &.to_i32 || @gc_segments_interval
       @segment_size = settings["segment_size"]?.try &.to_i32 || @segment_size
+      @queue_max_acks = settings["queue_max_acks"]?.try &.to_i32 || @queue_max_acks
       @set_timestamp = true?(settings["set_timestamp"]?) || @set_timestamp
       @file_buffer_size = settings["file_buffer_size"]?.try &.to_i32 || @file_buffer_size
       @socket_buffer_size = settings["socket_buffer_size"]?.try &.to_i32 || @socket_buffer_size

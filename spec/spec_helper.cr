@@ -81,7 +81,9 @@ module TestHelpers
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     log = Logger.new(STDOUT, level: level)
     AvalancheMQ::LogFormatter.use(log)
-    AvalancheMQ::Config.instance.segment_size = 32 * 1024**2
+    AvalancheMQ::Config.instance.gc_segments_interval = 1
+    AvalancheMQ::Config.instance.queue_max_acks = 10
+    AvalancheMQ::Config.instance.segment_size = 512 * 1024
     @@s = AvalancheMQ::Server.new(dir, log.dup)
     @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, HTTP_PORT, log.dup)
     Spec.after_each do
