@@ -26,9 +26,8 @@ module AvalancheMQ
 
     private def compact_index! : Nil
       @log.info { "Compacting index" }
-      @enq.close
-      Dir.mkdir_p @index_dir
       @enq_lock.synchronize do
+        @enq.close
         File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
           unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
           next_unacked = unacked.next
