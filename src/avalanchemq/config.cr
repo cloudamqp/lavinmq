@@ -2,41 +2,31 @@ require "logger"
 
 module AvalancheMQ
   class Config
-    def initialize(
-      @data_dir = "",
-      @log_level : Logger::Severity = Logger::INFO,
-      @bind = "::",
-      @port = 5672,
-      @tls_port = 5671,
-      @unix_path = "",
-      @cert_path = "",
-      @key_path = "",
-      @mgmt_bind = "::",
-      @mgmt_port = 15672,
-      @mgmt_tls_port = 15671,
-      @mgmt_cert_path = "",
-      @mgmt_key_path = "",
-      @heartbeat = 60_u16,
-      @segment_size : Int32 = 32 * 1024**2,
-      @gc_segments_interval = 60,
-      @queue_max_acks = 1_000_000,
-      @stats_interval = 5000,
-      @stats_log_size = 120, # 10 mins at 5s interval
-      @set_timestamp = false,
-      @file_buffer_size = 262_144,
-      @socket_buffer_size = 8192
-    )
-      @@instance = self
-    end
+    property data_dir = ""
+    property log_level : Logger::Severity = Logger::INFO
+    property amqp_bind = "::"
+    property amqp_port = 5672
+    property amqps_port = -1
+    property unix_path = ""
+    property cert_path = ""
+    property key_path = ""
+    property http_bind = "::"
+    property http_port = 15672
+    property https_port = -1
+    property heartbeat = 60_u16 # second
+    property segment_size : Int32 = 32 * 1024**2 # byte
+    property gc_segments_interval = 60 # second
+    property queue_max_acks = 1_000_000 # number of message
+    property stats_interval = 5000 # millisecond
+    property stats_log_size = 120 # 10 mins at 5s interva
+    property set_timestamp = false # in message headers when receive
+    property file_buffer_size = 262_144 # byte
+    property socket_buffer_size = 8192 # byte
 
-    property data_dir, log_level, bind, port, tls_port, unix_path,
-      cert_path, key_path, mgmt_bind, mgmt_port,
-      mgmt_tls_port, mgmt_cert_path, mgmt_key_path, heartbeat,
-      gc_segments_interval, segment_size, queue_max_acks, stats_interval,
-      stats_log_size, set_timestamp, file_buffer_size, socket_buffer_size
+    @@instance : Config = self.new
 
-    def self.instance(*args)
-      @@instance || new(*args)
+    def self.instance
+      @@instance
     end
 
     def parse(file)
@@ -49,45 +39,47 @@ module AvalancheMQ
           parse_main(settings)
         when "amqp"
           parse_amqp(settings)
-        when "mgmt"
+        when "mgmt", "http"
           parse_mgmt(settings)
         end
       end
     end
 
     private def parse_main(settings)
-      @data_dir = settings["data_dir"]? || @data_dir
-      @log_level = Logger::Severity.parse?(settings["log_level"]?.to_s) || @log_level
-      @stats_interval = settings["stats_interval"]?.try &.to_i32 || @stats_interval
-      @stats_log_size = settings["stats_log_size"]?.try &.to_i32 || @stats_log_size
-      @gc_segments_interval = settings["gc_segments_interval"]?.try &.to_i32 || @gc_segments_interval
-      @segment_size = settings["segment_size"]?.try &.to_i32 || @segment_size
-      @queue_max_acks = settings["queue_max_acks"]?.try &.to_i32 || @queue_max_acks
-      @set_timestamp = true?(settings["set_timestamp"]?) || @set_timestamp
-      @file_buffer_size = settings["file_buffer_size"]?.try &.to_i32 || @file_buffer_size
-      @socket_buffer_size = settings["socket_buffer_size"]?.try &.to_i32 || @socket_buffer_size
+      settings["data_dir"]?.try { |v| @data_dir = v }
+      settings["log_level"]?.try { |v| @log_level = Logger::Severity.parse(v) }
+      settings["stats_interval"]?.try { |v| @stats_interval = v.to_i32 }
+      settings["stats_log_size"]?.try { |v| @stats_log_size = v.to_i32 }
+      settings["gc_segments_interval"]?.try { |v| @gc_segments_interval = v.to_i32 }
+      settings["segment_size"]?.try { |v| @segment_size = v.to_i32 }
+      settings["queue_max_acks"]?.try { |v| @queue_max_acks = v.to_i32 }
+      settings["set_timestamp"]?.try { |v| @set_timestamp = true?(v) }
+      settings["file_buffer_size"]?.try { |v| @file_buffer_size = v.to_i32 }
+      settings["socket_buffer_size"]?.try { |v| @socket_buffer_size = v.to_i32 }
+      settings["tls_cert"]?.try { |v| @cert_path = v }
+      settings["tls_key"]?.try { |v| @key_path = v }
     end
 
     private def parse_amqp(settings)
-      @bind = settings["bind"]? || @bind
-      @port = settings["port"]?.try &.to_i32 || @port
-      @tls_port = settings["tls_port"]?.try &.to_i32 || @tls_port
-      @unix_path = settings["unix_path"]? || @unix_path
-      @cert_path = settings["tls_cert"]? || @cert_path
-      @key_path = settings["tls_key"]? || @key_path
-      @heartbeat = settings["heartbeat"]?.try &.to_u16 || @heartbeat
+      settings["bind"]?.try { |v| @amqp_bind = v }
+      settings["port"]?.try { |v| @amqp_port = v.to_i32 }
+      settings["tls_port"]?.try { |v| @amqps_port = v.to_i32 }
+      settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
+      settings["tls_key"]?.try { |v| @key_path = v } # backward compatibility
+      settings["unix_path"]?.try { |v| @unix_path = v }
+      settings["heartbeat"]?.try { |v| @heartbeat = v.to_u16 }
     end
 
     private def parse_mgmt(settings)
-      @mgmt_bind = settings["bind"]? || @mgmt_bind
-      @mgmt_port = settings["port"]?.try &.to_i32 || @mgmt_port
-      @mgmt_tls_port = settings["tls_port"]?.try &.to_i32 || @mgmt_tls_port
-      @mgmt_cert_path = settings["tls_cert"]? || @mgmt_cert_path
-      @mgmt_key_path = settings["tls_key"]? || @mgmt_key_path
+      settings["bind"]?.try { |v| @http_bind = v }
+      settings["port"]?.try { |v| @http_port = v.to_i32 }
+      settings["tls_port"]?.try { |v| @https_port = v.to_i32 }
+      settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
+      settings["tls_key"]?.try { |v| @key_path = v } # backward compatibility
     end
 
     private def true?(str : String?)
-      %w(true yes y 1).includes? str
+      { "true", "yes", "y", "1" }.includes? str
     end
   end
 end

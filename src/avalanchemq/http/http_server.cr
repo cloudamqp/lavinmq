@@ -14,11 +14,9 @@ end
 module AvalancheMQ
   module HTTP
     class Server
-      @running = false
-
       getter cache
 
-      def initialize(@amqp_server : AvalancheMQ::Server, @port : Int32, @log : Logger)
+      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
         @log.progname = "httpserver"
         @cache = JSONCacheHandler.new(@log.dup)
         handlers = [
@@ -45,20 +43,29 @@ module AvalancheMQ
         @http = ::HTTP::Server.new(handlers)
       end
 
+      def bind_tcp(address, port)
+        addr = @http.bind_tcp address, port
+        @log.info { "Bound to #{addr}" }
+      end
+
+      def bind_tls(address, port, cert_path, key_path)
+        ctx = OpenSSL::SSL::Context::Server.new
+        ctx.certificate_chain = cert_path
+        ctx.private_key = key_path
+        addr = @http.bind_tls address, port, ctx
+        @log.info { "Bound on #{addr}" }
+      end
+
       def listen
-        @running = true
-        addr = @http.bind_tcp "::", @port, true
-        @log.info { "Listening on #{addr}" }
         @http.listen
       end
 
       def close
         @http.try &.close
-        @running = false
       end
 
       def closed?
-        !@running
+        @http.closed?
       end
 
       class PayloadTooLarge < Exception; end

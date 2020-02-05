@@ -15,13 +15,19 @@ p = OptionParser.parse do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
   parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
   parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config_file = v }
-  parser.on("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)") do |v|
-    config.port = v.to_i
+  parser.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
+    config.amqp_port = v.to_i
   end
-  parser.on("--tls-port=PORT", "AMQPS port to listen on (default: 5671)") do |v|
-    config.tls_port = v.to_i
+  parser.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
+    config.amqps_port = v.to_i
   end
-  parser.on("--unix-path=PATH", "UNIX path to listen to") do |v|
+  parser.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
+    config.http_port = v.to_i
+  end
+  parser.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
+    config.https_port = v.to_i
+  end
+  parser.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
     config.unix_path = v
   end
   parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.cert_path = v }
@@ -55,25 +61,39 @@ log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
 amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
 
-if !config.cert_path.empty? && !config.key_path.empty?
-  spawn(name: "AMQPS listening on #{config.tls_port}") do
-    amqp_server.not_nil!.listen_tls(config.bind, config.tls_port, config.cert_path, config.key_path)
+if config.amqp_port > 0
+  spawn(name: "AMQP listening on #{config.amqp_port}") do
+    amqp_server.not_nil!.listen(config.amqp_bind, config.amqp_port)
   end
 end
 
-if !config.unix_path.empty?
-  spawn(name: "AMQP listening #{config.unix_path}") do
+if config.amqps_port > 0 && config.cert_path
+  spawn(name: "AMQPS listening on #{config.amqps_port}") do
+    amqp_server.not_nil!.listen_tls(config.amqp_bind, config.amqps_port,
+                                    config.cert_path,
+                                    config.key_path || config.cert_path)
+  end
+end
+
+unless config.unix_path.empty?
+  spawn(name: "AMQP listening at #{config.unix_path}") do
     amqp_server.not_nil!.listen_unix(config.unix_path)
   end
 end
 
-spawn(name: "AMQP listening on #{config.port}") do
-  amqp_server.not_nil!.listen(config.bind, config.port)
-end
-
-http_server = AvalancheMQ::HTTP::Server.new(amqp_server, config.mgmt_port, log.dup)
-spawn(name: "HTTP listener") do
-  http_server.listen
+if config.http_port > 0 || config.https_port > 0
+  http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
+  if config.http_port > 0
+    http_server.bind_tcp(config.http_bind, config.http_port)
+  end
+  if config.https_port > 0
+    http_server.bind_tls(config.http_bind, config.https_port,
+                         config.cert_path,
+                         config.key_path || config.cert_path)
+  end
+  spawn(name: "HTTP listener") do
+    http_server.not_nil!.listen
+  end
 end
 
 Signal::HUP.trap do
@@ -91,7 +111,7 @@ shutdown = ->(_s : Signal) do
   puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   pp System.resource_usage
   pp GC.stats
-  http_server.close
+  http_server.try &.close
   amqp_server.close
   Fiber.yield
   puts "Fibers: "

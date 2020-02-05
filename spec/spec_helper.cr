@@ -85,11 +85,12 @@ module TestHelpers
     AvalancheMQ::Config.instance.queue_max_acks = 10
     AvalancheMQ::Config.instance.segment_size = 512 * 1024
     @@s = AvalancheMQ::Server.new(dir, log.dup)
-    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, HTTP_PORT, log.dup)
+    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, log.dup)
+    @@h.not_nil!.bind_tcp("localhost", HTTP_PORT)
     Spec.after_each do
       @@h.try &.cache.purge
     end
-    spawn { @@s.try &.listen(AMQP_PORT) }
+    spawn { @@s.try &.listen("localhost", AMQP_PORT) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
