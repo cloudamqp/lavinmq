@@ -582,7 +582,6 @@ module AvalancheMQ
       segment
     end
 
-
     def gc_segments_loop
       referenced_segments = Set(UInt32).new
       loop do

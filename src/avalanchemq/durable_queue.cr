@@ -169,5 +169,13 @@ module AvalancheMQ
     rescue ex : Errno
       @log.error { "Could not restore index: #{ex.inspect}" }
     end
+
+    def enq_file_size
+      @enq.size
+    end
+
+    def ack_file_size
+      @ack.size
+    end
   end
 end
