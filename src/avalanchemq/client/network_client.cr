@@ -34,7 +34,7 @@ module AvalancheMQ
     end
 
     def self.start(socket, remote_address, local_address, vhosts, users, log)
-      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log)
+      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup)
     end
 
     def channel_name_prefix

@@ -48,8 +48,8 @@ module AvalancheMQ
         break if stopped?
         done = Channel(Bool).new
         @state = State::Starting
-        @publisher = Publisher.new(@destination, @ack_mode, @log, done)
-        @consumer = Consumer.new(@source, @ack_mode, @log, done)
+        @publisher = Publisher.new(@destination, @ack_mode, @log.dup, done)
+        @consumer = Consumer.new(@source, @ack_mode, @log.dup, done)
         p = @publisher.not_nil!
         c = @consumer.not_nil!
         c.on_frame { |f| p.forward f }

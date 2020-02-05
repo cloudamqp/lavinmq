@@ -1,7 +1,6 @@
 module AvalancheMQ
   module AMQPConnection
     def self.start(socket, remote_address, local_address, vhosts, users, log)
-      log = log.dup
       log.progname += " client=#{remote_address}"
       socket.read_timeout = 15
       confirm_header(socket, log) || return

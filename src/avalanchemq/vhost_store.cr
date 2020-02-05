@@ -23,7 +23,7 @@ module AvalancheMQ
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @log, @default_user, @connection_events)
+      vhost = VHost.new(name, @data_dir, @log.dup, @default_user, @connection_events)
       @vhosts[name] = vhost
       save! if save
       vhost
@@ -58,7 +58,7 @@ module AvalancheMQ
           JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
-            @vhosts[name] = VHost.new(name, @data_dir, @log, @default_user, @connection_events)
+            @vhosts[name] = VHost.new(name, @data_dir, @log.dup, @default_user, @connection_events)
           end
         rescue JSON::ParseException
           @log.warn("#{path} is not vaild json")

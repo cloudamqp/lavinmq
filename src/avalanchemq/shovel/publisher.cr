@@ -3,8 +3,7 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Publisher < Connection
-      def initialize(@destination : Destination, @ack_mode : AckMode, log : Logger, @done : Channel(Bool))
-        @log = log.dup
+      def initialize(@destination : Destination, @ack_mode : AckMode, @log : Logger, @done : Channel(Bool))
         @log.progname += " publisher"
         @message_count = 0_u64
         @delivery_tags = Hash(UInt64, UInt64).new

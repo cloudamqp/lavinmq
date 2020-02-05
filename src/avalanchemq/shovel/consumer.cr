@@ -3,8 +3,7 @@ require "../connection"
 module AvalancheMQ
   class Shovel
     class Consumer < Connection
-      def initialize(@source : Source, @ack_mode : AckMode, log : Logger, @done : Channel(Bool))
-        @log = log.dup
+      def initialize(@source : Source, @ack_mode : AckMode, @log : Logger, @done : Channel(Bool))
         @log.progname += " consumer"
         @message_counter = 0_u32
         @message_count = 0_u32

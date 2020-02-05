@@ -30,9 +30,8 @@ module AvalancheMQ
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String,
-                   server_log : Logger, @default_user : User,
+                   @log : Logger, @default_user : User,
                    @connection_events = Server::ConnectionsEvents.new(16))
-      @log = server_log.dup
       @log.progname = "vhost=#{@name}"
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
