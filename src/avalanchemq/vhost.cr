@@ -53,6 +53,7 @@ module AvalancheMQ
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
       spawn fsync_loop, name: "VHost/#{@name}#fsync_loop"
+      spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
     end
 
     def inspect(io : IO)
@@ -184,7 +185,6 @@ module AvalancheMQ
         fsync
         @wfile.close
         @wfile = open_wfile
-        spawn gc_segments!, name: "GC Segments #{@name}"
       end
 
       sp = SegmentPosition.new(@segment, @pos)
@@ -582,25 +582,29 @@ module AvalancheMQ
       segment
     end
 
-    @referenced_segments = Set(UInt32).new
 
-    private def gc_segments!
-      @log.info "Garbage collecting segments"
-      @referenced_segments << @segment
-      @queues.each_value do |q|
-        q.referenced_segments(@referenced_segments)
-      end
-      @log.info "#{@referenced_segments.size} segments in use"
-
-      Dir.each(@data_dir) do |f|
-        if f.starts_with? "msgs."
-          seg = f[5, 10].to_u32
-          next if @referenced_segments.includes? seg
-          @log.info "Deleting segment #{seg}"
-          File.delete File.join(@data_dir, f)
+    def gc_segments_loop
+      referenced_segments = Set(UInt32).new
+      loop do
+        sleep Config.instance.gc_segments_interval
+        break if @closed
+        @log.info "Garbage collecting segments"
+        referenced_segments << @segment
+        @queues.each_value do |q|
+          q.referenced_segments(referenced_segments)
         end
+        @log.info "#{referenced_segments.size} segments in use"
+
+        Dir.each(@data_dir) do |f|
+          if f.starts_with? "msgs."
+            seg = f[5, 10].to_u32
+            next if referenced_segments.includes? seg
+            @log.info "Deleting segment #{seg}"
+            File.delete File.join(@data_dir, f)
+          end
+        end
+        referenced_segments.clear
       end
-      @referenced_segments.clear
     end
   end
 end
