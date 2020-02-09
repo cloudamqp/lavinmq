@@ -63,7 +63,7 @@ module TestHelpers
     end
     res
   rescue e
-    puts "\n#{e.inspect_with_backtrace}"
+    puts "\nwait_for #{e.inspect_with_backtrace}"
   end
 
   def test_headers(headers = nil)
