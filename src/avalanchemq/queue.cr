@@ -190,7 +190,6 @@ module AvalancheMQ
 
     private def deliver_loop
       loop do
-        puts "\n==== #{@name}:deliver_loop closed:#{@closed} ready_empty?:#{@ready.empty?}"
         break if @closed
         if @ready.empty?
           recieve_or_expire || break
@@ -229,31 +228,17 @@ module AvalancheMQ
     end
 
     private def recieve_or_expire
-      puts "\n==== #{@name}:recieve_or_expire"
       schedule_expiration_of_queue && return false
       @log.debug { "Waiting for msgs" }
-      puts "\n==== #{@name}: Waiting for msgs"
       @message_available.receive
       @log.debug { "Message available" }
       true
     end
 
     private def consumer_or_expire
-      puts "\n==== #{@name}:consumer_or_expire"
       @log.debug "No consumer available"
       schedule_expiration_of_queue && return false
       schedule_expiration_of_next_msg && return true
-      puts "\n==== #{@name}: Waiting for consumer"
-      now = Time.monotonic
-      queue_expires_in = expires_in(now)
-      wakeup_in = wakeup_in(queue_expires_in)
-      @log.debug "Waiting for consumer"
-      if wakeup_in
-        spawn(name: "wake up consumer") do
-          sleep wakeup_in.not_nil!
-          expire_queue
-        end
-      end
       @log.debug "Waiting for consumer"
       @consumer_available.receive
       @log.debug "Consumer available"
@@ -278,7 +263,6 @@ module AvalancheMQ
     end
 
     private def find_consumer
-      puts "\n==== #{@name}:find_consumer"
       @log.debug { "Looking for available consumers" }
       case @consumers.size
       when 0
@@ -299,12 +283,10 @@ module AvalancheMQ
     end
 
     private def deliver_to_consumer(c)
-      puts "\n==== #{@name}:deliver_to_consumer"
       @log.debug { "Getting a new message" }
       get(c.no_ack) do |env|
         if env
           sp = env.segment_position
-          puts "\n==== #{@name}: Delivering #{sp} to consumer"
           @log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
             if env.redelivered
@@ -317,7 +299,6 @@ module AvalancheMQ
             @log.debug { "Delivery failed" }
           end
         else
-          puts "\n==== #{@name}: Consumer found, but not a message"
           @log.debug { "Consumer found, but not a message" }
         end
       end
@@ -429,14 +410,12 @@ module AvalancheMQ
     end
 
     private def schedule_expiration_of_next_msg(now = Time.utc.to_unix_ms) : Bool
-      puts "\n==== #{@name}:schedule_expiration_of_next_msg"
       expired_msg = false
       i = 0_u32
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
-        @log.debug { "Checking if next message has expired (schedule_expiration_of_next_msg)" }
+        @log.debug { "Checking if next message has to be expired" }
         meta = metadata(sp) || break
-        puts "\n==== #{@name}:Next message: #{meta}"
         @log.debug { "Next message: #{meta}" }
         exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
         if exp_ms
@@ -451,7 +430,7 @@ module AvalancheMQ
             Fiber.yield if (i += 1_u32) % 8192_u32 == 0_u32
           else
             spawn(expire_later(expire_in, meta, sp),
-              name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
+                  name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
             break
           end
         else
@@ -568,9 +547,8 @@ module AvalancheMQ
     private def expire_message(now = Time.utc) : Time::Span?
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
-        @log.debug { "Checking if next message has expired (expire_message)" }
+        @log.debug { "Checking if next message has to be expired" }
         meta = metadata(sp) || break
-        @log.debug { "Next message: #{meta}" }
         exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
         if exp_ms
           expire_at = Time.unix_ms(meta.timestamp) + exp_ms.milliseconds
