@@ -466,7 +466,9 @@ module AvalancheMQ
         props = handle_dlx_header(meta, reason)
         dead_letter_msg(meta, sp, props, dlx, dlrk)
       end
-      drop sp, false
+      persistent = meta.properties.delivery_mode == 2_u8
+      @log.debug { "Expiring #{sp}, #{meta.properties}, persistent=#{persistent}" }
+      drop sp, false, persistent
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       raise ex
@@ -662,7 +664,7 @@ module AvalancheMQ
       raise ex
     end
 
-    def ack(sp : SegmentPosition, persistent : Bool)
+    def ack(sp : SegmentPosition, persistent : Bool) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ready_lock.synchronize do

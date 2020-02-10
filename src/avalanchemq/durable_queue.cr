@@ -27,33 +27,43 @@ module AvalancheMQ
     private def compact_index! : Nil
       @log.info { "Compacting index" }
       @enq_lock.synchronize do
-        @enq.close
-        File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-          unacked = @consumers.flat_map { |c| c.unacked.to_a }.sort.each
-          next_unacked = unacked.next
-          @ready_lock.synchronize do
-            @ready.each do |sp|
-              while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
-                f.write_bytes next_unacked.as(SegmentPosition)
-                next_unacked = unacked.next
-              end
+        @ack_lock.synchronize do
+          # read all acked SPs into a Set
+          @ack.rewind
+          acked = Set(SegmentPosition).new(@ack.size // sizeof(SegmentPosition))
+          loop do
+            acked << SegmentPosition.from_io @ack
+          rescue IO::EOFError
+            break
+          end
+          @log.debug { "Read #{acked.size} acked SPs" }
+
+          # Read all enqueued SPs and write to a new enq file
+          # unless the SP is already acked
+          @enq.rewind
+          i = 0_u32
+          File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+            loop do
+              sp = SegmentPosition.from_io @enq
+              next if acked.includes? sp
               f.write_bytes sp
+              i += 1
+            rescue IO::EOFError
+              break
             end
           end
-          until next_unacked == Iterator::Stop::INSTANCE
-            f.write_bytes next_unacked.as(SegmentPosition)
-            next_unacked = unacked.next
-          end
-          f.fsync
+          @log.debug { "Wrote #{i} SPs to new enq file" }
+          @enq.close
+          File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+          @enq = File.open(File.join(@index_dir, "enq"), "a+")
+          @enq.sync = true
+          @enq.buffer_size = Config.instance.file_buffer_size
+          @enq.fsync(flush_metadata: true)
+
+          @ack.truncate
+          @ack.fsync(flush_metadata: false)
+          @acks = 0_u32
         end
-        File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-        @enq = File.open(File.join(@index_dir, "enq"), "a")
-        @enq.sync = true
-        @enq.buffer_size = Config.instance.file_buffer_size
-      end
-      @ack_lock.synchronize do
-        @ack.truncate
-        @acks = 0_u32
       end
     end
 
@@ -84,36 +94,39 @@ module AvalancheMQ
     def get(no_ack : Bool, &blk : Envelope? -> Nil)
       super(no_ack) do |env|
         if env && no_ack
-          persistent = env.message.properties.delivery_mode.try { 0_u8 } == 2_u8
+          persistent = env.message.properties.delivery_mode == 2_u8
           if persistent
             @ack_lock.synchronize do
               @ack.write_bytes env.segment_position
+              @acks += 1
             end
-            compact_index! if (@acks += 1) > Config.instance.queue_max_acks
+            compact_index! if @acks > Config.instance.queue_max_acks
           end
         end
         yield env
       end
     end
 
-    def ack(sp : SegmentPosition, persistent : Bool)
+    def ack(sp : SegmentPosition, persistent : Bool) : Nil
+      super
       if persistent
         @ack_lock.synchronize do
           @ack.write_bytes sp
+          @acks += 1
         end
-        compact_index! if (@acks += 1) > Config.instance.queue_max_acks
+        compact_index! if @acks > Config.instance.queue_max_acks
       end
-      super
     end
 
     private def drop(sp, delete_in_ready, persistent = true) : Nil
+      super
       if persistent
         @ack_lock.synchronize do
           @ack.write_bytes sp
+          @acks += 1
         end
-        compact_index! if (@acks += 1) > Config.instance.queue_max_acks
+        compact_index! if @acks > Config.instance.queue_max_acks
       end
-      super
     end
 
     def purge
@@ -123,8 +136,8 @@ module AvalancheMQ
       end
       @ack_lock.synchronize do
         @ack.truncate
+        @acks = 0_u32
       end
-      @acks = 0_u32
       super
     end
 
