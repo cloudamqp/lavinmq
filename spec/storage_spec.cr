@@ -32,6 +32,32 @@ describe AvalancheMQ::DurableQueue do
       end
     end
   end
+
+  it "GC message index when msgs are dead-lettered" do
+    sp_size = sizeof(AvalancheMQ::SegmentPosition)
+    max_acks = AvalancheMQ::Config.instance.queue_max_acks
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-max-length"] = 1_i64
+      q = ch.queue("ml", durable: true, args: args)
+      queue = s.vhosts["/"].queues["ml"].as(AvalancheMQ::DurableQueue)
+      queue.enq_file_size.should eq 0
+      max_acks.times do
+        q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+      end
+      1.times do
+        q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+      end
+      queue.enq_file_size.should eq((max_acks + 1) * sp_size)
+      q.subscribe(tag: "tag", no_ack: false, block: true) do |msg|
+        msg.ack
+        sleep 0.1
+        queue.ack_file_size.should eq 0
+        queue.enq_file_size.should eq 0
+        q.unsubscribe("tag")
+      end
+    end
+  end
 end
 
 describe AvalancheMQ::VHost do
