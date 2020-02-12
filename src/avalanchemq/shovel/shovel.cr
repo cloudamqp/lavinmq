@@ -1,15 +1,13 @@
 require "logger"
-require "./consumer"
-require "./publisher"
 require "../sortable_json"
+require "amqp-client"
 
 module AvalancheMQ
   class Shovel
     include SortableJSON
-    @pub : Publisher?
-    @sub : Consumer?
     @log : Logger
-    @state = 0_u8
+    @state = State::Terminated
+    @stop = ::Channel(Exception).new
 
     getter name, vhost
 
@@ -45,49 +43,63 @@ module AvalancheMQ
 
     private def run_loop
       loop do
-        break if stopped?
-        done = Channel(Bool).new
         @state = State::Starting
-        @publisher = Publisher.new(@destination, @ack_mode, @log.dup, done)
-        @consumer = Consumer.new(@source, @ack_mode, @log.dup, done)
-        p = @publisher.not_nil!
-        c = @consumer.not_nil!
-        c.on_frame { |f| p.forward f }
-        p.on_frame { |f| c.forward f }
-        p.run
-        c.run
-        @state = State::Running
-        continue = done.receive
-        if continue
-          c.close("Shovel failure")
-          p.close("Shovel failure")
-        else
-          delete
-          break
+        ::AMQP::Client.start(@source.uri) do |c|
+          ::AMQP::Client.start(@destination.uri) do |p|
+            c.channel do |cch|
+              cch.prefetch @source.prefetch
+              queue_name = @source.queue || ""
+              q = cch.queue(queue_name)
+              if @source.exchange || @source.exchange_key
+                q.bind(@source.exchange || "", @source.exchange_key || "")
+              end
+              msg_count = cch.queue_declare(q.name, passive: true)[:message_count]
+              if @source.delete_after == DeleteAfter::QueueLength && msg_count == 0
+                @state = State::Terminated
+                break
+              end
+              p.channel do |pch|
+                pch.confirm_select if @ack_mode == AckMode::OnConfirm
+                @state = State::Running
+                no_ack = @ack_mode == AckMode::NoAck
+                q.subscribe(no_ack: no_ack, tag: "shovel") do |msg|
+                  ex = @destination.exchange || msg.exchange
+                  rk = @destination.exchange_key || msg.routing_key
+                  msgid = pch.basic_publish(msg.body_io, ex, rk)
+                  pch.wait_for_confirm(msgid) if @ack_mode == AckMode::OnConfirm
+                  msg.ack unless no_ack
+                  if @source.delete_after == DeleteAfter::QueueLength
+                    if msg.delivery_tag == msg_count
+                      @stop.close
+                    end
+                  end
+                rescue ex
+                  if @stop.closed?
+                    @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
+                  else
+                    @stop.send ex
+                  end
+                end
+                ex = @stop.receive?
+                raise ex if ex
+                break
+              end
+            end
+          end
         end
       rescue ex
-        case ex
-        when AMQP::Error::FrameDecode
-          @log.warn { "Shovel failure: #{ex.cause.inspect}" }
-        when Connection::UnexpectedFrame, Socket::Error
-          @log.warn { "Shovel failure: #{ex.inspect}" }
-        else
-          @log.warn { "Shovel failure: #{ex.inspect_with_backtrace}" }
-        end
-        @consumer.try &.close("Shovel stopped")
-        @publisher.try &.close("Shovel stopped")
-        break if stopped?
+        @state = State::Terminated
+        @log.warn { "Shovel failure: #{ex.inspect_with_backtrace}" }
         sleep @reconnect_delay.seconds
       end
-      @log.info { "Shovel stopped" }
+      @state = State::Terminated
     end
 
     # Does not trigger reconnect, but a graceful close
     def stop
+      return if stopped?
       @log.info { "Stopping" }
-      @state = State::Terminated
-      @consumer.try &.close("Shovel stopped")
-      @publisher.try &.close("Shovel stopped")
+      @stop.close
     end
 
     def delete
