@@ -283,12 +283,12 @@ module AvalancheMQ
         found = false
         @unack_lock.synchronize do
           if multiple
-            loop do
-              unack = @unacked.shift?
-              if unack && (delivery_tag.zero? || unack.tag <= delivery_tag)
+            while unack = @unacked.shift?
+              if delivery_tag.zero? || unack.tag <= delivery_tag
                 found = true
                 yield unack
               else
+                @unacked.unshift unack
                 break
               end
             end
