@@ -48,22 +48,17 @@ module AvalancheMQ
           ::AMQP::Client.start(@destination.uri) do |p|
             c.channel do |cch|
               cch.prefetch @source.prefetch
-              queue_name = @source.queue || ""
-              q = cch.queue(queue_name)
-              if @source.exchange || @source.exchange_key
-                q.bind(@source.exchange || "", @source.exchange_key || "")
-              end
-              queue_length = cch.queue_declare(q.name, passive: true)[:message_count]
-              if @source.delete_after == DeleteAfter::QueueLength && queue_length == 0
+              queue_name, message_count = setup_queue(cch)
+              if @source.delete_after == DeleteAfter::QueueLength && message_count == 0
                 @state = State::Terminated
                 return
               end
               p.channel do |pch|
                 pch.confirm_select if @ack_mode == AckMode::OnConfirm
-                @state = State::Running
                 no_ack = @ack_mode == AckMode::NoAck
-                q.subscribe(no_ack: no_ack, tag: "shovel") do |msg|
-                  shovel(msg, pch, queue_length)
+                @state = State::Running
+                cch.basic_consume(queue_name, no_ack: no_ack, tag: "Shovel") do |msg|
+                  shovel(msg, pch, message_count)
                 end
                 ex = @stop.receive?
                 @state = State::Terminated
@@ -78,6 +73,15 @@ module AvalancheMQ
         @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
         sleep @reconnect_delay.seconds
       end
+    end
+
+    private def setup_queue(cch)
+      name = @source.queue || ""
+      q = cch.queue_declare(name)
+      if @source.exchange || @source.exchange_key
+        cch.queue_bind(q[:queue_name], @source.exchange || "", @source.exchange_key || "")
+      end
+      { q[:queue_name], q[:message_count] }
     end
 
     private def shovel(msg, pch, queue_length)
