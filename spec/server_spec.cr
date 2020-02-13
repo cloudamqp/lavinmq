@@ -440,23 +440,23 @@ describe AvalancheMQ::Server do
     s.vhosts["/"].delete_queue("exlusive_consumer")
   end
 
-  it "it persists transient msgs between restarts" do
+  it "it doesn't persists transient msgs between restarts" do
     with_channel do |ch|
+      ch.confirm_select
       q = ch.queue("durable_queue", durable: true)
       1000.times do |i|
         delivery_mode = i % 2 == 0 ? 2_u8 : 0_u8
         props = AMQP::Client::Properties.new(delivery_mode: delivery_mode)
         q.publish(i.to_s, props: props)
       end
+      ch.wait_for_confirm(1000)
     end
-    wait_for { s.vhosts["/"].queues["durable_queue"].message_count == 1000 }
     close_servers
     TestHelpers.setup
-    wait_for { s.vhosts["/"].queues["durable_queue"].message_count == 1000 }
     with_channel do |ch|
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete
-      deleted_msgs[:message_count].should eq(1000)
+      deleted_msgs[:message_count].should eq 500
     end
   ensure
     s.vhosts["/"].delete_queue("durable_queue")
