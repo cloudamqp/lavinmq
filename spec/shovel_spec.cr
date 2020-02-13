@@ -13,10 +13,6 @@ module ShovelSpecHelpers
     s.vhosts["/"].delete_queue("#{prefix}q1")
     s.vhosts["/"].delete_queue("#{prefix}q2")
   end
-
-  def self.publish(x, rk, msg)
-    x.publish msg, rk
-  end
 end
 
 describe AvalancheMQ::Shovel do
@@ -37,7 +33,7 @@ describe AvalancheMQ::Shovel do
     shovel = AvalancheMQ::Shovel.new(source, dest, "ql_shovel", vhost)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ql_"
-      ShovelSpecHelpers.publish x, "ql_q1", "shovel me"
+      x.publish "shovel me", "ql_q1"
       shovel.run
       wait_for { shovel.stopped? }
       q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
@@ -61,10 +57,10 @@ describe AvalancheMQ::Shovel do
     shovel = AvalancheMQ::Shovel.new(source, dest, "lm_shovel", vhost)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
-      ShovelSpecHelpers.publish x, "lm_q1", "a" * 10_000
+      x.publish_confirm "a" * 200_000, "lm_q1"
       shovel.run
       wait_for { shovel.stopped? }
-      q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 10_000
+      q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 200_000
     end
   ensure
     ShovelSpecHelpers.cleanup "lm_"
@@ -85,11 +81,8 @@ describe AvalancheMQ::Shovel do
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
       shovel.run
-      ShovelSpecHelpers.publish x, "sf_q1", "shovel me"
-      rmsg = nil
-      until rmsg = q2.get(no_ack: true)
-        Fiber.yield
-      end
+      x.publish_confirm "shovel me", "sf_q1"
+      rmsg = q2.get(no_ack: true)
       rmsg.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
@@ -111,7 +104,7 @@ describe AvalancheMQ::Shovel do
       ack_mode: AvalancheMQ::Shovel::AckMode::OnPublish)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
-      ShovelSpecHelpers.publish x, "ap_q1", "shovel me"
+      x.publish "shovel me", "ap_q1"
       shovel.run
       msgs = Channel(AMQP::Client::Message).new
       spawn do
@@ -142,7 +135,7 @@ describe AvalancheMQ::Shovel do
       ack_mode: AvalancheMQ::Shovel::AckMode::NoAck)
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
-      ShovelSpecHelpers.publish x, "na_q1", "shovel me"
+      x.publish "shovel me", "na_q1"
       shovel.run
       msgs = Channel(AMQP::Client::Message).new
       spawn do
@@ -174,7 +167,7 @@ describe AvalancheMQ::Shovel do
     with_channel do |ch|
       x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
       100.times do
-        ShovelSpecHelpers.publish x, "prefetch_q1", "shovel me"
+        x.publish "shovel me", "prefetch_q1"
       end
       wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
       shovel.run
@@ -200,7 +193,7 @@ describe AvalancheMQ::Shovel do
     with_channel do |ch|
       shovel.run
       x, q2 = ShovelSpecHelpers.setup_qs ch, "od_"
-      ShovelSpecHelpers.publish x, "od_q1", "shovel me"
+      x.publish "shovel me", "od_q1"
       rmsg = nil
       wait_for { rmsg = q2.get(no_ack: true) }
       rmsg.not_nil!.body_io.to_s.should eq "shovel me"
@@ -262,11 +255,11 @@ describe AvalancheMQ::Shovel do
     with_channel do |ch|
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ssl_"
       shovel.run
-      ShovelSpecHelpers.publish x, "ssl_q1", "shovel me"
-      msgs = [] of AMQP::Client::Message
-      q2.subscribe { |msg| msgs << msg }
-      wait_for { msgs.size == 1 }
-      msgs[0]?.not_nil!.body_io.to_s.should eq "shovel me"
+      x.publish "shovel me", "ssl_q1"
+      msgs = Channel(AMQP::Client::Message).new
+      q2.subscribe { |msg| msgs.send msg }
+      msg = msgs.receive
+      msg.body_io.to_s.should eq "shovel me"
     end
   ensure
     ShovelSpecHelpers.cleanup "ssl_"
