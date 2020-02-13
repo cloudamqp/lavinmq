@@ -10,7 +10,7 @@ shards:
 
   amqp-client:
     github: cloudamqp/amqp-client.cr
-    version: 0.5.4
+    version: 0.5.5
 
   baked_file_system:
     github: schovi/baked_file_system
