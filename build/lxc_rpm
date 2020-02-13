@@ -20,7 +20,7 @@ export LC_ALL=en_US.UTF-8
 while ! (ping -c1 1.1.1.1 > /dev/null); do sleep 1; done
 cd /mnt
 user_1000=\$(getent passwd 1000 | cut -f1 -d:)
-sudo -u \$user_1000 build/rpm $revision
+sudo -Hu \$user_1000 build/rpm $revision
 "
 
 [ "`whoami`" = "root" ] && echo "Don't run as root" && exit 1
