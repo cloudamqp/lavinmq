@@ -53,8 +53,8 @@ module AvalancheMQ
               if @source.exchange || @source.exchange_key
                 q.bind(@source.exchange || "", @source.exchange_key || "")
               end
-              msg_count = cch.queue_declare(q.name, passive: true)[:message_count]
-              if @source.delete_after == DeleteAfter::QueueLength && msg_count == 0
+              queue_length = cch.queue_declare(q.name, passive: true)[:message_count]
+              if @source.delete_after == DeleteAfter::QueueLength && queue_length == 0
                 @state = State::Terminated
                 return
               end
@@ -63,31 +63,7 @@ module AvalancheMQ
                 @state = State::Running
                 no_ack = @ack_mode == AckMode::NoAck
                 q.subscribe(no_ack: no_ack, tag: "shovel") do |msg|
-                  ex = @destination.exchange || msg.exchange
-                  rk = @destination.exchange_key || msg.routing_key
-                  msgid = pch.basic_publish(msg.body_io, ex, rk)
-                  delete_after_this =
-                    @source.delete_after == DeleteAfter::QueueLength &&
-                    msg.delivery_tag == msg_count
-                  should_multi_ack = msgid % (@source.prefetch / 2).ceil.to_i == 0
-                  if should_multi_ack || delete_after_this
-                    case @ack_mode
-                    when AckMode::OnConfirm
-                      pch.wait_for_confirm(msgid)
-                      msg.ack(multiple: true)
-                    when AckMode::OnPublish
-                      msg.ack(multiple: true)
-                    end
-                  end
-                  if delete_after_this
-                    @stop.close
-                  end
-                rescue ex
-                  if @stop.closed?
-                    @log.debug { "Shovel failure when already stopped: #{ex.inspect_with_backtrace}" }
-                  else
-                    @stop.send ex
-                  end
+                  shovel(msg, pch, queue_length)
                 end
                 ex = @stop.receive?
                 @state = State::Terminated
@@ -102,6 +78,30 @@ module AvalancheMQ
         @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
         sleep @reconnect_delay.seconds
       end
+    end
+
+    private def shovel(msg, pch, queue_length)
+      ex = @destination.exchange || msg.exchange
+      rk = @destination.exchange_key || msg.routing_key
+      msgid = pch.basic_publish(msg.body_io, ex, rk)
+      delete_after_this =
+        @source.delete_after == DeleteAfter::QueueLength &&
+        msg.delivery_tag == queue_length
+      should_multi_ack = msgid % (@source.prefetch / 2).ceil.to_i == 0
+      if should_multi_ack || delete_after_this
+        case @ack_mode
+        when AckMode::OnConfirm
+          pch.wait_for_confirm(msgid)
+          msg.ack(multiple: true)
+        when AckMode::OnPublish
+          msg.ack(multiple: true)
+        end
+      end
+      if delete_after_this
+        @stop.close
+      end
+    rescue ex
+      @stop.send ex unless @stop.closed?
     end
 
     # Does not trigger reconnect, but a graceful close
