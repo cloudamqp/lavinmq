@@ -56,7 +56,7 @@ module AvalancheMQ
               msg_count = cch.queue_declare(q.name, passive: true)[:message_count]
               if @source.delete_after == DeleteAfter::QueueLength && msg_count == 0
                 @state = State::Terminated
-                break
+                return
               end
               p.channel do |pch|
                 pch.confirm_select if @ack_mode == AckMode::OnConfirm
@@ -66,33 +66,42 @@ module AvalancheMQ
                   ex = @destination.exchange || msg.exchange
                   rk = @destination.exchange_key || msg.routing_key
                   msgid = pch.basic_publish(msg.body_io, ex, rk)
-                  pch.wait_for_confirm(msgid) if @ack_mode == AckMode::OnConfirm
-                  msg.ack unless no_ack
+                  case @ack_mode
+                  when AckMode::OnConfirm
+                    if msgid % @source.prefetch == 0
+                      pch.wait_for_confirm(msgid)
+                      msg.ack(multiple: true)
+                    end
+                  when AckMode::OnPublish
+                    msg.ack
+                  end
+
                   if @source.delete_after == DeleteAfter::QueueLength
+                    puts "deltag=#{msg.delivery_tag} msgcount=#{msg_count}"
                     if msg.delivery_tag == msg_count
                       @stop.close
                     end
                   end
                 rescue ex
                   if @stop.closed?
-                    @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
+                    @log.debug { "Shovel failure when already stopped: #{ex.inspect_with_backtrace}" }
                   else
                     @stop.send ex
                   end
                 end
                 ex = @stop.receive?
+                @state = State::Terminated
                 raise ex if ex
-                break
+                return
               end
             end
           end
         end
       rescue ex
         @state = State::Terminated
-        @log.warn { "Shovel failure: #{ex.inspect_with_backtrace}" }
+        @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
         sleep @reconnect_delay.seconds
       end
-      @state = State::Terminated
     end
 
     # Does not trigger reconnect, but a graceful close
