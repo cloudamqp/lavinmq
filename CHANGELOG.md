@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2020-02-13
+
+### Changed
+- GC message segments periodically instead of on rotation
+- Compacting queue indexes in a more efficient way
+- New implementation of Shovel, based on amqp-client.cr
+
+### Added
+- gc_segments_interval configration, how often to GC message segments
+- queue_max_acks configration, compact/GC queue indexes after this many acks
+- Reloading configuration on SIGHUP
+
 ## [0.9.0] - 2020-01-30
 
 ### Fixed
