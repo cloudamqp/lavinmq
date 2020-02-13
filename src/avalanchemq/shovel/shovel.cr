@@ -66,21 +66,21 @@ module AvalancheMQ
                   ex = @destination.exchange || msg.exchange
                   rk = @destination.exchange_key || msg.routing_key
                   msgid = pch.basic_publish(msg.body_io, ex, rk)
-                  case @ack_mode
-                  when AckMode::OnConfirm
-                    if msgid % @source.prefetch == 0
+                  delete_after_this =
+                    @source.delete_after == DeleteAfter::QueueLength &&
+                    msg.delivery_tag == msg_count
+                  should_multi_ack = msgid % (@source.prefetch / 2).ceil.to_i == 0
+                  if should_multi_ack || delete_after_this
+                    case @ack_mode
+                    when AckMode::OnConfirm
                       pch.wait_for_confirm(msgid)
                       msg.ack(multiple: true)
+                    when AckMode::OnPublish
+                      msg.ack(multiple: true)
                     end
-                  when AckMode::OnPublish
-                    msg.ack
                   end
-
-                  if @source.delete_after == DeleteAfter::QueueLength
-                    puts "deltag=#{msg.delivery_tag} msgcount=#{msg_count}"
-                    if msg.delivery_tag == msg_count
-                      @stop.close
-                    end
+                  if delete_after_this
+                    @stop.close
                   end
                 rescue ex
                   if @stop.closed?
