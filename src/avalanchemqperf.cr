@@ -28,7 +28,7 @@ end
 class Throughput < Perf
   @publishers = 1
   @consumers = 1
-  @size = 1024
+  @size = 16
   @exchange = ""
   @queue = "perf-test"
   @routing_key = "perf-test"
@@ -45,7 +45,7 @@ class Throughput < Perf
     @parser.on("-y consumers", "--consumers=number", "Number of consumers (default 1)") do |v|
       @consumers = v.to_i
     end
-    @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 1KB)") do |v|
+    @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
       @size = v.to_i
     end
     @parser.on("-a", "--ack", "Ack consumed messages (default false)") do
