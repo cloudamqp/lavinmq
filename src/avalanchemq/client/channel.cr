@@ -303,12 +303,14 @@ module AvalancheMQ
           else
             # optimization for acking first unacked
             if @unacked[0]?.try(&.tag) == delivery_tag
+              @log.debug { "Unacked found tag at front" }
               unack = @unacked.shift
               found = true
               yield unack
             else
               # @unacked is always sorted so can do a binary search
               idx = @unacked.bsearch_index { |ua, _| ua.tag >= delivery_tag }
+              @log.debug { "Bsearch of unacked found tag at idx #{idx}" }
               if idx
                 found = true
                 unack = @unacked.delete_at idx
