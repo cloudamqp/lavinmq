@@ -105,8 +105,6 @@ class Throughput < Perf
       print " msgs/s Consume rate: "
       print consumes
       print " msgs/s\n"
-    rescue IO::EOFError
-      break
     end
   end
 
@@ -131,7 +129,6 @@ class Throughput < Perf
     end
   ensure
     a.try &.close
-    pipe.close
   end
 
   private def consume(pipe)
@@ -150,7 +147,6 @@ class Throughput < Perf
     sleep
   ensure
     a.try &.close
-    pipe.close
   end
 
   class Reporter
@@ -161,9 +157,6 @@ class Throughput < Perf
     def initialize(@pipe : IO::FileDescriptor)
     end
 
-    # Increase counter and try to predict when 1s has elapsed
-    # When roughly one second has passed report the rate
-    # (counter divided by the number of seconds since last report)
     def inc
       @count += 1
       if @count >= @report_at
@@ -177,6 +170,7 @@ class Throughput < Perf
       @count
     end
   end
+
 end
 
 class BindChurn < Perf
