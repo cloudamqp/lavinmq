@@ -127,7 +127,8 @@ class Throughput < Perf
   private def consume
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
-    ch.queue(@queue).subscribe(no_ack: @no_ack) do |m|
+    q = ch.queue(@queue)
+    q.subscribe(no_ack: @no_ack, block: true) do |m|
       m.ack unless @no_ack
       @consumes += 1
       if @consume_rate.zero?
@@ -136,7 +137,6 @@ class Throughput < Perf
         sleep 1.0 / @consume_rate
       end
     end
-    sleep
   ensure
     a.try &.close
   end
