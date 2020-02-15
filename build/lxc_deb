@@ -5,7 +5,7 @@ dists=${2:-ubuntu_bionic ubuntu_xenial debian_stretch debian_buster}
 provision="
 set -ux
 export LC_ALL=en_US.UTF-8
-ifup eth0
+command -v ifup && ifup eth0
 while ! (ping -c1 1.1.1.1 > /dev/null); do sleep 1; done
 echo 'deb https://dist.crystal-lang.org/apt crystal main' > /etc/apt/sources.list.d/crystal.list
 apt-get install -y gnupg2
