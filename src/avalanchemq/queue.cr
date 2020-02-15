@@ -402,7 +402,7 @@ module AvalancheMQ
       end
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop(sp, true)
+      drop(sp, true, true)
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
@@ -647,10 +647,10 @@ module AvalancheMQ
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
-      drop sp, true
+      drop sp, true, true
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop sp, true
+      drop sp, true, true
     rescue ex
       if seg
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
@@ -680,7 +680,7 @@ module AvalancheMQ
 
     # dropping a specific message/segmentposition
     # ready lock has be aquired before calling this method
-    private def drop(sp, delete_in_ready, persistent = true) : Nil
+    private def drop(sp, delete_in_ready, persistent) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
       if idx = @get_unacked.index(sp)

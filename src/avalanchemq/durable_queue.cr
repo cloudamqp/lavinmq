@@ -118,7 +118,7 @@ module AvalancheMQ
       end
     end
 
-    private def drop(sp, delete_in_ready, persistent = true) : Nil
+    private def drop(sp, delete_in_ready, persistent) : Nil
       super
       if persistent
         @ack_lock.synchronize do

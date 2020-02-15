@@ -43,7 +43,12 @@ module AvalancheMQ
         @unack_lock = Mutex.new
       end
 
-      record Unack, tag : UInt64, queue : Queue, sp : SegmentPosition, consumer : Consumer?
+      record Unack,
+        tag : UInt64,
+        queue : Queue,
+        sp : SegmentPosition,
+        persistent : Bool,
+        consumer : Consumer?
 
       def details_tuple
         {
@@ -259,7 +264,10 @@ module AvalancheMQ
           else
             q.basic_get(frame.no_ack) do |env|
               if env
-                delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+                persistent = env.message.properties.delivery_mode == 2_u8
+                delivery_tag = next_delivery_tag(q, env.segment_position,
+                                                 persistent, frame.no_ack,
+                                                 nil)
                 get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                   env.redelivered, env.message.exchange_name,
                   env.message.routing_key, q.message_count)
@@ -314,7 +322,7 @@ module AvalancheMQ
 
       def basic_ack(frame)
         found = delete_unacked(frame.delivery_tag, frame.multiple) do |unack|
-          do_ack(unack, persistent: !frame.multiple)
+          do_ack(unack)
         end
         unless found
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
@@ -322,11 +330,11 @@ module AvalancheMQ
         end
       end
 
-      private def do_ack(unack, persistent = true)
+      private def do_ack(unack)
         if c = unack.consumer
           c.ack(unack.sp)
         end
-        unack.queue.ack(unack.sp, persistent: persistent)
+        unack.queue.ack(unack.sp, persistent: unack.persistent)
         @ack_count += 1
       end
 
@@ -382,10 +390,12 @@ module AvalancheMQ
         @log.debug { "Closed" }
       end
 
-      def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
+      def next_delivery_tag(queue : Queue, sp, persistent, no_ack, consumer) : UInt64
         @unack_lock.synchronize do
           tag = @delivery_tag += 1
-          @unacked.push Unack.new(tag, queue, sp, consumer) unless no_ack
+          unless no_ack
+            @unacked.push Unack.new(tag, queue, sp, persistent, consumer)
+          end
           tag
         end
       end
