@@ -191,11 +191,12 @@ end
 class ConnectionChurn < Perf
   def run
     super
+    c = AMQP::Client.new(@uri)
     Benchmark.ips do |x|
       x.report("open-close connection and channel") do
-        AMQP::Client.start(@uri) do |c|
-          c.channel
-        end
+        conn = c.connect
+        conn.channel
+        conn.close
       end
     end
   end
