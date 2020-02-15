@@ -36,6 +36,7 @@ class Throughput < Perf
   @rate = 0
   @consume_rate = 0
   @confirm = false
+  @persistent = false
 
   def initialize
     super
@@ -69,6 +70,9 @@ class Throughput < Perf
     end
     @parser.on("-R consumer-rate", "--consumer-rate=number", "Max consume rate (default 0)") do |v|
       @consume_rate = v.to_i
+    end
+    @parser.on("-p", "--persistent", "Persistent messages (default false)") do
+      @persistent = true
     end
   end
 
