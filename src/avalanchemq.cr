@@ -67,7 +67,7 @@ if config.amqp_port > 0
   end
 end
 
-if config.amqps_port > 0 && config.cert_path
+if config.amqps_port > 0 && !config.cert_path.empty?
   spawn(name: "AMQPS listening on #{config.amqps_port}") do
     amqp_server.not_nil!.listen_tls(config.amqp_bind, config.amqps_port,
                                     config.cert_path,
@@ -86,7 +86,7 @@ if config.http_port > 0 || config.https_port > 0
   if config.http_port > 0
     http_server.bind_tcp(config.http_bind, config.http_port)
   end
-  if config.https_port > 0
+  if config.https_port > 0 && !config.cert_path.empty?
     http_server.bind_tls(config.http_bind, config.https_port,
                          config.cert_path,
                          config.key_path || config.cert_path)
