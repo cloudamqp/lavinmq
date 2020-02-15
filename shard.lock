@@ -17,8 +17,8 @@ shards:
     version: 0.9.8
 
   cache_hash:
-    github: samueleaton/cache-hash
-    commit: 2f967653d57e4ab3c0c059ba312c2fe8db8a421d
+    github: carlhoerberg/cache-hash
+    commit: 3e4d453aa45c7ed0670ec8021d51b6b768041640
 
   radix:
     github: luislavena/radix

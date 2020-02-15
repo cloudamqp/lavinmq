@@ -23,8 +23,8 @@ dependencies:
   baked_file_system:
     github: schovi/baked_file_system
   cache_hash:
-    github: samueleaton/cache-hash
-    branch: master
+    github: carlhoerberg/cache-hash
+    branch: time.utc
   amqp-client:
     github: cloudamqp/amqp-client.cr
     # path: ../amqp-client.cr
@@ -33,6 +33,6 @@ development_dependencies:
   ameba:
     github: veelenga/ameba
 
-crystal: 0.32.1
+crystal: 0.33.0
 
 license: Apache-2.0
