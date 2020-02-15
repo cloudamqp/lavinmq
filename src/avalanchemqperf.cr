@@ -128,6 +128,7 @@ class Throughput < Perf
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
     q = ch.queue(@queue)
+    q.bind(@exchange, @routing_key) unless @exchange.empty?
     q.subscribe(no_ack: @no_ack, block: true) do |m|
       m.ack unless @no_ack
       @consumes += 1
