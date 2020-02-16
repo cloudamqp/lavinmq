@@ -15,6 +15,7 @@ module AvalancheMQ
           @log.progname += " consumer=#{@tag}"
           initial_size = @channel.prefetch_count.zero? ? 1024 : @channel.prefetch_count
           @unacked = Deque(SegmentPosition).new(initial_size)
+          @unack_lock = Mutex.new
         end
 
         def name
@@ -26,8 +27,12 @@ module AvalancheMQ
             @channel.client_flow?
         end
 
-        def deliver(msg, sp, redelivered = false)
-          @unacked << sp unless @no_ack
+        def deliver(msg, sp, redelivered = false, recover = false)
+          unless @no_ack || recover
+            @unack_lock.synchronize do
+              @unacked << sp
+            end
+          end
 
           persistent = msg.properties.delivery_mode == 2_u8
           @log.debug { "Getting delivery tag" }
@@ -47,29 +52,38 @@ module AvalancheMQ
         end
 
         def ack(sp)
-          idx = @unacked.index(sp)
-          if idx
-            @unacked.delete_at(idx)
-            @log.debug { "Acking #{sp}. Unacked: #{@unacked.size}" }
+          @unack_lock.synchronize do
+            idx = @unacked.index(sp)
+            if idx
+              @unacked.delete_at(idx)
+              @log.debug { "Acking #{sp}. Unacked: #{@unacked.size}" }
+            end
           end
         end
 
         def reject(sp)
-          idx = @unacked.index(sp)
-          if idx
-            @unacked.delete_at(idx)
-            @log.debug { "Rejecting #{sp}. Unacked: #{@unacked.size}" }
+          @unack_lock.synchronize do
+            idx = @unacked.index(sp)
+            if idx
+              @unacked.delete_at(idx)
+              @log.debug { "Rejecting #{sp}. Unacked: #{@unacked.size}" }
+            end
           end
         end
 
         def recover(requeue)
-          @unacked.each do |sp|
+          @unack_lock.synchronize do
             if requeue
-              @queue.reject(sp, requeue: true)
+              loop do
+                sp = @unacked.shift? || break
+                @queue.reject(sp, requeue: true)
+              end
             else
-              # redeliver to the original recipient
-              @queue.read_message(sp) do |env|
-                deliver(env.message, sp, redelivered: true)
+              @unacked.each do |sp|
+                # redeliver to the original recipient
+                @queue.read_message(sp) do |env|
+                  deliver(env.message, sp, true, recover: true)
+                end
               end
             end
           end
