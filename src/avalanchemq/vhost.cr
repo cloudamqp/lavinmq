@@ -552,14 +552,11 @@ module AvalancheMQ
           when AMQP::Frame::Queue::Delete
             next unless @queues[frame.queue_name]?.try { |q| q.durable && !q.exclusive }
           when AMQP::Frame::Queue::Bind, AMQP::Frame::Queue::Unbind
-            next unless @exchanges[frame.exchange_name]?.try(&.durable)
-            q = @queues[frame.queue_name]
-            next if !q.durable || q.exclusive
+            next unless @exchanges[frame.exchange_name]?.try &.durable
+            next unless @queues[frame.queue_name]?.try &.durable
           when AMQP::Frame::Exchange::Bind, AMQP::Frame::Exchange::Unbind
-            s = @exchanges[frame.source]
-            next unless s.durable
-            d = @exchanges[frame.destination]
-            next unless d.durable
+            next unless @exchanges[frame.source]?.try &.durable
+            next unless @exchanges[frame.destination]?.try &.durable
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
