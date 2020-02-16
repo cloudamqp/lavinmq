@@ -79,7 +79,7 @@ module TestHelpers
   end
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    log = Logger.new(STDOUT, level: level)
+    log = Logger.new(STDERR, level: level)
     AvalancheMQ::LogFormatter.use(log)
     AvalancheMQ::Config.instance.gc_segments_interval = 1
     AvalancheMQ::Config.instance.queue_max_acks = 10
