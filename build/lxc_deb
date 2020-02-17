@@ -44,12 +44,10 @@ do
     lxc-create -t download -n $name -- -d $dist -r $rel -a amd64
     conf=$(lxc-config lxc.lxcpath)/$name/config
     echo "lxc.mount.entry=$PWD mnt none bind 0 0" >> $conf
-
-    lxc-start -n $name
-    lxc-attach -n $name <<< $provision
   fi
   lxc-start -n $name > /dev/null
 
+  lxc-attach -n $name <<< $provision
   lxc-attach -n $name <<< $build
   # map lxc root to our UID and chown to restore us to owners
   lxc-usernsexec -m b:0:1000:1 -m b:1000:101000:1 -- /bin/chown root:root -R .
