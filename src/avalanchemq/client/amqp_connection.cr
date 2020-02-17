@@ -61,9 +61,14 @@ module AvalancheMQ
 
     def self.authenticate(socket, users, username, password, start_ok, log)
       user = users[username]?
-      return user if user && user.password && user.password.not_nil!.verify(password)
+      password_ok = user.password && user.password.not_nil!.verify(password)
+      return user if user && password_ok
 
-      log.warn "User \"#{username}\" not found"
+      if user.nil?
+        log.warn "User \"#{username}\" not found"
+      else
+        log.warn "Authentication failure for user \"#{username}\""
+      end
       props = start_ok.client_properties
       capabilities = props["capabilities"]?.try &.as(AMQP::Table)
       if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
