@@ -79,7 +79,11 @@ module AvalancheMQ
       end
 
       def send(frame)
-        @client.send frame if @running
+        if @running
+          @client.send frame
+        else
+          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
+        end
       end
 
       def confirm_select(frame)
