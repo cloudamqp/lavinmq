@@ -80,6 +80,7 @@ module AvalancheMQ
               bad_request(context, "Field  'password_hash' or 'password' is required when updating existing user")
             end
             u.tags = tags if body["tags"]?
+            @amqp_server.users.save!
           else
             if password_hash
               @amqp_server.users.add(name, password_hash, hashing_alogrithm, tags)
