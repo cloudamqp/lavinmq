@@ -37,6 +37,7 @@ class Throughput < Perf
   @consume_rate = 0
   @confirm = false
   @persistent = false
+  @prefetch = 0_u32
 
   def initialize
     super
@@ -73,6 +74,9 @@ class Throughput < Perf
     end
     @parser.on("-p", "--persistent", "Persistent messages (default false)") do
       @persistent = true
+    end
+    @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
+      @prefetch = v.to_u32
     end
   end
 
@@ -127,6 +131,7 @@ class Throughput < Perf
   private def consume
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
+    ch.prefetch @prefetch
     q = ch.queue(@queue)
     q.bind(@exchange, @routing_key) unless @exchange.empty?
     q.subscribe(no_ack: @no_ack, block: true) do |m|
