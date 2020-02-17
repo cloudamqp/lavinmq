@@ -61,8 +61,7 @@ module AvalancheMQ
 
     def self.authenticate(socket, users, username, password, start_ok, log)
       user = users[username]?
-      password_ok = user.password && user.password.not_nil!.verify(password)
-      return user if user && password_ok
+      return user if user && user.password && user.password.not_nil!.verify(password)
 
       if user.nil?
         log.warn "User \"#{username}\" not found"
