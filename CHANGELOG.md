@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2020-02-17
+
+### Fixed
+- Changes to users (password, tags) are store to disk
+
+### Added
+- avalanchemqperf: --persistent flag for throughput tests
+- avalanchemqperf: queues are now bound to the exchange
+
+### Changed
+- Crystal 0.33.0
+- avalanchemqperf: use fibers, don't fork
+- Only ack:ing persistent messages are now written to the queue index
+- Mutexes around the unacked dequeue in Consumer, for thread safety
+
 ## [0.9.1] - 2020-02-13
 
 ### Changed
