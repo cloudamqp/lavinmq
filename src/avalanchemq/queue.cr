@@ -667,11 +667,11 @@ module AvalancheMQ
     private def drop(sp, delete_in_ready, persistent) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
-      if idx = @get_unacked.index(sp)
-        @get_unacked.delete_at(idx)
-        @segment_ref_count.dec(sp.segment)
-      elsif delete_in_ready
-        @ready_lock.synchronize do
+      @ready_lock.synchronize do
+        if idx = @get_unacked.index(sp)
+          @get_unacked.delete_at(idx)
+          @segment_ref_count.dec(sp.segment)
+        elsif delete_in_ready
           if @ready.first == sp
             @ready.shift
             @segment_ref_count.dec(sp.segment)
@@ -756,7 +756,7 @@ module AvalancheMQ
         @log.debug { "Removing consumer with #{consumer.unacked.size} unacked messages \
                         (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
-        delete if @consumers.size == 0 && @auto_delete
+        delete if @consumers.empty? && @auto_delete
       end
     end
 
