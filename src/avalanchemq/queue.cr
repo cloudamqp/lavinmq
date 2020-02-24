@@ -209,57 +209,54 @@ module AvalancheMQ
       @log.debug "Exiting delivery loop"
     end
 
-    private def schedule_expiration_of_queue
-      if @expires
-        now = Time.monotonic
-        if queue_expires_in = expires_in(now)
-          if queue_expires_in <= Time::Span.zero
-            expire_queue(now)
-            return true
-          else
-            spawn(name: "expire_queue_later #{@name}") do
-              sleep queue_expires_in.not_nil!
-              expire_queue
-            end
-          end
+    private def time_to_expiration : Time::Span?
+      if e = @expires
+        expires_in = @last_get_time + e.milliseconds - Time.monotonic
+        if expires_in > Time::Span.zero
+          expires_in
+        else
+          Time::Span.zero
         end
       end
-      false
     end
 
     private def recieve_or_expire
-      schedule_expiration_of_queue && return false
       @log.debug { "Waiting for msgs" }
-      @message_available.receive
+      if ttl = time_to_expiration
+        select
+        when @message_available.receive
+        when timeout ttl
+          expire_queue && return false
+        end
+      else
+        @message_available.receive
+      end
       @log.debug { "Message available" }
       true
     end
 
     private def consumer_or_expire
       @log.debug "No consumer available"
-      schedule_expiration_of_queue && return false
-      schedule_expiration_of_next_msg && return true
-      @log.debug "Waiting for consumer"
-      @consumer_available.receive
-      @log.debug "Consumer available"
-      true
-    end
-
-    private def wakeup_in(queue_expires_in)
-      msg_expires_in = expire_message
-      if queue_expires_in && msg_expires_in
-        if queue_expires_in < msg_expires_in
-          queue_expires_in
-        else
-          msg_expires_in
+      q_ttl = time_to_expiration
+      m_ttl = time_to_message_expiration
+      ttl = { q_ttl, m_ttl }.select(Time::Span).min?
+      if ttl
+        select
+        when @consumer_available.receive
+          @log.debug "Consumer available"
+        when timeout ttl
+          case ttl
+          when q_ttl
+            expire_queue && return false
+          when m_ttl
+            expire_messages
+          else raise "Unknown TTL"
+          end
         end
-      elsif queue_expires_in && msg_expires_in.nil?
-        queue_expires_in
-      elsif msg_expires_in && queue_expires_in.nil?
-        msg_expires_in
       else
-        nil
+        @consumer_available.receive
       end
+      true
     end
 
     private def find_consumer
@@ -310,8 +307,7 @@ module AvalancheMQ
       @message_available.close
       @consumer_available.close
       @consumers_lock.synchronize do
-        loop do
-          c = @consumers.shift? || break
+        while c = @consumers.shift?
           c.cancel
         end
       end
@@ -409,9 +405,26 @@ module AvalancheMQ
       nil
     end
 
-    private def schedule_expiration_of_next_msg(now = Time.utc.to_unix_ms) : Bool
-      expired_msg = false
-      i = 0_u32
+    private def time_to_message_expiration : Time::Span?
+      @log.debug { "Checking if next message has to be expired" }
+      sp = @ready_lock.synchronize { @ready[0]? } || return -1.seconds
+      meta = metadata(sp) || return -1.seconds
+      @log.debug { "Next message: #{meta}" }
+      exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
+      if exp_ms
+        expire_at = meta.timestamp + exp_ms
+        expire_in = expire_at - Time.utc.to_unix_ms
+        if expire_in > 0
+          expire_in.milliseconds
+        else
+          Time::Span.zero
+        end
+      end
+    end
+
+    private def expire_messages
+      i = 0
+      now = Time.utc.to_unix_ms
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
         @log.debug { "Checking if next message has to be expired" }
@@ -422,38 +435,18 @@ module AvalancheMQ
           expire_at = meta.timestamp + exp_ms
           expire_in = expire_at - now
           if expire_in <= 0
-            @ready_lock.synchronize do
-              @ready.shift
-            end
-            expired_msg = true
+            @ready_lock.synchronize { @ready.shift }
             expire_msg(meta, sp, :expired)
-            Fiber.yield if (i += 1_u32) % 8192_u32 == 0_u32
-          else
-            spawn(expire_later(expire_in, meta, sp),
-                  name: "Queue#expire_later(#{expire_in}) #{@vhost.name}/#{@name}")
-            break
+            Fiber.yield if (i += 1) % 8192 == 0
           end
         else
-          @log.debug { "No message to expire" }
+          @log.debug { "No more message to expire" }
           break
         end
       end
-      expired_msg
     end
 
-    private def expire_later(expire_in, meta, sp)
-      @log.debug { "Expiring #{sp} in #{expire_in}ms" }
-      sleep expire_in.milliseconds if expire_in > 0
-      return if @closed
-      @ready_lock.synchronize do
-        return unless @ready[0]? == sp
-        @ready.shift
-      end
-      expire_msg(meta, sp, :expired)
-      consumer_available
-    end
-
-    def expire_msg(sp : SegmentPosition, reason : Symbol)
+    private def expire_msg(sp : SegmentPosition, reason : Symbol)
       meta = metadata(sp) || return
       expire_msg(meta, sp, reason)
     end
@@ -530,16 +523,7 @@ module AvalancheMQ
       @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s, props, msg.size, msg.body_io)
     end
 
-    private def expires_in(now = Time.monotonic) : Time::Span?
-      if @expires
-        return @last_get_time + @expires.not_nil!.milliseconds - now
-      end
-    end
-
     private def expire_queue(now = Time.monotonic) : Bool
-      exp = expires_in(now)
-      return false if exp.nil?
-      return false if exp - 1.second > Time::Span.zero
       return false unless @consumers.empty?
       @log.debug "Expired"
       @vhost.delete_queue(@name)
