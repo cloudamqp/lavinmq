@@ -49,10 +49,14 @@ module AvalancheMQ
       if ch.running?
         yield ch
       else
-        @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-        if frame.is_a?(AMQP::Frame::Body)
-          @log.debug "Skipping body"
+        case frame
+        when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
+          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+        when AMQP::Frame::Body
+          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           frame.body.skip(frame.body_size)
+        else
+          yield ch
         end
       end
     end
