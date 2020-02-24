@@ -535,7 +535,6 @@ module AvalancheMQ
       File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def save!
       return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
