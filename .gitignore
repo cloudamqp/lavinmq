@@ -9,3 +9,4 @@
 /test/
 *.log
 .icr_*
+*.swp
