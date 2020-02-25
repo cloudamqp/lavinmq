@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2020-02-25
+
+### Fixed
+- Channel#timeout is used for queue/msg expiration
+
+### Added
+- Signal USR1 prints various stats
+- Signal USR2 forces a GC collect
+- Signal HUP only reloads the config file
+
+### Changed
+- Only ignore publish frames on closed channels
+- Different log message if user is missing or password is wrong
+
 ## [0.9.2] - 2020-02-17
 
 ### Fixed
