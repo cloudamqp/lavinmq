@@ -96,21 +96,30 @@ if config.http_port > 0 || config.https_port > 0
   end
 end
 
-Signal::HUP.trap do
-  puts "Reloading"
-  config.parse(config_file) unless config_file.empty?
-  Fiber.list { |f| puts f.inspect }
+Signal::USR1.trap do
   puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-  pp System.resource_usage
-  pp GC.stats
+  puts System.resource_usage
+  puts GC.stats
+  puts "Garbage collecting"
+  GC.collect
+  puts GC.stats
   puts "Uptime: #{amqp_server.uptime}s"
+end
+
+Signal::HUP.trap do
+  if config_file.empty?
+    puts "No configuration file to reload"
+  else
+    puts "Reloading configuration file '#{config_file}'"
+    config.parse(config_file)
+  end
 end
 
 shutdown = ->(_s : Signal) do
   puts "Shutting down gracefully..."
   puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-  pp System.resource_usage
-  pp GC.stats
+  puts System.resource_usage
+  puts GC.stats
   http_server.try &.close
   amqp_server.close
   Fiber.yield
