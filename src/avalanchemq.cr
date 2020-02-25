@@ -97,13 +97,15 @@ if config.http_port > 0 || config.https_port > 0
 end
 
 Signal::USR1.trap do
+  puts "Uptime: #{amqp_server.uptime}s"
   puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   puts System.resource_usage
-  puts GC.stats
+  puts GC.prof_stats
+end
+
+Signal::USR2.trap do
   puts "Garbage collecting"
   GC.collect
-  puts GC.stats
-  puts "Uptime: #{amqp_server.uptime}s"
 end
 
 Signal::HUP.trap do
@@ -119,7 +121,7 @@ shutdown = ->(_s : Signal) do
   puts "Shutting down gracefully..."
   puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   puts System.resource_usage
-  puts GC.stats
+  puts GC.prof_stats
   http_server.try &.close
   amqp_server.close
   Fiber.yield
