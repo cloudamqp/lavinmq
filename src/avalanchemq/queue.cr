@@ -7,6 +7,14 @@ require "./stats"
 require "./sortable_json"
 require "./reference_counter"
 
+class Mutex
+  def assert_locked!
+    if @mutex_fiber != Fiber.current
+      raise "Mutex not locked by current fiber"
+    end
+  end
+end
+
 module AvalancheMQ
   class Queue
     include PolicyTarget
@@ -137,8 +145,12 @@ module AvalancheMQ
     end
 
     private def drop_overflow
-      while @ready.size > @max_length.not_nil!
-        drophead
+      if ml = @max_length
+        @ready_lock.synchronize do
+          while @ready.size > ml
+            drophead
+          end
+        end
       end
     end
 
@@ -352,8 +364,8 @@ module AvalancheMQ
       return false if @closed
       @log.debug { "Enqueuing message sp=#{sp}" }
       was_empty = false
-      handle_max_length
       @ready_lock.synchronize do
+        handle_max_length
         was_empty = @ready.empty?
         @ready.push sp
         @segment_ref_count.inc(sp.segment)
@@ -369,11 +381,10 @@ module AvalancheMQ
     end
 
     private def handle_max_length
-      if @max_length.try { |ml| @ready.size >= ml }
+      if ml = @max_length
         @log.debug { "Overflow #{@max_length} #{@reject_on_overflow ? "reject-publish" : "drop-head"}" }
-        if @reject_on_overflow
-          raise RejectOverFlow.new
-        else
+        while @ready.size >= ml
+          raise RejectOverFlow.new if @reject_on_overflow
           drophead
         end
       end
@@ -398,7 +409,9 @@ module AvalancheMQ
       end
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop(sp, true, true)
+      @ready_lock.synchronize do
+        drop(sp, true, true)
+      end
     rescue ex : IO::EOFError
       @log.error { "Could not read metadata for sp=#{sp}" }
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
@@ -438,8 +451,8 @@ module AvalancheMQ
               @ready_lock.synchronize do
                 @ready.shift
                 @segment_ref_count.dec(sp.segment)
+                expire_msg(env.message, sp, :expired)
               end
-              expire_msg(env.message, sp, :expired)
               Fiber.yield if (i += 1) % 8192 == 0
             else
               @log.debug { "No more message to expire" }
@@ -587,7 +600,9 @@ module AvalancheMQ
         delivery_count = @deliveries.fetch(sp, 0)
         @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
         if delivery_count >= limit
-          expire_msg(env.message, sp, :delivery_limit)
+          @ready_lock.synchronize do
+            expire_msg(env.message, sp, :delivery_limit)
+          end
           return nil
         end
         headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
@@ -651,23 +666,26 @@ module AvalancheMQ
     # ready lock has be aquired before calling this method
     private def drop(sp, delete_in_ready, persistent) : Nil
       return if @deleted
+      @ready_lock.assert_locked!
       @log.debug { "Dropping #{sp}" }
-      @ready_lock.synchronize do
-        if idx = @get_unacked.index(sp)
-          @get_unacked.delete_at(idx)
+      if idx = @get_unacked.index(sp)
+        @get_unacked.delete_at(idx)
+        @segment_ref_count.dec(sp.segment)
+      elsif delete_in_ready
+        if @ready.first == sp
+          @ready.shift
           @segment_ref_count.dec(sp.segment)
-        elsif delete_in_ready
-          if @ready.first == sp
-            @ready.shift
-            @segment_ref_count.dec(sp.segment)
-          else
-            @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
-            if idx = @ready.index(sp)
+        else
+          @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
+          if idx = @ready.bsearch_index { |rsp| rsp >= sp }
+            if @ready[idx] == sp
               @ready.delete_at(idx)
               @segment_ref_count.dec(sp.segment)
             else
               @log.error { "Dropping #{sp} but wasn't in ready queue" }
             end
+          else
+            @log.error { "Dropping #{sp} but wasn't in ready queue" }
           end
         end
       end
@@ -680,17 +698,16 @@ module AvalancheMQ
       idx = @get_unacked.index(sp)
       @get_unacked.delete_at(idx) if idx
       @reject_count += 1
-      if requeue
-        was_empty = false
-        @ready_lock.synchronize do
+      @ready_lock.synchronize do
+        if requeue
           was_empty = @ready.empty?
-          i = @ready.index { |rsp| rsp > sp } || 0
+          i = @ready.bsearch_index { |rsp| rsp > sp } || 0
           @ready.insert(i, sp)
+          @requeued << sp
+          message_available if was_empty
+        else
+          expire_msg(sp, :rejected)
         end
-        @requeued << sp
-        message_available if was_empty
-      else
-        expire_msg(sp, :rejected)
       end
       Fiber.yield if @reject_count % 8192 == 0
     end
