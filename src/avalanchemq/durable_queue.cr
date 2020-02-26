@@ -36,7 +36,7 @@ module AvalancheMQ
           rescue IO::EOFError
             break
           end
-          @log.debug { "Read #{acked.size} acked SPs" }
+          @log.info { "Read #{acked.size} acked SPs" }
 
           # Read all enqueued SPs and write to a new enq file
           # unless the SP is already acked
@@ -52,7 +52,7 @@ module AvalancheMQ
               break
             end
           end
-          @log.debug { "Wrote #{i} SPs to new enq file" }
+          @log.info { "Wrote #{i} SPs to new enq file" }
           @enq.close
           File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
           @enq = File.open(File.join(@index_dir, "enq"), "a+")
