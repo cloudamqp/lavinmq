@@ -732,6 +732,7 @@ module AvalancheMQ
     private def drophead
       if sp = @ready.shift?
         @log.debug { "Overflow drop head sp=#{sp}" }
+        @segment_ref_count.dec(sp.segment)
         expire_msg(sp, :maxlen)
       end
     end
