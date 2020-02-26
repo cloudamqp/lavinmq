@@ -721,7 +721,7 @@ module AvalancheMQ
       @ready_lock.synchronize do
         was_empty = @ready.empty?
         sps.reverse_each do |sp|
-          i = @ready.index { |rsp| rsp > sp } || 0
+          i = @ready.bsearch_index { |rsp| rsp > sp } || 0
           @ready.insert(i, sp)
           @requeued << sp
         end
