@@ -121,8 +121,8 @@ module AvalancheMQ
 
     private def after_unbind
       if @auto_delete &&
-          @queue_bindings.each_value.none? { |s| s.size > 0 } &&
-          @exchange_bindings.each_value.none? { |s| s.size > 0 }
+          @queue_bindings.each_value.all? &.empty? &&
+          @exchange_bindings.each_value.all? &.empty?
         delete
       end
     end
