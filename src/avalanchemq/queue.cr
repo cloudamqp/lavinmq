@@ -407,8 +407,8 @@ module AvalancheMQ
 
     private def time_to_message_expiration : Time::Span?
       @log.debug { "Checking if next message has to be expired" }
-      sp = @ready_lock.synchronize { @ready[0]? } || return -1.seconds
-      meta = metadata(sp) || return -1.seconds
+      sp = @ready_lock.synchronize { @ready[0]? } || return
+      meta = metadata(sp) || return
       @log.debug { "Next message: #{meta}" }
       exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
       if exp_ms
@@ -422,28 +422,36 @@ module AvalancheMQ
       end
     end
 
-    private def expire_messages
+    private def expire_messages : Nil
       i = 0
       now = Time.utc.to_unix_ms
       loop do
         sp = @ready_lock.synchronize { @ready[0]? } || break
         @log.debug { "Checking if next message has to be expired" }
-        meta = metadata(sp) || break
-        @log.debug { "Next message: #{meta}" }
-        exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
-        if exp_ms
-          expire_at = meta.timestamp + exp_ms
-          expire_in = expire_at - now
-          if expire_in <= 0
-            @ready_lock.synchronize { @ready.shift }
-            expire_msg(meta, sp, :expired)
-            Fiber.yield if (i += 1) % 8192 == 0
+        read_message(sp) do |env|
+          @log.debug { "Next message: #{env.message}" }
+          exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
+          if exp_ms
+            expire_at = env.message.timestamp + exp_ms
+            expire_in = expire_at - now
+            if expire_in <= 0
+              @ready_lock.synchronize do
+                @ready.shift
+                @segment_ref_count.dec(sp.segment)
+              end
+              expire_msg(env.message, sp, :expired)
+              Fiber.yield if (i += 1) % 8192 == 0
+            else
+              @log.debug { "No more message to expire" }
+              return
+            end
+          else
+            @log.debug { "No more message to expire" }
+            return
           end
-        else
-          @log.debug { "No more message to expire" }
-          break
         end
       end
+      @log.info { "Expired #{i} messages" } if i > 0
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
@@ -458,6 +466,8 @@ module AvalancheMQ
         dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
         props = handle_dlx_header(meta, reason)
         dead_letter_msg(meta, sp, props, dlx, dlrk)
+      else
+        meta.as?(Message).try { |m| m.body_io.skip(m.size) }
       end
       persistent = meta.properties.delivery_mode == 2_u8
       @log.debug { "Expiring #{sp}, #{meta.properties}, persistent=#{persistent}" }
@@ -528,31 +538,6 @@ module AvalancheMQ
       @log.debug "Expired"
       @vhost.delete_queue(@name)
       true
-    end
-
-    private def expire_message(now = Time.utc) : Time::Span?
-      loop do
-        sp = @ready_lock.synchronize { @ready[0]? } || break
-        @log.debug { "Checking if next message has to be expired" }
-        meta = metadata(sp) || break
-        exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
-        if exp_ms
-          expire_at = Time.unix_ms(meta.timestamp) + exp_ms.milliseconds
-          expire_in = expire_at - now
-          if expire_in <= Time::Span.zero
-            @ready_lock.synchronize do
-              @ready.shift
-            end
-            expire_msg(meta, sp, :expired)
-          else
-            return expire_in
-          end
-        else
-          @log.debug { "No message to expire" }
-          break
-        end
-      end
-      nil
     end
 
     def basic_get(no_ack, &blk : Envelope? -> Nil)
