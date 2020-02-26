@@ -89,8 +89,8 @@ module AvalancheMQ
             else
               bad_request(context, "Field 'password_hash' or 'password' is required when creating new user")
             end
-            context.response.status_code = 204
           end
+          context.response.status_code = 204
           context
         rescue ex : User::InvalidPasswordHash
           bad_request(context, ex.message)
