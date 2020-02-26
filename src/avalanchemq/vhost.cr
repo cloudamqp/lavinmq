@@ -498,7 +498,6 @@ module AvalancheMQ
       File.open(tmp_path, "w") do |io|
         @exchanges.each do |_name, e|
           next unless e.durable
-          next if e.auto_delete
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
@@ -506,14 +505,12 @@ module AvalancheMQ
         end
         @queues.each do |_name, q|
           next unless q.durable
-          next if q.auto_delete # FIXME: Auto delete should be persistet, but also deleted
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
           io.write_bytes f, ::IO::ByteFormat::NetworkEndian
         end
         @exchanges.each do |_name, e|
           next unless e.durable
-          next if e.auto_delete
           e.queue_bindings.each do |bt, queues|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
