@@ -100,7 +100,7 @@ module AvalancheMQ
               @ack.write_bytes env.segment_position
               @acks += 1
             end
-            compact_index! if @acks > Config.instance.queue_max_acks
+            compact_index! if @acks >= Config.instance.queue_max_acks
           end
         end
         yield env
@@ -114,7 +114,7 @@ module AvalancheMQ
           @ack.write_bytes sp
           @acks += 1
         end
-        compact_index! if @acks > Config.instance.queue_max_acks
+        compact_index! if @acks >= Config.instance.queue_max_acks
       end
     end
 
@@ -125,7 +125,7 @@ module AvalancheMQ
           @ack.write_bytes sp
           @acks += 1
         end
-        compact_index! if @acks > Config.instance.queue_max_acks
+        compact_index! if @acks >= Config.instance.queue_max_acks
       end
     end
 

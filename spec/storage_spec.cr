@@ -23,10 +23,10 @@ describe AvalancheMQ::DurableQueue do
         when max_acks - 1
           sleep 0.1
           queue.ack_file_size.should eq (max_acks - 1) * sp_size
-        when max_acks + 1
+        when max_acks
           sleep 0.1
           queue.ack_file_size.should eq 0 * sp_size
-          queue.enq_file_size.should eq 1 * sp_size
+          queue.enq_file_size.should eq 2 * sp_size
           q.unsubscribe("tag")
         end
       end
@@ -48,12 +48,12 @@ describe AvalancheMQ::DurableQueue do
       1.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
       end
-      queue.enq_file_size.should eq((max_acks + 1) * sp_size)
+      queue.enq_file_size.should eq(1 * sp_size)
       q.subscribe(tag: "tag", no_ack: false, block: true) do |msg|
         msg.ack
-        sleep 0.1
-        queue.ack_file_size.should eq 0
-        queue.enq_file_size.should eq 0
+        sleep 0.2
+        queue.ack_file_size.should eq 1 * sp_size
+        queue.enq_file_size.should eq 1 * sp_size
         q.unsubscribe("tag")
       end
     end
@@ -85,8 +85,8 @@ describe AvalancheMQ::VHost do
 
       while q.get(no_ack: true)
       end
-      sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.1
-      segments.call.size.should eq segments_at_start + 1
+      sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.2
+      segments.call.size.should eq segments_at_start
     end
   end
 end
