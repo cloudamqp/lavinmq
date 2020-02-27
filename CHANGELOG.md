@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2020-02-27
+
+### Fixed
+- Message expiration could end up in an infinite loop
+- Auto-delete queues are not automatically deleted at shutdown/compaction
+- Messages dropped due to queue max-length are now decreasing segment refcount
+- Bsearch is used for reinserting messages into ready queue
+- PUT /api/user now returns 204 for updating users (earlier 200)
+- More info logging around queue index compaction
+
 ## [0.9.3] - 2020-02-25
 
 ### Fixed
