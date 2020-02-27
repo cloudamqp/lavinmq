@@ -10,9 +10,10 @@ module AvalancheMQ
 
     def to_io(io : IO, format)
       buf = uninitialized UInt8[8]
-      format.encode(@segment, buf.to_slice[0, 4])
-      format.encode(@position, buf.to_slice[4, 4])
-      io.write(buf.to_slice)
+      slice = buf.to_slice
+      format.encode(@segment, slice[0, 4])
+      format.encode(@position, slice[4, 4])
+      io.write(slice)
     end
 
     def <=>(other : self)
