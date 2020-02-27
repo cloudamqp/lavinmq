@@ -7,14 +7,6 @@ require "./stats"
 require "./sortable_json"
 require "./reference_counter"
 
-class Mutex
-  def assert_locked!
-    if @mutex_fiber != Fiber.current
-      raise "Mutex not locked by current fiber"
-    end
-  end
-end
-
 module AvalancheMQ
   class Queue
     include PolicyTarget
@@ -40,6 +32,7 @@ module AvalancheMQ
     @deliveries = Hash(SegmentPosition, Int32).new
     @get_unacked = Deque(SegmentPosition).new
     @segment_ref_count = ReferenceCounter(UInt32).new
+    @read_lock = Mutex.new
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
@@ -413,8 +406,9 @@ module AvalancheMQ
         drop(sp, true, true)
       end
     rescue ex : IO::EOFError
-      @log.error { "Could not read metadata for sp=#{sp}" }
-      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
+      pos = @segments[sp.segment].pos.to_u32
+      @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
+      @segment_pos[sp.segment] = pos
       nil
     end
 
@@ -436,23 +430,23 @@ module AvalancheMQ
     end
 
     private def expire_messages : Nil
+      @ready_lock.lock
+      @read_lock.lock
       i = 0
       now = Time.utc.to_unix_ms
       loop do
-        sp = @ready_lock.synchronize { @ready[0]? } || break
+        sp = @ready[0]? || break
         @log.debug { "Checking if next message has to be expired" }
-        read_message(sp) do |env|
+        read(sp, locked: true) do |env|
           @log.debug { "Next message: #{env.message}" }
           exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
           if exp_ms
             expire_at = env.message.timestamp + exp_ms
             expire_in = expire_at - now
             if expire_in <= 0
-              @ready_lock.synchronize do
-                @ready.shift
-                @segment_ref_count.dec(sp.segment)
-                expire_msg(env.message, sp, :expired)
-              end
+              @ready.shift
+              @segment_ref_count.dec(sp.segment)
+              expire_msg(env.message, sp, :expired)
               Fiber.yield if (i += 1) % 8192 == 0
             else
               @log.debug { "No more message to expire" }
@@ -465,25 +459,28 @@ module AvalancheMQ
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
+    ensure
+      @read_lock.unlock
+      @ready_lock.unlock
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
-      meta = metadata(sp) || return
-      expire_msg(meta, sp, reason)
+      read(sp) do |env|
+        expire_msg(env.message, sp, reason)
+      end
     end
 
-    private def expire_msg(meta : Message | MessageMetadata, sp : SegmentPosition, reason : Symbol)
+    private def expire_msg(msg : Message, sp : SegmentPosition, reason : Symbol)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      dlx = meta.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
+      dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       if dlx
-        dlrk = meta.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || meta.routing_key
-        props = handle_dlx_header(meta, reason)
-        dead_letter_msg(meta, sp, props, dlx, dlrk)
+        dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
+        props = handle_dlx_header(msg, reason)
+        dead_letter_msg(msg, sp, props, dlx, dlrk)
       else
-        meta.as?(Message).try { |m| m.body_io.skip(m.size) }
+        msg.body_io.skip(msg.size)
       end
-      persistent = meta.properties.delivery_mode == 2_u8
-      @log.debug { "Expiring #{sp}, #{meta.properties}, persistent=#{persistent}" }
+      persistent = msg.properties.delivery_mode == 2_u8
       drop sp, false, persistent
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
@@ -504,7 +501,7 @@ module AvalancheMQ
       end
       xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
       xdeaths.delete(xd)
-      count = xd ? xd["count"].as?(Int32) || 0 : 0
+      count = xd.try &.fetch("count", 0).as?(Int32) || 0
       death = Hash(String, AMQP::Field){
         "exchange"     => meta.exchange_name,
         "queue"        => @name,
@@ -522,24 +519,6 @@ module AvalancheMQ
       headers["x-death"] = xdeaths
       props.headers = headers
       props
-    end
-
-    private def dead_letter_msg(meta : MessageMetadata, sp, props, dlx, dlrk)
-      @read_lock.synchronize do
-        seg = @segments[sp.segment]
-        body_pos = sp.position + meta.bytesize
-        if @segment_pos[sp.segment] != body_pos
-          @log.debug { "Current pos #{@segment_pos[sp.segment]}" }
-          @log.debug { "Message position: #{sp.position}" }
-          @log.debug { "Metadata size #{meta.bytesize}" }
-          @log.debug { "Seeking to body pos #{body_pos}" }
-          seg.seek(body_pos, IO::Seek::Set)
-          @segment_pos[sp.segment] = body_pos
-        end
-        msg = Message.new(meta.timestamp, dlx.to_s, dlrk.to_s, props, meta.size, seg)
-        @log.debug { "Dead-lettering #{sp} to exchange \"#{msg.exchange_name}\", routing key \"#{msg.routing_key}\"" }
-        @vhost.publish msg
-      end
     end
 
     private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
@@ -564,16 +543,6 @@ module AvalancheMQ
       end
     end
 
-    @read_lock = Mutex.new
-
-    def read_message(sp : SegmentPosition, &blk : Envelope -> Nil)
-      @read_lock.synchronize do
-        read(sp) do |env|
-          yield env
-        end
-      end
-    end
-
     private def get(no_ack : Bool, &blk : Envelope? -> Nil)
       return yield nil if @closed
       sp = @ready_lock.synchronize do
@@ -582,13 +551,11 @@ module AvalancheMQ
         end
       end
       return yield nil if sp.nil?
-      @read_lock.synchronize do
-        read(sp) do |env|
-          if @delivery_limit && !no_ack
-            yield with_delivery_count_header(env)
-          else
-            yield env
-          end
+      read(sp) do |env|
+        if @delivery_limit && !no_ack
+          yield with_delivery_count_header(env)
+        else
+          yield env
         end
       end
     end
@@ -611,12 +578,13 @@ module AvalancheMQ
       env
     end
 
-    private def read(sp : SegmentPosition, &blk : Envelope -> Nil)
+    def read(sp : SegmentPosition, locked = false, &blk : Envelope -> Nil)
+      @read_lock.lock unless locked
+      @read_lock.assert_locked!
       seg = @segments[sp.segment]
       if @segment_pos[sp.segment] != sp.position
         @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos[sp.segment]}" }
         seg.seek(sp.position, IO::Seek::Set)
-        @segment_pos[sp.segment] = sp.position
       end
       ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
       ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
@@ -625,9 +593,12 @@ module AvalancheMQ
       sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
       msg = Message.new(ts, ex, rk, pr, sz, seg)
       redelivered = @requeued.includes?(sp)
-      yield Envelope.new(sp, msg, redelivered)
-      @requeued.delete(sp) if redelivered
-      @segment_pos[sp.segment] += msg.bytesize
+      begin
+        yield Envelope.new(sp, msg, redelivered)
+      ensure
+        @segment_pos[sp.segment] = sp.position + msg.bytesize
+        @requeued.delete(sp) if redelivered
+      end
     rescue ex : IO::EOFError
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       @log.error { "Could not read sp=#{sp}, rejecting" }
@@ -646,6 +617,8 @@ module AvalancheMQ
       end
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       raise ex
+    ensure
+      @read_lock.unlock unless locked
     end
 
     def ack(sp : SegmentPosition, persistent : Bool) : Nil

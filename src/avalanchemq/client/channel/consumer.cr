@@ -81,7 +81,7 @@ module AvalancheMQ
             else
               @unacked.each do |sp|
                 # redeliver to the original recipient
-                @queue.read_message(sp) do |env|
+                @queue.read(sp) do |env|
                   deliver(env.message, sp, true, recover: true)
                 end
               end
