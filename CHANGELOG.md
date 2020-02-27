@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2020-02-27
+
+### Fixed
+- Message expiration loop didn't reset read position
+
 ## [0.9.4] - 2020-02-27
 
 ### Fixed
