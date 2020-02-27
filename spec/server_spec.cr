@@ -169,6 +169,18 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "expires multiple messages" do
+    with_channel do |ch|
+      q = ch.queue
+      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "100")
+      sleep 0.05
+      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "100")
+      sleep 0.16
+      msg = q.get(no_ack: true)
+      msg.should be_nil
+    end
+  end
+
   it "expires messages with message TTL on queue declaration" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
