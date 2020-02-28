@@ -1,0 +1,4 @@
+lxc-start -n ubuntu_bionic
+lxc-attach -n ubuntu_bionic << EOF
+CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --release --verbose -Dpreview_mt src/avalanchemq.cr
+EOF
