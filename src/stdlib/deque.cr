@@ -16,4 +16,8 @@ class Deque(T)
     end
     q
   end
+
+  def capacity
+    @capacity
+  end
 end

@@ -26,5 +26,13 @@ module AvalancheMQ
     def gc!
       @counter.delete_if { |_, v| v.zero? }
     end
+
+    def size
+      @counter.size
+    end
+
+    def capacity
+      @counter.capacity
+    end
   end
 end
