@@ -96,15 +96,86 @@ if config.http_port > 0 || config.https_port > 0
   end
 end
 
+macro puts_size_capacity(obj, indent = 0)
+  STDOUT << " " * {{ indent }}
+  STDOUT << "{{ obj.name }}"
+  STDOUT << " size="
+  STDOUT << {{obj}}.size
+  STDOUT << " capacity="
+  STDOUT << {{obj}}.capacity
+  STDOUT << '\n'
+end
+
+def report(s)
+  puts "Flow=#{s.flow?}"
+  puts_size_capacity s.@connections
+  s.connections.each do |c|
+    puts "  #{c.name}"
+    puts_size_capacity c.@channels, 4
+    c.channels.each_value do |ch|
+      puts "    #{ch.id} prefetch=#{ch.prefetch_size}"
+      puts_size_capacity ch.@next_msg_body, 6
+      puts_size_capacity ch.@unacked, 6
+      puts_size_capacity ch.@consumers, 6
+      ch.consumers.each do |cons|
+        puts "      #{cons.tag}"
+        puts_size_capacity cons.@unacked, 8
+      end
+    end
+  end
+  puts_size_capacity s.@users
+  puts_size_capacity s.@vhosts
+  s.vhosts.each do |_, vh|
+    puts "VHost #{vh.name}"
+    puts_size_capacity vh.@awaiting_confirm, 4
+    puts_size_capacity vh.@cache, 4
+    vh.@cache.each do |fiber, cache|
+      puts "    #{fiber.inspect} match cache"
+      puts_size_capacity cache[0], 6
+      puts_size_capacity cache[1], 6
+    end
+    puts_size_capacity vh.@exchanges, 4
+    puts_size_capacity vh.@queues, 4
+    vh.queues.each do |_, q|
+      puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
+      puts_size_capacity q.@segments, 6
+      puts_size_capacity q.@segment_pos, 6
+      puts_size_capacity q.@segment_ref_count, 6
+      puts_size_capacity q.@consumers, 6
+      puts_size_capacity q.@ready, 6
+      puts_size_capacity q.@requeued, 6
+      puts_size_capacity q.@deliveries, 6
+      puts_size_capacity q.@get_unacked, 6
+    end
+  end
+end
+
+def dump_string_pool(io)
+  pool = AMQ::Protocol::ShortString::POOL
+  io.puts "# size=#{pool.size} capacity=#{pool.@capacity}"
+  pool.@capacity.times do |i|
+    str = pool.@values[i]
+    next if str.empty?
+    io.puts str
+  end
+end
+
 Signal::USR1.trap do
-  puts "Uptime: #{amqp_server.uptime}s"
-  puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-  puts System.resource_usage
-  puts GC.prof_stats
+  STDOUT.puts "Uptime: #{amqp_server.uptime}s"
+  STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
+  STDOUT.puts System.resource_usage
+  STDOUT.puts GC.prof_stats
+  report(amqp_server)
+  File.open(File.join(amqp_server.data_dir, "string_pool.dump"), "w") do |f|
+    STDOUT.puts "Dumping string pool to #{f.path}"
+    dump_string_pool(f)
+  end
+  STDOUT.flush
 end
 
 Signal::USR2.trap do
-  puts "Garbage collecting"
+  STDOUT.puts "Garbage collecting"
+  STDOUT.flush
   GC.collect
 end
 
@@ -115,6 +186,7 @@ Signal::HUP.trap do
     puts "Reloading configuration file '#{config_file}'"
     config.parse(config_file)
   end
+  STDOUT.flush
 end
 
 shutdown = ->(_s : Signal) do
