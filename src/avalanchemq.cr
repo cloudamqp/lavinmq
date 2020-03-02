@@ -177,6 +177,9 @@ Signal::USR2.trap do
   STDOUT.puts "Garbage collecting"
   STDOUT.flush
   GC.collect
+  STDOUT.puts "Clearing string pool"
+  STDOUT.flush
+  AMQ::Protocol::ShortString::POOL.clear
 end
 
 Signal::HUP.trap do
