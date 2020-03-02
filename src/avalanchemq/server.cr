@@ -226,10 +226,10 @@ module AvalancheMQ
       loop do
         break if closed?
         available = Filesystem.info(@data_dir).available
-        @log.debug { "Available disk space: #{available / 1024**3} GB" }
-        if available < Config.instance.segment_size
+        @log.debug { "Available disk space: #{available.humanize}B" }
+        if available < Config.instance.segment_size * 2
           if @flow
-            @log.info { "Low disk space: #{available / 1024**2} MB, stopping flow" }
+            @log.info { "Low disk space: #{available.humanize}B, stopping flow" }
             flow(false)
           end
         elsif !@flow
