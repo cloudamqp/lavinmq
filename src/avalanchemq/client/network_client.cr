@@ -169,7 +169,7 @@ module AvalancheMQ
 
     def cleanup
       super
-      #@heartbeat_loop.wakeup unless @heartbeat_loop.dead?
+      @heartbeat_loop.resume unless @heartbeat_loop.dead?
       begin
         @socket.close unless @socket.closed?
       rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
