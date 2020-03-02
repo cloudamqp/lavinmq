@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.6] - 2020-03-02
 
 ### Added
-- More reporting when signaled USR1
+- More reporting when on signal USR1
+- Clear ShortString string pool on signal USR2
 
 ## [0.9.5] - 2020-02-27
 
