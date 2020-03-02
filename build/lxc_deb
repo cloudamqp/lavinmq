@@ -12,7 +12,7 @@ apt-get install -y gnupg2 apt-transport-https ca-certificates
 apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
 apt-get update
 apt-get upgrade -y
-apt-get install -y crystal help2man lintian sudo lsb-release
+apt-get install -y crystal help2man lintian sudo lsb-release fakeroot
 groupadd --gid 1000 $USER || true
 useradd --create-home --uid 1000 --gid 1000 $USER || true
 "
