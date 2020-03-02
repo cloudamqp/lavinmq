@@ -9,8 +9,8 @@ module AvalancheMQ
         getter no_ack, queue, unacked, tag, exclusive
         @log : Logger
 
-        def initialize(@channel : Client::Channel, @tag : String, @queue : Queue,
-                       @no_ack : Bool, @exclusive : Bool)
+        def initialize(@channel : Client::Channel, @tag : String,
+                       @queue : Queue, @no_ack : Bool, @exclusive : Bool)
           @log = @channel.log.dup
           @log.progname += " consumer=#{@tag}"
           initial_size = @channel.prefetch_count.zero? ? 1024 : @channel.prefetch_count

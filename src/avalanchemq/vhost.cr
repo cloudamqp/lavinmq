@@ -69,9 +69,6 @@ module AvalancheMQ
       end
     end
 
-    @incoming = Channel(Tuple(Message, Bool, Bool)).new
-    @outgoing = Channel(Tuple(Bool, Exception?)).new
-
     private def fsync_loop
       loop do
         sleep 0.2
@@ -405,9 +402,6 @@ module AvalancheMQ
         Fiber.yield
         @queues.each_value &.close
         Fiber.yield
-        @incoming.close
-        Fiber.yield
-        @outgoing.close
         @save.close
         Fiber.yield
         compact!
