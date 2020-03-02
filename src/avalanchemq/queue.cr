@@ -186,6 +186,7 @@ module AvalancheMQ
             @log.debug { "Closing non referenced segment #{seg}" }
             f.close
           end
+          @segment_pos.delete(seg)
         else
           s << seg
         end
