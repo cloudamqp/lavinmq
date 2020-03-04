@@ -452,7 +452,7 @@ describe AvalancheMQ::Server do
     s.vhosts["/"].delete_queue("exlusive_consumer")
   end
 
-  it "it doesn't persists transient msgs between restarts" do
+  it "it does persists transient msgs between restarts" do
     with_channel do |ch|
       ch.confirm_select
       q = ch.queue("durable_queue", durable: true)
@@ -468,7 +468,7 @@ describe AvalancheMQ::Server do
     with_channel do |ch|
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete
-      deleted_msgs[:message_count].should eq 500
+      deleted_msgs[:message_count].should eq 1000
     end
   ensure
     s.vhosts["/"].delete_queue("durable_queue")
