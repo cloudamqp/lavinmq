@@ -117,10 +117,6 @@ def report(s)
       puts_size_capacity ch.@next_msg_body, 6
       puts_size_capacity ch.@unacked, 6
       puts_size_capacity ch.@consumers, 6
-      ch.consumers.each do |cons|
-        puts "      #{cons.tag}"
-        puts_size_capacity cons.@unacked, 8
-      end
     end
   end
   puts_size_capacity s.@users
@@ -143,9 +139,9 @@ def report(s)
       puts_size_capacity q.@segment_ref_count, 6
       puts_size_capacity q.@consumers, 6
       puts_size_capacity q.@ready, 6
+      puts_size_capacity q.@unacked, 6
       puts_size_capacity q.@requeued, 6
       puts_size_capacity q.@deliveries, 6
-      puts_size_capacity q.@get_unacked, 6
     end
   end
 end
