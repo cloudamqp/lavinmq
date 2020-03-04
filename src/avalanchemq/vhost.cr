@@ -20,34 +20,36 @@ module AvalancheMQ
     property? flow = true
     getter? closed = false
 
+    @exchanges = Hash(String, Exchange).new
+    @queues = Hash(String, Queue).new
+    @save = Channel(AMQP::Frame).new(32)
     @segment : UInt32
     @wfile : File
+    @segments_on_disk : Deque(UInt32)
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @write_lock = Mutex.new
+    @fsync = false
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User,
                    @connection_events = Server::ConnectionsEvents.new(16))
       @log.progname = "vhost=#{@name}"
-      @exchanges = Hash(String, Exchange).new
-      @queues = Hash(String, Queue).new
-      @save = Channel(AMQP::Frame).new(32)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p @data_dir
+      @segments_on_disk = load_segments_on_disk!
+      @segment = @segments_on_disk.last { 0_u32 }
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
-      @segment = last_segment
       @wfile = open_wfile
       @wfile.seek(0, IO::Seek::End)
       @pos = @wfile.pos.to_u32
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @fsync = false
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
@@ -173,14 +175,9 @@ module AvalancheMQ
       end
     end
 
-    @pos = 0_u32
-
     private def write_to_disk(msg) : SegmentPosition
       if @pos >= Config.instance.segment_size
-        @segment += 1
-        fsync
-        @wfile.close
-        @wfile = open_wfile
+        open_new_segment
       end
 
       sp = SegmentPosition.new(@segment, @pos)
@@ -200,10 +197,16 @@ module AvalancheMQ
       sp
     rescue ex
       @log.error "Rotating segment because failed to write message"
+      open_new_segment
+      raise ex
+    end
+
+    private def open_new_segment
       @segment += 1
+      @segments_on_disk << @segment
+      fsync
       @wfile.close
       @wfile = open_wfile
-      raise ex
     end
 
     private def open_wfile : File
@@ -560,12 +563,15 @@ module AvalancheMQ
       @save.close
     end
 
-    private def last_segment : UInt32
-      segments = Dir.glob(File.join(@data_dir, "msgs.*")).sort
-      last_file = segments.last? || return 0_u32
-      segment = File.basename(last_file)[5, 10].to_u32
-      @log.debug { "Last segment is #{segment}" }
-      segment
+    private def load_segments_on_disk!
+      segments = Array(UInt32).new
+      Dir.each_child(@data_dir) do |f|
+        if f.starts_with? "msgs."
+          segments << f[5, 10].to_u32
+        end
+      end
+      segments.sort!
+      Deque(UInt32).new(segments)
     end
 
     def gc_segments_loop
@@ -580,12 +586,12 @@ module AvalancheMQ
         end
         @log.info "#{referenced_segments.size} segments in use"
 
-        Dir.each(@data_dir) do |f|
-          if f.starts_with? "msgs."
-            seg = f[5, 10].to_u32
-            next if referenced_segments.includes? seg
+        @segments_on_disk.delete_if do |seg|
+          unless referenced_segments.includes? seg
             @log.info "Deleting segment #{seg}"
-            File.delete File.join(@data_dir, f)
+            filename = "msgs.#{seg.to_s.rjust(10, '0')}"
+            File.delete File.join(@data_dir, filename)
+            true
           end
         end
         referenced_segments.clear
