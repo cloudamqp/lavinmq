@@ -1,5 +1,5 @@
 class Hash(K, V)
   def capacity
-    entries_size
+    indices_size + entries_size
   end
 end

@@ -13,10 +13,8 @@ module AvalancheMQ
       @log.debug { "Index dir: #{@index_dir}" }
       Dir.mkdir_p @index_dir
       @enq = File.open(File.join(@index_dir, "enq"), "a+")
-      @enq.buffer_size = Config.instance.file_buffer_size
       @enq.sync = true
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
-      @ack.buffer_size = Config.instance.file_buffer_size
       @ack.sync = true
       @acks = 0_u32
       @ack_lock = Mutex.new
@@ -26,45 +24,43 @@ module AvalancheMQ
 
     private def compact_index! : Nil
       @log.info { "Compacting index" }
-      @enq_lock.synchronize do
-        @ack_lock.synchronize do
-          # read all acked SPs into a Set
-          @ack.rewind
-          acked = Set(SegmentPosition).new(@ack.size // sizeof(SegmentPosition))
-          loop do
-            acked << SegmentPosition.from_io @ack
-          rescue IO::EOFError
-            break
-          end
-          @log.info { "Read #{acked.size} acked SPs" }
-
-          # Read all enqueued SPs and write to a new enq file
-          # unless the SP is already acked
-          @enq.rewind
-          i = 0_u32
-          File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-            loop do
-              sp = SegmentPosition.from_io @enq
-              next if acked.includes? sp
-              f.write_bytes sp
-              i += 1
-            rescue IO::EOFError
-              break
+      @ready_lock.lock
+      @enq_lock.lock
+      @ack_lock.lock
+      i = 0
+      File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+        unacked = @unack_lock.synchronize { @unacked.map(&.sp) }.sort!.each
+        next_unacked = unacked.next
+        @ready_lock.synchronize do
+          @ready.each do |sp|
+            while next_unacked != Iterator::Stop::INSTANCE && next_unacked.as(SegmentPosition) < sp
+              f.write_bytes next_unacked.as(SegmentPosition)
+              next_unacked = unacked.next
             end
+            f.write_bytes sp
+            i += 1
           end
-          @log.info { "Wrote #{i} SPs to new enq file" }
-          @enq.close
-          File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-          @enq = File.open(File.join(@index_dir, "enq"), "a+")
-          @enq.sync = true
-          @enq.buffer_size = Config.instance.file_buffer_size
-          @enq.fsync(flush_metadata: true)
-
-          @ack.truncate
-          @ack.fsync(flush_metadata: false)
-          @acks = 0_u32
+        end
+        until next_unacked == Iterator::Stop::INSTANCE
+          f.write_bytes next_unacked.as(SegmentPosition)
+          next_unacked = unacked.next
+          i += 1
         end
       end
+
+      @log.info { "Wrote #{i} SPs to new enq file" }
+      @enq.close
+      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+      @enq = File.open(File.join(@index_dir, "enq"), "a")
+      @enq.sync = true
+      @enq.fsync(flush_metadata: true)
+
+      @ack.truncate
+      @acks = 0_u32
+    ensure
+      @ack_lock.unlock
+      @enq_lock.unlock
+      @ready_lock.unlock
     end
 
     def close : Bool
@@ -157,7 +153,7 @@ module AvalancheMQ
       @log.info "Restoring index"
       @ack.rewind
       sp_size = sizeof(SegmentPosition)
-      acked = Set(SegmentPosition).new(@ack.size // sp_size)
+      acked = Deque(SegmentPosition).new(@ack.size // sp_size)
       loop do
         acked << SegmentPosition.from_io @ack
         @acks += 1

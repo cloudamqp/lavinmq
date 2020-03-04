@@ -6,6 +6,7 @@ require "./observable"
 require "./stats"
 require "./sortable_json"
 require "./reference_counter"
+require "./client/channel"
 
 module AvalancheMQ
   class Queue
@@ -30,9 +31,23 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
-    @get_unacked = Deque(SegmentPosition).new
     @segment_ref_count = ReferenceCounter(UInt32).new
     @read_lock = Mutex.new
+    @consumers = Deque(Client::Channel::Consumer).new
+    @consumers_lock = Mutex.new
+    @message_available = Channel(Nil).new
+    @consumer_available = Channel(Nil).new(1)
+    @ready = Deque(SegmentPosition).new(1024)
+    @ready_lock = Mutex.new
+    @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
+    @unacked = Deque(Unack).new(1024)
+    @unack_lock = Mutex.new
+
+    record Unack,
+      sp : SegmentPosition,
+      persistent : Bool,
+      channel : Client::Channel,
+      consumer : Client::Channel::Consumer?
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
@@ -44,21 +59,14 @@ module AvalancheMQ
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
+      @last_get_time = Time.monotonic
       @log = @vhost.log.dup
       @log.progname += " queue=#{@name}"
       handle_arguments
-      @consumers = Deque(Client::Channel::Consumer).new
-      @consumers_lock = Mutex.new
-      @message_available = Channel(Nil).new
-      @consumer_available = Channel(Nil).new(1)
-      @ready = Deque(SegmentPosition).new(1024)
-      @ready_lock = Mutex.new
-      @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
       @segments = Hash(UInt32, File).new do |h, seg|
         path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         h[seg] = File.open(path, "r").tap { |f| f.buffer_size = Config.instance.file_buffer_size }
       end
-      @last_get_time = Time.monotonic
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
 
@@ -113,14 +121,8 @@ module AvalancheMQ
       @vhost.upstreams.try &.stop_link(self)
     end
 
-    def unacked_count : UInt32
-      count = 0_u32
-      @consumers_lock.synchronize do
-        @consumers.each do |c|
-          count += c.unacked.size
-        end
-      end
-      count + @get_unacked.size
+    def unacked_count
+      @unacked.size.to_u32
     end
 
     def message_available
@@ -167,7 +169,7 @@ module AvalancheMQ
       end
     end
 
-    def message_count : UInt32
+    def message_count
       @ready.size.to_u32
     end
 
@@ -175,8 +177,8 @@ module AvalancheMQ
       @ready.size.zero?
     end
 
-    def consumer_count : UInt32
-      @consumers.size.to_u32
+    def consumer_count
+      @consumers.size
     end
 
     def referenced_segments(s : Set(UInt32))
@@ -292,6 +294,11 @@ module AvalancheMQ
           sp = env.segment_position
           @log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
+            unless c.no_ack
+              @unack_lock.synchronize do
+                @unacked << Unack.new(sp, env.persistent?, c.channel, c)
+              end
+            end
             if env.redelivered
               @redeliver_count += 1
             else
@@ -336,14 +343,13 @@ module AvalancheMQ
     end
 
     def details_tuple
-      unacked = unacked_count
       {
         name: @name, durable: @durable, exclusive: @exclusive,
         auto_delete: @auto_delete, arguments: @arguments,
         consumers: @consumers.size, vhost: @vhost.name,
-        messages: @ready.size + unacked,
+        messages: @ready.size + @unacked.size,
         ready: @ready.size,
-        unacked: unacked,
+        unacked: @unacked.size,
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? :closed : :running,
@@ -533,12 +539,18 @@ module AvalancheMQ
       true
     end
 
-    def basic_get(no_ack, &blk : Envelope? -> Nil)
+    def basic_get(channel, no_ack, &blk : Envelope? -> Nil)
       @last_get_time = Time.monotonic
       get(no_ack) do |env|
         if env
           @get_count += 1
-          @get_unacked << env.segment_position unless no_ack
+          unless no_ack
+            @unack_lock.synchronize do
+              @unacked << Unack.new(env.segment_position,
+                                    env.persistent?,
+                                    channel, nil)
+            end
+          end
         end
         yield env
       end
@@ -628,8 +640,11 @@ module AvalancheMQ
       @ready_lock.synchronize do
         @segment_ref_count.dec(sp.segment)
       end
-      idx = @get_unacked.index(sp)
-      @get_unacked.delete_at(idx) if idx
+      @unack_lock.synchronize do
+        if idx = @unacked.index { |u| u.sp == sp }
+          @unacked.delete_at(idx)
+        end
+      end
       @deliveries.delete(sp)
       @ack_count += 1
       Fiber.yield if @ack_count % 8192 == 0
@@ -640,10 +655,17 @@ module AvalancheMQ
     # ready lock has be aquired before calling this method
     private def drop(sp, delete_in_ready, persistent) : Nil
       return if @deleted
-      @ready_lock.assert_locked!
       @log.debug { "Dropping #{sp}" }
-      if idx = @get_unacked.index(sp)
-        @get_unacked.delete_at(idx)
+      @ready_lock.assert_locked!
+
+      unacked = @unack_lock.synchronize do
+        if idx = @unacked.index { |u| u.sp == sp }
+          @unacked.delete_at(idx)
+          true
+        end
+      end
+
+      if unacked
         @segment_ref_count.dec(sp.segment)
       elsif delete_in_ready
         if @ready.first == sp
@@ -669,9 +691,12 @@ module AvalancheMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
       @log.debug { "Rejecting #{sp}" }
-      idx = @get_unacked.index(sp)
-      @get_unacked.delete_at(idx) if idx
-      @reject_count += 1
+
+      @unack_lock.synchronize do
+        if idx = @unacked.index { |u| u.sp == sp }
+          @unacked.delete_at(idx)
+        end
+      end
       @ready_lock.synchronize do
         if requeue
           was_empty = @ready.empty?
@@ -683,10 +708,11 @@ module AvalancheMQ
           expire_msg(sp, :rejected)
         end
       end
+      @reject_count += 1
       Fiber.yield if @reject_count % 8192 == 0
     end
 
-    private def requeue_many(sps : Deque(SegmentPosition))
+    private def requeue_many(sps : Enumerable(SegmentPosition))
       return if @deleted
       return if sps.empty?
       was_empty = false
@@ -729,9 +755,17 @@ module AvalancheMQ
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        requeue_many(consumer.unacked)
-        @log.debug { "Removing consumer with #{consumer.unacked.size} unacked messages \
-                        (#{@consumers.size} consumers left)" }
+        consumer_unacked = Array(SegmentPosition).new(consumer.prefetch_count)
+        @unacked.delete_if do |unack|
+          if unack.consumer == consumer
+            consumer_unacked << unack.sp
+            true
+          end
+        end
+        requeue_many(consumer_unacked)
+        @log.debug { "Removing consumer with #{consumer_unacked.size} \
+                      unacked messages \
+                      (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
         delete if @consumers.empty? && @auto_delete
       end

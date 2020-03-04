@@ -38,6 +38,7 @@ module AvalancheMQ
         @global_prefetch = false
         @next_publish_mandatory = false
         @next_publish_immediate = false
+
         @consumers = Array(Consumer).new
         @delivery_tag = 0_u64
         @unacked = Deque(Unack).new
@@ -267,7 +268,7 @@ module AvalancheMQ
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
           else
-            q.basic_get(frame.no_ack) do |env|
+            q.basic_get(self, frame.no_ack) do |env|
               if env
                 persistent = env.message.properties.delivery_mode == 2_u8
                 delivery_tag = next_delivery_tag(q, env.segment_position,
@@ -402,6 +403,15 @@ module AvalancheMQ
             @unacked.push Unack.new(tag, queue, sp, persistent, consumer)
           end
           tag
+        end
+      end
+
+      def recover(consumer)
+        @unacked.delete_if do |unack|
+          if unack.consumer == consumer
+            yield unack.sp
+            true
+          end
         end
       end
 

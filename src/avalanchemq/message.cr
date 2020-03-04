@@ -12,6 +12,10 @@ module AvalancheMQ
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize +
         sizeof(UInt64) + @size
     end
+
+    def persistent?
+      @properties.delivery_mode == 2_u8
+    end
   end
 
   struct MessageMetadata
@@ -25,12 +29,20 @@ module AvalancheMQ
     def bytesize
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize + sizeof(UInt64)
     end
+
+    def persistent?
+      @properties.delivery_mode == 2_u8
+    end
   end
 
   struct Envelope
     getter segment_position, message, redelivered
 
     def initialize(@segment_position : SegmentPosition, @message : Message, @redelivered = false)
+    end
+
+    def persistent?
+      @message.persistent?
     end
   end
 end
