@@ -268,7 +268,7 @@ module AvalancheMQ
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
           else
-            q.basic_get(self, frame.no_ack) do |env|
+            q.basic_get(frame.no_ack) do |env|
               if env
                 persistent = env.message.properties.delivery_mode == 2_u8
                 delivery_tag = next_delivery_tag(q, env.segment_position,

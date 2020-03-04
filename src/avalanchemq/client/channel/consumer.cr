@@ -68,7 +68,7 @@ module AvalancheMQ
         end
 
         def recover(requeue)
-          @channel.recover(self) do
+          @channel.recover(self) do |sp|
             if requeue
               @queue.reject(sp, requeue: true)
             else

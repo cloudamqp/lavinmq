@@ -38,7 +38,7 @@ module AvalancheMQ
     @message_available = Channel(Nil).new
     @consumer_available = Channel(Nil).new(1)
     @ready = Deque(SegmentPosition).new(1024)
-    @ready_lock = Mutex.new
+    @ready_lock = Mutex.new(:reentrant)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @unacked = Deque(Unack).new(1024)
     @unack_lock = Mutex.new
@@ -46,7 +46,6 @@ module AvalancheMQ
     record Unack,
       sp : SegmentPosition,
       persistent : Bool,
-      channel : Client::Channel,
       consumer : Client::Channel::Consumer?
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
@@ -178,7 +177,7 @@ module AvalancheMQ
     end
 
     def consumer_count
-      @consumers.size
+      @consumers.size.to_u32
     end
 
     def referenced_segments(s : Set(UInt32))
@@ -296,7 +295,7 @@ module AvalancheMQ
           if c.deliver(env.message, sp, env.redelivered)
             unless c.no_ack
               @unack_lock.synchronize do
-                @unacked << Unack.new(sp, env.persistent?, c.channel, c)
+                @unacked << Unack.new(sp, env.message.persistent?, c)
               end
             end
             if env.redelivered
@@ -539,7 +538,7 @@ module AvalancheMQ
       true
     end
 
-    def basic_get(channel, no_ack, &blk : Envelope? -> Nil)
+    def basic_get(no_ack, &blk : Envelope? -> Nil)
       @last_get_time = Time.monotonic
       get(no_ack) do |env|
         if env
@@ -547,8 +546,8 @@ module AvalancheMQ
           unless no_ack
             @unack_lock.synchronize do
               @unacked << Unack.new(env.segment_position,
-                                    env.persistent?,
-                                    channel, nil)
+                                    env.message.persistent?,
+                                    nil)
             end
           end
         end
@@ -656,7 +655,7 @@ module AvalancheMQ
     private def drop(sp, delete_in_ready, persistent) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
-      @ready_lock.assert_locked!
+      @ready_lock.lock
 
       unacked = @unack_lock.synchronize do
         if idx = @unacked.index { |u| u.sp == sp }
@@ -686,6 +685,8 @@ module AvalancheMQ
         end
       end
       @deliveries.delete(sp)
+    ensure
+      @ready_lock.unlock
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
