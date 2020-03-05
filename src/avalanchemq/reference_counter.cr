@@ -34,5 +34,9 @@ module AvalancheMQ
     def capacity
       @counter.capacity
     end
+
+    def clear
+      @counter.clear
+    end
   end
 end

@@ -585,6 +585,7 @@ module AvalancheMQ
           q.referenced_segments(referenced_segments)
         end
         @log.info "#{referenced_segments.size} segments in use"
+        @log.debug { referenced_segments.inspect }
 
         @segments_on_disk.delete_if do |seg|
           unless referenced_segments.includes? seg

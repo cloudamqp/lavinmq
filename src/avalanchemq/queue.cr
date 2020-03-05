@@ -319,12 +319,12 @@ module AvalancheMQ
       @message_available.close
       @consumer_available.close
       @consumers_lock.synchronize do
-        while c = @consumers.shift?
-          c.cancel
-        end
+        @consumers.each &.cancel
+        @consumers.clear
       end
       @segments.each_value &.close
       @segments.clear
+      @segment_pos.clear
       @vhost.delete_queue(@name) if @exclusive
       Fiber.yield
       notify_observers(:close)
