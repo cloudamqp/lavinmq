@@ -5,7 +5,6 @@ require "./policy"
 require "./observable"
 require "./stats"
 require "./sortable_json"
-require "./reference_counter"
 require "./client/channel"
 
 module AvalancheMQ
@@ -31,7 +30,6 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
-    @segment_ref_count = ReferenceCounter(UInt32).new
     @read_lock = Mutex.new
     @consumers = Deque(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
@@ -181,18 +179,23 @@ module AvalancheMQ
     end
 
     def referenced_segments(s : Set(UInt32))
-      @segment_ref_count.each do |seg, count|
-        if count.zero?
-          if f = @segments.delete(seg)
-            @log.debug { "Closing non referenced segment #{seg}" }
-            f.close
-          end
-          @segment_pos.delete(seg)
-        else
-          s << seg
+      @unack_lock.synchronize do
+        @unacked.each do |u|
+          s << u.sp.segment
         end
       end
-      @ready_lock.synchronize { @segment_ref_count.gc! }
+      @ready_lock.synchronize do
+        @ready.each do |sp|
+          s << sp.segment
+        end
+      end
+      @segments.delete_if do |seg, f|
+        unless s.includes? seg
+          @log.debug { "Closing non referenced segment #{seg}" }
+          f.close
+          true
+        end
+      end
     end
 
     private def deliver_loop
@@ -367,7 +370,6 @@ module AvalancheMQ
         handle_max_length
         was_empty = @ready.empty?
         @ready.push sp
-        @segment_ref_count.inc(sp.segment)
       end
       @publish_count += 1
       message_available if was_empty
@@ -451,7 +453,6 @@ module AvalancheMQ
             expire_in = expire_at - now
             if expire_in <= 0
               @ready.shift
-              @segment_ref_count.dec(sp.segment)
               expire_msg(env.message, sp, :expired)
               Fiber.yield if (i += 1) % 8192 == 0
             else
@@ -557,11 +558,7 @@ module AvalancheMQ
 
     private def get(no_ack : Bool, &blk : Envelope? -> Nil)
       return yield nil if @closed
-      sp = @ready_lock.synchronize do
-        @ready.shift?.tap do |v|
-          @segment_ref_count.dec(v.segment) if v && no_ack
-        end
-      end
+      sp = @ready_lock.synchronize { @ready.shift? }
       return yield nil if sp.nil?
       read(sp) do |env|
         if @delivery_limit && !no_ack
@@ -636,9 +633,6 @@ module AvalancheMQ
     def ack(sp : SegmentPosition, persistent : Bool) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @ready_lock.synchronize do
-        @segment_ref_count.dec(sp.segment)
-      end
       @unack_lock.synchronize do
         if idx = @unacked.index { |u| u.sp == sp }
           @unacked.delete_at(idx)
@@ -664,18 +658,14 @@ module AvalancheMQ
         end
       end
 
-      if unacked
-        @segment_ref_count.dec(sp.segment)
-      elsif delete_in_ready
+      if delete_in_ready && !unacked
         if @ready.first == sp
           @ready.shift
-          @segment_ref_count.dec(sp.segment)
         else
           @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
           if idx = @ready.bsearch_index { |rsp| rsp >= sp }
             if @ready[idx] == sp
               @ready.delete_at(idx)
-              @segment_ref_count.dec(sp.segment)
             else
               @log.error { "Dropping #{sp} but wasn't in ready queue" }
             end
@@ -733,7 +723,6 @@ module AvalancheMQ
     private def drophead
       if sp = @ready.shift?
         @log.debug { "Overflow drop head sp=#{sp}" }
-        @segment_ref_count.dec(sp.segment)
         expire_msg(sp, :maxlen)
       end
     end
@@ -775,9 +764,7 @@ module AvalancheMQ
     def purge : UInt32
       @ready_lock.synchronize do
         purged_count = @ready.size
-        while sp = @ready.shift?
-          @segment_ref_count.dec(sp.segment)
-        end
+        @ready.clear
         @log.debug { "Purged #{purged_count} messages" }
         purged_count.to_u32
       end

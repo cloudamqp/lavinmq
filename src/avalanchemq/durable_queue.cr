@@ -169,7 +169,6 @@ module AvalancheMQ
             sp = SegmentPosition.from_io enq
             next if acked.includes? sp
             @ready << sp
-            @segment_ref_count.inc(sp.segment)
           rescue IO::EOFError
             break
           end
