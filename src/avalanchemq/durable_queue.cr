@@ -161,13 +161,14 @@ module AvalancheMQ
           rescue IO::EOFError
             break
           end
+          acked.sort!
           # to avoid repetetive allocations in Dequeue#increase_capacity
           # we redeclare the ready queue with a larger initial capacity
           capacity = Math.max(enq.size.to_i64 - ack.size, 1024 * sp_size) // sp_size
           @ready = Deque(SegmentPosition).new(capacity)
           loop do
             sp = SegmentPosition.from_io enq
-            next if acked.includes? sp
+            next if acked.bsearch { |asp| asp >= sp } == sp
             @ready << sp
           rescue IO::EOFError
             break
