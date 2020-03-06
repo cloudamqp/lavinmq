@@ -6,7 +6,7 @@ install:
 - shards install
 jobs:
   include:
-  - script: crystal spec -Dverbose
+  - script: crystal spec
   - script: bin/ameba
 notifications:
   slack:
