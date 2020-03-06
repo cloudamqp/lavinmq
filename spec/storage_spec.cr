@@ -63,31 +63,32 @@ end
 describe AvalancheMQ::VHost do
   it "GC segments" do
     vhost = s.vhosts["/"]
-    msg_size = 512
-    overhead = 10
+    vhost.queues.each_value &.delete
+    vhost.queues.clear
+
+    msg_size = 5120
+    overhead = 21
     body = Bytes.new(msg_size)
 
     segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
     sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.1
 
-    segments_at_start = segments.call.size
-    msgs_to_fill_2_segments = (AvalancheMQ::Config.instance.segment_size * 2 / (msg_size + overhead)).ceil.to_i
+    size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
+
+    msgs_to_fill_2_segments = ((AvalancheMQ::Config.instance.segment_size * 2 - size_of_current_segment) / (msg_size + overhead)).ceil.to_i
 
     with_channel do |ch|
       ch.confirm_select
       msgid = 0_u64
-      q = ch.queue("d", durable: true)
+      q = ch.queue("dd", durable: true)
       msgs_to_fill_2_segments.times do
         msgid = q.publish body
       end
       ch.wait_for_confirm(msgid)
-
-      sleep 0.1
-      segments.call.size.should eq segments_at_start + 2
-
+      segments.call.size.should eq 2
       q.purge
       sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.2
-      segments.call.size.should eq segments_at_start + 1
+      segments.call.size.should eq 1
     end
   end
 end
