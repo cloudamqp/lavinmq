@@ -255,13 +255,11 @@ describe AvalancheMQ::Server do
       hdrs["user"] = "test"
       x = ch.exchange("asdasdasd", "headers", passive: false, args: hdrs)
       q.bind(x.name, "")
-      x.publish "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
+      x.publish_confirm "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
       hdrs["user"] = "hest"
-      x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
-      msgs = [] of AMQP::Client::Message
-      q.subscribe { |msg| msgs << msg }
-      wait_for { msgs.size == 1 }
-      msgs.size.should eq 1
+      x.publish_confirm "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
+      q.get.should_not be_nil
+      q.get.should be_nil
     end
   end
 
