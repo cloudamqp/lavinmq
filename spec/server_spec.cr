@@ -282,6 +282,35 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "should persist exchange-exchange binding"  do
+    hdrs = AMQP::Client::Arguments.new
+    hdrs["x-match"] = "all"
+    hdrs["org"] = "84codes"
+    hdrs["user"] = "test"
+
+    with_channel do |ch|
+      topic_x = ch.exchange("topic_exchange", "topic", passive: false)
+      headers_x = ch.exchange("headers_exchange", "headers", passive: false)
+      topic_x.bind(exchange: headers_x.name, routing_key: "", args: hdrs)
+    end
+
+    close_servers
+    TestHelpers.setup
+
+    with_channel do |ch|
+      q = ch.queue
+      q.bind("topic_exchange", "#")
+
+      ch.basic_publish_confirm "m1", "headers_exchange", "test", props: AMQP::Client::Properties.new(headers: hdrs)
+
+      hdrs["user"] = "hest"
+      ch.basic_publish_confirm "m2", "headers_exchange", "test", props: AMQP::Client::Properties.new(headers: hdrs)
+
+      q.get.should_not be_nil
+      q.get.should be_nil
+    end
+  end
+
   it "splits frames into max frame sizes" do
     with_channel(port: 5672, frame_max: 4096_u32) do |ch|
       msg_size = (2**17 + 1)
