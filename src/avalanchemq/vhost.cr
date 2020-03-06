@@ -42,12 +42,12 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p @data_dir
       @segments_on_disk = load_segments_on_disk!
-      @segment = @segments_on_disk.last { 0_u32 }
-      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @segment = @segments_on_disk.last
       @wfile = open_wfile
       @wfile.seek(0, IO::Seek::End)
       @pos = @wfile.pos.to_u32
+      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
@@ -571,6 +571,7 @@ module AvalancheMQ
         end
       end
       segments.sort!
+      segments << 0_u32 if segments.empty?
       Deque(UInt32).new(segments)
     end
 
