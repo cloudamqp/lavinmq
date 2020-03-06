@@ -596,6 +596,7 @@ module AvalancheMQ
             true
           end
         end
+        @log.debug "#{@segments_on_disk.size} segments on disk"
         referenced_segments.clear
       end
     end
