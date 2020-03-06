@@ -1,5 +1,5 @@
 # Lint with https://config.travis-ci.org/
-dist: xenial
+dist: bionic
 language: crystal
 os: linux
 install:
