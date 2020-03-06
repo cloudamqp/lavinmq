@@ -4,29 +4,10 @@ language: crystal
 os: linux
 install:
 - shards install
-before_script:
-- llvm-config --host-target
-matrix:
+jobs:
   include:
   - script: crystal spec
   - script: bin/ameba
-  - stage: GitHub Release
-    addons:
-      apt:
-        packages:
-        - fakeroot
-        - help2man
-        - musl-tools
-    script: shards build --release --static --production && build/tar 1.static
-    deploy:
-      provider: releases
-      file_glob: true
-      file: builds/*
-      api_key:
-        secure: aX6zFIvJcKkheCk5SNgiLeJ2IWIUwjPE8Jvh6x+K2ScqA7NyTLX7KouM7TTOb+o/n0TJdF+M9xQKJwok02/89yhV5TsBvWqNYsaUKrZnbC/mSHhtnZSfOawDML2P+jc8pDHj/heejgC+HrhdLtt5U7YgmoUu1Ps0PbEATuIygrMuVKYJSLqRXd/gEC3Mfl+KZbLyg17pPCLFL6hTJUZ8EfXj1iImyyXr6Ms4CjvEbtdu+tyKS1aF5E04O87Z/5IzQDA9B/qUd8adr3DXWyOlgt5dsfQPUhmRoUkuYwwspWhOzjMcdLyxLGJ0OXWMlGhqzbgglB7j1OKC4ky0E5kMHoK8F5Tknws8WRJLMr8dblEnFxVsmqv1rnQe9FnNRSdJHrfDOyYyDcM1Ez4bosA9gByNeZh+KNfRt/fQvnK1YLnGtcO2Jer/W7Hvoo2vyYgQT9enAp5bygr/Tf5Q3lQj3B4I7XH6PHkKJu6906w2Rei19ycWCSuWxLWPWA60wr8uL6TIULq1LkLean5ho/HpGE+4t8/XjqyPzktWi7XhH3vZKKrxcNxAudJEdBvZDSxS0z+Ugy3jsm0v8iJ7I7fXt/s7ewXNZJEc8VRLhBdJJMRIB0DzxcZNsOegVtpaCs7m+jYjgcE6hDgQVVk3Uc2QU5Fnxf1JzZ4se9dpTYmLAW8=
-      skip_cleanup: true
-      on:
-        tags: true
 notifications:
   slack:
     secure: ZhQxfokt4+2tNoEc95pOIlk9FfDwZfN833bIE8dFPAPwYv1ECRnHeVNneRfj5O01+iED7126ikbB4I8p6FazU2DqLg7haHb4f9yC+ie726M0/RPwH8dbJOJMFjbEfxo4bsL2qln89rE3DKCqlS4crGu9FUa3qJs/QWScWS14AOsOtevheuYGmKXmpPiHC4s4+7j7ZQfxt2RIZ11LVePfukcb1SmRTIozt+nM0NJB3ZkeOCDb7IcWs2wUjp3Vr9mFNR2WSfw4vRt15DtgdENx1zmw8o42sLv7mFwDYtgUavU04jtXB0f+WNL2+T/SlM0k0d5xbhwOlQB3Jxkn4rRWR5iLDnT+QWoukEiAkgW/w9n9odlCZIZ3fRkKz6v6lqaZTmgj2MnIaw9VmIsgra7qfcuRSfTgU4/JNB80TvSyrTvLKzqUcvTqwzrjHqwjRGxZUgSxRcPszhkNUwn0KPRCyswgeInINMxaNlNUOXi61j0ApZb7av4FJMGUEvE1K5Afrvafe1tyO7SlAitWFXabH+76gaBZRkvBNvEs4cK6fuKj5K4br9OAhyMWwQAyBHIjjFvjFdOnUqwOZoafJkaHbUCGMErNhAlxWLjMHVDmPkfWu0inYEoIfD9+zp77yw6hisdPjDc3SnUpSN/ICwLxqhOrGhrhHy7gmbIrl8y8fy8=
