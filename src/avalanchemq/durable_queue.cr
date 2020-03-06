@@ -80,10 +80,10 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
       super || return false
-        @enq_lock.synchronize do
-          @enq.write_bytes sp
-          @enq.flush if persistent
-        end
+      @enq_lock.synchronize do
+        @enq.write_bytes sp
+        @enq.flush if persistent
+      end
       true
     end
 
