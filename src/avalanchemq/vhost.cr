@@ -518,7 +518,7 @@ module AvalancheMQ
           e.exchange_bindings.each do |bt, exchanges|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             exchanges.each do |ex|
-              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, e.name, ex.name, bt[0], false, args)
+              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, bt[0], false, args)
               io.write_bytes f, ::IO::ByteFormat::NetworkEndian
             end
           end
