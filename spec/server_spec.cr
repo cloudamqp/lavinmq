@@ -659,27 +659,17 @@ describe AvalancheMQ::Server do
     end
   end
 
-  pending "compacts queue index correctly" do
+  it "requeues unacked msg from basic_ack on disconnect" do
     with_channel do |ch|
-      q = ch.queue("durable_queue_index", durable: true)
-      (AvalancheMQ::DurableQueue::MAX_ACKS + 1).times do |i|
-        msg = i.to_s
-        q.publish(msg)
-      end
-      AvalancheMQ::DurableQueue::MAX_ACKS.times do |_i|
-        q.get(no_ack: false).try &.ack
-      end
+      q = ch.queue("ba", durable: true)
+      q.publish "m1"
+      msg = ch.basic_get(q.name, no_ack: false)
+      msg.should_not be_nil
     end
-    wait_for { s.vhosts["/"].queues["durable_queue_index"].message_count == 1 }
-    close_servers
-    TestHelpers.setup
-    wait_for { s.vhosts["/"].queues["durable_queue_index"].message_count == 1 }
     with_channel do |ch|
-      q = ch.queue("durable_queue_index", durable: true)
-      deleted_msgs = q.delete
-      deleted_msgs.should eq(1)
+      q = ch.queue("ba", durable: true)
+      msg = ch.basic_get(q.name, no_ack: true)
+      msg.should_not be_nil
     end
-  ensure
-    s.vhosts["/"].delete_queue("durable_queue_index")
   end
 end
