@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.7] - 2020-03-06
+
+### Fixed
+- Exchange to exchange bindings are restored at boot correctly
+
+### Changed
+- Rewritten garbage collection of message segments
+- Rewritten mechanism for message index compaction
+- Faster restore of queue message indexes
+- Both transient and persistent messages are persisted between restarts
+
 ## [0.9.6] - 2020-03-02
 
 ### Added
