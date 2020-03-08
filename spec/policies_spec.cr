@@ -65,4 +65,20 @@ describe AvalancheMQ::VHost do
   ensure
     vhost.delete_queue("test2")
   end
+
+  it "should remove effect of deleted policy" do
+    s.vhosts["/"].add_policy("mld", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+    with_channel do |ch|
+      ch.queue_declare("mld")
+      11.times do
+        ch.basic_publish_confirm("body", "", "mld")
+      end
+      ch.queue_declare("mld", passive: true)[:message_count].should eq 10
+      s.vhosts["/"].delete_policy("mld")
+      ch.basic_publish_confirm("body", "", "mld")
+      ch.queue_declare("mld", passive: true)[:message_count].should eq 11
+    end
+  ensure
+    vhost.delete_queue("mld")
+  end
 end

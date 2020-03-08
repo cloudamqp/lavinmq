@@ -85,7 +85,7 @@ module AvalancheMQ
 
     def apply_policy(policy : Policy)
       clear_policy
-      policy.not_nil!.definition.each do |k, v|
+      policy.definition.each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
@@ -113,6 +113,7 @@ module AvalancheMQ
     end
 
     def clear_policy
+      @log.debug { "Clearing policy" }
       handle_arguments
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
@@ -147,16 +148,12 @@ module AvalancheMQ
     end
 
     private def handle_arguments
-      message_ttl = @arguments["x-message-ttl"]?
-      @message_ttl = message_ttl if message_ttl.is_a? ArgumentNumber
-      expires = @arguments["x-expires"]?
-      @expires = expires if expires.is_a? ArgumentNumber
+      @message_ttl = @arguments["x-message-ttl"]?.try &.as?(ArgumentNumber)
+      @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
       @dlx = @arguments["x-dead-letter-exchange"]?.try &.to_s
       @dlrk = @arguments["x-dead-letter-routing-key"]?.try &.to_s
-      max_length = @arguments["x-max-length"]?
-      @max_length = max_length if max_length.is_a? ArgumentNumber
-      delivery_limit = @arguments["x-delivery-limit"]?
-      @delivery_limit = delivery_limit if delivery_limit.is_a? ArgumentNumber
+      @max_length = @arguments["x-max-length"]?.try &.as?(ArgumentNumber)
+      @delivery_limit = @arguments["x-delivery-limit"]?.try &.as?(ArgumentNumber)
       @reject_on_overflow = @arguments.fetch("x-overflow", "").to_s == "reject-publish"
     end
 
