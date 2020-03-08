@@ -199,7 +199,7 @@ module AvalancheMQ
       loop do
         break if @closed
         if @ready.empty?
-          recieve_or_expire || break
+          receive_or_expire || break
         end
         if c = find_consumer
           deliver_to_consumer(c)
@@ -227,7 +227,7 @@ module AvalancheMQ
       end
     end
 
-    private def recieve_or_expire
+    private def receive_or_expire
       @log.debug { "Waiting for msgs" }
       if ttl = time_to_expiration
         select
