@@ -72,7 +72,6 @@ describe AvalancheMQ::VHost do
     definitions = {"max-length" => JSON::Any.new(10_i64)} of String => JSON::Any
     s.vhosts["/"].add_policy("mld", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
     with_channel do |ch|
-      ch.confirm_select
       q = ch.queue("mld")
       11.times do
         q.publish_confirm "body"
@@ -83,6 +82,41 @@ describe AvalancheMQ::VHost do
       ch.queue_declare("mld", passive: true)[:message_count].should eq 11
     end
   ensure
+    s.vhosts["/"].delete_policy("mld")
     vhost.delete_queue("mld")
+  end
+
+  it "should apply message TTL policy on existing queue" do
+    definitions = {"message-ttl" => JSON::Any.new(0_i64)} of String => JSON::Any
+    with_channel do |ch|
+      q = ch.queue("ttl")
+      10.times do
+        q.publish_confirm "body"
+      end
+      ch.queue_declare("ttl", passive: true)[:message_count].should eq 10
+      s.vhosts["/"].add_policy("ttl", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+      sleep 0.01
+      ch.queue_declare("ttl", passive: true)[:message_count].should eq 0
+      s.vhosts["/"].delete_policy("ttl")
+    end
+  ensure
+    s.vhosts["/"].delete_policy("ttl")
+    vhost.delete_queue("ttl")
+  end
+
+  it "should apply queue TTL policy on existing queue" do
+    definitions = {"expires" => JSON::Any.new(0_i64)} of String => JSON::Any
+    with_channel do |ch|
+      q = ch.queue("qttl")
+      q.publish_confirm ""
+      s.vhosts["/"].add_policy("qttl", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+      sleep 0.01
+      expect_raises(AMQP::Client::Channel::ClosedException) do
+        ch.queue_declare("qttl", passive: true)
+      end
+    end
+  ensure
+    s.vhosts["/"].delete_policy("qttl")
+    vhost.delete_queue("qttl")
   end
 end

@@ -93,6 +93,7 @@ module AvalancheMQ
           drop_overflow
         when "message-ttl"
           @message_ttl = v.as_i64
+          expire_messages
         when "overflow"
           @reject_on_overflow = v.as_s == "reject-publish"
         when "expires"
@@ -110,6 +111,9 @@ module AvalancheMQ
         end
       end
       @policy = policy
+      # force trigger a loop in delivery_loop
+      message_available
+      consumer_available
     end
 
     def clear_policy
