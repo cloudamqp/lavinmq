@@ -64,18 +64,22 @@ describe AvalancheMQ::VHost do
     vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
   ensure
     vhost.delete_queue("test2")
+    vhost.delete_policy("ml2")
+    vhost.delete_policy("ml1")
   end
 
   it "should remove effect of deleted policy" do
+    definitions = {"max-length" => JSON::Any.new(10_i64)} of String => JSON::Any
     s.vhosts["/"].add_policy("mld", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
     with_channel do |ch|
-      ch.queue_declare("mld")
+      ch.confirm_select
+      q = ch.queue("mld")
       11.times do
-        ch.basic_publish_confirm("body", "", "mld")
+        q.publish_confirm "body"
       end
       ch.queue_declare("mld", passive: true)[:message_count].should eq 10
       s.vhosts["/"].delete_policy("mld")
-      ch.basic_publish_confirm("body", "", "mld")
+      q.publish_confirm "body"
       ch.queue_declare("mld", passive: true)[:message_count].should eq 11
     end
   ensure
