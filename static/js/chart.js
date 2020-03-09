@@ -188,10 +188,13 @@
   function update (chart, data) {
     const date = new Date()
     const maxY = ticks(chart.ctx.canvas)
-    const keys = Object.keys(data)
+    let keys = Object.keys(data)
+    const has_details = keys.find(key => key.match(/_details$/))
+    if (has_details) { keys = keys.filter(key => key.match(/_details$/)) }
     const legend = chart.ctx.canvas.closest('.chart-container').querySelector('.legend')
     for (let key in data) {
       if (key.match(/_log$/)) continue
+      if (has_details && !key.match(/_details$/)) continue
       let dataset = chart.data.datasets.find(dataset => dataset.key === key)
       let i = keys.indexOf(key)
       if (dataset === undefined) {

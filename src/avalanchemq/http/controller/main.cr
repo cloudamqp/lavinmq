@@ -36,6 +36,7 @@ module AvalancheMQ
           recv_rate_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
           send_rate_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
           {% for name in QUEUE_STATS %}
+          {{name.id}}_count = 0_u64
           {{name.id}}_rate = 0_f64
           {{name.id}}_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
           {% end %}
@@ -59,9 +60,11 @@ module AvalancheMQ
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
+              details = q.stats_details
               {% for name in QUEUE_STATS %}
-              {{name.id}}_rate += q.stats_details[:{{name.id}}_details][:rate]
-              add_logs!({{name.id}}_log, q.stats_details[:{{name.id}}_details][:log])
+                {{name.id}}_count = details[:{{name.id}}]
+                {{name.id}}_rate += details[:{{name.id}}_details][:rate]
+                add_logs!({{name.id}}_log, details[:{{name.id}}_details][:log])
               {% end %}
             end
           end
@@ -94,6 +97,7 @@ module AvalancheMQ
             },
             message_stats: {% begin %} {
               {% for name in QUEUE_STATS %}
+              {{name.id}}: {{name.id}}_count,
               {{name.id}}_details: {
                 rate: {{name.id}}_rate,
                 log: {{name.id}}_log,
