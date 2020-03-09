@@ -42,11 +42,11 @@ module AvalancheMQ
 
           vhosts(user(context)).each do |vhost|
             next unless x_vhost.nil? || vhost.name == x_vhost
-            vhost_connections = @amqp_server.connections.select { |c| c.vhost.name == vhost.name }
-            connections += vhost_connections.size
-            vhost_connections.each do |c|
+            @amqp_server.connections.each do |c|
+              next unless c.vhost.name == vhost.name
+              connections += 1
               channels += c.channels.size
-              consumers += c.channels.each_value.reduce(0) { |memo, i| memo + i.consumers.size }
+              consumers += c.channels.each_value.sum &.consumers.size
               recv_rate += c.stats_details[:recv_oct_details][:rate]
               send_rate += c.stats_details[:send_oct_details][:rate]
               add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
