@@ -13,7 +13,7 @@ module AvalancheMQ
     property http_bind = "::"
     property http_port = 15672
     property https_port = -1
-    property heartbeat = 60_u16 # second
+    property heartbeat = 0_u16 # second
     property segment_size : Int32 = 32 * 1024**2 # byte
     property gc_segments_interval = 60 # second
     property queue_max_acks = 1_000_000 # number of message
