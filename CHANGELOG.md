@@ -6,9 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.8] - 2020-03-09
+
 ### Fixed
 - Applying TTL policy to existing queues works as expected
 - Removing a policy removes its effect on existing queues
+- Auto-delete queues are deleted in vhost as well when closed
 
 ### Added
 - Report accumulated message stats in the /api/overview endpoint
