@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Applying TTL policy to existing queues works as expected
+- Removing a policy removes its effect on existing queues
+
+### Added
+- Report accumulated message stats in the /api/overview endpoint
+
+### Changed
+- Default to 0 heartbeat
+- Use socket timeout for heartbeat sending, instead of a looping fiber
+- Round message stat metrics to 1 decimal
+
 ## [0.9.7] - 2020-03-06
 
 ### Fixed
