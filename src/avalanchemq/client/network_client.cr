@@ -9,14 +9,10 @@ module AvalancheMQ
     @channel_max : UInt16
     @heartbeat : UInt16
     @auth_mechanism : String
-    @remote_address : Socket::IPAddress
-    @local_address : Socket::IPAddress
-    @socket : Socket | OpenSSL::SSL::Socket
-    @heartbeat_loop : Fiber
 
-    def initialize(@socket,
-                   @remote_address,
-                   @local_address,
+    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket,
+                   @remote_address : Socket::IPAddress,
+                   @local_address : Socket::IPAddress,
                    vhost : VHost,
                    user : User,
                    tune_ok,
@@ -30,7 +26,6 @@ module AvalancheMQ
       name = "#{@remote_address} -> #{@local_address}"
       super(name, vhost, user, log, start_ok.client_properties)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
-      @heartbeat_loop = spawn(heartbeat_loop, name: "Client#heartbeat_loop #{@remote_address}")
     end
 
     def self.start(socket, remote_address, local_address, vhosts, users, log)
@@ -77,13 +72,8 @@ module AvalancheMQ
           end
           process_frame(frame)
         end || break
-      end
-    rescue ex : AMQP::Error::NotImplemented
-      @log.error { "#{ex} when reading from socket" }
-      if ex.channel > 0
-        close_channel(ex, 540_u16, "Not implemented")
-      else
-        close_connection(ex, 540_u16, "Not implemented")
+      rescue IO::Timeout # heartbeat
+        send(AMQP::Frame::Heartbeat.new) || break
       end
     rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
       @log.info { "Lost connection, while reading (#{ex.inspect})" } unless closed?
@@ -91,6 +81,7 @@ module AvalancheMQ
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+    ensure
       @running = false
     end
 
@@ -169,20 +160,9 @@ module AvalancheMQ
 
     def cleanup
       super
-      @heartbeat_loop.resume unless @heartbeat_loop.dead?
       begin
         @socket.close unless @socket.closed?
       rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
-      end
-    end
-
-    private def heartbeat_loop
-      return if @heartbeat == 0
-      @log.debug { "Starting heartbeat loop with #{@heartbeat}s interval" }
-      loop do
-        sleep @heartbeat
-        break unless @running
-        send(AMQP::Frame::Heartbeat.new) || break
       end
     end
   end

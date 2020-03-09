@@ -22,7 +22,13 @@ module AvalancheMQ
       socket.try &.close unless socket.try &.closed?
       nil
     ensure
-      socket.read_timeout = nil
+      timeout =
+        if t = tune_ok
+          if t.heartbeat > 0
+            t.heartbeat / 2
+          end
+        end
+      socket.read_timeout = timeout
     end
 
     def self.confirm_header(socket, log)
@@ -83,7 +89,8 @@ module AvalancheMQ
     end
 
     def self.tune(socket)
-      socket.write_bytes AMQP::Frame::Connection::Tune.new(channel_max: 0_u16,
+      socket.write_bytes AMQP::Frame::Connection::Tune.new(
+        channel_max: 0_u16,
         frame_max: 131072_u32,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
