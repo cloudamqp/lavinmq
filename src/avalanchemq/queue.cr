@@ -329,7 +329,7 @@ module AvalancheMQ
       @segments.each_value &.close
       @segments.clear
       @segment_pos.clear
-      @vhost.delete_queue(@name) if @exclusive
+      delete if @exclusive
       Fiber.yield
       notify_observers(:close)
       @log.debug { "Closed" }
@@ -340,6 +340,7 @@ module AvalancheMQ
       return false if @deleted
       @deleted = true
       close
+      @vhost.delete_queue(@name)
       notify_observers(:delete)
       @log.info { "Deleted" }
       true
