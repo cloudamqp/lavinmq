@@ -45,19 +45,23 @@ module AvalancheMQ
     end
 
     private def with_channel(frame)
-      ch = @channels[frame.channel]
-      if ch.running?
-        yield ch
-      else
-        case frame
-        when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
-          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-        when AMQP::Frame::Body
-          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-          frame.body.skip(frame.body_size)
-        else
+      if ch = @channels[frame.channel]?
+        if ch.running?
           yield ch
+        else
+          case frame
+          when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
+            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+          when AMQP::Frame::Body
+            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            frame.body.skip(frame.body_size)
+          else
+            yield ch
+          end
         end
+      else
+        @log.error { "Channel #{frame.channel} not open" }
+        close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
       end
     end
 
@@ -138,18 +142,12 @@ module AvalancheMQ
       true
     rescue ex : AMQP::Error::NotImplemented
       @log.error { "#{frame.inspect}, not implemented" }
-      raise ex if ex.channel == 0
-      close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
+      if ex.channel.zero?
+        close_connection(ex, 540_u16, "NOT_IMPLEMENTED")
+      else
+        close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
+      end
       true
-    rescue ex : KeyError
-      raise ex unless frame.is_a? AMQP::Frame::Method
-      @log.error { "Channel #{frame.channel} not open" }
-      close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
-      true
-    rescue ex : Errno # Broken pipe
-      @log.error { "#{ex.inspect}, when processing frame" }
-      cleanup
-      false
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::Frame::Method
       @log.error { "#{ex.inspect}, when processing frame" }
@@ -192,7 +190,12 @@ module AvalancheMQ
 
     def close_connection(frame, code, text)
       @log.info { "Closing, #{text}" }
-      send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
+      case frame
+      when AMQ::Protocol::Frame::Method
+        send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
+      else
+        send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
+      end
       @running = false
     end
 
