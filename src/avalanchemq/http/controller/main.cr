@@ -85,17 +85,17 @@ module AvalancheMQ
               messages_unacked_log: unacked_log,
             },
             recv_oct_details: {
-              rate: recv_rate.round(1),
+              rate: recv_rate,
               log:  recv_rate_log,
             },
             send_oct_details: {
-              rate: send_rate.round(1),
+              rate: send_rate,
               log:  send_rate_log,
             },
             message_stats: {% begin %} {
               {% for name in QUEUE_STATS %}
               {{name.id}}_details: {
-                rate: {{name.id}}_rate.round(1),
+                rate: {{name.id}}_rate,
                 log: {{name.id}}_log,
               },
             {% end %} } {% end %},

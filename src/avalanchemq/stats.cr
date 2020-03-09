@@ -29,7 +29,7 @@ module AvalancheMQ
         {% for name in stats_keys %}
           @{{name.id}}_log.shift if @{{name.id}}_log.size > Config.instance.stats_log_size
           @{{name.id}}_log.push @{{name.id}}_rate
-          @{{name.id}}_rate = @{{name.id}}_count / interval
+          @{{name.id}}_rate = (@{{name.id}}_count / interval).round(1)
           @{{name.id}}_count = 0_u64
         {% end %}
         {% for name in log_keys %}
