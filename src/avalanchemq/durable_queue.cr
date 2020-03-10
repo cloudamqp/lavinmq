@@ -5,6 +5,8 @@ module AvalancheMQ
   class DurableQueue < Queue
     @durable = true
     @acks = 0_u32
+    @ack_lock = Mutex.new(:unchecked)
+    @enq_lock = Mutex.new(:unchecked)
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
@@ -19,8 +21,6 @@ module AvalancheMQ
       end
       @enq = File.open(File.join(@index_dir, "enq"), "a")
       @ack = File.open(File.join(@index_dir, "ack"), "a")
-      @ack_lock = Mutex.new
-      @enq_lock = Mutex.new
     end
 
     private def compact_index! : Nil

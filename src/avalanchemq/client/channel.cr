@@ -33,7 +33,7 @@ module AvalancheMQ
       @consumers = Array(Consumer).new
       @delivery_tag = 0_u64
       @unacked = Deque(Unack).new
-      @unack_lock = Mutex.new
+      @unack_lock = Mutex.new(:unchecked)
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count

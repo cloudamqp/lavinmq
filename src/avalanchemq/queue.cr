@@ -32,14 +32,14 @@ module AvalancheMQ
     @deliveries = Hash(SegmentPosition, Int32).new
     @read_lock = Mutex.new
     @consumers = Deque(Client::Channel::Consumer).new
-    @consumers_lock = Mutex.new
+    @consumers_lock = Mutex.new(:unchecked)
     @message_available = Channel(Nil).new
     @consumer_available = Channel(Nil).new(1)
     @ready = Deque(SegmentPosition).new(1024)
     @ready_lock = Mutex.new(:reentrant)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @unacked = Deque(Unack).new(1024)
-    @unack_lock = Mutex.new
+    @unack_lock = Mutex.new(:unchecked)
 
     record Unack,
       sp : SegmentPosition,

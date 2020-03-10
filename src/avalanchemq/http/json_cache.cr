@@ -9,7 +9,7 @@ module AvalancheMQ
       include ::HTTP::Handler
 
       @cache = CacheHash(String).new(5.seconds)
-      @mutex = Hash(String, Mutex).new { |h, k| h[k] = Mutex.new }
+      @mutex = Hash(String, Mutex).new { |h, k| h[k] = Mutex.new(:unchecked) }
 
       def initialize(@log : Logger)
       end

@@ -30,7 +30,7 @@ module AvalancheMQ
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
-    @write_lock = Mutex.new
+    @write_lock = Mutex.new(:unchecked)
     @fsync = false
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
@@ -61,7 +61,7 @@ module AvalancheMQ
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    @awaiting_confirm_lock = Mutex.new
+    @awaiting_confirm_lock = Mutex.new(:unchecked)
     @awaiting_confirm = Set(Client::Channel).new
 
     def waiting4confirm(channel)
@@ -79,7 +79,7 @@ module AvalancheMQ
       end
     end
 
-    @queues_to_fsync_lock = Mutex.new
+    @queues_to_fsync_lock = Mutex.new(:unchecked)
     @queues_to_fsync = Set(DurableQueue).new
 
     def fsync
