@@ -146,15 +146,6 @@ module AvalancheMQ
         @client.vhost.flow?
       end
 
-      @ts = Time.utc
-
-      private def timestamp_loop
-        loop do
-          @ts = Time.utc
-          sleep 1
-        end
-      end
-
       private def finish_publish
         @publish_count += 1
         ts = Time.utc
