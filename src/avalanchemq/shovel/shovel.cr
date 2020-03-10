@@ -48,8 +48,8 @@ module AvalancheMQ
           ::AMQP::Client.start(@destination.uri) do |p|
             c.channel do |cch|
               cch.prefetch @source.prefetch
-              queue_name, message_count = setup_queue(cch)
-              if @source.delete_after == DeleteAfter::QueueLength && message_count == 0
+              q = setup_queue(cch)
+              if @source.delete_after == DeleteAfter::QueueLength && q[:message_count] == 0
                 @state = State::Terminated
                 return
               end
@@ -57,8 +57,8 @@ module AvalancheMQ
                 pch.confirm_select if @ack_mode == AckMode::OnConfirm
                 no_ack = @ack_mode == AckMode::NoAck
                 @state = State::Running
-                cch.basic_consume(queue_name, no_ack: no_ack, tag: "Shovel") do |msg|
-                  shovel(msg, pch, message_count)
+                cch.basic_consume(q[:queue_name], no_ack: no_ack, tag: "Shovel") do |msg|
+                  shovel(msg, pch, q[:message_count])
                 end
                 ex = @stop.receive?
                 @state = State::Terminated
@@ -77,11 +77,11 @@ module AvalancheMQ
 
     private def setup_queue(cch)
       name = @source.queue || ""
-      q = cch.queue_declare(name)
+      q = cch.queue_declare(name, passive: true)
       if @source.exchange || @source.exchange_key
         cch.queue_bind(q[:queue_name], @source.exchange || "", @source.exchange_key || "")
       end
-      { q[:queue_name], q[:message_count] }
+      q
     end
 
     private def shovel(msg, pch, queue_length)
