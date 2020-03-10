@@ -16,6 +16,8 @@ module AvalancheMQ
       property? running = true
       getter? client_flow
 
+      @next_publish_mandatory = false
+      @next_publish_immediate = false
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
@@ -23,6 +25,15 @@ module AvalancheMQ
       @next_msg_body = IO::Memory.new(4096)
       @log : Logger
       @client_flow = true
+      @prefetch_size = 0_u32
+      @prefetch_count = 0_u16
+      @confirm_total = 0_u64
+      @confirm = false
+      @global_prefetch = false
+      @consumers = Array(Consumer).new
+      @delivery_tag = 0_u64
+      @unacked = Deque(Unack).new
+      @unack_lock = Mutex.new
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
@@ -31,18 +42,7 @@ module AvalancheMQ
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @prefetch_size = 0_u32
-        @prefetch_count = 0_u16
-        @confirm_total = 0_u64
-        @confirm = false
-        @global_prefetch = false
-        @next_publish_mandatory = false
-        @next_publish_immediate = false
 
-        @consumers = Array(Consumer).new
-        @delivery_tag = 0_u64
-        @unacked = Deque(Unack).new
-        @unack_lock = Mutex.new
       end
 
       record Unack,
@@ -128,7 +128,7 @@ module AvalancheMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish(@next_msg_body) if frame.body_size.zero?
+        finish_publish if frame.body_size.zero?
       end
 
       def add_content(frame)
@@ -138,7 +138,7 @@ module AvalancheMQ
         end
         if @next_msg_body.pos == @next_msg_size
           @next_msg_body.rewind
-          finish_publish(@next_msg_body)
+          finish_publish
         end
       end
 
@@ -146,7 +146,16 @@ module AvalancheMQ
         @client.vhost.flow?
       end
 
-      private def finish_publish(message_body)
+      @ts = Time.utc
+
+      private def timestamp_loop
+        loop do
+          @ts = Time.utc
+          sleep 1
+        end
+      end
+
+      private def finish_publish
         @publish_count += 1
         ts = Time.utc
         props = @next_msg_props.not_nil!
@@ -156,7 +165,7 @@ module AvalancheMQ
           @next_publish_routing_key.not_nil!,
           props,
           @next_msg_size,
-          message_body)
+          @next_msg_body)
         publish_and_return(msg)
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
