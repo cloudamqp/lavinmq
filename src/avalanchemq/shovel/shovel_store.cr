@@ -30,18 +30,18 @@ module AvalancheMQ
         config["dest-exchange-key"]?.try &.as_s?)
       shovel = Shovel.new(src, dest, name, @vhost, ack_mode, reconnect_delay)
       @shovels[name] = shovel
-      spawn(name: "Shovel '#{name}'") { shovel.run }
+      spawn(shovel.run, name: "Shovel '#{name}'")
       shovel
     rescue KeyError
       raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
     end
 
     def delete(name)
-      shovel = @shovels.delete name
-      return unless shovel
-      shovel.stop
-      @vhost.log.info { "Shovel '#{name}' deleted" }
-      shovel
+      if shovel = @shovels.delete name
+        shovel.stop
+        @vhost.log.info { "Shovel '#{name}' deleted" }
+        shovel
+      end
     end
 
     def each
