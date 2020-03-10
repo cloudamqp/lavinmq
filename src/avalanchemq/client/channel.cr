@@ -179,7 +179,6 @@ module AvalancheMQ
         else
           basic_return(msg)
         end
-        Fiber.yield if @publish_count % 8192 == 0
       rescue Queue::RejectOverFlow
         confirm_nack
       end

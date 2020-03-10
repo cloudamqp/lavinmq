@@ -50,10 +50,8 @@ module AvalancheMQ
           if ok
             if redelivered
               @channel.redeliver_count += 1
-              Fiber.yield if @channel.redeliver_count % 8192 == 0
             else
               @channel.deliver_count += 1
-              Fiber.yield if @channel.deliver_count % 8192 == 0
             end
           end
           ok

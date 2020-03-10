@@ -275,11 +275,11 @@ module AvalancheMQ
         routing_key, false, arguments)
     end
 
-    @apply_count = 0_u32
+    @apply_count = 0_u64
 
     # ameba:disable Metrics/CyclomaticComplexity
     def apply(f, loading = false) : Bool
-      Fiber.yield if (@apply_count += 1_u32) % 128_u32 == 0_u32
+      Fiber.yield if (@apply_count += 1) % 128 == 0
       case f
       when AMQP::Frame::Exchange::Declare
         return false if @exchanges.has_key? f.exchange_name

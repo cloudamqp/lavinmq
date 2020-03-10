@@ -201,6 +201,7 @@ module AvalancheMQ
     end
 
     private def deliver_loop
+      i = 0_u64
       loop do
         break if @closed
         if @ready.empty?
@@ -211,6 +212,10 @@ module AvalancheMQ
         else
           break if @closed
           consumer_or_expire || break
+        end
+        if (i += 1) == 8192
+          Fiber.yield
+          i = 0
         end
       rescue Channel::ClosedError
         @log.debug "Delivery loop channel closed"
@@ -457,7 +462,10 @@ module AvalancheMQ
             if expire_in <= 0
               @ready.shift
               expire_msg(env.message, sp, :expired)
-              Fiber.yield if (i += 1) % 8192 == 0
+              if (i += 1) == 8192
+                Fiber.yield
+                i = 0
+              end
             else
               @log.debug { "No more message to expire" }
               return
@@ -643,7 +651,6 @@ module AvalancheMQ
       end
       @deliveries.delete(sp)
       @ack_count += 1
-      Fiber.yield if @ack_count % 8192 == 0
       consumer_available
     end
 
@@ -703,7 +710,6 @@ module AvalancheMQ
         end
       end
       @reject_count += 1
-      Fiber.yield if @reject_count % 8192 == 0
     end
 
     private def requeue_many(sps : Enumerable(SegmentPosition))
