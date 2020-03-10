@@ -192,6 +192,7 @@ module AvalancheMQ
       end
       @segments.delete_if do |seg, f|
         unless s.includes? seg
+          @segment_pos.delete seg
           @log.debug { "Closing non referenced segment #{seg}" }
           f.close
           true
