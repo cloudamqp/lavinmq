@@ -46,26 +46,23 @@ module AvalancheMQ
         @state = State::Starting
         ::AMQP::Client.start(@source.uri) do |c|
           ::AMQP::Client.start(@destination.uri) do |p|
-            c.channel do |cch|
-              cch.prefetch @source.prefetch
-              q = setup_queue(cch)
-              if @source.delete_after == DeleteAfter::QueueLength && q[:message_count] == 0
-                @state = State::Terminated
-                return
-              end
-              p.channel do |pch|
-                pch.confirm_select if @ack_mode == AckMode::OnConfirm
-                no_ack = @ack_mode == AckMode::NoAck
-                @state = State::Running
-                cch.basic_consume(q[:queue_name], no_ack: no_ack, tag: "Shovel") do |msg|
-                  shovel(msg, pch, q[:message_count])
-                end
-                ex = @stop.receive?
-                @state = State::Terminated
-                raise ex if ex
-                return
-              end
+            cch, q = setup_queue(c)
+            cch.prefetch @source.prefetch
+            return if @source.delete_after == DeleteAfter::QueueLength && q[:message_count].zero?
+
+            pch = p.channel
+            pch.confirm_select if @ack_mode == AckMode::OnConfirm
+            no_ack = @ack_mode == AckMode::NoAck
+            @state = State::Running
+
+            cch.basic_consume(q[:queue_name], no_ack: no_ack, tag: "Shovel") do |msg|
+              shovel(msg, pch, q[:message_count])
             end
+
+            if ex = @stop.receive?
+              raise ex
+            end
+            return
           end
         end
       rescue ex
@@ -73,15 +70,23 @@ module AvalancheMQ
         @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
         sleep @reconnect_delay.seconds
       end
+    ensure
+      @state = State::Terminated
     end
 
-    private def setup_queue(cch)
+    private def setup_queue(c)
+      cch = c.channel
       name = @source.queue || ""
-      q = cch.queue_declare(name, passive: true)
+      q = begin
+            cch.queue_declare(name, passive: true)
+          rescue ::AMQP::Client::Channel::ClosedException
+            cch = c.channel
+            cch.queue_declare(name, passive: false)
+          end
       if @source.exchange || @source.exchange_key
         cch.queue_bind(q[:queue_name], @source.exchange || "", @source.exchange_key || "")
       end
-      q
+      return { cch, q }
     end
 
     private def shovel(msg, pch, queue_length)
