@@ -209,7 +209,7 @@ module AvalancheMQ
         send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
       end
 
-      private def basic_return(msg)
+      def basic_return(msg)
         @return_unroutable_count += 1
         if @next_publish_immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
