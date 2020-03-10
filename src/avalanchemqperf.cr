@@ -86,12 +86,12 @@ class Throughput < Perf
   def run
     super
 
-    @publishers.times do
-      spawn pub
-    end
-
     @consumers.times do
       spawn consume
+    end
+
+    @publishers.times do
+      spawn pub
     end
 
     loop do
