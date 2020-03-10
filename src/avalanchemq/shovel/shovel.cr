@@ -37,7 +37,7 @@ module AvalancheMQ
       {
         name:  @name,
         vhost: @vhost.name,
-        state: @state,
+        state: @state.to_s,
       }
     end
 
