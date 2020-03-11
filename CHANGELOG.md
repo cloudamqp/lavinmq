@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Move messages between queues is now working again
+- Connection view is working again
+- Memory leak in queue's segment position cache fixed
+
+### Changed
+- Shovel now try to declare the source queue as passive, non-passive if that fails
+- Using (faster) unchecked mutexes whenever possible
+
 ## [0.9.8] - 2020-03-09
 
 ### Fixed
