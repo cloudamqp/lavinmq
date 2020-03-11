@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.9] - 2020-03-11
+
 ### Fixed
 - Move messages between queues is now working again
 - Connection view is working again
