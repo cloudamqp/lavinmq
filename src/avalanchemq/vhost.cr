@@ -106,7 +106,7 @@ module AvalancheMQ
     # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
     # So a Bool return from publish if not engough to cover all cases, hence the Tuple typed
     # @outgoing channel / Anders
-    def publish(msg : Message, immediate = false, confirm = false) : Bool
+    def publish(msg : Message, immediate = false) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       visited, found_queues = @cache[Fiber.current]
