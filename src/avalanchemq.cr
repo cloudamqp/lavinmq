@@ -156,11 +156,10 @@ def dump_string_pool(io)
 end
 
 Signal::USR1.trap do
-  STDOUT.puts "Uptime: #{amqp_server.uptime}s"
-  STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   STDOUT.puts System.resource_usage
   STDOUT.puts GC.prof_stats
   report(amqp_server)
+  STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   File.open(File.join(amqp_server.data_dir, "string_pool.dump"), "w") do |f|
     STDOUT.puts "Dumping string pool to #{f.path}"
     dump_string_pool(f)
