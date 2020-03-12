@@ -201,16 +201,18 @@ module AvalancheMQ
     end
 
     private def deliver_loop
-      i = 0_u64
+      i = 0
       loop do
         break if @closed
         if @ready.empty?
+          i = 0
           receive_or_expire || break
         end
-        if c = find_consumer
+        if c = find_consumer(i)
           deliver_to_consumer(c)
         else
           break if @closed
+          i = 0
           consumer_or_expire || break
         end
         if (i += 1) == 8192
@@ -276,7 +278,7 @@ module AvalancheMQ
       true
     end
 
-    private def find_consumer
+    private def find_consumer(i)
       @log.debug { "Looking for available consumers" }
       case @consumers.size
       when 0
@@ -285,6 +287,10 @@ module AvalancheMQ
         c = @consumers[0]
         c.accepts? ? c : nil
       else
+        if i > 0 # reuse same consumer for a while if we're delivering fast
+          c = @consumers[0]
+          return c if c.accepts?
+        end
         @consumers_lock.synchronize do
           @consumers.size.times do
             c = @consumers.shift
