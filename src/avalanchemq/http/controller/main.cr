@@ -71,7 +71,7 @@ module AvalancheMQ
 
           {
             avalanchemq_version: AvalancheMQ::VERSION,
-            uptime: @amqp_server.uptime,
+            uptime: @amqp_server.uptime.to_i,
             object_totals:       {
               channels:    channels,
               connections: connections,

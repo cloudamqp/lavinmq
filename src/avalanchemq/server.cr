@@ -22,6 +22,7 @@ module AvalancheMQ
     alias ConnectionsEvents = Channel(Tuple(Client, Symbol))
     include ParameterTarget
 
+    @start = Time.monotonic
     @closed = false
     @flow = true
 
@@ -34,7 +35,6 @@ module AvalancheMQ
       @users = UserStore.new(@data_dir, @log)
       @vhosts = VHostStore.new(@data_dir, @connection_events, @log, @users.default_user)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
-      @start = Time.monotonic
       apply_parameter
       spawn handle_connection_events, name: "Server#handle_connection_events"
       spawn stats_loop, name: "Server#stats_loop"
@@ -249,7 +249,7 @@ module AvalancheMQ
     end
 
     def uptime
-      (Time.monotonic - @start).to_i
+      Time.monotonic - @start
     end
   end
 end
