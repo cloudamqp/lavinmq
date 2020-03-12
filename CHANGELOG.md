@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.10] - 2020-03-12
+
+### Changed
+- Timestamps are only accurate to the second, giving a 10% publish speed boost
+- Default value for queue_max_ack is doubled to 2M messages, decreasing number of index compactions
+- Don't maintaine perfect round robin to consumers in high throughput scenarios, increasing delivery rate dramatically
+
 ## [0.9.9] - 2020-03-11
 
 ### Fixed
