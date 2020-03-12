@@ -436,7 +436,7 @@ module AvalancheMQ
       exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
       if exp_ms
         expire_at = meta.timestamp + exp_ms
-        expire_in = expire_at - Time.utc.to_unix_ms
+        expire_in = expire_at - RoughTime.utc.to_unix_ms
         if expire_in > 0
           expire_in.milliseconds
         else
@@ -449,7 +449,7 @@ module AvalancheMQ
       @ready_lock.lock
       @read_lock.lock
       i = 0
-      now = Time.utc.to_unix_ms
+      now = RoughTime.utc.to_unix_ms
       loop do
         sp = @ready[0]? || break
         @log.debug { "Checking if next message has to be expired" }
