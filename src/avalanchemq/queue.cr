@@ -145,7 +145,7 @@ module AvalancheMQ
       if ml = @max_length
         @ready_lock.synchronize do
           while @ready.size > ml
-            drophead
+            drophead || break
           end
         end
       end
@@ -398,9 +398,9 @@ module AvalancheMQ
     private def handle_max_length
       if ml = @max_length
         @log.debug { "Overflow #{@max_length} #{@reject_on_overflow ? "reject-publish" : "drop-head"}" }
-        while @ready.size >= ml
+        until @ready.size < ml
           raise RejectOverFlow.new if @reject_on_overflow
-          drophead
+          drophead || break
         end
       end
     end
@@ -734,10 +734,13 @@ module AvalancheMQ
       message_available if was_empty
     end
 
-    private def drophead
+    private def drophead : Bool
       if sp = @ready.shift?
         @log.debug { "Overflow drop head sp=#{sp}" }
         expire_msg(sp, :maxlen)
+        true
+      else
+        false
       end
     end
 
