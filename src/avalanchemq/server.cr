@@ -38,7 +38,6 @@ module AvalancheMQ
       apply_parameter
       spawn handle_connection_events, name: "Server#handle_connection_events"
       spawn stats_loop, name: "Server#stats_loop"
-      spawn health_loop, name: "Server#health_loop"
     end
 
     def listen(bind = "::", port = 5672)
@@ -219,27 +218,76 @@ module AvalancheMQ
           connection.update_rates
           connection.channels.each_value(&.update_rates)
         end
+
+        interval = Config.instance.stats_interval.milliseconds.to_i
+        log_size = Config.instance.stats_log_size
+        rusage = System.resource_usage
+
+        {% for m in METRICS %}
+          until @{{m.id}}_log.size < log_size
+            @{{m.id}}_log.shift
+          end
+          {% if m.id.ends_with? "_time" %}
+            {{m.id}} = rusage.{{m.id}}.total_milliseconds.to_i64
+            {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / (interval * 1000)).round(2)
+          {% else %}
+            {{m.id}} = rusage.{{m.id}}.to_i64
+            {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / interval).round(2)
+          {% end %}
+          @{{m.id}}_log.push {{m.id}}_rate
+          @{{m.id}} = {{m.id}}
+        {% end %}
+
+        until @max_rss_log.size < log_size
+          @max_rss_log.shift
+        end
+        max_rss = rusage.max_rss.to_i64
+        @max_rss_log.push max_rss
+        @max_rss = max_rss
+
+        fs_stats = Filesystem.info(@data_dir)
+        until @disk_free_log.size < log_size
+          @disk_free_log.shift
+        end
+        disk_free = fs_stats.available.to_i64
+        @disk_free_log.push disk_free
+        @disk_free = disk_free
+
+        until @disk_total_log.size < log_size
+          @disk_total_log.shift
+        end
+        disk_total = fs_stats.total.to_i64
+        @disk_total_log.push disk_total
+        @disk_total = disk_total
+
+        control_flow!
       end
     end
 
-    private def health_loop
-      sleep 2.seconds
-      loop do
-        break if closed?
-        available = Filesystem.info(@data_dir).available
-        @log.debug { "Available disk space: #{available.humanize}B" }
-        if available < Config.instance.segment_size * 2
-          if @flow
-            @log.info { "Low disk space: #{available.humanize}B, stopping flow" }
-            flow(false)
-          end
-        elsif !@flow
-          @log.info { "Low disk space resolved, starting flow" }
-          flow(true)
-        elsif available < Config.instance.segment_size * 3
-          @log.warn { "Low disk space: #{available} MB" }
+    METRICS = { :user_time, :sys_time, :blocks_out, :blocks_in }
+
+    {% for m in METRICS %}
+      getter {{m.id}} = 0_i64
+      getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
+    {% end %}
+    getter max_rss = 0_i64
+    getter max_rss_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter disk_total = 0_i64
+    getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter disk_free = 0_i64
+    getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
+
+    private def control_flow!
+      if @disk_free < Config.instance.segment_size * 2
+        if flow?
+          @log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
+          flow(false)
         end
-        sleep 60.seconds
+      elsif !flow?
+        @log.info { "Not low on disk space, starting flow" }
+        flow(true)
+      elsif @disk_free < Config.instance.segment_size * 3
+        @log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
 
