@@ -30,7 +30,7 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
-    @read_lock = Mutex.new
+    @read_lock = Mutex.new(:reentrant)
     @consumers = Deque(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new(:unchecked)
     @message_available = Channel(Nil).new
@@ -459,7 +459,7 @@ module AvalancheMQ
       loop do
         sp = @ready[0]? || break
         @log.debug { "Checking if next message has to be expired" }
-        read(sp, locked: true) do |env|
+        read(sp) do |env|
           @log.debug { "Next message: #{env.message}" }
           exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
           if exp_ms
@@ -604,9 +604,8 @@ module AvalancheMQ
       env
     end
 
-    def read(sp : SegmentPosition, locked = false, &blk : Envelope -> Nil)
-      @read_lock.lock unless locked
-      @read_lock.assert_locked!
+    def read(sp : SegmentPosition, &blk : Envelope -> Nil)
+      @read_lock.lock
       seg = @segments[sp.segment]
       if @segment_pos[sp.segment] != sp.position
         @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos[sp.segment]}" }
@@ -644,7 +643,7 @@ module AvalancheMQ
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       raise ex
     ensure
-      @read_lock.unlock unless locked
+      @read_lock.unlock
     end
 
     def ack(sp : SegmentPosition, persistent : Bool) : Nil
