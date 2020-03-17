@@ -219,6 +219,22 @@ describe AvalancheMQ::Server do
     s.vhosts["/"].delete_queue("exp")
   end
 
+  it "dead-letter expired messages to non existing exchange" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-max-length"] = 1
+      args["x-dead-letter-exchange"] = "not_found"
+      q = ch.queue "", durable: false, exclusive: true, args: args
+
+      q.publish_confirm "1"
+      q.publish_confirm "2"
+      q.publish_confirm "3"
+      msg = q.get(no_ack: true)
+      msg.should_not be_nil
+      msg.not_nil!.body_io.to_s.should eq "3"
+    end
+  end
+
   it "handle immediate flag" do
     with_channel do |ch|
       pmsg = "m1"
