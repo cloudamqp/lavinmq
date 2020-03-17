@@ -5,8 +5,6 @@ module AvalancheMQ
     class NodesController < Controller
       private def register_routes
         get "/api/nodes" do |context, _params|
-          fs_stats = Filesystem.info(@amqp_server.data_dir)
-          rusage = System.resource_usage
           JSON.build(context.response) do |json|
             json.array do
               {
