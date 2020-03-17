@@ -197,7 +197,7 @@ sysctl -w net.ipv4.tcp_max_syn_backlog=2048 # default 512
 In Linux `perf` is the tool of choice when tracing and measuring performance.
 
 To see which syscalls that are made use:
-```
+```bash
 sudo perf trace -p $(pidof avalanchemq)
 ```
 
