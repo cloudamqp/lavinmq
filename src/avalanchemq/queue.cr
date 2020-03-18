@@ -626,10 +626,6 @@ module AvalancheMQ
         @segment_pos[sp.segment] = sp.position + msg.bytesize
         @requeued.delete(sp) if redelivered
       end
-    rescue ex : IO::EOFError
-      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
-      @log.error { "Could not read sp=#{sp}, rejecting" }
-      drop sp, true, true
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       drop sp, true, true
