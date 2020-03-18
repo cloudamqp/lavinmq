@@ -657,38 +657,31 @@ module AvalancheMQ
     end
 
     # dropping a specific message/segmentposition
-    # ready lock has be aquired before calling this method
-    private def drop(sp, delete_in_ready, persistent) : Nil
+    private def drop(sp, in_ready, persistent) : Nil
       return if @deleted
       @log.debug { "Dropping #{sp}" }
-      @ready_lock.lock
 
-      unacked = @unack_lock.synchronize do
-        if idx = @unacked.index { |u| u.sp == sp }
-          @unacked.delete_at(idx)
-          true
-        end
-      end
-
-      if delete_in_ready && !unacked
-        if @ready.first == sp
-          @ready.shift
-        else
-          @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
-          if idx = @ready.bsearch_index { |rsp| rsp >= sp }
-            if @ready[idx] == sp
-              @ready.delete_at(idx)
+      if in_ready
+        @ready_lock.synchronize do
+          if @ready.empty?
+            @log.debug { "Dropping #{sp} but ready queue is empty" }
+          elsif @ready.first == sp
+            @ready.shift
+          else
+            @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
+            if idx = @ready.bsearch_index { |rsp| rsp >= sp }
+              if @ready[idx] == sp
+                @ready.delete_at(idx)
+              else
+                @log.error { "Dropping #{sp} but wasn't in ready queue" }
+              end
             else
               @log.error { "Dropping #{sp} but wasn't in ready queue" }
             end
-          else
-            @log.error { "Dropping #{sp} but wasn't in ready queue" }
           end
         end
       end
       @deliveries.delete(sp)
-    ensure
-      @ready_lock.unlock
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
