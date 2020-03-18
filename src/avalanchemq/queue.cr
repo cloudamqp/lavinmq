@@ -426,9 +426,7 @@ module AvalancheMQ
       end
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      @ready_lock.synchronize do
-        drop(sp, true, true)
-      end
+      drop(sp, true, true)
     rescue ex : IO::EOFError
       pos = @segments[sp.segment].pos.to_u32
       @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
