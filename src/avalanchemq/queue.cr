@@ -212,7 +212,6 @@ module AvalancheMQ
           deliver_to_consumer(c)
         else
           break if @closed
-          handle_max_length
           i = 0
           consumer_or_expire || break
         end
@@ -380,12 +379,20 @@ module AvalancheMQ
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
       @log.debug { "Enqueuing message sp=#{sp}" }
-      @publish_count += 1
+      if ml = @max_length
+        if @reject_on_overflow
+          if @ready.size >= ml
+            raise RejectOverFlow.new
+          end
+        end
+      end
       was_empty = false
       @ready_lock.synchronize do
         was_empty = @ready.empty?
+        handle_max_length unless was_empty
         @ready.push sp
       end
+      @publish_count += 1
       message_available if was_empty
       @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} \
                     consumers=#{@consumers.size}" }
@@ -397,12 +404,8 @@ module AvalancheMQ
 
     private def handle_max_length
       if ml = @max_length
-        @log.debug { "Overflow #{@max_length} #{@reject_on_overflow ? "reject-publish" : "drop-head"}" }
-        @ready_lock.synchronize do
-          while @ready.size > ml
-            raise RejectOverFlow.new if @reject_on_overflow
-            drophead || break
-          end
+        while @ready.size >= ml
+          drophead || break
         end
       end
     end
