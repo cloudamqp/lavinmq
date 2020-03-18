@@ -104,10 +104,12 @@ module AvalancheMQ
     # should be Acks, apart from Exceptions.
     # As long as at least one queue reject the publish due to overflow a Nack should be sent,
     # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
-    # So a Bool return from publish if not engough to cover all cases, hence the Tuple typed
-    # @outgoing channel / Anders
-    def publish(msg : Message, immediate = false) : Bool
-      ex = @exchanges[msg.exchange_name]? || return false
+    # Method returns nil if the message hasn't been written to disk
+    # True if it also succesfully wrote to one or more queues
+    # False if no queue was able to receive the message because they're
+    # closed
+    def publish(msg : Message, immediate = false) : Bool?
+      ex = @exchanges[msg.exchange_name]? || return
       ex.publish_in_count += 1
       visited, found_queues = @cache[Fiber.current]
       # publish is called from Queue due to dead-lettering
@@ -118,22 +120,23 @@ module AvalancheMQ
       end
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
-      return false if found_queues.empty?
-      return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      return if found_queues.empty?
+      return if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
         write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = false
       found_queues.each do |q|
-        ex.publish_out_count += 1
-        next unless q.publish(sp, flush)
-        if q.is_a?(DurableQueue) && flush
-          @queues_to_fsync_lock.synchronize do
-            @queues_to_fsync << q
+        if q.publish(sp, flush)
+          ex.publish_out_count += 1
+          if q.is_a?(DurableQueue) && flush
+            @queues_to_fsync_lock.synchronize do
+              @queues_to_fsync << q
+            end
           end
+          ok = true
         end
-        ok = true
       end
       ok
     ensure
