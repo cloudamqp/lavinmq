@@ -548,7 +548,10 @@ module AvalancheMQ
     end
 
     private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
-      @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s, props, msg.size, msg.body_io)
+      @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+      ok = @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
+                                      props, msg.size, msg.body_io)
+      msg.body_io.skip(msg.size) if ok.nil?
     end
 
     private def expire_queue(now = Time.monotonic) : Bool
