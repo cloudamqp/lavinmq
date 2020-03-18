@@ -467,7 +467,7 @@ module AvalancheMQ
             expire_in = expire_at - now
             if expire_in <= 0
               @ready.shift
-              expire_msg(env.message, sp, :expired)
+              expire_msg(env, :expired)
               if (i += 1) == 8192
                 Fiber.yield
                 i = 0
@@ -490,11 +490,13 @@ module AvalancheMQ
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
       read(sp) do |env|
-        expire_msg(env.message, sp, reason)
+        expire_msg(env, reason)
       end
     end
 
-    private def expire_msg(msg : Message, sp : SegmentPosition, reason : Symbol)
+    private def expire_msg(env : Envelope, reason : Symbol)
+      sp = env.segment_position
+      msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       if dlx
@@ -507,7 +509,7 @@ module AvalancheMQ
       persistent = msg.properties.delivery_mode == 2_u8
       drop sp, false, persistent
     rescue ex : IO::EOFError
-      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
+      @segment_pos[env.segment_position.segment] = @segments[env.segment_position.segment].pos.to_u32
       raise ex
     end
 
@@ -594,7 +596,7 @@ module AvalancheMQ
         @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
         if delivery_count >= limit
           @ready_lock.synchronize do
-            expire_msg(env.message, sp, :delivery_limit)
+            expire_msg(env, :delivery_limit)
           end
           return nil
         end
