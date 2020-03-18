@@ -638,9 +638,8 @@ module AvalancheMQ
         @log.error "Error reading message at #{sp}: #{ex.inspect}"
         @log.error "Hexdump of the first 1024 bytes on disk:"
         seg.seek(sp.position, IO::Seek::Set)
-        buffer = uninitialized UInt8[1024]
         io = IO::Hexdump.new(seg, output: STDERR, read: true)
-        io.read(buffer.to_slice)
+        io.skip 1024
       end
       @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
       raise ex
