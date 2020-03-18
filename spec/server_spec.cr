@@ -235,6 +235,28 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "can publish to queues with max-length 0" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-max-length"] = 0
+      q = ch.queue "", durable: false, exclusive: true, args: args
+      mch = Channel(AMQP::Client::Message).new(2)
+      q.subscribe(no_ack: true) do |msg|
+        mch.send msg
+      end
+      q.publish "1"
+      q.publish "2"
+      2.times do
+        select
+        when msg = mch.receive?
+          msg.should_not be_nil
+        when timeout 2.seconds
+          raise "timeout"
+        end
+      end
+    end
+  end
+
   it "handle immediate flag" do
     with_channel do |ch|
       pmsg = "m1"
