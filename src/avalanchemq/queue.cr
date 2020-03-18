@@ -399,7 +399,7 @@ module AvalancheMQ
       if ml = @max_length
         @log.debug { "Overflow #{@max_length} #{@reject_on_overflow ? "reject-publish" : "drop-head"}" }
         @ready_lock.synchronize do
-          while @ready.size >= ml
+          while @ready.size > ml
             raise RejectOverFlow.new if @reject_on_overflow
             drophead || break
           end
