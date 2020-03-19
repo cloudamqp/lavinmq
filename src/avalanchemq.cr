@@ -114,7 +114,6 @@ def report(s)
     puts_size_capacity c.@channels, 4
     c.channels.each_value do |ch|
       puts "    #{ch.id} prefetch=#{ch.prefetch_size}"
-      puts_size_capacity ch.@next_msg_body, 6
       puts_size_capacity ch.@unacked, 6
       puts_size_capacity ch.@consumers, 6
     end

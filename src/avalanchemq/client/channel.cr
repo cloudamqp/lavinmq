@@ -21,8 +21,8 @@ module AvalancheMQ
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
+      @next_msg_body_pos = 0
       @next_msg_props : AMQP::Properties?
-      @next_msg_body = IO::Memory.new(4096)
       @log : Logger
       @client_flow = true
       @prefetch_size = 0_u32
@@ -42,7 +42,7 @@ module AvalancheMQ
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-
+        @next_msg_body = File.open(File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64), "w+")
       end
 
       record Unack,
@@ -132,13 +132,24 @@ module AvalancheMQ
       end
 
       def add_content(frame)
-        copied = IO.copy(frame.body, @next_msg_body, frame.body_size)
-        if copied != frame.body_size
-          raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
-        end
-        if @next_msg_body.pos == @next_msg_size
-          @next_msg_body.rewind
-          finish_publish
+        if frame.body_size == @next_msg_size
+          finish_publish(frame.body)
+        else
+          copied = IO.copy(frame.body, @next_msg_body, frame.body_size)
+          if copied != frame.body_size
+            raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
+          end
+          @next_msg_body_pos += copied
+          if @next_msg_body_pos == @next_msg_size
+            @next_msg_body.flush
+            @next_msg_body.rewind
+            begin
+              finish_publish(@next_msg_body)
+            ensure
+              @next_msg_body.truncate
+              @next_msg_body_pos = 0
+            end
+          end
         end
       end
 
@@ -146,7 +157,7 @@ module AvalancheMQ
         @client.vhost.flow?
       end
 
-      private def finish_publish
+      private def finish_publish(body_io)
         @publish_count += 1
         ts = RoughTime.utc
         props = @next_msg_props.not_nil!
@@ -156,7 +167,7 @@ module AvalancheMQ
           @next_publish_routing_key.not_nil!,
           props,
           @next_msg_size,
-          @next_msg_body)
+          body_io)
         publish_and_return(msg)
       rescue ex
         @log.warn { "Could not handle message #{ex.inspect}" }
@@ -164,7 +175,6 @@ module AvalancheMQ
         raise ex
       ensure
         @next_msg_size = 0_u64
-        @next_msg_body.clear
         @next_msg_props = nil
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
@@ -217,6 +227,11 @@ module AvalancheMQ
         elsif @next_publish_mandatory
           retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
+        else
+          @log.debug { "Skipping body of non read message #{msg.body_io.class}" }
+          unless msg.body_io.is_a?(File)
+            msg.body_io.skip(msg.size)
+          end
         end
         # basic.nack will only be delivered if an internal error occurs...
         confirm_ack
@@ -392,6 +407,7 @@ module AvalancheMQ
         delete_unacked(0_u64, multiple: true) do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
+        @next_msg_body.delete
         @log.debug { "Closed" }
       end
 
