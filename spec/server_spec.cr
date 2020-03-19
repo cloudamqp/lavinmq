@@ -160,6 +160,13 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "can handle messages going to no queue" do
+    with_channel do |ch|
+      ch.basic_publish_confirm("m1", "amq.direct", "none").should eq true
+      ch.basic_publish_confirm("m2", "amq.direct", "none").should eq true
+    end
+  end
+
   it "expires messages" do
     with_channel do |ch|
       q = ch.queue
