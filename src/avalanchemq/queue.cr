@@ -379,17 +379,18 @@ module AvalancheMQ
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
       @log.debug { "Enqueuing message sp=#{sp}" }
-      if ml = @max_length
-        if @reject_on_overflow
-          if @ready.size >= ml
-            raise RejectOverFlow.new
-          end
-        end
+      ml = @max_length
+      if ml && @reject_on_overflow && @ready.size >= ml
+        raise RejectOverFlow.new
       end
       was_empty = false
       @ready_lock.synchronize do
         was_empty = @ready.empty?
-        handle_max_length unless was_empty
+        if ml && !was_empty
+          while @ready.size >= ml
+            drophead || break
+          end
+        end
         @ready.push sp
       end
       @publish_count += 1
@@ -400,14 +401,6 @@ module AvalancheMQ
     rescue ex : RejectOverFlow
       @log.debug { "Overflow reject message sp=#{sp}" }
       raise ex
-    end
-
-    private def handle_max_length
-      if ml = @max_length
-        while @ready.size >= ml
-          drophead || break
-        end
-      end
     end
 
     private def metadata(sp) : MessageMetadata?
