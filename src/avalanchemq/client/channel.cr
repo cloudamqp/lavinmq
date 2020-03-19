@@ -128,7 +128,7 @@ module AvalancheMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish if frame.body_size.zero?
+        finish_publish(@next_msg_body) if frame.body_size.zero?
       end
 
       def add_content(frame)
