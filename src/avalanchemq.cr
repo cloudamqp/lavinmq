@@ -116,6 +116,8 @@ def report(s)
       puts "    #{ch.id} prefetch=#{ch.prefetch_size}"
       puts_size_capacity ch.@unacked, 6
       puts_size_capacity ch.@consumers, 6
+      puts_size_capacity ch.@visited, 6
+      puts_size_capacity ch.@found_queues, 6
     end
   end
   puts_size_capacity s.@users
@@ -123,12 +125,6 @@ def report(s)
   s.vhosts.each do |_, vh|
     puts "VHost #{vh.name}"
     puts_size_capacity vh.@awaiting_confirm, 4
-    puts_size_capacity vh.@cache, 4
-    vh.@cache.each do |fiber, cache|
-      puts "    #{fiber.inspect} match cache"
-      puts_size_capacity cache[0], 6
-      puts_size_capacity cache[1], 6
-    end
     puts_size_capacity vh.@exchanges, 4
     puts_size_capacity vh.@queues, 4
     vh.queues.each do |_, q|
