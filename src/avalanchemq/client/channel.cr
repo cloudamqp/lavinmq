@@ -43,7 +43,9 @@ module AvalancheMQ
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @next_msg_body = File.open(File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64), "w+")
+        tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
+        @next_msg_body = File.open(tmp_path, "w+")
+        @next_msg_body.delete
       end
 
       record Unack,
@@ -411,7 +413,7 @@ module AvalancheMQ
         delete_unacked(0_u64, multiple: true) do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
-        @next_msg_body.delete
+        @next_msg_body.close
         @log.debug { "Closed" }
       end
 
