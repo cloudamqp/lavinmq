@@ -1,5 +1,6 @@
 require "logger"
 require "./channel/consumer"
+require "../exchange"
 require "../queue"
 require "../amqp"
 require "../stats"
@@ -180,10 +181,13 @@ module AvalancheMQ
         @next_publish_mandatory = @next_publish_immediate = false
       end
 
+      @visited = Set(Exchange).new
+      @found_queues = Set(Queue).new
+
       private def publish_and_return(msg)
         return true if direct_reply?(msg)
         @confirm_total += 1 if @confirm
-        ok = @client.vhost.publish msg, immediate: @next_publish_immediate
+        ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
         if ok
           @client.vhost.waiting4confirm(self) if @confirm
         else

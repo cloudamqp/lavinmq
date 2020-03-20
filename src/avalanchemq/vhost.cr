@@ -98,8 +98,6 @@ module AvalancheMQ
       @fsync = false
     end
 
-    @cache = Hash(Fiber, Tuple(Set(Exchange), Set(Queue))).new { |h, k| h[k] = { Set(Exchange).new, Set(Queue).new } }
-
     # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
     # should be Acks, apart from Exceptions.
     # As long as at least one queue reject the publish due to overflow a Nack should be sent,
@@ -108,16 +106,10 @@ module AvalancheMQ
     # True if it also succesfully wrote to one or more queues
     # False if no queue was able to receive the message because they're
     # closed
-    def publish(msg : Message, immediate = false) : Bool?
+    def publish(msg : Message, immediate = false,
+                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool?
       ex = @exchanges[msg.exchange_name]? || return
       ex.publish_in_count += 1
-      visited, found_queues = @cache[Fiber.current]
-      # publish is called from Queue due to dead-lettering
-      # these cached sets won't be empty so create new sets in that case
-      unless visited.empty? && found_queues.empty?
-        visited = Set(Exchange).new
-        found_queues = Set(Queue).new
-      end
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       return if found_queues.empty?
@@ -140,8 +132,8 @@ module AvalancheMQ
       end
       ok
     ensure
-      visited.try &.clear
-      found_queues.try &.clear
+      visited.clear
+      found_queues.clear
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
