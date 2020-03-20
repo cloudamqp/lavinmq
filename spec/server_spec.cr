@@ -242,7 +242,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "can publish to queues with max-length 0" do
+  pending "can publish to queues with max-length 0" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
       args["x-max-length"] = 0
