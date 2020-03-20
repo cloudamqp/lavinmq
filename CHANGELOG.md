@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.11] - 2020-03-20
+
+### Added
+- More stats in the /api/nodes endpoint, including CPU, diskspace, IOPS etc
+- Structure the output of USR1 signal better
+
+### Fixed
+- Bug when publishing to a queue that has reach its max-length
+- Memory leak of queue lookup caches, the caches are now moved to the Channel
+
+### Changed
+- No logging of GC of segments, except in debug mode
+- Message bodies smaller than a frame is written directly to disk
+- Message bodies spread out over several frames to temporarily written to disk
+
 ## [0.9.10] - 2020-03-12
 
 ### Changed
