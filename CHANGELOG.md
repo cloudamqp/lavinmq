@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] - 2020-03-22
+
+### Fixed
+- FD leak in queues. Segments weren't closed until all queue missed reference to it.
+
 ## [0.9.11] - 2020-03-20
 
 ### Added
