@@ -205,6 +205,14 @@ module AvalancheMQ
       @referenced_segments.clear
     end
 
+    def close_segments
+      @read_lock.synchronize do
+        @segments.each_value &.close
+        @segments.clear
+        @segment_pos.clear
+      end
+    end
+
     private def deliver_loop
       i = 0
       loop do
