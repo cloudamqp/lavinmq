@@ -179,25 +179,30 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
+    @referenced_segments = Set(UInt32).new
+
     def referenced_segments(s : Set(UInt32))
       @unack_lock.synchronize do
         @unacked.each do |u|
-          s << u.sp.segment
+          @referenced_segments << u.sp.segment
         end
       end
       @ready_lock.synchronize do
         @ready.each do |sp|
-          s << sp.segment
+          @referenced_segments << sp.segment
         end
       end
       @segments.delete_if do |seg, f|
-        unless s.includes? seg
+        unless @referenced_segments.includes? seg
           @segment_pos.delete seg
           @log.debug { "Closing non referenced segment #{seg}" }
           f.close
           true
         end
       end
+      @referenced_segments.each { |seg| s << seg }
+    ensure
+      @referenced_segments.clear
     end
 
     private def deliver_loop
