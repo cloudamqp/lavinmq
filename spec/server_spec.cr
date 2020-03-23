@@ -358,13 +358,17 @@ describe AvalancheMQ::Server do
 
   it "splits frames into max frame sizes" do
     with_channel(port: 5672, frame_max: 4096_u32) do |ch|
-      msg_size = (2**17 + 1)
-      pmsg1 = "m" * msg_size
-      q = ch.queue
-      q.purge
-      q.publish_confirm pmsg1
-      msg = q.get(no_ack: true)
-      msg.not_nil!.body_io.size.should eq msg_size
+      2.times do
+        msg_size = (2**17 + 1)
+        pmsg1 = "m" * msg_size
+        sha1 = Digest::SHA1.digest pmsg1
+        q = ch.queue
+        q.purge
+        q.publish_confirm pmsg1
+        msg = q.get(no_ack: true)
+        msg.not_nil!.body_io.size.should eq msg_size
+        Digest::SHA1.digest(msg.not_nil!.body_io).should eq sha1
+      end
     end
   end
 
