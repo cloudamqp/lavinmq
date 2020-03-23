@@ -445,17 +445,22 @@ module AvalancheMQ
     rescue ex : Errno
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       drop(sp, true, true)
+      nil
     rescue ex : IO::EOFError
       pos = @segments[sp.segment].pos.to_u32
       @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
       @segment_pos[sp.segment] = pos
+      drop(sp, true, true)
       nil
     end
 
     private def time_to_message_expiration : Time::Span?
       @log.debug { "Checking if next message has to be expired" }
-      sp = @ready_lock.synchronize { @ready[0]? } || return
-      meta = metadata(sp) || return
+      meta = nil
+      until meta
+        sp = @ready_lock.synchronize { @ready[0]? } || return
+        meta = metadata(sp)
+      end
       @log.debug { "Next message: #{meta}" }
       exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
       if exp_ms
