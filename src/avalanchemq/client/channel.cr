@@ -139,10 +139,10 @@ module AvalancheMQ
           finish_publish(frame.body)
         else
           copied = IO.copy(frame.body, @next_msg_body, frame.body_size)
+          @next_msg_body_pos += copied
           if copied != frame.body_size
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
-          @next_msg_body_pos += copied
           if @next_msg_body_pos == @next_msg_size
             @next_msg_body.flush
             @next_msg_body.rewind
