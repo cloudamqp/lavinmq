@@ -11,7 +11,7 @@ module AvalancheMQ
                 uptime:              @amqp_server.uptime.total_milliseconds.to_i,
                 os_pid:              Process.pid,
                 fd_total:            System.file_descriptor_limit,
-                fd_used:             System.file_descriptor_count,
+                fd_used:             System.file_descriptor_count.first,
                 processors:          System.cpu_count,
                 mem_limit:           System.physical_memory,
                 mem_used:            @amqp_server.max_rss,
