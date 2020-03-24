@@ -23,7 +23,6 @@
 
   function render (data) {
     for (const node of data) {
-      console.log(node)
       updateDetails(node)
       updateStats(node)
     }
