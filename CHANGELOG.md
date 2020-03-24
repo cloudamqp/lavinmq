@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Message bodies larger than frame_max size weren't correctly written to disk
+- If a segment is missing when reading metadata we stopped there, now we loop until we find a message we can read
+
+### Changed
+- File descriptor limit is automatically maximized on start
+
+### Added
+- In each vhost dir and each queue dir are now a file outputted with the plain text name
+
 ## [0.9.12] - 2020-03-22
 
 ### Fixed
