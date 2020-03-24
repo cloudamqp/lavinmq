@@ -19,6 +19,7 @@ module AvalancheMQ
       else
         Dir.mkdir @index_dir
       end
+      File.write(File.join(@index_dir, ".queue"), @name)
       @enq = File.open(File.join(@index_dir, "enq"), "a")
       @ack = File.open(File.join(@index_dir, "ack"), "a")
     end
