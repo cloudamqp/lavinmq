@@ -130,9 +130,13 @@ class Throughput < Perf
 
   private def consume
     a = AMQP::Client.new(@uri).connect
+    begin
+      a.channel(&.queue(@queue))
+    rescue
+    end
     ch = a.channel
+    q = ch.queue(@queue, passive: true)
     ch.prefetch @prefetch unless @prefetch.zero?
-    q = ch.queue(@queue)
     q.bind(@exchange, @routing_key) unless @exchange.empty?
     q.subscribe(no_ack: @no_ack, block: true) do |m|
       m.ack unless @no_ack
