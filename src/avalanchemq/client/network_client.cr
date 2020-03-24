@@ -167,7 +167,8 @@ module AvalancheMQ
       super
       begin
         @socket.close unless @socket.closed?
-      rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
+      rescue ex
+        @log.debug { "error when closing socket: #{ex.inspect_with_backtrace}" }
       end
     end
   end
