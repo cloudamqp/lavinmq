@@ -41,6 +41,7 @@ module AvalancheMQ
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
+      File.write(File.join(@data_dir, ".vhost"), @name)
       @segments_on_disk = load_segments_on_disk!
       @segment = @segments_on_disk.last
       @wfile = open_wfile
