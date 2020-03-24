@@ -81,7 +81,7 @@ module AvalancheMQ
         send(AMQP::Frame::Heartbeat.new) || break
       end
     rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
-      @log.info { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+      @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
       cleanup
     rescue ex : Exception
       @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
@@ -106,7 +106,7 @@ module AvalancheMQ
       end
       true
     rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
-      @log.info { "Lost connection, while sending (#{ex.inspect})" } unless closed?
+      @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup
       false
     rescue ex : IO::Timeout
@@ -151,7 +151,7 @@ module AvalancheMQ
       end
       true
     rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
-      @log.info { "Lost connection, while sending (#{ex.inspect})" }
+      @log.debug { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
     rescue ex : IO::Timeout
