@@ -133,8 +133,6 @@ def report(s)
     vh.queues.each do |_, q|
       puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
       puts_size_capacity q.@referenced_segments, 6
-      puts_size_capacity q.@segments, 6
-      puts_size_capacity q.@segment_pos, 6
       puts_size_capacity q.@consumers, 6
       puts_size_capacity q.@ready, 6
       puts_size_capacity q.@unacked, 6

@@ -60,10 +60,6 @@ module AvalancheMQ
       @log = @vhost.log.dup
       @log.progname += " queue=#{@name}"
       handle_arguments
-      @segments = Hash(UInt32, File).new do |h, seg|
-        path = File.join(@vhost.data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
-        h[seg] = File.open(path, "r").tap { |f| f.buffer_size = Config.instance.file_buffer_size }
-      end
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
 
@@ -192,14 +188,6 @@ module AvalancheMQ
           @referenced_segments << sp.segment
         end
       end
-      @segments.delete_if do |seg, f|
-        unless @referenced_segments.includes? seg
-          @segment_pos.delete seg
-          @log.debug { "Closing non referenced segment #{seg}" }
-          f.close
-          true
-        end
-      end
       @referenced_segments.each { |seg| s << seg }
     ensure
       @referenced_segments.clear
@@ -207,9 +195,7 @@ module AvalancheMQ
 
     def close_segments
       @read_lock.synchronize do
-        @segments.each_value &.close
-        @segments.clear
-        @segment_pos.clear
+        @segment_file.try &.close
       end
     end
 
@@ -351,9 +337,7 @@ module AvalancheMQ
         @consumers.each &.cancel
         @consumers.clear
       end
-      @segments.each_value &.close
-      @segments.clear
-      @segment_pos.clear
+      @segment_file.try &.close
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
@@ -425,13 +409,28 @@ module AvalancheMQ
       end
     end
 
+    @segment_file : File? = nil
+    @segment_id = 0_u32
+    @segment_pos = 0_u32
+
+    private def segment_file(id : UInt32) : File
+      return @segment_file.not_nil! if @segment_id == id && @segment_file
+      path = File.join(@vhost.data_dir, "msgs.#{id.to_s.rjust(10, '0')}")
+      @segment_file.try &.close
+      @segment_id = id
+      @segment_pos = 0
+      @segment_file = File.open(path, "r").tap do |f|
+        f.buffer_size = Config.instance.file_buffer_size
+      end
+    end
+
     private def metadata(sp) : MessageMetadata?
       @read_lock.synchronize do
-        seg = @segments[sp.segment]
-        if @segment_pos[sp.segment] != sp.position
-          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos[sp.segment]}" }
+        seg = segment_file(sp.segment)
+        if @segment_pos != sp.position
+          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
           seg.seek(sp.position, IO::Seek::Set)
-          @segment_pos[sp.segment] = sp.position
+          @segment_pos = sp.position
         end
         ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
         ex = AMQP::ShortString.from_io seg, IO::ByteFormat::NetworkEndian
@@ -439,7 +438,7 @@ module AvalancheMQ
         pr = AMQP::Properties.from_io seg, IO::ByteFormat::NetworkEndian
         sz = UInt64.from_io seg, IO::ByteFormat::NetworkEndian
         meta = MessageMetadata.new(ts, ex, rk, pr, sz)
-        @segment_pos[sp.segment] += meta.bytesize
+        @segment_pos = sp.position + meta.bytesize
         meta
       end
     rescue ex : Errno
@@ -447,9 +446,9 @@ module AvalancheMQ
       drop(sp, true, true)
       nil
     rescue ex : IO::EOFError
-      pos = @segments[sp.segment].pos.to_u32
+      pos = segment_file(sp.segment).pos.to_u32
       @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
-      @segment_pos[sp.segment] = pos
+      @segment_pos = pos
       drop(sp, true, true)
       nil
     end
@@ -532,7 +531,7 @@ module AvalancheMQ
       persistent = msg.properties.delivery_mode == 2_u8
       drop sp, false, persistent
     rescue ex : IO::EOFError
-      @segment_pos[env.segment_position.segment] = @segments[env.segment_position.segment].pos.to_u32
+      @segment_pos = segment_file(env.segment_position.segment).pos.to_u32
       raise ex
     end
 
@@ -634,9 +633,9 @@ module AvalancheMQ
 
     def read(sp : SegmentPosition, &blk : Envelope -> Nil)
       @read_lock.lock
-      seg = @segments[sp.segment]
-      if @segment_pos[sp.segment] != sp.position
-        @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos[sp.segment]}" }
+      seg = segment_file(sp.segment)
+      if @segment_pos != sp.position
+        @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
         seg.seek(sp.position, IO::Seek::Set)
       end
       ts = Int64.from_io seg, IO::ByteFormat::NetworkEndian
@@ -649,7 +648,7 @@ module AvalancheMQ
       begin
         yield Envelope.new(sp, msg, redelivered)
       ensure
-        @segment_pos[sp.segment] = sp.position + msg.bytesize
+        @segment_pos = sp.position + msg.bytesize
         @requeued.delete(sp) if redelivered
       end
     rescue ex : Errno
@@ -663,7 +662,7 @@ module AvalancheMQ
         io = IO::Hexdump.new(seg, output: STDERR, read: true)
         io.skip 1024
       end
-      @segment_pos[sp.segment] = @segments[sp.segment].pos.to_u32
+      @segment_pos = segment_file(sp.segment).pos.to_u32
       raise ex
     ensure
       @read_lock.unlock
