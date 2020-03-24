@@ -80,11 +80,13 @@ module System
     if LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
       raise Errno.new("getrlimit")
     end
-    rlimit.rlim_cur
+    { rlimit.rlim_cur, rlimit.rlim_max }
   end
 
   def self.file_descriptor_limit=(limit) : Nil
-    rlimit = LibC::Rimit.new(limit, limit)
+    rlimit = LibC::Rlimit.new
+    rlimit.rlim_cur = limit
+    rlimit.rlim_max = limit
     if LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
       raise Errno.new("setrlimit")
     end
