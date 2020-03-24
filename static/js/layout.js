@@ -32,6 +32,7 @@
           <li><a href="#createVhost">Add Virtual host</a></li>
         </ul>
       </li>
+      <li><a href="/nodes">Nodes</a></li>
       <li>
         <a href="/policies">Policies</a>
         <ul class="hide">

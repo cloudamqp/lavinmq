@@ -76,7 +76,7 @@
               beginAtZero: true,
               min: 0,
               suggestedMax: 10,
-              callback: nFormatter
+              callback: window.avalanchemq.helpers.nFormatter
             }
           }]
         },
@@ -123,29 +123,6 @@
         target.classList.remove('checked')
       }
     })
-  }
-
-  function nFormatter (num) {
-    let suffix = ''
-
-    if (num === '') {
-      return num
-    }
-
-    if (num >= 1000000000) {
-      suffix = 'G'
-      num = (num / 1000000000)
-    }
-    if (num >= 1000000) {
-      suffix = 'M'
-      num = (num / 1000000)
-    }
-    if (num >= 1000) {
-      suffix = 'K'
-      num = (num / 1000)
-    }
-
-    return avalanchemq.helpers.formatNumber(num) + suffix
   }
 
   function formatLabel (key) {

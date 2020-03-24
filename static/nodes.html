@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Nodes | AvalancheMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
+  </head>
+  <body>
+    <header>
+      <h2>
+        Nodes
+        <small id="channel"></small>
+      </h2>
+    </header>
+    <aside></aside>
+    <main>
+      <section class="card cols-6">
+        <h3>Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Name</th>
+            <td id="tr-name"></td>
+          </tr>
+          <tr>
+            <th>Uptime</th>
+            <td id="tr-uptime"></td>
+          </tr>
+          <tr>
+            <th>vCPU</th>
+            <td id="tr-vcpu"></td>
+          </tr>
+          <tr>
+            <th>Memory usage</th>
+            <td id="tr-memory"></td>
+          </tr>
+          <tr>
+            <th>Average CPU usage</th>
+            <td id="tr-cpu"></td>
+          </tr>
+          <tr>
+            <th>Disk usage</th>
+            <td id="tr-disk"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-6">
+        <h3>Stats</h3>
+        <table id="stats-table" class="details-table">
+        </table>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Memory usage</h3>
+        <div class="chart-container" id="memoryChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>IO</h3>
+        <div class="chart-container" id="ioChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>CPU usage</h3>
+        <div class="chart-container" id="cpuChart"></div>
+      </section>
+    </main>
+    <footer></footer>
+    </body>
+    <script src="/js/layout.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/dom.js"></script>
+    <script src="/js/helpers.js"></script>
+    <script src="/js/http.js"></script>
+    <script src="/js/nodes.js"></script>
+    <script src="/js/vhosts.js"></script>
+    <script src="/js/table.js"></script>
+    <script src="/js/lib/chart.js"></script>
+    <script src="/js/chart.js"></script>
+    <script>
+      /* globals avalanchemq */
+
+      const memoryChart = avalanchemq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
+      const ioChart = avalanchemq.chart.render('ioChart', 'bytes/s', { aspectRatio: 2 })
+      const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 })
+
+      const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10**6).toFixed(2)
+
+      function updateCharts (response) {
+        const memoryStats = {
+          mem_used_details: toMegaBytes(response[0].mem_used),
+          mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
+        }
+        avalanchemq.chart.update(memoryChart, memoryStats)
+
+        const ioStats = {
+          io_write_details: response[0].io_write_count,
+          io_write_details_log: response[0].io_write_details.log,
+          io_read_details: response[0].io_read_count,
+          io_read_details_log: response[0].io_read_details.log
+        }
+        avalanchemq.chart.update(ioChart, ioStats)
+
+        const cpuStats = {
+          user_time_details: response[0].cpu_user_details.log[0],
+          user_time_details_log: response[0].cpu_user_details.log,
+          system_time_details: response[0].cpu_sys_details.log[0],
+          system_time_details_log: response[0].cpu_sys_details.log
+        }
+        avalanchemq.chart.update(cpuChart, cpuStats)
+      }
+      avalanchemq.nodes.start(updateCharts)
+    </script>
+  </body>
+</html>
