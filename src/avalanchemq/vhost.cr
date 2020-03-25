@@ -186,21 +186,20 @@ module AvalancheMQ
       @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
       copied = IO.copy(msg.body_io, @wfile, msg.size)
       if copied != msg.size
-        @pos = @wfile.pos.to_u32
-        raise IO::CopyError.new("Could only write #{copied} of #{msg.size} bytes to message store")
+        raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
       end
       @wfile.flush
       @pos += msg.bytesize
       sp
     rescue ex
-      unless ex.is_a? IO::CopyError
-        @log.error "Rotating segment because failed to write message"
+      begin
+        @wfile.flush
+        @pos = @wfile.pos.to_u32
+      rescue
         open_new_segment
       end
       raise ex
     end
-
-    class IO::CopyError < IO::Error; end
 
     private def open_new_segment
       @segment += 1
