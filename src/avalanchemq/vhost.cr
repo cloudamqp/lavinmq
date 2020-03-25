@@ -575,28 +575,29 @@ module AvalancheMQ
       Deque(UInt32).new(segments)
     end
 
+    @referenced_segments = Set(UInt32).new
+
     private def gc_segments_loop
-      referenced_segments = Set(UInt32).new
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         @log.debug "Garbage collecting segments"
-        referenced_segments << @segment
+        @referenced_segments << @segment
         @queues.each_value do |q|
-          q.referenced_segments(referenced_segments)
+          q.referenced_segments(@referenced_segments)
         end
-        @log.debug "#{referenced_segments.size} segments in use"
+        @log.debug { "#{@referenced_segments.size} segments in use" }
 
         @segments_on_disk.delete_if do |seg|
-          unless referenced_segments.includes? seg
+          unless @referenced_segments.includes? seg
             @log.debug "Deleting segment #{seg}"
             filename = "msgs.#{seg.to_s.rjust(10, '0')}"
             File.delete File.join(@data_dir, filename)
             true
           end
         end
-        @log.debug "#{@segments_on_disk.size} segments on disk"
-        referenced_segments.clear
+        @log.debug { "#{@segments_on_disk.size} segments on disk" }
+        @referenced_segments.clear
       end
     end
   end
