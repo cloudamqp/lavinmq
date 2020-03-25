@@ -1,6 +1,14 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
+  function getUsername () {
+    return getCookieValue('username')
+  }
+
+  function getPassword () {
+    return window.atob(decodeURIComponent(getCookieValue('auth'))).split(":")[1]
+  }
+
   function setUsername () {
     document.querySelector('#username').innerText = getCookieValue('username')
   }
@@ -85,7 +93,8 @@
 
   Object.assign(window.avalanchemq, {
     auth: {
-      header, setAuth, storeCookie, signOut, setUsername, selectVhost
+      header, setAuth, storeCookie, signOut, setUsername, selectVhost,
+      getUsername, getPassword
     }
   })
 })()

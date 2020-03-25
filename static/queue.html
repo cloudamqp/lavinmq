@@ -411,15 +411,18 @@
 
       document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const shovel = 'Move from ' + queue
-        const url = '/api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(shovel)
+        const username = avalanchemq.auth.getUsername()
+        const password = avalanchemq.auth.getPassword()
+        const uri = 'amqp://' + encodeURIComponent(username) + ':' + encodeURIComponent(password) + '@localhost/' + urlEncodedVhost
         const dest = document.querySelector('[name=shovel-destination]').value.trim()
+        const name = 'Move ' + queue + ' to ' + dest
+        const url = '/api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(name)
         const body = {
-          name: shovel,
+          name: name,
           value: {
-            'src-uri': 'amqp:///' + urlEncodedVhost,
+            'src-uri': uri,
             'src-queue': queue,
-            'dest-uri': 'amqp:///' + urlEncodedVhost,
+            'dest-uri': uri,
             'dest-queue': dest,
             'src-prefetch-count': 1000,
             'ack-mode': 'on-confirm',
