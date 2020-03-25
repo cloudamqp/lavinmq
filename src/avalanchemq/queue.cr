@@ -175,22 +175,18 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    @referenced_segments = Set(UInt32).new
 
     def referenced_segments(s : Set(UInt32))
       @unack_lock.synchronize do
         @unacked.each do |u|
-          @referenced_segments << u.sp.segment
+          s << u.sp.segment
         end
       end
       @ready_lock.synchronize do
         @ready.each do |sp|
-          @referenced_segments << sp.segment
+          s << sp.segment
         end
       end
-      @referenced_segments.each { |seg| s << seg }
-    ensure
-      @referenced_segments.clear
     end
 
     def close_segments
