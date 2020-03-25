@@ -671,7 +671,6 @@ module AvalancheMQ
           @unacked.delete_at(idx)
         end
       end
-      @requeued.delete(sp)
       @deliveries.delete(sp)
       @ack_count += 1
       consumer_available
@@ -702,7 +701,6 @@ module AvalancheMQ
           end
         end
       end
-      @requeued.delete(sp)
       @deliveries.delete(sp)
     end
 
