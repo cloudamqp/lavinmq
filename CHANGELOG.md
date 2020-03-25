@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.14] - 2020-03-25
+
+### Fixed
+- 'Move messages' in the UI now uses current user's credentials for the shovel
+- Don't retry shovel if it's stopped
+- /api/nodes fd_limit is now correct again
+- Flush segment before resetting position if message write fails
+
+## [0.9.13] - 2020-03-24
+
 ### Fixed
 - Message bodies larger than frame_max size weren't correctly written to disk
 - If a segment is missing when reading metadata we stopped there, now we loop until we find a message we can read
