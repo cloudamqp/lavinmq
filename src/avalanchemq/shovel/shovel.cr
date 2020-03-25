@@ -67,8 +67,13 @@ module AvalancheMQ
         end
       rescue ex
         @state = State::Terminated
-        @log.error { "Shovel failure: #{ex.inspect_with_backtrace}" }
-        sleep @reconnect_delay.seconds
+        select
+        when @stop.receive?
+          break
+        else
+          @log.error { "Shovel error: #{ex.message}" }
+          sleep @reconnect_delay.seconds
+        end
       end
     ensure
       @state = State::Terminated
