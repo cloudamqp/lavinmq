@@ -125,12 +125,16 @@ module AvalancheMQ
     def self.close_on_ok(socket, log)
       loop do
         AMQP::Frame.from_io(socket, IO::ByteFormat::NetworkEndian) do |frame|
-          log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-          if frame.is_a?(AMQP::Frame::Body)
-            log.debug "Skipping body"
-            frame.body.skip(frame.body_size)
+          if frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
+            true
+          else
+            log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            if frame.is_a?(AMQP::Frame::Body)
+              log.debug "Skipping body"
+              frame.body.skip(frame.body_size)
+            end
+            false
           end
-          frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
         end && break
       end
     rescue IO::EOFError
