@@ -173,7 +173,9 @@ module AvalancheMQ
           body_io)
         publish_and_return(msg)
       rescue ex
-        @log.warn { "Could not handle message #{ex.inspect}" }
+        unless ex.is_a? IO::Error
+          @log.warn { "Error when publishing message #{ex.inspect}" }
+        end
         confirm_nack
         raise ex
       ensure
