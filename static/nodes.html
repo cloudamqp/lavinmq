@@ -83,19 +83,34 @@
     <script>
       /* globals avalanchemq */
 
-      // TODO:  FIX CHARTS
-      // const msgChart = avalanchemq.chart.render('msgChart', 'msgs', { aspectRatio: 2 })
-      // const dataChart = avalanchemq.chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
-      // const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
+      const memoryChart = avalanchemq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
+      const ioChart = avalanchemq.chart.render('ioChart', 'bytes/s', { aspectRatio: 2 })
+      const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 })
+
+      const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10**6).toFixed(2)
 
       function updateCharts (response) {
-        // avalanchemq.chart.update(msgChart, response.queue_totals)
-        // avalanchemq.chart.update(rateChart, response.message_stats)
-        // let dataStats = {
-        //   send_details: response.send_oct_details,
-        //   receive_details: response.recv_oct_details
-        // }
-        // avalanchemq.chart.update(dataChart, dataStats)
+        const memoryStats = {
+          mem_used_details: toMegaBytes(response[0].mem_used),
+          mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
+        }
+        avalanchemq.chart.update(memoryChart, memoryStats)
+
+        const ioStats = {
+          io_write_details: response[0].io_write_count,
+          io_write_details_log: response[0].io_write_details.log,
+          io_read_details: response[0].io_read_count,
+          io_read_details_log: response[0].io_read_details.log
+        }
+        avalanchemq.chart.update(ioChart, ioStats)
+
+        const cpuStats = {
+          user_time_details: response[0].cpu_user_details.log[0],
+          user_time_details_log: response[0].cpu_user_details.log,
+          system_time_details: response[0].cpu_sys_details.log[0],
+          system_time_details_log: response[0].cpu_sys_details.log
+        }
+        avalanchemq.chart.update(cpuChart, cpuStats)
       }
       avalanchemq.nodes.start(updateCharts)
     </script>

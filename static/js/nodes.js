@@ -22,6 +22,7 @@
   }
 
   function render (data) {
+    document.querySelector('#version').innerText = data[0].applications[0].version
     for (const node of data) {
       updateDetails(node)
       updateStats(node)
@@ -58,11 +59,20 @@
 
   const updateDetails = (nodeStats) => {
     document.getElementById('tr-name').textContent = nodeStats.name
-    document.getElementById('tr-uptime').textContent = (nodeStats.uptime / 1000).toFixed(0) + ' seconds'
+    document.getElementById('tr-uptime').textContent = (
+      nodeStats.uptime / 1000).toFixed(0) + ' seconds'
     document.getElementById('tr-vcpu').textContent = nodeStats.processors
-    document.getElementById('tr-memory').textContent = (nodeStats.mem_used / 10 ** 9).toFixed(2) + ' GB (' + ((nodeStats.mem_used / nodeStats.mem_limit) * 100).toFixed(2) + '%)'
-    document.getElementById('tr-cpu').textContent = (((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100).toFixed(2) + '%'
-    document.getElementById('tr-disk').textContent = ((nodeStats.disk_total - nodeStats.disk_free) / 10 ** 9).toFixed(2) + ' GB (' + ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total).toFixed(2) * 100 + '%)'
+    document.getElementById('tr-memory').textContent = (
+      nodeStats.mem_used / 10 ** 9
+    ).toFixed(2) + ' GB (' + ((nodeStats.mem_used / nodeStats.mem_limit) * 100).toFixed(2) + '%)'
+    document.getElementById('tr-cpu').textContent = (
+      ((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100
+    ).toFixed(2) + '%'
+    document.getElementById('tr-disk').textContent = (
+      (nodeStats.disk_total - nodeStats.disk_free) / 10 ** 9
+    ).toFixed(2) + ' GB (' + (
+      (nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total
+    ).toFixed(2) * 100 + '%)'
   }
 
   const stats = [
