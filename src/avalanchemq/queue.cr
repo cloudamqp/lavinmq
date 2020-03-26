@@ -210,8 +210,7 @@ module AvalancheMQ
           i = 0
           consumer_or_expire || break
         end
-        if (i += 1) == 8192
-          Fiber.yield
+        if i >= 1024
           i = 0
         end
       rescue Channel::ClosedError

@@ -5,6 +5,7 @@ class IO
     while (len = src.read(buffer.to_slice).to_i32) > 0
       dst.write buffer.to_slice[0, len]
       count += len
+      Fiber.yield
     end
     count
   end
@@ -20,6 +21,8 @@ class IO
     while (len = src.read(buffer.to_slice[0, Math.min(buffer.size, Math.max(remaining, 0))])) > 0
       dst.write buffer.to_slice[0, len]
       remaining -= len
+      break if remaining.zero?
+      Fiber.yield
     end
     limit - remaining
   end

@@ -59,7 +59,6 @@ module AvalancheMQ
     end
 
     private def read_loop
-      i = 0
       loop do
         AMQP::Frame.from_io(@socket) do |frame|
           #@log.debug { "Read #{frame.inspect}" }
@@ -73,10 +72,6 @@ module AvalancheMQ
           end
           process_frame(frame)
         end || break
-        if (i += 1) == 8192 * 3
-          Fiber.yield
-          i = 0
-        end
       rescue IO::Timeout # heartbeat
         send(AMQP::Frame::Heartbeat.new) || break
       end

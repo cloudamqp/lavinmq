@@ -118,9 +118,7 @@ class Throughput < Perf
         ch.basic_publish data, @exchange, @routing_key
       end
       @pubs += 1
-      if @rate.zero?
-        Fiber.yield if @pubs % 32768 == 0
-      else
+      unless @rate.zero?
         sleep 1.0 / @rate
       end
     end
@@ -142,9 +140,7 @@ class Throughput < Perf
     q.subscribe(no_ack: @no_ack, block: true) do |m|
       m.ack unless @no_ack
       @consumes += 1
-      if @consume_rate.zero?
-        Fiber.yield if @consumes % 32768 == 0
-      else
+      unless @consume_rate.zero?
         sleep 1.0 / @consume_rate
       end
     end
