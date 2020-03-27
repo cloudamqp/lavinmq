@@ -84,7 +84,7 @@
       /* globals avalanchemq */
 
       const memoryChart = avalanchemq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
-      const ioChart = avalanchemq.chart.render('ioChart', 'bytes/s', { aspectRatio: 2 })
+      const ioChart = avalanchemq.chart.render('ioChart', 'ops', { aspectRatio: 2 })
       const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 })
 
       const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10**6).toFixed(2)
@@ -97,18 +97,18 @@
         avalanchemq.chart.update(memoryChart, memoryStats)
 
         const ioStats = {
-          io_write_details: response[0].io_write_count,
+          io_write_details: response[0].io_write_details.log[0],
           io_write_details_log: response[0].io_write_details.log,
-          io_read_details: response[0].io_read_count,
+          io_read_details: response[0].io_read_details.log[0],
           io_read_details_log: response[0].io_read_details.log
         }
         avalanchemq.chart.update(ioChart, ioStats)
 
         const cpuStats = {
-          user_time_details: response[0].cpu_user_details.log[0],
-          user_time_details_log: response[0].cpu_user_details.log,
-          system_time_details: response[0].cpu_sys_details.log[0],
-          system_time_details_log: response[0].cpu_sys_details.log
+          user_time_details: response[0].cpu_user_details.log[0] * 100,
+          user_time_details_log: response[0].cpu_user_details.log.map(x => x * 100),
+          system_time_details: response[0].cpu_sys_details.log[0] * 100,
+          system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
         }
         avalanchemq.chart.update(cpuChart, cpuStats)
       }
