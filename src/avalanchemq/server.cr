@@ -99,17 +99,22 @@ module AvalancheMQ
       @listeners << s
       File.chmod(path, 0o777)
       @log.info { "Listening on #{s.local_address}" }
-      loop do
-        client = s.accept? || break
+      while client = s.accept?
         client.sync = false
         client.read_buffering = true
         client.write_timeout = 15
         client.buffer_size = Config.instance.socket_buffer_size
         proxyheader =
-          case proxy_protocol_version
-          when 0 then ProxyProtocol::Header.local
-          when 1 then ProxyProtocol::V1.parse(client)
-          else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+          begin
+            case proxy_protocol_version
+            when 0 then ProxyProtocol::Header.local
+            when 1 then ProxyProtocol::V1.parse(client)
+            else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+            end
+          rescue ex
+            @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
+            client.close
+            next
           end
         spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
       end
