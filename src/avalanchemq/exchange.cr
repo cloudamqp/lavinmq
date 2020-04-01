@@ -403,18 +403,22 @@ module AvalancheMQ
     end
 
     private def matches(bindings, routing_key, headers, &blk : Queue | Exchange ->)
-      return unless headers
       bindings.each do |bt, dst|
-        args = bt[1]
-        next unless args
-        case args["x-match"]?
-        when "any"
-          if args.any? { |k, v| k != "x-match" && headers[k]? == v }
+        args = bt[1] || next
+        if headers.nil? || headers.empty?
+          if args.empty?
             dst.each { |d| yield d }
           end
         else
-          if args.all? { |k, v| k == "x-match" || headers[k]? == v }
-            dst.each { |d| yield d }
+          case args["x-match"]?
+          when "any"
+            if args.any? { |k, v| k != "x-match" && headers[k]? == v }
+              dst.each { |d| yield d }
+            end
+          else
+            if args.all? { |k, v| k == "x-match" || headers[k]? == v }
+              dst.each { |d| yield d }
+            end
           end
         end
       end

@@ -244,4 +244,12 @@ describe AvalancheMQ::HeadersExchange do
     hx.unbind(q12, "", hdrs1)
     hx.matches("", hdrs1).size.should eq 0
   end
+
+  describe "match empty" do
+    it "should match if both args and headers are empty" do
+      q13 = AvalancheMQ::Queue.new(vhost, "q13")
+      x.bind(q13, "", nil)
+      x.matches("", nil).size.should eq 1
+    end
+  end
 end
