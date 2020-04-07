@@ -72,10 +72,10 @@ module AvalancheMQ
           end
           process_frame(frame)
         end || break
-      rescue IO::Timeout # heartbeat
+      rescue IO::TimeoutError # heartbeat
         send(AMQP::Frame::Heartbeat.new) || break
       end
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
+    rescue ex : IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
       @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
       cleanup
     rescue ex : Exception
@@ -100,11 +100,11 @@ module AvalancheMQ
         return false
       end
       true
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error
+    rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup
       false
-    rescue ex : IO::Timeout
+    rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
       cleanup
       false
@@ -145,11 +145,11 @@ module AvalancheMQ
         @socket.flush
       end
       true
-    rescue ex : IO::Error | Errno | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
+    rescue ex : IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
-    rescue ex : IO::Timeout
+    rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
       cleanup
       false

@@ -49,7 +49,7 @@ module AvalancheMQ
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
-    rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
+    rescue ex : IO::Error | AMQP::Error::FrameDecode
       @log.info "Lost connection, while reading (#{ex.cause})" unless closed?
       cleanup
     rescue ex : Exception
@@ -70,7 +70,7 @@ module AvalancheMQ
         return false
       end
       true
-    rescue ex : IO::Error | Errno
+    rescue ex : IO::Error
       @log.info { "Lost connection, while sending (#{ex})" }
       cleanup
       false

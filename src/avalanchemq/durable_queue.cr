@@ -178,7 +178,7 @@ module AvalancheMQ
           message_available if message_count > 0
         end
       end
-    rescue ex : Errno
+    rescue ex : IO::Error
       @log.error { "Could not restore index: #{ex.inspect}" }
     end
 

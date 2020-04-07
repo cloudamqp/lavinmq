@@ -70,7 +70,7 @@ module System
   def self.resource_usage
     usg = uninitialized LibC::RUsage
     if LibC.getrusage(LibC::RUSAGE_SELF, pointerof(usg)) != 0
-      raise Errno.new("rusage")
+      raise Error.from_errno("rusage")
     end
     ResourceUsage.new(usg)
   end
@@ -78,7 +78,7 @@ module System
   def self.file_descriptor_limit
     rlimit = uninitialized LibC::Rlimit
     if LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
-      raise Errno.new("getrlimit")
+      raise Error.from_errno("getrlimit")
     end
     { rlimit.rlim_cur, rlimit.rlim_max }
   end
@@ -88,7 +88,7 @@ module System
     rlimit.rlim_cur = limit
     rlimit.rlim_max = limit
     if LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
-      raise Errno.new("setrlimit")
+      raise Error.from_errno("setrlimit")
     end
   end
 
@@ -98,7 +98,11 @@ module System
       i += 1
     end
     i
-  rescue Errno
+  rescue File::Error
     -1
+  end
+
+  class Error < Exception
+    include SystemError
   end
 end

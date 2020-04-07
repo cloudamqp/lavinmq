@@ -2,15 +2,15 @@ version: 1.0
 shards:
   ameba:
     github: veelenga/ameba
-    version: 0.11.0
+    version: 0.12.0
 
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-    version: 0.3.5
+    version: 0.3.6
 
   amqp-client:
     github: cloudamqp/amqp-client.cr
-    version: 0.5.13
+    version: 0.5.15
 
   baked_file_system:
     github: schovi/baked_file_system

@@ -13,7 +13,7 @@ module AvalancheMQ
       else
         nil
       end
-    rescue ex : IO::Timeout | IO::Error | Errno | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
+    rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
       socket.try &.close unless socket.try &.closed?
       nil
@@ -139,7 +139,7 @@ module AvalancheMQ
       end
     rescue IO::EOFError
       log.debug { "Client closed socket without sending CloseOk" }
-    rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
+    rescue ex : IO::Error | AMQP::Error::FrameDecode
       log.warn { "#{ex.inspect} when waiting for CloseOk" }
     ensure
       socket.close

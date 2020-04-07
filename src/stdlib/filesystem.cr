@@ -59,7 +59,7 @@ module Filesystem
   def self.info(path)
     statfs = uninitialized LibC::Statfs
     unless LibC.statfs64(path.check_no_null_byte, pointerof(statfs)).zero?
-      raise Errno.new("Error getting statfs")
+      raise File::Error.from_errno("Error getting statfs", file: path)
     end
     FilesystemInfo.new(statfs)
   end

@@ -475,7 +475,7 @@ module AvalancheMQ
       unless @exchanges[""].is_a? DefaultExchange
         @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
       end
-    rescue Errno
+    rescue IO::Error
       load_default_definitions
     end
 

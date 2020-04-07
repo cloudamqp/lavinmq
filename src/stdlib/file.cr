@@ -6,7 +6,7 @@ class File
               when keep_size then LibC::FALLOC_FL_KEEP_SIZE
               end
       if LibC.fallocate(fd, flags, offset, size) != 0
-        raise Errno.new("fallocate")
+        raise File::Error.from_errno("fallocate", file: @path)
       end
     {% end %}
   end
@@ -14,7 +14,7 @@ class File
   def advise(advice)
     {% if flag?(:linux) %}
       if LibC.posix_fadvise(fd, 0, 0, advice) != 0
-        raise Errno.new("fadvise")
+        raise File::Error.from_errno("fadvise", file: @path)
       end
     {% end %}
   end

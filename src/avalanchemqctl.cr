@@ -52,6 +52,6 @@ begin
     abort "Response status #{response.status_code}" unless response.status_code == 200
     JSON.parse(response.body).to_pretty_json(STDOUT)
   end
-rescue ex : IO::Error | Errno
+rescue ex : IO::Error
   abort ex
 end

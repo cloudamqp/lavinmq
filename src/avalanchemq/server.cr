@@ -51,7 +51,7 @@ module AvalancheMQ
         set_socket_options(client)
         spawn handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection"
       end
-    rescue ex : Errno
+    rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect}"
     ensure
       @listeners.delete(s)
@@ -87,7 +87,7 @@ module AvalancheMQ
           end
         end
       end
-    rescue ex : Errno | OpenSSL::Error
+    rescue ex : IO::Error | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.inspect}"
     ensure
       @listeners.delete(s)
@@ -118,7 +118,7 @@ module AvalancheMQ
           end
         spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
       end
-    rescue ex : Errno
+    rescue ex : IO::Error
       abort "Unrecoverable error in unix listener: #{ex.inspect}"
     ensure
       @listeners.delete(s)
@@ -182,7 +182,7 @@ module AvalancheMQ
       else
         socket.close
       end
-    rescue ex : Errno
+    rescue ex : IO::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
     end
 

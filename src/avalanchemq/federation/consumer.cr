@@ -49,7 +49,7 @@ module AvalancheMQ
               end
             end || break
           end
-        rescue ex : IO::Error | Errno | AMQP::Error::FrameDecode
+        rescue ex : IO::Error | AMQP::Error::FrameDecode
           @log.info "Consumer closed due to: #{ex.inspect}"
         ensure
           @log.debug "Closing socket"

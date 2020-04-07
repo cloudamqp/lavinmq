@@ -435,7 +435,7 @@ module AvalancheMQ
         @segment_pos = sp.position + meta.bytesize
         meta
       end
-    rescue ex : Errno
+    rescue ex : IO::Error
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       drop(sp, true, true)
       nil
@@ -645,7 +645,7 @@ module AvalancheMQ
         @segment_pos = sp.position + msg.bytesize
         @requeued.delete(sp) if redelivered
       end
-    rescue ex : Errno
+    rescue ex : IO::Error
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       drop sp, true, true
     rescue ex
