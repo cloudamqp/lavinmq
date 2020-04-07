@@ -190,11 +190,10 @@ It is possible to run AvalancheMQ using docker. To build the image run:
 This will create a docker image tagged as avalanchemq:latest that we then can use to launch an
 instance of AvalancheMQ by executing:
 
-`docker run -p 15672:15672 -p 5672:5672 --name avalanchemq avalanchemq:latest`
+`docker run -p 15672:15672 -p 5672:5672 -v data:/data --name avalanchemq avalanchemq:latest`
 
 You are now able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
-start publishing/consuming messages. Note that we have not mounted any filesystem to the docker
-container and all data will be deleted once the container is killed. The container can be killed
+start publishing/consuming messages. The container can be killed
 by running:
 
 `docker kill avalanchemq`
