@@ -1,19 +1,21 @@
 
-FROM crystallang/crystal:0.33.0-alpine
+FROM crystallang/crystal:0.34.0
 
-RUN mkdir /avalanchemq
 WORKDIR /avalanchemq
 
 # Installing dependencies
 COPY shard.yml /avalanchemq/shard.yml
 COPY shard.lock /avalanchemq/shard.lock
-RUN shards install
+RUN shards install --production
 
 # Copying the code
 COPY . /avalanchemq
+
+# Build
+RUN shards build --production --release avalanchemq
 
 # Exposing ports are required
 EXPOSE 15672 5672
 
 # Start the main process.
-CMD ["crystal", "run", "src/avalanchemq.cr", "--" ,"-D", "/data"]
+CMD ["bin/avalancemq", "--" ,"-D", "/data"]
