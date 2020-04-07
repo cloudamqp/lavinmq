@@ -1,19 +1,25 @@
-name: avalanchemq # you probably want to 'snapcraft register <name>'
-base: core18 # the base snap is the execution environment for this snap
-version: '0.9.14' # just for humans, typically '1.2+git' or '1.3.2'
+name: avalanchemq
+base: core18
+version: '0.9.14'
 summary: Lean and mean AMQP server # 79 char long summary
 description: |
   An high throughput and advanced message queue server.
 
 grade: devel # must be 'stable' to release into candidate/stable channels
-confinement: devmode # use 'strict' once you have the right plugs and slots
+confinement: strict # use 'strict' once you have the right plugs and slots
 
 apps:
   avalanchemq:
-    command: bin/avalanchemq
+    command: avalanchemq -c $SNAP_DATA/etc/avalanchemq/avalanchemq.conf
     daemon: simple
+    plugs:
+      - network
+      - network-bind
+
   avalanchemqperf:
-    command: bin/avalanchemqperf
+    command: avalanchemqperf
+    plugs:
+      - network
 
 parts:
   avalanchemq:
