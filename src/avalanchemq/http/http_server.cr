@@ -45,7 +45,7 @@ module AvalancheMQ
           ::HTTP::Protection::Origin.new,
           ::HTTP::Protection::PathTraversal.new,
           ::HTTP::Protection::RemoteReferer.new,
-          ::HTTP::Protection::StrictTransport.new,
+          ::HTTP::Protection::StrictTransport.new(include_subdomains: true),
           ::HTTP::Protection::XSSHeader.new,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new) if @log.level == Logger::DEBUG
