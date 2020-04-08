@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Crystal 0.34.x compability
+- Rescue error while trying to parse the PROXY protocol
+- Header exchange binding without arguments matches empty message headers
+- avalanchemqperf throughput now declares queues smarter
+
+### Changed
+- Decreased default file buffer size to 128kb
+- Increased default socket buffer size to 16kb
+- Log a warning if not built in release mode
+- Print out data dir on start up
+- Fiber.yield only in IO.copy, it balances clients better
+- Don't log warnings if msg body can't be fully read from disconnected client
+
+### Added
+- Nodes page with details on node usage
+- Snapcraft configuration file
+- Dockerfile
+
 ## [0.9.14] - 2020-03-25
 
 ### Fixed
