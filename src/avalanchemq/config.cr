@@ -20,8 +20,8 @@ module AvalancheMQ
     property stats_interval = 5000 # millisecond
     property stats_log_size = 120 # 10 mins at 5s interval
     property set_timestamp = false # in message headers when receive
-    property file_buffer_size = 262_144 # byte
-    property socket_buffer_size = 8192 # byte
+    property file_buffer_size = 131_072 # byte
+    property socket_buffer_size = 16384 # byte
 
     @@instance : Config = self.new
 
