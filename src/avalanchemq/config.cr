@@ -4,13 +4,13 @@ module AvalancheMQ
   class Config
     property data_dir = ""
     property log_level : Logger::Severity = Logger::INFO
-    property amqp_bind = "::"
+    property amqp_bind = "0.0.0.0"
     property amqp_port = 5672
     property amqps_port = -1
     property unix_path = ""
     property cert_path = ""
     property key_path = ""
-    property http_bind = "::"
+    property http_bind = "0.0.0.0"
     property http_port = 15672
     property https_port = -1
     property heartbeat = 0_u16 # second
