@@ -24,6 +24,8 @@ apps:
 parts:
   avalanchemq:
     plugin: crystal
+    crystal-build-options:
+      - --release
     source: .
     build-packages:
       - git
