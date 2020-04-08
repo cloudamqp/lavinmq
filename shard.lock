@@ -20,6 +20,10 @@ shards:
     github: carlhoerberg/cache-hash
     commit: 3e4d453aa45c7ed0670ec8021d51b6b768041640
 
+  http-protection:
+    github: rogeriozambon/http-protection
+    commit: 4a06675dcc380cd072987d8fb3a6431c13604df8
+
   radix:
     github: luislavena/radix
     version: 0.3.9
