@@ -52,6 +52,10 @@ end
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 puts "Pid: #{Process.pid}"
+puts "Data directory: #{config.data_dir}"
+{% unless flag?(:release) %}
+  puts "WARNING: Not built in release mode"
+{% end %}
 
 # Maximize FD limit
 _, fd_limit_max = System.file_descriptor_limit
