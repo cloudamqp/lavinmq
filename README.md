@@ -181,7 +181,7 @@ More configuration options can be viewed with `-h`,
 and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
 for an example.
 
-#### Docker
+## Docker
 
 It is possible to run AvalancheMQ using docker. To build the image run:
 
