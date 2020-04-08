@@ -1,6 +1,6 @@
 name: avalanchemq
 base: core18
-version: '0.9.14'
+version: git
 summary: Lean and mean AMQP server # 79 char long summary
 description: |
   An high throughput, advanced message queue server.
