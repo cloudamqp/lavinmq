@@ -28,6 +28,8 @@ dependencies:
   amqp-client:
     github: cloudamqp/amqp-client.cr
     # path: ../amqp-client.cr
+  http-protection:
+    github: rogeriozambon/http-protection
 
 development_dependencies:
   ameba:
