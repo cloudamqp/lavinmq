@@ -3,20 +3,19 @@ base: core18
 version: '0.9.14'
 summary: Lean and mean AMQP server # 79 char long summary
 description: |
-  An high throughput and advanced message queue server.
+  An high throughput, advanced message queue server.
 
-grade: devel # must be 'stable' to release into candidate/stable channels
-confinement: strict # use 'strict' once you have the right plugs and slots
+grade: devel # devel or stable
+confinement: strict
 
 apps:
-  avalanchemq:
-    command: avalanchemq -c $SNAP_DATA/etc/avalanchemq/avalanchemq.conf
+  server:
+    command: avalanchemq -D $SNAP_DATA
     daemon: simple
     plugs:
       - network
       - network-bind
-
-  avalanchemqperf:
+  perf:
     command: avalanchemqperf
     plugs:
       - network
@@ -31,9 +30,3 @@ parts:
       - git
       - libssl-dev
       - libevent-dev
-
-layout:
-  /var/lib/avalanchemq:
-    symlink: $SNAP_DATA/var/lib/avalanchemq
-  /etc/avalanchemq/avalanchemq.conf:
-    symlink: $SNAP_DATA/etc/avalanchemq/avalanchemq.conf
