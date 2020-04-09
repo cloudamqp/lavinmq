@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.15] - 2020-04-09
+
 ### Fixed
 - Crystal 0.34.x compability
 - Rescue error while trying to parse the PROXY protocol
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Don't log warnings if msg body can't be fully read from disconnected client
 
 ### Added
+- .lock file in the data dir that's locked on start so that only one instance can use it at a time
 - Nodes page with details on node usage
 - Snapcraft configuration file
 - Dockerfile
