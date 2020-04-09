@@ -51,18 +51,38 @@ if config.data_dir.empty?
 end
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
-puts "Pid: #{Process.pid}"
-puts "Data directory: #{config.data_dir}"
 {% unless flag?(:release) %}
   puts "WARNING: Not built in release mode"
 {% end %}
+puts "Pid: #{Process.pid}"
+puts "Data directory: #{config.data_dir}"
 
 # Maximize FD limit
 _, fd_limit_max = System.file_descriptor_limit
 System.file_descriptor_limit = fd_limit_max
 fd_limit_current, _ = System.file_descriptor_limit
 puts "FD limit: #{fd_limit_current}"
-puts "The file descriptor limit is very low, consider raising it. You need one for each connection and two for each queue." if fd_limit_current < 1025
+if fd_limit_current < 1025
+  puts "WARNING: The file descriptor limit is very low, consider raising it."
+  puts "WARNING: You need one for each connection and two for each durable queue, and some more."
+end
+
+# Make sure that only one instance is using the data directory
+# Can work as a poor mans cluster where the master nodes aquires
+# a file lock on a shared file system like NFS
+lock = File.open(File.join(config.data_dir, ".lock"), "a+")
+lock.sync = true
+lock.read_buffering = false
+begin
+  lock.flock_exclusive(blocking: false)
+rescue
+  puts "INFO: Data directory locked by '#{lock.gets_to_end}'"
+  puts "INFO: Waiting for file lock to be released"
+  lock.flock_exclusive(blocking: true)
+  puts "INFO: Lock aquired"
+end
+lock.truncate
+lock.print System.hostname
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
