@@ -209,12 +209,12 @@ class ConnectionChurn < Perf
   end
 end
 
-arg = ARGV.shift?
-case arg
+mode = ARGV.shift?
+case mode
 when "throughput"       then Throughput.new.run
 when "bind-churn"       then BindChurn.new.run
 when "queue-churn"      then QueueChurn.new.run
 when "connection-churn" then ConnectionChurn.new.run
-when /^.+$/             then Perf.new.run([arg.not_nil!])
+when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
 end

@@ -111,7 +111,7 @@ describe AvalancheMQ::Shovel do
         sleep 15
         msgs.close
       end
-      q2.subscribe { |msg| msgs.send msg }
+      q2.subscribe { |m| msgs.send m }
       msg = msgs.receive?
       msg.should_not be_nil
       msg.not_nil!.body_io.to_s.should eq "shovel me"
@@ -142,7 +142,7 @@ describe AvalancheMQ::Shovel do
         sleep 15
         msgs.close
       end
-      q2.subscribe { |msg| msgs.send msg }
+      q2.subscribe { |m| msgs.send m }
       msg = msgs.receive?
       msg.should_not be_nil
       msg.not_nil!.body_io.to_s.should eq "shovel me"
@@ -232,7 +232,7 @@ describe AvalancheMQ::Shovel do
         sleep 5
         msgs.close
       end
-      q2.subscribe { |msg| msgs.send msg }
+      q2.subscribe { |m| msgs.send m }
       2.times { msgs.receive?.should_not be_nil }
       s.vhosts["/"].queues["rc_q1"].message_count.should eq 0
     end
@@ -257,7 +257,7 @@ describe AvalancheMQ::Shovel do
       shovel.run
       x.publish "shovel me", "ssl_q1"
       msgs = Channel(AMQP::Client::Message).new
-      q2.subscribe { |msg| msgs.send msg }
+      q2.subscribe { |m| msgs.send m }
       msg = msgs.receive
       msg.body_io.to_s.should eq "shovel me"
     end

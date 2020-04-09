@@ -389,8 +389,8 @@ describe AvalancheMQ::Server do
         cch.send({code, text})
       end
       ch.basic_ack(999_u64)
-      code = cch.receive.first
-      code.should eq 406
+      c, _ = cch.receive
+      c.should eq 406
     end
   end
 

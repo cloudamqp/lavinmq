@@ -8,8 +8,8 @@ describe "Flow" do
       ch.prefetch 1
       q.publish "msg"
       msgs = Channel(AMQP::Client::Message).new(10)
-      q.subscribe(no_ack: false) do |m|
-        msgs.send m
+      q.subscribe(no_ack: false) do |msg|
+        msgs.send msg
       end
       m = msgs.receive
       ch.flow(false)
