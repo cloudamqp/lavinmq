@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - .lock file in the data dir that's locked on start so that only one instance can use it at a time
+- Protection against common HTTP attacks
 - Nodes page with details on node usage
 - Snapcraft configuration file
 - Dockerfile
