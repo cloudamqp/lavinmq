@@ -222,6 +222,7 @@ shutdown = ->(_s : Signal) do
   Fiber.yield
   puts "Fibers: "
   Fiber.list { |f| puts f.inspect }
+  lock.close
   exit 0
 end
 Signal::INT.trap &shutdown
