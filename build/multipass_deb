@@ -1,0 +1,36 @@
+#!/bin/bash -eux
+revision=${1:-1}
+dists=${2:-bionic}
+
+provision="
+set -eux
+sleep 2
+echo 'deb https://dist.crystal-lang.org/apt crystal main' | sudo tee /etc/apt/sources.list.d/crystal.list
+sudo apt-get install -y gnupg2 apt-transport-https ca-certificates
+sudo apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
+sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get install -y crystal help2man lintian lsb-release fakeroot
+rm -rf .
+"
+
+build="
+set -eux
+tar xf git.tar
+build/deb $revision
+"
+
+pkg_version=$(shards version)
+pkg_revision=${1:-1}
+for dist in $dists
+do
+  mkdir -p builds/$dist
+  multipass launch --name avalanchemq-$dist $dist || true
+  multipass shell avalanchemq-$dist <<< $provision
+  git archive HEAD | multipass transfer - avalanchemq-$dist:git.tar
+  multipass shell avalanchemq-$dist <<< $build
+  multipass transfer \
+    avalanchemq-$dist:builds/debian/$dist/avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture).deb \
+    builds/$dist/
+  multipass suspend avalanchemq-$dist
+done
