@@ -67,9 +67,9 @@ module AvalancheMQ
       when AMQP::Frame::Connection::CloseOk
         @log.info "Disconnected"
         cleanup
-        return false
+        false
+      else true
       end
-      true
     rescue ex : IO::Error
       @log.info { "Lost connection, while sending (#{ex})" }
       cleanup

@@ -97,9 +97,10 @@ module AvalancheMQ
       when AMQP::Frame::Connection::CloseOk
         @log.debug "Disconnected"
         cleanup
-        return false
+        false
+      else
+        true
       end
-      true
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup

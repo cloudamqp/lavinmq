@@ -40,6 +40,7 @@ module AvalancheMQ
           parse_permissions(pull)
         when "tags"
           @tags = pull.read_string.split(",").map { |t| Tag.parse?(t) }.compact
+        else nil
         end
       end
       raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
@@ -177,6 +178,7 @@ module AvalancheMQ
           when "config" then config = Regex.from_json(pull)
           when "read"   then read = Regex.from_json(pull)
           when "write"  then write = Regex.from_json(pull)
+          else nil
           end
         end
         @permissions[vhost] = {config: config, read: read, write: write}

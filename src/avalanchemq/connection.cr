@@ -56,6 +56,7 @@ module AvalancheMQ
           context.certificate_chain = value
         when "keyfile"
           context.private_key = value
+        else nil
         end
       end
       OpenSSL::SSL::Socket::Client.new(socket, context: context, sync_close: true, hostname: host)

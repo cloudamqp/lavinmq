@@ -44,6 +44,7 @@ module AvalancheMQ
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
+        else nil
         end
       end
       @policy = policy

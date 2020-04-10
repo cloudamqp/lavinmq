@@ -42,6 +42,7 @@ module AvalancheMQ
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32
           when 5 then dst_port = v.to_i32
+          else nil
           end
           i += 1
         end

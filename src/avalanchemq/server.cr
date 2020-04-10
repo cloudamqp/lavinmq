@@ -157,6 +157,7 @@ module AvalancheMQ
             "ip_address": addr.address,
             "port":       addr.port,
           }
+        else raise "Unexpected listener '#{l.class}'"
         end
       end
     end
@@ -204,6 +205,7 @@ module AvalancheMQ
           @connections.push conn
         when :disconnected
           @connections.delete conn
+        else raise "Unexpected event '#{event}'"
         end
         @log.debug { "#{@connections.size} connected clients" }
       end

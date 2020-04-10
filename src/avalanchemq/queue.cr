@@ -104,6 +104,7 @@ module AvalancheMQ
           @vhost.upstreams.try &.link_set(v.as_s, self)
         when "delivery-limit"
           @delivery_limit = v.as_i64
+        else nil
         end
       end
       @policy = policy

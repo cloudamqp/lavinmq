@@ -109,6 +109,8 @@ module AvalancheMQ
           msg.ack(multiple: true)
         when AckMode::OnPublish
           msg.ack(multiple: true)
+        when AckMode::NoAck
+          nil
         end
       end
       if delete_after_this

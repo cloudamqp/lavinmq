@@ -24,8 +24,7 @@ module AvalancheMQ
         post "/api/definitions/upload" do |context, _params|
           refuse_unless_administrator(context, user(context))
           ::HTTP::FormData.parse(context.request) do |part|
-            case part.name
-            when "file"
+            if part.name == "file"
               body = JSON.parse(part.body)
               import_definitions(body)
             end
@@ -174,6 +173,7 @@ module AvalancheMQ
             v.bind_queue(destination, source, routing_key, arguments)
           when "exchange"
             v.bind_exchange(destination, source, routing_key, arguments)
+          else nil
           end
         end
       end
