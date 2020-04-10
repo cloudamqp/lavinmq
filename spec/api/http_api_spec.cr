@@ -31,6 +31,22 @@ describe AvalancheMQ::HTTP::Server do
       response = get("/api/whoami")
       response.status_code.should eq 200
     end
+
+    it "should return sum of all published messages" do
+      close_servers
+      TestHelpers.setup
+
+      with_channel do |ch|
+        q1 = ch.queue("stats_q1")
+        q2 = ch.queue("stats_q2")
+        5.times { q1.publish "m" }
+        5.times { q2.publish "m" }
+      end
+
+      response = get("/api/overview")
+      count = JSON.parse(response.body).dig("message_stats", "publish")
+      count.should eq 10
+    end
   end
 
   describe "GET /api/aliveness-test/vhost" do

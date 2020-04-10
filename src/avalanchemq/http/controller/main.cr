@@ -62,7 +62,7 @@ module AvalancheMQ
               add_logs!(unacked_log, q.unacked_count_log)
               details = q.stats_details
               {% for name in QUEUE_STATS %}
-                {{name.id}}_count = details[:{{name.id}}]
+                {{name.id}}_count += details[:{{name.id}}]
                 {{name.id}}_rate += details[:{{name.id}}_details][:rate]
                 add_logs!({{name.id}}_log, details[:{{name.id}}_details][:log])
               {% end %}
