@@ -83,6 +83,7 @@ rescue
 end
 lock.truncate
 lock.print System.hostname
+lock.fsync
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
