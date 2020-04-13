@@ -136,13 +136,13 @@ module AvalancheMQ
 
     def fsync_enq
       return if @closed
-      @log.debug "fsyncing enq"
+      #@log.debug "fsyncing enq"
       @enq.fsync(flush_metadata: false)
     end
 
     def fsync_ack
       return if @closed
-      @log.debug "fsyncing ack"
+      #@log.debug "fsyncing ack"
       @ack.fsync(flush_metadata: false)
     end
 

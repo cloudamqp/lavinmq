@@ -37,11 +37,11 @@ module AvalancheMQ
           end
 
           persistent = msg.properties.delivery_mode == 2_u8
-          @log.debug { "Getting delivery tag" }
+          #@log.debug { "Getting delivery tag" }
           delivery_tag = @channel.next_delivery_tag(@queue, sp,
                                                     persistent, @no_ack,
                                                     self)
-          @log.debug { "Sending BasicDeliver" }
+          #@log.debug { "Sending BasicDeliver" }
           deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
             redelivered,

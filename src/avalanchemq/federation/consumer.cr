@@ -25,7 +25,7 @@ module AvalancheMQ
         private def read_loop
           loop do
             AMQP::Frame.from_io(@socket) do |frame|
-              @log.debug { "Read socket #{frame.inspect}" }
+              #@log.debug { "Read socket #{frame.inspect}" }
               case frame
               when AMQP::Frame::Basic::Deliver, AMQP::Frame::Header, AMQP::Frame::Body
                 @on_frame.try &.call(frame)
@@ -57,7 +57,7 @@ module AvalancheMQ
         end
 
         def forward(frame)
-          @log.debug { "Read internal #{frame.inspect}" }
+          #@log.debug { "Read internal #{frame.inspect}" }
           case frame
           when AMQP::Frame::Basic::Ack
             unless @upstream.ack_mode == AckMode::NoAck

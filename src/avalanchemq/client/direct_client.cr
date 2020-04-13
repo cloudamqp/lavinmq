@@ -61,7 +61,7 @@ module AvalancheMQ
     def send(frame : AMQP::Frame)
       return false if closed?
       @send_oct_count += frame.bytesize + 8
-      @log.debug { "Send #{frame.inspect}" }
+      #@log.debug { "Send #{frame.inspect}" }
       handle_frame(frame)
       case frame
       when AMQP::Frame::Connection::CloseOk
