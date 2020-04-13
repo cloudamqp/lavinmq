@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.16] - 2020-04-13
+
 ### Fixed
 - Keep reference to the opened .lock file until shutdown so it's not GCed
 - Publish stats correct
