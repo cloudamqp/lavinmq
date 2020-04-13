@@ -53,7 +53,7 @@ module AvalancheMQ
           @log.info "Consumer closed due to: #{ex.inspect}"
         ensure
           @log.debug "Closing socket"
-          @socket.close
+          @socket.close rescue nil
         end
 
         def forward(frame)
