@@ -41,6 +41,8 @@ module AvalancheMQ
             @upstream.stop_link(@federated_q)
           when :add_consumer
             @consumer_available.send(nil)
+          when :rm_consumer
+            nil
           else raise "Unexpected event '#{event}'"
           end
         end
