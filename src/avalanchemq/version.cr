@@ -1,3 +1,3 @@
 module AvalancheMQ
-  VERSION = "0.9.16"
+  VERSION = {{ `git describe | cut -c2-`.chomp.stringify }}
 end
