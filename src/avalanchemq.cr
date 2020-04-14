@@ -70,20 +70,17 @@ end
 # Make sure that only one instance is using the data directory
 # Can work as a poor mans cluster where the master nodes aquires
 # a file lock on a shared file system like NFS
-lock = File.open(File.join(config.data_dir, ".lock"), "a+")
-lock.sync = true
-lock.read_buffering = false
+Dir.mkdir_p config.data_dir
+lock = File.open(File.join(config.data_dir, ".lock"), "w")
 begin
   lock.flock_exclusive(blocking: false)
 rescue
-  puts "INFO: Data directory locked by '#{lock.gets_to_end}'"
+  puts "INFO: Data directory locked"
   puts "INFO: Waiting for file lock to be released"
   lock.flock_exclusive(blocking: true)
   puts "INFO: Lock aquired"
 end
 lock.truncate
-lock.print System.hostname
-lock.fsync
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
@@ -229,4 +226,14 @@ end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
 GC.collect
-sleep
+
+# write to the lock file to detect lost lock
+# See "Lost locks" in `man 2 fcntl`
+begin
+  loop do
+    sleep 30
+    lock.truncate
+  end
+rescue ex : IO::Error
+  abort "ERROR: Lost lock!"
+end
