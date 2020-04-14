@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eux
 app=avalanchemq
-pkg_version=$(shards version)
+pkg_version=$(git describe | cut -c2-)
 pkg_revision=${1:-1}
 arch=amd64
 

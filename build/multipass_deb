@@ -1,4 +1,5 @@
 #!/bin/bash -eux
+version=$(git describe | cut -c2-)
 revision=${1:-1}
 dists=${2:-bionic}
 
@@ -17,11 +18,10 @@ rm -rf .
 build="
 set -eux
 tar xf git.tar
-build/deb $revision
+build/deb $version $revision
 "
 
-pkg_version=$(shards version)
-pkg_revision=${1:-1}
+arch=$(dpkg --print-architecture)
 for dist in $dists
 do
   mkdir -p builds/$dist
@@ -30,7 +30,7 @@ do
   git archive HEAD | multipass transfer - avalanchemq-$dist:git.tar
   multipass shell avalanchemq-$dist <<< $build
   multipass transfer \
-    avalanchemq-$dist:builds/debian/$dist/avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture).deb \
+    avalanchemq-$dist:builds/debian/$dist/avalanchemq_${version}-${revision}_${arch}.deb \
     builds/$dist/
   multipass suspend avalanchemq-$dist
 done
