@@ -39,8 +39,10 @@ describe AvalancheMQ::HTTP::Server do
       with_channel do |ch|
         q1 = ch.queue("stats_q1")
         q2 = ch.queue("stats_q2")
-        5.times { q1.publish "m" }
-        5.times { q2.publish "m" }
+        5.times do
+          q1.publish_confirm "m"
+          q2.publish_confirm "m"
+        end
       end
 
       response = get("/api/overview")
