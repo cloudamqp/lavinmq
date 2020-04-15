@@ -31,3 +31,12 @@ lib LibC
     POSIX_FADV_NOREUSE    = 5 # Data will be accessed once.
   {% end %}
 end
+
+lib LibC
+  fun pwrite(fd : Int, buf : Void*, n : SizeT, offset : OffT) : SSizeT
+  struct IoVec
+    iov_base : Void*
+    iov_len : SizeT
+  end
+  fun writev(fd : Int, iovec : IoVec*, n : SizeT) : SSizeT
+end

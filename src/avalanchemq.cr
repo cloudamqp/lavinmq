@@ -72,15 +72,19 @@ end
 # a file lock on a shared file system like NFS
 Dir.mkdir_p config.data_dir
 lock = File.open(File.join(config.data_dir, ".lock"), "w")
+lock.sync = true
+lock.read_buffering = false
 begin
   lock.flock_exclusive(blocking: false)
 rescue
-  puts "INFO: Data directory locked"
+  puts "INFO: Data directory locked by '#{lock.gets_to_end}'"
   puts "INFO: Waiting for file lock to be released"
   lock.flock_exclusive(blocking: true)
   puts "INFO: Lock aquired"
 end
 lock.truncate
+lock.print System.hostname
+lock.fsync
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
@@ -230,10 +234,12 @@ GC.collect
 # write to the lock file to detect lost lock
 # See "Lost locks" in `man 2 fcntl`
 begin
+  hostname = System.hostname.to_slice
   loop do
     sleep 30
-    lock.truncate
+    lock.write_at hostname, 0
   end
 rescue ex : IO::Error
+  STDERR.puts ex.inspect
   abort "ERROR: Lost lock!"
 end
