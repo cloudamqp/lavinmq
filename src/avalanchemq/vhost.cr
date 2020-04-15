@@ -530,7 +530,6 @@ module AvalancheMQ
     end
 
     private def save!
-      return unless Dir.exists?(@data_dir)
       File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         loop do
           frame = @save.receive? || break
@@ -555,12 +554,11 @@ module AvalancheMQ
           @log.debug { "Storing definition: #{frame.inspect}" }
           f.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           f.fsync
-          f.advise(File::Advice::DontNeed)
         end
       end
       @policies.save!
-    ensure
-      @save.close
+    rescue ex
+      abort "ERROR: Writing definitions. #{ex.inspect}"
     end
 
     private def load_segments_on_disk!
