@@ -1,0 +1,4 @@
+[Slice]
+IOAccounting=true
+CPUAccounting=true
+MemoryAccounting=true

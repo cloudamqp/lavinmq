@@ -1,0 +1,20 @@
+[Unit]
+Description=AvalancheMQ
+Documentation=https://github.com/cloudamqp/avalanchemq
+Requires=network.target
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/avalanchemq -c /etc/avalanchemq/avalanchemq.%i.ini
+Restart=on-failure
+User=avalanchemq
+Group=avalanchemq
+LimitNOFILE=infinity
+ProtectSystem=full
+Slice=avalanchemq.slice
+MemoryHigh=10M
+MemoryMax=100M
+CPUQuota=1%
+
+[Install]
+WantedBy=multi-user.target
