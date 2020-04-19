@@ -30,6 +30,8 @@ dependencies:
     # path: ../amqp-client.cr
   http-protection:
     github: rogeriozambon/http-protection
+  systemd:
+    github: 84codes/systemd.cr
 
 development_dependencies:
   ameba:

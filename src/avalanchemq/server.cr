@@ -1,6 +1,7 @@
 require "socket"
 require "logger"
 require "openssl"
+require "systemd"
 require "./amqp"
 require "./rough_time"
 require "../stdlib/*"
@@ -36,6 +37,9 @@ module AvalancheMQ
       @vhosts = VHostStore.new(@data_dir, @connection_events, @log, @users.default_user)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
+      if SystemD.notify_ready > 0
+        @log.info "Ready (Notified SystemD)"
+      end
       spawn handle_connection_events, name: "Server#handle_connection_events"
       spawn stats_loop, name: "Server#stats_loop"
     end
