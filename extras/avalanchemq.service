@@ -10,6 +10,7 @@ Restart=on-failure
 User=avalanchemq
 Group=avalanchemq
 LimitNOFILE=infinity
+Type=notify
 ProtectSystem=full
 
 [Install]
