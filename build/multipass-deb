@@ -5,14 +5,13 @@ dists=${2:-bionic}
 
 provision="
 set -eux
-sleep 2
-echo 'deb https://dist.crystal-lang.org/apt crystal main' | sudo tee /etc/apt/sources.list.d/crystal.list
 sudo apt-get install -y gnupg2 apt-transport-https ca-certificates
 sudo apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
+echo 'deb https://dist.crystal-lang.org/apt crystal main' | sudo tee /etc/apt/sources.list.d/crystal.list
 sudo apt-get update
 sudo apt-get upgrade -y
 sudo apt-get install -y crystal help2man lintian lsb-release fakeroot
-rm -rf .
+rm -rf *
 "
 
 build="
@@ -21,16 +20,16 @@ tar xf git.tar
 build/deb $version $revision
 "
 
-arch=$(dpkg --print-architecture)
+arch=amd64
 for dist in $dists
 do
-  mkdir -p builds/$dist
+  mkdir -p builds/debian/$dist
   multipass launch --name avalanchemq-$dist $dist || true
-  multipass shell avalanchemq-$dist <<< $provision
+  multipass shell avalanchemq-$dist <<< "$provision"
   git archive HEAD | multipass transfer - avalanchemq-$dist:git.tar
-  multipass shell avalanchemq-$dist <<< $build
+  multipass shell avalanchemq-$dist <<< "$build"
   multipass transfer \
     avalanchemq-$dist:builds/debian/$dist/avalanchemq_${version}-${revision}_${arch}.deb \
-    builds/$dist/
+    builds/debian/$dist/
   multipass suspend avalanchemq-$dist
 done
