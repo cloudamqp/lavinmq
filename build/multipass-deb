@@ -5,7 +5,9 @@ dists=${2:-bionic}
 
 provision="
 set -eux
-sudo apt-get install -y gnupg2 apt-transport-https ca-certificates
+sudo apt-get update
+sudo flock /var/lib/dpkg/lock-frontend \
+  apt-get install -y gnupg2 apt-transport-https ca-certificates
 sudo apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
 echo 'deb https://dist.crystal-lang.org/apt crystal main' | sudo tee /etc/apt/sources.list.d/crystal.list
 sudo apt-get update
