@@ -21,6 +21,14 @@ module AvalancheMQ
         @log.progname = "httpserver"
         @cache = JSONCacheHandler.new(@log.dup)
         handlers = [
+          ::HTTP::Protection::Deflect.new,
+          ::HTTP::Protection::FrameOptions.new,
+          ::HTTP::Protection::IpSpoofing.new,
+          ::HTTP::Protection::Origin.new,
+          ::HTTP::Protection::PathTraversal.new,
+          ::HTTP::Protection::RemoteReferer.new,
+          ::HTTP::Protection::StrictTransport.new,
+          ::HTTP::Protection::XSSHeader.new,
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log.dup),
           StaticController.new,
@@ -39,14 +47,6 @@ module AvalancheMQ
           PermissionsController.new(@amqp_server, @log.dup).route_handler,
           ParametersController.new(@amqp_server, @log.dup).route_handler,
           NodesController.new(@amqp_server, @log.dup).route_handler,
-          ::HTTP::Protection::Deflect.new,
-          ::HTTP::Protection::FrameOptions.new,
-          ::HTTP::Protection::IpSpoofing.new,
-          ::HTTP::Protection::Origin.new,
-          ::HTTP::Protection::PathTraversal.new,
-          ::HTTP::Protection::RemoteReferer.new,
-          ::HTTP::Protection::StrictTransport.new,
-          ::HTTP::Protection::XSSHeader.new,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new) if @log.level == Logger::DEBUG
         @http = ::HTTP::Server.new(handlers)
