@@ -22,8 +22,8 @@ module AvalancheMQ
         @cache = JSONCacheHandler.new(@log.dup)
         handlers = [
           ::HTTP::Protection::FrameOptions.new,
-          ::HTTP::Protection::Origin.new,
-          ::HTTP::Protection::RemoteReferer.new,
+          #::HTTP::Protection::Origin.new,
+          #::HTTP::Protection::RemoteReferer.new,
           ::HTTP::Protection::StrictTransport.new,
           #::HTTP::Protection::XSSHeader.new,
           ApiDefaultsHandler.new,
