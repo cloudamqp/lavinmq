@@ -21,14 +21,11 @@ module AvalancheMQ
         @log.progname = "httpserver"
         @cache = JSONCacheHandler.new(@log.dup)
         handlers = [
-          ::HTTP::Protection::Deflect.new,
           ::HTTP::Protection::FrameOptions.new,
-          ::HTTP::Protection::IpSpoofing.new,
           ::HTTP::Protection::Origin.new,
-          ::HTTP::Protection::PathTraversal.new,
           ::HTTP::Protection::RemoteReferer.new,
           ::HTTP::Protection::StrictTransport.new,
-          ::HTTP::Protection::XSSHeader.new,
+          #::HTTP::Protection::XSSHeader.new,
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log.dup),
           StaticController.new,
