@@ -2,8 +2,10 @@
 dist: bionic
 language: crystal
 os: linux
+before_install:
+  - sudo apt-get -y install libsystemd-dev
 install:
-- shards install
+  - shards install
 jobs:
   include:
   - script: crystal spec
