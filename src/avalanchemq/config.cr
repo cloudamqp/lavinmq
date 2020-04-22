@@ -1,9 +1,9 @@
-require "logger"
+require "log"
 
 module AvalancheMQ
   class Config
     property data_dir = ""
-    property log_level : Logger::Severity = Logger::INFO
+    property log_level : Log::Severity = Log::Severity::Info
     property amqp_bind = "0.0.0.0"
     property amqp_port = 5672
     property amqps_port = -1
@@ -47,7 +47,7 @@ module AvalancheMQ
 
     private def parse_main(settings)
       settings["data_dir"]?.try { |v| @data_dir = v }
-      settings["log_level"]?.try { |v| @log_level = Logger::Severity.parse(v) }
+      settings["log_level"]?.try { |v| @log_level = Log::Severity.parse(v) }
       settings["stats_interval"]?.try { |v| @stats_interval = v.to_i32 }
       settings["stats_log_size"]?.try { |v| @stats_log_size = v.to_i32 }
       settings["gc_segments_interval"]?.try { |v| @gc_segments_interval = v.to_i32 }

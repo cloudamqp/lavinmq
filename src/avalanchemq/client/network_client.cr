@@ -17,19 +17,17 @@ module AvalancheMQ
                    user : User,
                    tune_ok,
                    start_ok)
-      log = vhost.log.dup
-      log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
       @channel_max = tune_ok.channel_max
       @heartbeat = tune_ok.heartbeat
       @auth_mechanism = start_ok.mechanism
       name = "#{@remote_address} -> #{@local_address}"
-      super(name, vhost, user, log, start_ok.client_properties)
+      super(name, vhost, user, start_ok.client_properties)
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    def self.start(socket, remote_address, local_address, vhosts, users, log)
-      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup)
+    def self.start(socket, remote_address, local_address, vhosts, users)
+      AMQPConnection.start(socket, remote_address, local_address, vhosts, users)
     end
 
     def channel_name_prefix
@@ -61,11 +59,11 @@ module AvalancheMQ
     private def read_loop
       loop do
         AMQP::Frame.from_io(@socket) do |frame|
-          #@log.debug { "Read #{frame.inspect}" }
+          #Log.debug { "Read #{frame.inspect}" }
           if (!@running && !frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk))
-            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            Log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             if frame.is_a?(AMQP::Frame::Body)
-              @log.debug "Skipping body"
+              Log.debug { "Skipping body" }
               frame.body.skip(frame.body_size)
             end
             next true
@@ -76,10 +74,10 @@ module AvalancheMQ
         send(AMQP::Frame::Heartbeat.new) || break
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
-      @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+      Log.debug(exception: ex) { "Lost connection, while reading (#{ex.inspect})" } unless closed?
       cleanup
     rescue ex : Exception
-      @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
+      Log.error(exception: ex) { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     ensure
       @running = false
@@ -87,7 +85,7 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       return false if closed?
-      #@log.debug { "Send #{frame.inspect}" }
+      #Log.debug { "Send #{frame.inspect}" }
       @write_lock.synchronize do
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
         @socket.flush
@@ -95,22 +93,22 @@ module AvalancheMQ
       @send_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Connection::CloseOk
-        @log.debug "Disconnected"
+        Log.debug { "Disconnected" }
         cleanup
         false
       else
         true
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error
-      @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
+      Log.debug(exception: ex) { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup
       false
     rescue ex : IO::TimeoutError
-      @log.info { "Timeout while sending (#{ex.inspect})" }
+      Log.info(exception: ex) { "Timeout while sending (#{ex.inspect})" }
       cleanup
       false
     rescue ex
-      @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
+      Log.error(exception: ex) { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 
@@ -126,36 +124,36 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       @write_lock.synchronize do
-        #@log.debug { "Send #{frame.inspect}" }
+        #Log.debug { "Send #{frame.inspect}" }
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-        #@log.debug { "Send #{header.inspect}" }
+        #Log.debug { "Send #{header.inspect}" }
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += 8_u64 + header.bytesize
         pos = 0
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
-          #@log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
+          #Log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
           body = AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
           @socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
           @send_oct_count += 8_u64 + body.bytesize
           pos += length
         end
-        #@log.debug { "Flushing" }
+        #Log.debug { "Flushing" }
         @socket.flush
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
-      @log.debug { "Lost connection, while sending (#{ex.inspect})" }
+      Log.debug(exception: ex) { "Lost connection, while sending (#{ex.inspect})" }
       cleanup
       false
     rescue ex : IO::TimeoutError
-      @log.info { "Timeout while sending (#{ex.inspect})" }
+      Log.info(exception: ex) { "Timeout while sending (#{ex.inspect})" }
       cleanup
       false
     rescue ex
-      @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
+      Log.error(exception: ex) { "Delivery exception: #{ex.inspect_with_backtrace}" }
       raise ex
     end
 
@@ -164,7 +162,7 @@ module AvalancheMQ
       begin
         @socket.close unless @socket.closed?
       rescue ex
-        @log.debug { "error when closing socket: #{ex.inspect_with_backtrace}" }
+        Log.debug(exception: ex) { "error when closing socket: #{ex.inspect_with_backtrace}" }
       end
     end
   end

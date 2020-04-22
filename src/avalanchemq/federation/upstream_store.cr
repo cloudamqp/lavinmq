@@ -4,6 +4,7 @@ module AvalancheMQ
   module Federation
     class UpstreamStore
       include Enumerable(Upstream)
+      Log = ::Log.for(self)
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
 
@@ -35,7 +36,7 @@ module AvalancheMQ
           @upstreams[name] = QueueUpstream.new(@vhost, name, uri, queue, prefetch, reconnect_delay,
             ack_mode)
         end
-        @vhost.log.info { "Upstream '#{name}' created" }
+        Log.info { "Upstream '#{name}' created" }
         @upstreams[name]
       end
 
@@ -48,7 +49,7 @@ module AvalancheMQ
             true
           end
         end
-        @vhost.log.info { "Upstream '#{name}' deleted" }
+        Log.info { "Upstream '#{name}' deleted" }
       end
 
       def link(name, resource : Queue)
@@ -101,7 +102,7 @@ module AvalancheMQ
 
       def delete_upstream_set(name)
         @upstream_sets.delete(name)
-        @vhost.log.info { "Upstream set '#{name}' deleted" }
+        Log.info { "Upstream set '#{name}' deleted" }
       end
 
       def link_set(name, resource : Queue)

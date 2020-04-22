@@ -3,14 +3,13 @@ require "./client"
 module AvalancheMQ
   abstract class DirectClient < Client
     abstract def handle_frame(frame : Frame)
+    Log = ::Log.for(self)
 
     def initialize(vhost : VHost, user : User, client_properties : AMQP::Table)
-      log = vhost.log.dup
-      log.progname += " direct=#{self.hash}"
       name = "localhost:#{self.hash}"
       vhost.add_connection(self)
-      super(name, vhost, user, log, client_properties)
-      @log.info "Connected"
+      super(name, vhost, user, client_properties)
+      Log.info { "Connected" }
     end
 
     def details_tuple
@@ -43,17 +42,17 @@ module AvalancheMQ
       ensure_open_channel(frame)
       process_frame(frame)
     rescue ex : AMQP::Error::NotImplemented
-      @log.error { "#{ex} when reading handling frame" }
+      Log.error(exception: ex) { "#{ex} when reading handling frame" }
       if ex.channel > 0
         close_channel(ex, 540_u16, "Not implemented")
       else
         close_connection(ex, 540_u16, "Not implemented")
       end
     rescue ex : IO::Error | AMQP::Error::FrameDecode
-      @log.info "Lost connection, while reading (#{ex.cause})" unless closed?
+      Log.info(exception: ex) { "Lost connection, while reading (#{ex.cause})" } unless closed?
       cleanup
     rescue ex : Exception
-      @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
+      Log.error(exception: ex) { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
       send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
       @running = false
     end
@@ -61,21 +60,21 @@ module AvalancheMQ
     def send(frame : AMQP::Frame)
       return false if closed?
       @send_oct_count += frame.bytesize + 8
-      #@log.debug { "Send #{frame.inspect}" }
+      #Log.debug { "Send #{frame.inspect}" }
       handle_frame(frame)
       case frame
       when AMQP::Frame::Connection::CloseOk
-        @log.info "Disconnected"
+        Log.info { "Disconnected" }
         cleanup
         false
       else true
       end
     rescue ex : IO::Error
-      @log.info { "Lost connection, while sending (#{ex})" }
+      Log.info(exception: ex) { "Lost connection, while sending (#{ex})" }
       cleanup
       false
     rescue ex
-      @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
+      Log.error(exception: ex) { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     end
 

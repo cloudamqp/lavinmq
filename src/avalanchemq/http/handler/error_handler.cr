@@ -4,9 +4,7 @@ module AvalancheMQ
   module HTTP
     class ApiErrorHandler
       include ::HTTP::Handler
-
-      def initialize(@log : Logger)
-      end
+      Log = ::Log.for(self)
 
       def call(context)
         call_next(context)
@@ -18,20 +16,19 @@ module AvalancheMQ
         context.response.status_code = 413
         {error: "payload_too_large", reason: "Result set too large, use pagination"}.to_json(context.response)
       rescue ex : Server::NotFoundError
-        @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
+        Log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
         not_found(context, ex.message)
       rescue ex : JSON::Error | Server::ExpectedBodyError | ArgumentError | TypeCastError
-        error = @log.level == Logger::DEBUG ? ex.inspect_with_backtrace : "\"#{ex.message}\""
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}"
+        Log.error(exception: ex) { "method=#{context.request.method} path=#{context.request.path} status=400 error=#{ex}" }
         context.response.status_code = 400
         message = ex.message.to_s.split(", at /").first || "Unknown error"
         {error: "bad_request", reason: "#{message}"}.to_json(context.response)
       rescue ex : Controller::HaltRequest
-        @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
+        Log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
       rescue ex : IO::Error
-        @log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.message}\"" }
+        Log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.message}\"" }
       rescue ex : Exception
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}"
+        Log.error(exception: ex) { "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect}" }
         context.response.status_code = 500
         {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response)
       end

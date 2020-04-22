@@ -1,11 +1,10 @@
-require "logger"
 require "../sortable_json"
 require "amqp-client"
 
 module AvalancheMQ
   class Shovel
     include SortableJSON
-    @log : Logger
+    Log = ::Log.for(self)
     @state = State::Terminated
     @stop = ::Channel(Exception).new
 
@@ -18,8 +17,6 @@ module AvalancheMQ
 
     def initialize(@source : Source, @destination : Destination, @name : String, @vhost : VHost,
                    @ack_mode = DEFAULT_ACK_MODE, @reconnect_delay = DEFUALT_RECONNECT_DELAY)
-      @log = @vhost.log.dup
-      @log.progname += " shovel=#{@name}"
     end
 
     def state
@@ -27,7 +24,7 @@ module AvalancheMQ
     end
 
     def run
-      @log.info { "Starting" }
+      Log.info { "Starting" }
       @state = State::Starting
       spawn(run_loop, name: "Shovel #{@vhost.name}/#{@name}")
       Fiber.yield
@@ -71,7 +68,7 @@ module AvalancheMQ
         when @stop.receive?
           break
         else
-          @log.error { "Shovel error: #{ex.message}" }
+          Log.error { "Shovel error: #{ex.message}" }
           sleep @reconnect_delay.seconds
         end
       end
@@ -123,7 +120,7 @@ module AvalancheMQ
     # Does not trigger reconnect, but a graceful close
     def stop
       return if stopped?
-      @log.info { "Stopping" }
+      Log.info { "Stopping" }
       @stop.close
     end
 

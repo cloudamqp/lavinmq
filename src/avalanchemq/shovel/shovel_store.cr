@@ -3,6 +3,7 @@ require "./shovel"
 module AvalancheMQ
   class ShovelStore
     include Enumerable({String, Shovel})
+    Log = ::Log.for(self)
 
     def initialize(@vhost : VHost)
       @shovels = Hash(String, Shovel).new
@@ -39,7 +40,7 @@ module AvalancheMQ
     def delete(name)
       if shovel = @shovels.delete name
         shovel.stop
-        @vhost.log.info { "Shovel '#{name}' deleted" }
+        Log.info { "Shovel '#{name}' deleted" }
         shovel
       end
     end

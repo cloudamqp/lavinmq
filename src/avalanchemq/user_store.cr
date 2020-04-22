@@ -4,8 +4,9 @@ require "./user"
 module AvalancheMQ
   class UserStore
     include Enumerable({String, User})
+    Log = ::Log.for(self)
 
-    def initialize(@data_dir : String, @log : Logger)
+    def initialize(@data_dir : String)
       @users = Hash(String, User).new
       load!
     end
@@ -76,26 +77,26 @@ module AvalancheMQ
     private def load!
       path = File.join(@data_dir, "users.json")
       if File.exists? path
-        @log.debug "Loading users from file"
+        Log.debug { "Loading users from file" }
         File.open(path) do |f|
           Array(User).from_json(f) do |user|
             @users[user.name] = user
           end
         rescue JSON::ParseException
-          @log.warn("#{path} is not vaild json")
+          Log.warn { "#{path} is not vaild json" }
         end
       else
         tags = [Tag::Administrator]
-        @log.debug "Loading default users"
+        Log.debug { "Loading default users" }
         create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
         save!
       end
-      @log.debug("#{size} users loaded")
+      Log.debug { "#{size} users loaded" }
     end
 
     def save!
-      @log.debug "Saving users to file"
+      Log.debug { "Saving users to file" }
       tmpfile = File.join(@data_dir, "users.json.tmp")
       File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
       File.rename tmpfile, File.join(@data_dir, "users.json")

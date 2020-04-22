@@ -1,5 +1,4 @@
 require "router"
-require "logger"
 require "../sortable_json"
 
 module AvalancheMQ
@@ -7,10 +6,9 @@ module AvalancheMQ
     abstract class Controller
       include Router
 
-      @log : Logger
+      Log = ::Log.for(self)
 
-      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
-        @log.progname += " " + self.class.name.split("::").last
+      def initialize(@amqp_server : AvalancheMQ::Server)
         register_routes
       end
 
@@ -143,7 +141,7 @@ module AvalancheMQ
           user = @amqp_server.users[username]?
         end
         unless user
-          @log.warn "Authorized user=#{context.authenticated_username?} not in user store"
+          Log.warn { "Authorized user=#{context.authenticated_username?} not in user store" }
           access_refused(context)
         end
         user
@@ -159,7 +157,7 @@ module AvalancheMQ
 
       private def refuse_unless_management(context, user, vhost = nil)
         if user.tags.empty?
-          @log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
           access_refused(context)
         end
       end
@@ -167,7 +165,7 @@ module AvalancheMQ
       private def refuse_unless_policymaker(context, user, vhost = nil)
         refuse_unless_management(context, user, vhost)
         unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
-          @log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
           access_refused(context)
         end
       end
@@ -175,7 +173,7 @@ module AvalancheMQ
       private def refuse_unless_monitoring(context, user)
         refuse_unless_management(context, user)
         unless user.tags.any? { |t| t.administrator? || t.monitoring? }
-          @log.warn { "user=#{user.name} does not have monitoring access" }
+          Log.warn { "user=#{user.name} does not have monitoring access" }
           access_refused(context)
         end
       end
@@ -184,7 +182,7 @@ module AvalancheMQ
         refuse_unless_policymaker(context, user)
         refuse_unless_monitoring(context, user)
         unless user.tags.any? &.administrator?
-          @log.warn { "user=#{user.name} does not have administrator access" }
+          Log.warn { "user=#{user.name} does not have administrator access" }
           access_refused(context)
         end
       end

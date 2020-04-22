@@ -1,7 +1,6 @@
 require "cache_hash"
 require "http/server/handler"
 require "json"
-require "logger"
 
 module AvalancheMQ
   module HTTP
@@ -10,9 +9,6 @@ module AvalancheMQ
 
       @cache = CacheHash(String).new(5.seconds)
       @mutex = Hash(String, Mutex).new { |h, k| h[k] = Mutex.new(:unchecked) }
-
-      def initialize(@log : Logger)
-      end
 
       def purge
         @cache.purge

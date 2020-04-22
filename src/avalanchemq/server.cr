@@ -1,5 +1,4 @@
 require "socket"
-require "logger"
 require "openssl"
 require "systemd"
 require "./amqp"
@@ -12,13 +11,14 @@ require "./exchange"
 require "./queue"
 require "./durable_queue"
 require "./parameter"
-require "./chained_logger"
 require "./config"
 require "./proxy_protocol"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, log, parameters
+    Log = ::Log.for(self)
+
+    getter connections, vhosts, users, data_dir, parameters
     getter? closed, flow
     alias ConnectionsEvents = Channel(Tuple(Client, Symbol))
     include ParameterTarget
@@ -27,18 +27,17 @@ module AvalancheMQ
     @closed = false
     @flow = true
 
-    def initialize(@data_dir : String, @log : Logger)
-      @log.progname = "amqpserver"
+    def initialize(@data_dir : String)
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket).new(3)
       @connections = Array(Client).new
       @connection_events = ConnectionsEvents.new(16)
-      @users = UserStore.new(@data_dir, @log)
-      @vhosts = VHostStore.new(@data_dir, @connection_events, @log, @users.default_user)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @users = UserStore.new(@data_dir)
+      @vhosts = VHostStore.new(@data_dir, @connection_events, @users.default_user)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json")
       apply_parameter
       if SystemD.notify_ready > 0
-        @log.info "Ready (Notified SystemD)"
+        Log.info { "Ready (Notified SystemD)" }
       end
       spawn handle_connection_events, name: "Server#handle_connection_events"
       spawn stats_loop, name: "Server#stats_loop"
@@ -47,7 +46,7 @@ module AvalancheMQ
     def listen(bind = "::", port = 5672)
       s = TCPServer.new(bind, port)
       @listeners << s
-      @log.info { "Listening on #{s.local_address}" }
+      Log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
         client.sync = false
@@ -69,12 +68,12 @@ module AvalancheMQ
       context.private_key = key_path
       context.ca_certificates = ca_path if ca_path
       # context.ciphers = "ECDHE-RSA-AES128-SHA256"
-      @log.info { "Listening on #{s.local_address} (TLS)" }
+      Log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         begin
           client = s.accept? || break
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          @log.info { "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}" }
+          Log.info { "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}" }
           client.sync = true
           client.read_buffering = false
           # only do buffering on the tls socket
@@ -83,11 +82,11 @@ module AvalancheMQ
           set_socket_options(client)
           spawn handle_connection(ssl_client, client.remote_address, client.local_address), name: "Server#handle_connection(tls)"
         rescue ex
-          @log.error "Error accepting OpenSSL connection: #{ex.inspect}"
+          Log.error(exception: ex) { "Error accepting OpenSSL connection: #{ex.inspect}" }
           begin
             client.try &.close
           rescue ex2
-            @log.error "Error closing socket: #{ex2.inspect}"
+            Log.error(exception: ex2) { "Error closing socket: #{ex2.inspect}" }
           end
         end
       end
@@ -102,7 +101,7 @@ module AvalancheMQ
       s = UNIXServer.new(path)
       @listeners << s
       File.chmod(path, 0o777)
-      @log.info { "Listening on #{s.local_address}" }
+      Log.info { "Listening on #{s.local_address}" }
       while client = s.accept?
         client.sync = false
         client.read_buffering = true
@@ -116,7 +115,7 @@ module AvalancheMQ
             else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
             end
           rescue ex
-            @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
+            Log.info(exception: ex) { "Error accepting UNIX socket: #{ex.inspect}" }
             client.close
             next
           end
@@ -130,11 +129,11 @@ module AvalancheMQ
 
     def close
       @closed = true
-      @log.debug "Closing listeners"
+      Log.debug { "Closing listeners" }
       @listeners.each &.close
-      @log.debug "Closing connections"
+      Log.debug { "Closing connections" }
       @connections.each &.close("Broker shutdown")
-      @log.debug "Closing vhosts"
+      Log.debug { "Closing vhosts" }
       @vhosts.close
     end
 
@@ -167,18 +166,18 @@ module AvalancheMQ
     end
 
     def stop_shovels
-      @log.info("Stopping shovels")
+      Log.info { "Stopping shovels" }
       @vhosts.each_value { |v| v.stop_shovels }
     end
 
     private def apply_parameter(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
-        @log.warn("No action when applying parameter #{p.parameter_name}")
+        Log.warn { "No action when applying parameter #{p.parameter_name}" }
       end
     end
 
     private def handle_connection(socket, remote_address, local_address)
-      client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
+      client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users)
       if client
         @connection_events.send({client, :connected})
         client.on_close do |c|
@@ -188,7 +187,7 @@ module AvalancheMQ
         socket.close
       end
     rescue ex : IO::Error
-      @log.debug { "HandleConnection exception: #{ex.inspect}" }
+      Log.debug(exception: ex) { "HandleConnection exception: #{ex.inspect}" }
     end
 
     private def set_socket_options(socket)
@@ -211,10 +210,10 @@ module AvalancheMQ
           @connections.delete conn
         else raise "Unexpected event '#{event}'"
         end
-        @log.debug { "#{@connections.size} connected clients" }
+        Log.debug { "#{@connections.size} connected clients" }
       end
     rescue Channel::ClosedError
-      @log.debug { "Connection events channel closed" }
+      Log.debug { "Connection events channel closed" }
     end
 
     private def stats_loop
@@ -291,14 +290,14 @@ module AvalancheMQ
     private def control_flow!
       if @disk_free < Config.instance.segment_size * 2
         if flow?
-          @log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
+          Log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
           flow(false)
         end
       elsif !flow?
-        @log.info { "Not low on disk space, starting flow" }
+        Log.info { "Not low on disk space, starting flow" }
         flow(true)
       elsif @disk_free < Config.instance.segment_size * 3
-        @log.info { "Low on disk space: #{@disk_free.humanize}B" }
+        Log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
 

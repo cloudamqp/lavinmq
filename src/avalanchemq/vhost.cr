@@ -1,5 +1,5 @@
 require "json"
-require "logger"
+require "log"
 require "./segment_position"
 require "./policy"
 require "./parameter_store"
@@ -15,7 +15,9 @@ require "digest/sha1"
 module AvalancheMQ
   class VHost
     include SortableJSON
-    getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
+    Log = ::Log.for(self)
+
+    getter name, exchanges, queues, data_dir, policies, parameters, shovels,
       direct_reply_channels, upstreams, default_user
     property? flow = true
     getter? closed = false
@@ -26,7 +28,6 @@ module AvalancheMQ
     @segment : UInt32
     @wfile : File
     @segments_on_disk : Deque(UInt32)
-    @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
@@ -35,9 +36,8 @@ module AvalancheMQ
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String,
-                   @log : Logger, @default_user : User,
+                   @default_user : User,
                    @connection_events = Server::ConnectionsEvents.new(16))
-      @log.progname = "vhost=#{@name}"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
@@ -47,8 +47,8 @@ module AvalancheMQ
       @wfile = open_wfile
       @wfile.seek(0, IO::Seek::End)
       @pos = @wfile.pos.to_u32
-      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @policies = ParameterStore(Policy).new(@data_dir, "policies.json")
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json")
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
@@ -85,7 +85,7 @@ module AvalancheMQ
 
     def fsync
       return unless @fsync
-      @log.debug { "fsync" }
+      Log.debug { "fsync" }
       @wfile.fsync(flush_metadata: false)
       @queues_to_fsync_lock.synchronize do
         @queues_to_fsync.each &.fsync_enq
@@ -112,7 +112,7 @@ module AvalancheMQ
       ex = @exchanges[msg.exchange_name]? || return
       ex.publish_in_count += 1
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
-      @log.debug { "publish queues#found=#{found_queues.size}" }
+      Log.debug { "publish queues#found=#{found_queues.size}" }
       return if found_queues.empty?
       return if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
@@ -177,7 +177,7 @@ module AvalancheMQ
       end
 
       sp = SegmentPosition.new(@segment, @pos)
-      @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
+      Log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                     size=#{msg.bytesize} sp=#{sp}" }
       @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
       @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::NetworkEndian
@@ -210,7 +210,7 @@ module AvalancheMQ
     end
 
     private def open_wfile : File
-      @log.debug { "Opening message store segment #{@segment}" }
+      Log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
       File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
@@ -383,7 +383,7 @@ module AvalancheMQ
       when FEDERATION_UPSTREAM_SET
         @upstreams.not_nil!.delete_upstream_set(parameter_name)
       else
-        @log.warn { "No action when deleting parameter #{component_name}" }
+        Log.warn { "No action when deleting parameter #{component_name}" }
       end
     end
 
@@ -397,7 +397,7 @@ module AvalancheMQ
 
     def close
       @closed = true
-      @log.info("Closing")
+      Log.info { "Closing" }
       @write_lock.synchronize do
         stop_shovels
         Fiber.yield
@@ -431,7 +431,7 @@ module AvalancheMQ
         match.nil? ? r.clear_policy : r.apply_policy(match)
       end
     rescue ex : TypeCastError
-      @log.warn { "Invalid policy. #{ex.message}" }
+      Log.warn(exception: ex) { "Invalid policy. #{ex.message}" }
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
@@ -444,7 +444,7 @@ module AvalancheMQ
         when FEDERATION_UPSTREAM_SET
           @upstreams.not_nil!.create_upstream_set(p.parameter_name, p.value)
         else
-          @log.warn { "No action when applying parameter #{p.component_name}" }
+          Log.warn { "No action when applying parameter #{p.component_name}" }
         end
       end
     end
@@ -480,7 +480,7 @@ module AvalancheMQ
     end
 
     private def load_default_definitions
-      @log.info "Loading default definitions"
+      Log.info { "Loading default definitions for vhost #{@name}" }
       @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
       @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
       @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
@@ -490,7 +490,7 @@ module AvalancheMQ
     end
 
     private def compact!
-      @log.info "Compacting definitions"
+      Log.info { "Compacting definitions for vhost #{@name}" }
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
         @exchanges.each do |_name, e|
@@ -551,7 +551,7 @@ module AvalancheMQ
             next unless @exchanges[frame.destination]?.try &.durable
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
-          @log.debug { "Storing definition: #{frame.inspect}" }
+          Log.debug { "Storing definition: #{frame.inspect}" }
           f.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           f.fsync
         end
@@ -579,22 +579,22 @@ module AvalancheMQ
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
-        @log.debug "Garbage collecting segments"
+        Log.debug { "Garbage collecting segments" }
         @referenced_segments << @segment
         @queues.each_value do |q|
           q.referenced_segments(@referenced_segments)
         end
-        @log.debug { "#{@referenced_segments.size} segments in use" }
+        Log.debug { "#{@referenced_segments.size} segments in use" }
 
         @segments_on_disk.delete_if do |seg|
           unless @referenced_segments.includes? seg
-            @log.debug "Deleting segment #{seg}"
+            Log.debug { "Deleting segment #{seg}" }
             filename = "msgs.#{seg.to_s.rjust(10, '0')}"
             File.delete File.join(@data_dir, filename)
             true
           end
         end
-        @log.debug { "#{@segments_on_disk.size} segments on disk" }
+        Log.debug { "#{@segments_on_disk.size} segments on disk" }
         @referenced_segments.clear
       end
     end

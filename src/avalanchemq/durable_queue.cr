@@ -13,7 +13,7 @@ module AvalancheMQ
                    @arguments : Hash(String, AMQP::Field))
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
-      @log.debug { "Index dir: #{@index_dir}" }
+      Log.debug { "Index dir: #{@index_dir}" }
       if Dir.exists?(@index_dir)
         restore_index
       else
@@ -25,7 +25,7 @@ module AvalancheMQ
     end
 
     private def compact_index! : Nil
-      @log.info { "Compacting index" }
+      Log.info { "Compacting index" }
       @ready_lock.lock
       @enq_lock.lock
       @ack_lock.lock
@@ -52,7 +52,7 @@ module AvalancheMQ
         end
       end
 
-      @log.info { "Wrote #{i} SPs to new enq file" }
+      Log.info { "Wrote #{i} SPs to new enq file" }
       File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
       @enq = File.open(File.join(@index_dir, "enq"), "a")
       @enq.fsync(flush_metadata: true)
@@ -69,7 +69,7 @@ module AvalancheMQ
       super.tap do |closed|
         next unless closed
         compact_index! unless @deleted
-        @log.debug { "Closing index files" }
+        Log.debug { "Closing index files" }
         @ack.close
         @enq.close
       end
@@ -123,7 +123,7 @@ module AvalancheMQ
     end
 
     def purge
-      @log.info "Purging"
+      Log.info { "Purging" }
       @enq_lock.synchronize do
         @enq.truncate
       end
@@ -136,18 +136,18 @@ module AvalancheMQ
 
     def fsync_enq
       return if @closed
-      #@log.debug "fsyncing enq"
+      #Log.debug { "fsyncing enq" }
       @enq.fsync(flush_metadata: false)
     end
 
     def fsync_ack
       return if @closed
-      #@log.debug "fsyncing ack"
+      #Log.debug { "fsyncing ack" }
       @ack.fsync(flush_metadata: false)
     end
 
     private def restore_index : Nil
-      @log.info "Restoring index"
+      Log.info { "Restoring index" }
       sp_size = sizeof(SegmentPosition)
 
       File.open(File.join(@index_dir, "enq")) do |enq|
@@ -174,12 +174,12 @@ module AvalancheMQ
           rescue IO::EOFError
             break
           end
-          @log.info { "#{message_count} messages" }
+          Log.info { "#{message_count} messages" }
           message_available if message_count > 0
         end
       end
     rescue ex : IO::Error
-      @log.error { "Could not restore index: #{ex.inspect}" }
+      Log.error(exception: ex) { "Could not restore index: #{ex.inspect}" }
     end
 
     def enq_file_size

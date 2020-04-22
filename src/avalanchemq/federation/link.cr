@@ -11,6 +11,7 @@ module AvalancheMQ
       class Link
         include Observer
         include SortableJSON
+        Log = ::Log.for(self)
         getter connected_at
 
         @publisher : Publisher?
@@ -20,8 +21,7 @@ module AvalancheMQ
         @done = Channel(Nil).new
         @connected_at : Int64?
 
-        def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
-          @log.progname += " link=#{@federated_q.name}"
+        def initialize(@upstream : QueueUpstream, @federated_q : Queue)
           @federated_q.register_observer(self)
           @consumer_available.send(nil) if @federated_q.immediate_delivery?
         end
@@ -35,7 +35,7 @@ module AvalancheMQ
         end
 
         def on(event, data)
-          @log.debug { "event=#{event} data=#{data}" }
+          Log.debug { "event=#{event} data=#{data}" }
           case event
           when :delete, :close
             @upstream.stop_link(@federated_q)
@@ -59,7 +59,7 @@ module AvalancheMQ
         end
 
         def run
-          @log.info { "Starting" }
+          Log.info { "Starting" }
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{@federated_q.name}")
           Fiber.yield
         end
@@ -69,7 +69,7 @@ module AvalancheMQ
             break if stopped?
             @state = State::Starting
             if !@federated_q.immediate_delivery?
-              @log.debug { "Waiting for consumers" }
+              Log.debug { "Waiting for consumers" }
               @consumer_available.receive?
               break if stopped?
             end
@@ -89,23 +89,23 @@ module AvalancheMQ
             @connected_at = nil
             case ex
             when AMQP::Error::FrameDecode, Connection::UnexpectedFrame
-              @log.warn { "Federation link failure: #{ex.cause.inspect}" }
+              Log.warn { "Federation link failure: #{ex.cause.inspect}" }
             else
-              @log.warn { "Federation link: #{ex.inspect_with_backtrace}" }
+              Log.warn(exception: ex) { "Federation link: #{ex.inspect_with_backtrace}" }
             end
             @consumer.try &.close("Federation link stopped")
             @publisher.try &.close("SFederation link stopped")
             break if stopped?
             sleep @upstream.reconnect_delay.seconds
           end
-          @log.info { "Federation link stopped" }
+          Log.info { "Federation link stopped" }
         ensure
           @connected_at = nil
         end
 
         # Does not trigger reconnect, but a graceful close
         def stop
-          @log.info { "Stopping" }
+          Log.info { "Stopping" }
           @state = State::Terminated
           @federated_q.unregister_observer(self)
           @consumer.try &.close("Federation link stopped")
