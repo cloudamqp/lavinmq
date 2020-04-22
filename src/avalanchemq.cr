@@ -87,8 +87,17 @@ lock.fsync
 
 
 backend = Log::IOBackend.new
-backend.formatter = ->(entry : Log::Entry, io : IO) do
-  io << entry
+backend.formatter = -> (entry : Log::Entry, io : IO) do
+  io << entry.source << ": " << entry.message
+  if entry.context.size > 0
+    io << " -- " << entry.context
+  end
+  if entry.context.size > 0
+    io << " -- " << entry.context
+  end
+  if (ex = entry.exception) && entry.severity >= Log::Severity::Warning
+    io << "\n" << ex.inspect_with_backtrace
+  end
 end
 
 Log.builder.bind "*", config.log_level, backend
