@@ -1,4 +1,3 @@
-require "logger"
 require "../../sortable_json"
 
 module AvalancheMQ
@@ -9,13 +8,11 @@ module AvalancheMQ
 
         getter no_ack, queue, unacked, tag, exclusive, channel
 
-        @log : Logger
+        Log = ::Log.for(self)
         @unacked = 0
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool)
-          @log = @channel.log.dup
-          @log.progname += " consumer=#{@tag}"
         end
 
         def name
@@ -37,11 +34,11 @@ module AvalancheMQ
           end
 
           persistent = msg.properties.delivery_mode == 2_u8
-          #@log.debug { "Getting delivery tag" }
+          #Log.debug { "Getting delivery tag" }
           delivery_tag = @channel.next_delivery_tag(@queue, sp,
                                                     persistent, @no_ack,
                                                     self)
-          #@log.debug { "Sending BasicDeliver" }
+          #Log.debug { "Sending BasicDeliver" }
           deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
             redelivered,

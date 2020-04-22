@@ -1,24 +1,25 @@
 module AvalancheMQ
   module AMQPConnection
-    def self.start(socket, remote_address, local_address, vhosts, users, log)
-      log.progname += " client=#{remote_address}"
+    Log = ::Log.for(self)
+
+    def self.start(socket, remote_address, local_address, vhosts, users)
       socket.read_timeout = 15
-      confirm_header(socket, log) || return
+      confirm_header(socket) || return
       start_ok = start(socket)
       creds = credentials(start_ok)
-      user = authenticate(socket, users, creds[:username], creds[:password], start_ok, log) || return
+      user = authenticate(socket, users, creds[:username], creds[:password], start_ok) || return
       tune_ok = tune(socket)
-      if vhost = open(socket, vhosts, user, log)
+      if vhost = open(socket, vhosts, user)
         NetworkClient.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
       else
         nil
       end
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
-      log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
+      Log.warn { "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection" }
       socket.try &.close unless socket.try &.closed?
       nil
     rescue ex : Exception
-      log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
+      Log.error(exception: ex) { "Error while #{remote_address} tried to establish connection #{ex.inspect}" }
       socket.try &.close unless socket.try &.closed?
       nil
     ensure
@@ -31,14 +32,14 @@ module AvalancheMQ
       socket.read_timeout = timeout
     end
 
-    def self.confirm_header(socket, log)
+    def self.confirm_header(socket)
       proto = uninitialized UInt8[8]
       socket.read(proto.to_slice)
       if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
         socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
         socket.close
-        log.debug { "Unknown protocol #{proto}, closing socket" }
+        Log.debug { "Unknown protocol #{proto}, closing socket" }
         return false
       end
       true
@@ -65,14 +66,14 @@ module AvalancheMQ
       end
     end
 
-    def self.authenticate(socket, users, username, password, start_ok, log)
+    def self.authenticate(socket, users, username, password, start_ok)
       user = users[username]?
       return user if user && user.password && user.password.not_nil!.verify(password)
 
       if user.nil?
-        log.warn "User \"#{username}\" not found"
+        Log.warn { "User \"#{username}\" not found" }
       else
-        log.warn "Authentication failure for user \"#{username}\""
+        Log.warn { "Authentication failure for user \"#{username}\"" }
       end
       props = start_ok.client_properties
       capabilities = props["capabilities"]?.try &.as(AMQP::Table)
@@ -81,7 +82,7 @@ module AvalancheMQ
           start_ok.class_id,
           start_ok.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
-        close_on_ok(socket, log)
+        close_on_ok(socket)
       else
         socket.close
       end
@@ -97,7 +98,7 @@ module AvalancheMQ
       AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
     end
 
-    def self.open(socket, vhosts, user, log)
+    def self.open(socket, vhosts, user)
       open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
       if vhost = vhosts[open.vhost]? || nil
         if user.permissions[open.vhost]? || nil
@@ -105,32 +106,32 @@ module AvalancheMQ
           socket.flush
           return vhost
         else
-          log.warn "Access denied for user \"#{user.name}\" to vhost \"#{open.vhost}\""
+          Log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{open.vhost}\"" }
           reply_text = "NOT_ALLOWED - '#{user.name}' doesn't have access to '#{vhost.name}'"
           socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
-          close_on_ok(socket, log)
+          close_on_ok(socket)
         end
       else
-        log.warn "VHost \"#{open.vhost}\" not found"
+        Log.warn { "VHost \"#{open.vhost}\" not found" }
         socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
-        close_on_ok(socket, log)
+        close_on_ok(socket)
       end
       nil
     end
 
-    def self.close_on_ok(socket, log)
+    def self.close_on_ok(socket)
       loop do
         AMQP::Frame.from_io(socket, IO::ByteFormat::NetworkEndian) do |frame|
           if frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
             true
           else
-            log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            Log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             if frame.is_a?(AMQP::Frame::Body)
-              log.debug "Skipping body"
+              Log.debug { "Skipping body" }
               frame.body.skip(frame.body_size)
             end
             false
@@ -138,9 +139,9 @@ module AvalancheMQ
         end && break
       end
     rescue IO::EOFError
-      log.debug { "Client closed socket without sending CloseOk" }
+      Log.debug { "Client closed socket without sending CloseOk" }
     rescue ex : IO::Error | AMQP::Error::FrameDecode
-      log.warn { "#{ex.inspect} when waiting for CloseOk" }
+      Log.warn(exception: ex) { "#{ex.inspect} when waiting for CloseOk" }
     ensure
       socket.close
     end

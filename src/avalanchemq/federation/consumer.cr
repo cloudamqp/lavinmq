@@ -4,10 +4,9 @@ module AvalancheMQ
   module Federation
     class Upstream
       class Consumer < Connection
+        Log = ::Log.for(self)
         def initialize(@upstream : QueueUpstream)
-          @log = @upstream.log.dup
-          @log.progname += " consumer"
-          super(@upstream.uri, @log)
+          super(@upstream.uri)
         end
 
         @on_frame : Proc(AMQP::Frame, Nil)?
@@ -25,7 +24,7 @@ module AvalancheMQ
         private def read_loop
           loop do
             AMQP::Frame.from_io(@socket) do |frame|
-              #@log.debug { "Read socket #{frame.inspect}" }
+              #Log.debug { "Read socket #{frame.inspect}" }
               case frame
               when AMQP::Frame::Basic::Deliver, AMQP::Frame::Header, AMQP::Frame::Body
                 @on_frame.try &.call(frame)
@@ -50,14 +49,14 @@ module AvalancheMQ
             end || break
           end
         rescue ex : IO::Error | AMQP::Error::FrameDecode
-          @log.info "Consumer closed due to: #{ex.inspect}"
+          Log.info { "Consumer closed due to: #{ex.inspect}" }
         ensure
-          @log.debug "Closing socket"
+          Log.debug { "Closing socket" }
           @socket.close rescue nil
         end
 
         def forward(frame)
-          #@log.debug { "Read internal #{frame.inspect}" }
+          #Log.debug { "Read internal #{frame.inspect}" }
           case frame
           when AMQP::Frame::Basic::Ack
             unless @upstream.ack_mode == AckMode::NoAck
@@ -66,7 +65,7 @@ module AvalancheMQ
           when AMQP::Frame::Basic::Reject
             write frame
           else
-            @log.warn { "Unexpected frame: #{frame.inspect}" }
+            Log.warn { "Unexpected frame: #{frame.inspect}" }
           end
         end
 

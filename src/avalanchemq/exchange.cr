@@ -13,12 +13,12 @@ module AvalancheMQ
     include PolicyTarget
     include Stats
     include SortableJSON
+    Log = ::Log.for(self)
 
     getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter policy : Policy?
 
     @alternate_exchange : String?
-    @log : Logger
 
     rate_stats(%w(publish_in publish_out))
     property publish_in_count, publish_out_count
@@ -32,15 +32,13 @@ module AvalancheMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
-      @log = @vhost.log.dup
-      @log.progname += " exchange=#{@name}"
       handle_arguments
     end
 
     def apply_policy(policy : Policy)
       handle_arguments
       policy.not_nil!.definition.each do |k, v|
-        @log.debug { "Applying policy #{k}: #{v}" }
+        Log.debug { "Applying policy #{k}: #{v} to #{@name}" }
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
@@ -129,7 +127,7 @@ module AvalancheMQ
     end
 
     protected def delete
-      @log.info { "Deleting exchange: #{@name}" }
+      Log.info { "Deleting exchange: #{@name}" }
       @vhost.apply AMQP::Frame::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
     end
 

@@ -1,4 +1,3 @@
-require "logger"
 require "openssl"
 require "socket"
 require "../message"
@@ -12,6 +11,7 @@ module AvalancheMQ
   abstract class Client
     include Stats
     include SortableJSON
+    Log = ::Log.for(self)
 
     abstract def send(frame : AMQP::Frame)
     abstract def to_json(json : JSON::Builder)
@@ -21,24 +21,22 @@ module AvalancheMQ
     private abstract def cleanup
 
     setter direct_reply_consumer_tag
-    getter vhost, channels, log, exclusive_queues,
+    getter vhost, channels, exclusive_queues,
       name, direct_reply_consumer_tag, client_properties, user
 
     @client_properties : AMQP::Table
     @connected_at : Int64
     @direct_reply_consumer_tag : String?
-    @log : Logger
     @running = true
     @last_heartbeat = RoughTime.utc
     rate_stats(%w(send_oct recv_oct))
 
     def initialize(@name : String, @vhost : VHost, @user : User,
-                   @log : Logger,
                    @client_properties = AMQP::Table.new)
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
-      @log.debug "Connected"
+      Log.debug { "Connected" }
     end
 
     def state
@@ -52,16 +50,16 @@ module AvalancheMQ
         else
           case frame
           when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
-            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            Log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           when AMQP::Frame::Body
-            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            Log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             frame.body.skip(frame.body_size)
           else
             yield ch
           end
         end
       else
-        @log.error { "Channel #{frame.channel} not open" }
+        Log.error { "Channel #{frame.channel} not open" }
         close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
       end
     end
@@ -79,7 +77,7 @@ module AvalancheMQ
         send AMQP::Frame::Connection::CloseOk.new
         return false
       when AMQP::Frame::Connection::CloseOk
-        @log.debug "Disconnected"
+        Log.debug { "Disconnected" }
         cleanup
         return false
       when AMQP::Frame::Channel::Open
@@ -143,7 +141,7 @@ module AvalancheMQ
       end
       true
     rescue ex : AMQP::Error::NotImplemented
-      @log.error { "#{frame.inspect}, not implemented" }
+      Log.error { "#{frame.inspect}, not implemented" }
       if ex.channel.zero?
         close_connection(ex, 540_u16, "NOT_IMPLEMENTED")
       else
@@ -152,15 +150,14 @@ module AvalancheMQ
       true
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::Frame::Method
-      @log.error { "#{ex.inspect}, when processing frame" }
-      @log.debug { ex.inspect_with_backtrace }
+      Log.error(exception: ex) { "#{ex.inspect}, when processing frame" }
       close_channel(frame, 541_u16, "INTERNAL_ERROR")
       true
     end
 
     def cleanup
       @running = false
-      @log.debug "Cleaning up"
+      Log.debug { "Cleaning up" }
       @exclusive_queues.each(&.close)
       @exclusive_queues.clear
       @channels.each_value &.close
@@ -171,7 +168,7 @@ module AvalancheMQ
 
     def close(reason = nil)
       reason ||= "Connection closed"
-      @log.info { "Closing, #{reason}" }
+      Log.info { "Closing, #{reason}" }
       send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
       @running = false
     end
@@ -191,7 +188,7 @@ module AvalancheMQ
     end
 
     def close_connection(frame, code, text)
-      @log.info { "Closing, #{text}" }
+      Log.info { "Closing, #{text}" }
       case frame
       when AMQ::Protocol::Frame::Method
         send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
@@ -212,22 +209,22 @@ module AvalancheMQ
     end
 
     def send_access_refused(frame, text)
-      @log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
+      Log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 403_u16, "ACCESS_REFUSED - #{text}")
     end
 
     def send_not_found(frame, text = "")
-      @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
+      Log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 404_u16, "NOT_FOUND - #{text}")
     end
 
     def send_resource_locked(frame, text)
-      @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
+      Log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 405_u16, "RESOURCE_LOCKED - #{text}")
     end
 
     def send_precondition_failed(frame, text)
-      @log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
+      Log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
     end
 

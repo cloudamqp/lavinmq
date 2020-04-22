@@ -1,7 +1,7 @@
 require "http/server"
 require "http-protection"
 require "json"
-require "logger"
+require "log"
 require "router"
 require "./handler/*"
 require "./controller"
@@ -14,36 +14,37 @@ end
 module AvalancheMQ
   module HTTP
     class Server
-      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
-        @log.progname = "httpserver"
+      Log = ::Log.for(self)
+
+      def initialize(@amqp_server : AvalancheMQ::Server)
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
           ApiDefaultsHandler.new,
-          ApiErrorHandler.new(@log.dup),
+          ApiErrorHandler.new,
           StaticController.new,
-          BasicAuthHandler.new(@amqp_server.users, @log.dup),
-          MainController.new(@amqp_server, @log.dup).route_handler,
-          DefinitionsController.new(@amqp_server, @log.dup).route_handler,
-          ConnectionsController.new(@amqp_server, @log.dup).route_handler,
-          ChannelsController.new(@amqp_server, @log.dup).route_handler,
-          ConsumersController.new(@amqp_server, @log.dup).route_handler,
-          ExchangesController.new(@amqp_server, @log.dup).route_handler,
-          QueuesController.new(@amqp_server, @log.dup).route_handler,
-          BindingsController.new(@amqp_server, @log.dup).route_handler,
-          VHostsController.new(@amqp_server, @log.dup).route_handler,
-          UsersController.new(@amqp_server, @log.dup).route_handler,
-          PermissionsController.new(@amqp_server, @log.dup).route_handler,
-          ParametersController.new(@amqp_server, @log.dup).route_handler,
-          NodesController.new(@amqp_server, @log.dup).route_handler,
+          BasicAuthHandler.new(@amqp_server.users),
+          MainController.new(@amqp_server).route_handler,
+          DefinitionsController.new(@amqp_server).route_handler,
+          ConnectionsController.new(@amqp_server).route_handler,
+          ChannelsController.new(@amqp_server).route_handler,
+          ConsumersController.new(@amqp_server).route_handler,
+          ExchangesController.new(@amqp_server).route_handler,
+          QueuesController.new(@amqp_server).route_handler,
+          BindingsController.new(@amqp_server).route_handler,
+          VHostsController.new(@amqp_server).route_handler,
+          UsersController.new(@amqp_server).route_handler,
+          PermissionsController.new(@amqp_server).route_handler,
+          ParametersController.new(@amqp_server).route_handler,
+          NodesController.new(@amqp_server).route_handler,
         ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new) if @log.level == Logger::DEBUG
+        handlers.unshift(::HTTP::LogHandler.new) if Config.instance.log_level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
       end
 
       def bind_tcp(address, port)
         addr = @http.bind_tcp address, port
-        @log.info { "Bound to #{addr}" }
+        Log.info { "Bound to #{addr}" }
       end
 
       def bind_tls(address, port, cert_path, key_path)
@@ -51,7 +52,7 @@ module AvalancheMQ
         ctx.certificate_chain = cert_path
         ctx.private_key = key_path
         addr = @http.bind_tls address, port, ctx
-        @log.info { "Bound on #{addr}" }
+        Log.info { "Bound on #{addr}" }
       end
 
       def listen

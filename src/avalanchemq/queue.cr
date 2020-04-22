@@ -1,4 +1,3 @@
-require "logger"
 require "digest/sha1"
 require "./segment_position"
 require "./policy"
@@ -22,7 +21,6 @@ module AvalancheMQ
     alias ArgumentNumber = UInt16 | Int32 | Int64
 
     @durable = false
-    @log : Logger
     @message_ttl : ArgumentNumber?
     @max_length : ArgumentNumber?
     @expires : ArgumentNumber?
@@ -56,8 +54,6 @@ module AvalancheMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = Time.monotonic
-      @log = @vhost.log.dup
-      @log.progname += " queue=#{@name}"
       @sp_counter = @vhost.sp_counter
       handle_arguments
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
@@ -82,7 +78,7 @@ module AvalancheMQ
     def apply_policy(policy : Policy)
       clear_policy
       policy.definition.each do |k, v|
-        @log.debug { "Applying policy #{k}: #{v}" }
+        Log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
           @max_length = v.as_i64
@@ -114,7 +110,7 @@ module AvalancheMQ
     end
 
     def clear_policy
-      @log.debug { "Clearing policy" }
+      Log.debug { "Clearing policy" }
       handle_arguments
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
@@ -186,9 +182,9 @@ module AvalancheMQ
       rescue Channel::ClosedError
         break
       rescue ex
-        @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
+        Log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
-      @log.debug "Delivery loop closed"
+      Log.debug { "Delivery loop closed" }
     end
 
     private def time_to_expiration : Time::Span?
@@ -203,7 +199,7 @@ module AvalancheMQ
     end
 
     private def receive_or_expire
-      @log.debug { "Waiting for msgs" }
+      Log.debug { "Waiting for msgs" }
       if ttl = time_to_expiration
         select
         when @message_available.receive
@@ -213,19 +209,19 @@ module AvalancheMQ
       else
         @message_available.receive
       end
-      @log.debug { "Message available" }
+      Log.debug { "Message available" }
       true
     end
 
     private def consumer_or_expire
-      @log.debug "No consumer available"
+      Log.debug { "No consumer available" }
       q_ttl = time_to_expiration
       m_ttl = time_to_message_expiration
       ttl = { q_ttl, m_ttl }.select(Time::Span).min?
       if ttl
         select
         when @consumer_available.receive
-          @log.debug "Consumer available"
+          Log.debug { "Consumer available" }
         when timeout ttl
           case ttl
           when q_ttl
@@ -242,7 +238,7 @@ module AvalancheMQ
     end
 
     private def find_consumer(i)
-      #@log.debug { "Looking for available consumers" }
+      #Log.debug { "Looking for available consumers" }
       case @consumers.size
       when 0
         nil
@@ -266,11 +262,11 @@ module AvalancheMQ
     end
 
     private def deliver_to_consumer(c)
-      #@log.debug { "Getting a new message" }
+      #Log.debug { "Getting a new message" }
       get(c.no_ack) do |env|
         if env
           sp = env.segment_position
-          #@log.debug { "Delivering #{sp} to consumer" }
+          #Log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
             if c.no_ack
               delete_message(sp, false)
@@ -282,12 +278,12 @@ module AvalancheMQ
             else
               @deliver_count += 1
             end
-            #@log.debug { "Delivery done" }
+            #Log.debug { "Delivery done" }
           else
-            @log.debug { "Delivery failed" }
+            Log.debug { "Delivery failed" }
           end
         else
-          @log.debug { "Consumer found, but not a message" }
+          Log.debug { "Consumer found, but not a message" }
         end
       end
     end
@@ -305,7 +301,7 @@ module AvalancheMQ
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
-      @log.debug { "Closed" }
+      Log.debug { "Closed" }
       true
     end
 
@@ -317,7 +313,7 @@ module AvalancheMQ
       @unacked.each_sp { |sp| @sp_counter.dec(sp) }
       @vhost.delete_queue(@name)
       notify_observers(:delete)
-      @log.debug { "Deleted" }
+      Log.debug { "Deleted" }
       true
     end
 
@@ -341,16 +337,16 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
-      #@log.debug { "Enqueuing message sp=#{sp}" }
+      #Log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
       message_available if was_empty
-      #@log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
+      #Log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ex : RejectOverFlow
-      @log.debug { "Overflow reject message sp=#{sp}" }
+      Log.debug { "Overflow reject message sp=#{sp}" }
       raise ex
     end
 
@@ -365,7 +361,7 @@ module AvalancheMQ
     private def drop_overflow(extra = 0)
       if ml = @max_length
         @ready.limit_size(ml - extra) do |sp|
-          @log.debug { "Overflow drop head sp=#{sp}" }
+          Log.debug { "Overflow drop head sp=#{sp}" }
           expire_msg(sp, :maxlen)
         end
       end
@@ -390,7 +386,7 @@ module AvalancheMQ
       @read_lock.synchronize do
         seg = segment_file(sp.segment)
         if @segment_pos != sp.position
-          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
+          Log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
           seg.seek(sp.position, IO::Seek::Set)
           @segment_pos = sp.position
         end
@@ -404,13 +400,13 @@ module AvalancheMQ
         meta
       end
     rescue ex : IO::Error
-      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+      Log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       @ready.delete sp
       delete_message sp
       nil
     rescue ex : IO::EOFError
       pos = segment_file(sp.segment).pos.to_u32
-      @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
+      Log.error(exception: ex) { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
       @segment_pos = pos
       @ready.delete sp
       delete_message sp
@@ -418,13 +414,13 @@ module AvalancheMQ
     end
 
     private def time_to_message_expiration : Time::Span?
-      @log.debug { "Checking if next message has to be expired" }
+      Log.debug { "Checking if next message has to be expired" }
       meta = nil
       until meta
         sp = @ready.first? || return
         meta = metadata(sp)
       end
-      @log.debug { "Next message: #{meta}" }
+      Log.debug { "Next message: #{meta}" }
       exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
       if exp_ms
         expire_at = meta.timestamp + exp_ms
@@ -442,9 +438,9 @@ module AvalancheMQ
       i = 0
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
-        @log.debug { "Checking if next message has to be expired" }
+        Log.debug { "Checking if next message has to be expired" }
         read(sp) do |env|
-          @log.debug { "Next message: #{env.message}" }
+          Log.debug { "Next message: #{env.message}" }
           exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
           if exp_ms
             expire_at = env.message.timestamp + exp_ms
@@ -457,16 +453,16 @@ module AvalancheMQ
               end
               true
             else
-              @log.debug { "No more message to expire" }
+              Log.debug { "No more message to expire" }
               false
             end
           else
-            @log.debug { "No more message to expire" }
+            Log.debug { "No more message to expire" }
             false
           end
         end
       end
-      @log.info { "Expired #{i} messages" } if i > 0
+      Log.info { "Expired #{i} messages" } if i > 0
     ensure
       @read_lock.unlock
     end
@@ -480,7 +476,7 @@ module AvalancheMQ
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      Log.debug { "Expiring #{sp} now due to #{reason}" }
       dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       if dlx
         dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
@@ -530,7 +526,7 @@ module AvalancheMQ
     end
 
     private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
-      #@log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+      #Log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
       ok = @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
                                       props, msg.size, msg.body_io)
       msg.body_io.skip(msg.size) if ok.nil?
@@ -538,7 +534,7 @@ module AvalancheMQ
 
     private def expire_queue(now = Time.monotonic) : Bool
       return false unless @consumers.empty?
-      @log.debug "Expired"
+      Log.debug { "Expired" }
       @vhost.delete_queue(@name)
       true
     end
@@ -580,7 +576,7 @@ module AvalancheMQ
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
-        #@log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
+        #Log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
         if delivery_count >= limit
           expire_msg(env, :delivery_limit)
           return nil
@@ -595,7 +591,7 @@ module AvalancheMQ
       @read_lock.lock
       seg = segment_file(sp.segment)
       if @segment_pos != sp.position
-        @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
+        Log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
         seg.seek(sp.position, IO::Seek::Set)
       end
       ts = Int64.from_io seg, ByteFormat
@@ -612,12 +608,12 @@ module AvalancheMQ
         @requeued.delete(sp) if redelivered
       end
     rescue ex : IO::Error
-      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+      Log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
       @ready.delete(sp)
       delete_message sp
       false
     rescue ex
-      @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
+      Log.error(exception: ex) { "Error reading message at #{sp}: #{ex.inspect}" }
       @segment_pos = segment_file(sp.segment).pos.to_u32
       raise ex
     ensure
@@ -626,7 +622,7 @@ module AvalancheMQ
 
     def ack(sp : SegmentPosition, persistent : Bool) : Nil
       return if @deleted
-      @log.debug { "Acking #{sp}" }
+      Log.debug { "Acking #{sp}" }
       @ack_count += 1
       @unacked.delete(sp)
       delete_message(sp, persistent)
@@ -640,7 +636,7 @@ module AvalancheMQ
 
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
-      @log.debug { "Rejecting #{sp}" }
+      Log.debug { "Rejecting #{sp}" }
 
       @unacked.delete(sp)
       if requeue
@@ -656,7 +652,7 @@ module AvalancheMQ
     private def requeue_many(sps : Enumerable(SegmentPosition))
       return if @deleted
       return if sps.empty?
-      @log.debug { "Returning #{sps.size} msgs to ready state" }
+      Log.debug { "Returning #{sps.size} msgs to ready state" }
       @reject_count += sps.size
       was_empty = @ready.insert(sps) == sps.size
       message_available if was_empty
@@ -669,7 +665,7 @@ module AvalancheMQ
         @consumers.push consumer
       end
       @exclusive_consumer = true if consumer.exclusive
-      @log.debug { "Adding consumer (now #{@consumers.size})" }
+      Log.debug { "Adding consumer (now #{@consumers.size})" }
       consumer_available
       spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
         notify_observers(:add_consumer, consumer)
@@ -682,7 +678,7 @@ module AvalancheMQ
         @exclusive_consumer = false if consumer.exclusive
         consumer_unacked = @unacked.delete(consumer)
         requeue_many(consumer_unacked)
-        @log.debug { "Removing consumer with #{consumer_unacked.size} \
+        Log.debug { "Removing consumer with #{consumer_unacked.size} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
@@ -694,7 +690,7 @@ module AvalancheMQ
       count = @ready.purge do |sp|
         @sp_counter.dec(sp)
       end
-      @log.debug { "Purged #{count} messages" }
+      Log.debug { "Purged #{count} messages" }
       count.to_u32
     end
 

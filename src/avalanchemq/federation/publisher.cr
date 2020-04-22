@@ -1,15 +1,12 @@
-require "logger"
 require "../client/direct_client"
 
 module AvalancheMQ
   module Federation
     class Upstream
       class Publisher < DirectClient
-        @log : Logger
+        Log = ::Log.for(self)
 
         def initialize(@upstream : Upstream, @federated_q : Queue)
-          @log = @upstream.log.dup
-          @log.progname += " publisher"
           client_properties = AMQP::Table.new({
             "connection_name" => "Federation #{@upstream.name}",
           } of String => AMQP::Field)
@@ -52,7 +49,7 @@ module AvalancheMQ
           when AMQP::Frame::Connection::Close
             write AMQP::Frame::Connection::CloseOk.new
           else
-            @log.debug { "No action for #{frame.inspect}" }
+            Log.debug { "No action for #{frame.inspect}" }
           end
         end
 
@@ -74,7 +71,7 @@ module AvalancheMQ
               ack(@last_delivery_tag)
             end
           else
-            @log.warn { "Unexpected frame: #{frame.inspect}" }
+            Log.warn { "Unexpected frame: #{frame.inspect}" }
           end
         end
 

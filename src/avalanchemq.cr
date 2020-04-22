@@ -30,10 +30,10 @@ p = OptionParser.parse do |parser|
   parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.cert_path = v }
   parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.key_path = v }
   parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-    level = Logger::Severity.parse?(v.to_s)
+    level = Log::Severity.parse?(v.to_s)
     config.log_level = level if level
   end
-  parser.on("-d", "--debug", "Verbose logging") { config.log_level = Logger::DEBUG }
+  parser.on("-d", "--debug", "Verbose logging") { config.log_level = Log::Severity::Debug }
   parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
   parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
   parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
@@ -50,7 +50,6 @@ end
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
-require "./avalanchemq/log_formatter"
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 {% unless flag?(:release) %}
@@ -91,9 +90,14 @@ lock.truncate
 lock.print System.hostname
 lock.fsync
 
-log = Logger.new(STDOUT, level: config.log_level.not_nil!)
-AvalancheMQ::LogFormatter.use(log)
-amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
+
+backend = Log::IOBackend.new
+backend.formatter = ->(entry : Log::Entry, io : IO) do
+  io << entry
+end
+
+Log.builder.bind "*", config.log_level, backend
+amqp_server = AvalancheMQ::Server.new(config.data_dir)
 
 if config.amqp_port > 0
   spawn(name: "AMQP listening on #{config.amqp_port}") do
@@ -116,7 +120,7 @@ unless config.unix_path.empty?
 end
 
 if config.http_port > 0 || config.https_port > 0
-  http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
+  http_server = AvalancheMQ::HTTP::Server.new(amqp_server)
   if config.http_port > 0
     http_server.bind_tcp(config.http_bind, config.http_port)
   end

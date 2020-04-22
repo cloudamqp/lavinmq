@@ -4,8 +4,9 @@ require "./parameter"
 module AvalancheMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
+    Log = ::Log.for(self)
 
-    def initialize(@data_dir : String, @file_name : String, @log : Logger)
+    def initialize(@data_dir : String, @file_name : String)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
@@ -38,7 +39,7 @@ module AvalancheMQ
       itr.each do |p|
         yield p
       rescue ex : Exception
-        @log.error { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
+        Log.error(exception: ex) { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
         delete(p.name)
         raise ex unless parameter.nil?
       end
@@ -63,7 +64,7 @@ module AvalancheMQ
     end
 
     def save!
-      @log.debug "Saving #{@file_name}"
+      Log.debug { "Saving #{@file_name}" }
       tmpfile = File.join(@data_dir, "#{@file_name}.tmp")
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
       File.rename tmpfile, File.join(@data_dir, @file_name)
@@ -74,11 +75,11 @@ module AvalancheMQ
       if File.exists?(file)
         File.open(file, "r") do |f|
           Array(T).from_json(f).each { |p| create(p, save: false) }
-        rescue JSON::ParseException
-          @log.warn("#{@file_name} is not vaild json")
+        rescue ex : JSON::ParseException
+          Log.warn(exception: ex) { "#{@file_name} is not vaild json" }
         end
+        Log.debug { "#{size} items loaded from #{@file_name}" }
       end
-      @log.debug("#{size} items loaded from #{@file_name}")
     end
   end
 end

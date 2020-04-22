@@ -1,5 +1,4 @@
 require "uri"
-require "logger"
 require "socket"
 require "openssl"
 require "http"
@@ -7,12 +6,13 @@ require "./amqp"
 
 module AvalancheMQ
   abstract class Connection
+    Log = ::Log.for(self)
     @socket : TCPSocket | OpenSSL::SSL::Socket::Client
     @verify_mode = OpenSSL::SSL::VerifyMode::PEER
 
     getter verify_mode
 
-    def initialize(@uri : URI, @log : Logger)
+    def initialize(@uri : URI)
       host = @uri.host || "localhost"
       tls = @uri.scheme == "amqps"
       params = ::HTTP::Params.parse(@uri.query.to_s)
@@ -21,7 +21,7 @@ module AvalancheMQ
       channel_max = params["channel_max"]?.try(&.to_u16?) || 1_u16
       auth_mechanism = params["auth_mechanism"]?.try { |v| v =~ /AMQPLAIN/i } ? "AMQPLAIN" : "PLAIN"
       port = @uri.port || (tls ? 5671 : 5672)
-      @log.debug { "Connecting on #{port} with #{@uri.scheme}" }
+      Log.debug { "Connecting on #{port} with #{@uri.scheme}" }
       socket = tcp_socket(host, port, connect_timeout)
       @socket = tls ? tls_socket(socket, params, host) : socket
       negotiate_connection(channel_max, heartbeat, auth_mechanism)
@@ -98,7 +98,7 @@ module AvalancheMQ
       return if @socket.closed?
       write AMQP::Frame::Connection::Close.new(320_u16, msg, 0_u16, 0_u16)
     rescue IO::Error
-      @log.info("Socket already closed, can't send close frame")
+      Log.info { "Socket already closed, can't send close frame" }
     end
 
     def write(frame)

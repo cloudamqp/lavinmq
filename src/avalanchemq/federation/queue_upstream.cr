@@ -3,6 +3,7 @@ require "./upstream"
 module AvalancheMQ
   module Federation
     class QueueUpstream < Upstream
+      Log = ::Log.for(self)
       property queue
 
       @queue : String?
@@ -23,7 +24,7 @@ module AvalancheMQ
       def link(federated_q : Queue)
         return if @links[federated_q.name]?
         @queue ||= federated_q.name
-        link = Link.new(self, federated_q, @log.dup)
+        link = Link.new(self, federated_q)
         @links[federated_q.name] = link
         link.run
       end

@@ -1,4 +1,3 @@
-require "logger"
 require "./channel/consumer"
 require "../exchange"
 require "../queue"
@@ -11,9 +10,10 @@ module AvalancheMQ
     class Channel
       include Stats
       include SortableJSON
+      Log = ::Log.for(self)
 
       getter id, client, prefetch_size, prefetch_count, global_prefetch,
-        confirm, log, consumers, name
+        confirm, consumers, name
       property? running = true
       getter? client_flow
 
@@ -24,7 +24,6 @@ module AvalancheMQ
       @next_msg_size = 0_u64
       @next_msg_body_pos = 0
       @next_msg_props : AMQP::Properties?
-      @log : Logger
       @client_flow = true
       @prefetch_size = 0_u32
       @prefetch_count = 0_u16
@@ -40,8 +39,6 @@ module AvalancheMQ
       property deliver_count, redeliver_count
 
       def initialize(@client : Client, @id : UInt16)
-        @log = @client.log.dup
-        @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
         @next_msg_body = File.open(tmp_path, "w+")
@@ -89,7 +86,7 @@ module AvalancheMQ
         if @running
           @client.send frame
         else
-          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
+          Log.debug { "Channel #{@id} is closed so is not sending #{frame.inspect}" }
         end
       end
 
@@ -176,7 +173,7 @@ module AvalancheMQ
         publish_and_return(msg)
       rescue ex
         unless ex.is_a? IO::Error
-          @log.warn { "Error when publishing message #{ex.inspect}" }
+          Log.warn { "Error when publishing message #{ex.inspect}" }
         end
         confirm_nack
         raise ex
@@ -238,7 +235,7 @@ module AvalancheMQ
           retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
         else
-          @log.debug { "Skipping body of non read message #{msg.body_io.class}" }
+          Log.debug { "Skipping body of non read message #{msg.body_io.class}" }
           unless msg.body_io.is_a?(File)
             msg.body_io.skip(msg.size)
           end
@@ -260,7 +257,7 @@ module AvalancheMQ
             @client.send_precondition_failed(frame, "Direct replys must be consumed in no-ack mode")
             return
           end
-          @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
+          Log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
           @client.direct_reply_consumer_tag = frame.consumer_tag
           @client.vhost.direct_reply_channels[frame.consumer_tag] = self
           unless frame.no_wait
@@ -333,13 +330,13 @@ module AvalancheMQ
           else
             # optimization for acking first unacked
             if @unacked[0]?.try(&.tag) == delivery_tag
-              @log.debug { "Unacked found tag at front" }
+              Log.debug { "Unacked found tag at front" }
               found = true
               yield @unacked.shift
             else
               # @unacked is always sorted so can do a binary search
               idx = @unacked.bsearch_index { |ua, _| ua.tag >= delivery_tag }
-              @log.debug { "Bsearch of unacked found tag at idx #{idx}" }
+              Log.debug { "Bsearch of unacked found tag at idx #{idx}" }
               if idx
                 found = true
                 yield @unacked.delete_at idx
@@ -418,7 +415,7 @@ module AvalancheMQ
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         @next_msg_body.close
-        @log.debug { "Closed" }
+        Log.debug { "Closed" }
       end
 
       def next_delivery_tag(queue : Queue, sp, persistent, no_ack, consumer) : UInt64
@@ -441,7 +438,7 @@ module AvalancheMQ
       end
 
       def cancel_consumer(frame)
-        @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
+        Log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
         if c = @consumers.find { |cons| cons.tag == frame.consumer_tag }
           c.queue.rm_consumer(c)
           unless frame.no_wait
