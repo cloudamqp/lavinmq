@@ -17,6 +17,7 @@ module AvalancheMQ
     include Observable
     include Stats
     include SortableJSON
+    Log = ::Log.for(self)
 
     alias ArgumentNumber = UInt16 | Int32 | Int64
 
