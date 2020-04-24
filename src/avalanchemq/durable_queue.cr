@@ -3,6 +3,7 @@ require "./queue"
 
 module AvalancheMQ
   class DurableQueue < Queue
+    Log = ::Log.for(self)
     @durable = true
     @acks = 0_u32
     @ack_lock = Mutex.new(:unchecked)
