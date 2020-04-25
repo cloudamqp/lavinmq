@@ -9,7 +9,7 @@ require "file"
 require "ini"
 
 config_file = ""
-config = AvalancheMQ::Config.new
+config = AvalancheMQ::Config.instance
 
 p = OptionParser.parse do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
