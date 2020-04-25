@@ -580,26 +580,26 @@ module AvalancheMQ
         sleep Config.instance.gc_segments_interval
         break if @closed
         @log.debug "Garbage collecting segments"
-        @queues.each do |q|
+        @queues.each_value do |q|
           q.referenced_sps(@referenced_sps)
         end
         sps = @referenced_sps.to_a.sort!
         @referenced_sps.clear
         iter = sps.each
-        sp = iter.next
+        sp = iter.next.as?(SegmentPosition)
         @segments_on_disk.delete_if do |seg|
           next if seg == @segment # don't hole punch the current segment
           path = File.join(@data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
-          if sp.segment == seg
+          if sp && sp.segment == seg
             pos = 0
             File.open(path, "a") do |f|
-              while sp.segment == seg
+              while sp && sp.segment == seg
                 hole_size = sp.position - pos
                 f.punch_hole(hole_size, pos)
                 f.pos = sp.position
                 Message.skip(f)
                 pos = f.pos
-                sp = iter.next
+                sp = iter.next.as?(SegmentPosition)
               end
               f.truncate(pos)
             end

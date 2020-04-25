@@ -19,8 +19,8 @@ module AvalancheMQ
 
     def self.skip(io)
       io.skip(sizeof(UInt64)) # ts
-      io.skip(io.read_byte) # ex
-      io.skip(io.read_byte) # rk
+      io.skip(io.read_byte || raise IO::EOFError.new) # ex
+      io.skip(io.read_byte || raise IO::EOFError.new) # rk
       AMQP::Properties.skip(io)
       sz = UInt64.from_io io, IO::ByteFormat::NetworkEndian
       io.skip(sz)

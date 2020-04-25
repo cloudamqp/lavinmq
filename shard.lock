@@ -5,7 +5,7 @@ shards:
     version: 0.12.1
 
   amq-protocol:
-    github: cloudamqp/amq-protocol.cr
+    path: ../amq-protocol.cr
     version: 0.3.6
 
   amqp-client:
@@ -22,7 +22,7 @@ shards:
 
   http-protection:
     github: rogeriozambon/http-protection
-    commit: 4a06675dcc380cd072987d8fb3a6431c13604df8
+    commit: 1817a4e60c58893cc25eb268aed4f444a681ac6b
 
   radix:
     github: luislavena/radix
