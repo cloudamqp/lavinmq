@@ -16,9 +16,7 @@ module ShovelSpecHelpers
 end
 
 describe AvalancheMQ::Shovel do
-  log = Logger.new(STDOUT)
-  log.level = LOG_LEVEL
-  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
+  vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
 
   it "should shovel and stop when queue length is met" do
     source = AvalancheMQ::Shovel::Source.new(
