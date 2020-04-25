@@ -573,29 +573,39 @@ module AvalancheMQ
       Deque(UInt32).new(segments)
     end
 
-    @referenced_segments = Set(UInt32).new
+    @referenced_sps = Set(SegmentPosition).new
 
     private def gc_segments_loop
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         @log.debug "Garbage collecting segments"
-        @referenced_segments << @segment
-        @queues.each_value do |q|
-          q.referenced_segments(@referenced_segments)
+        @queues.each do |q|
+          q.referenced_sps(@referenced_sps)
         end
-        @log.debug { "#{@referenced_segments.size} segments in use" }
-
-        @segments_on_disk.delete_if do |seg|
-          unless @referenced_segments.includes? seg
-            @log.debug "Deleting segment #{seg}"
-            filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-            File.delete File.join(@data_dir, filename)
-            true
+        sps = @referenced_sps.to_a.sort!
+        @referenced_sps.clear
+        iter = sps.each
+        sp = iter.next
+        @segments_on_disk.each do |seg|
+          path = File.join(@data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+          if sp.segment == seg
+            pos = 0
+            File.open(path, "a") do |f|
+              while sp.segment == seg
+                size = sp.position - pos
+                f.punch_hole(size, pos)
+                f.pos = sp.position
+                Message.skip(f)
+                pos = f.pos
+                sp = iter.next
+              end
+              f.truncate(pos)
+            end
+          else
+            File.delete path
           end
         end
-        @log.debug { "#{@segments_on_disk.size} segments on disk" }
-        @referenced_segments.clear
       end
     end
   end

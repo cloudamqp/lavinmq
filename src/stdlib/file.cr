@@ -1,5 +1,15 @@
 # No PR yet
 class File
+  def punch_hole(size, offset = 0, keep_size = false)
+    {% if flag?(:linux) %}
+      flags = LibC::FALLOC_FL_PUNCH_HOLE
+      flags |= LibC::FALLOC_FL_KEEP_SIZE if keep_size
+      if LibC.fallocate(fd, flags, offset, size) != 0
+        raise File::Error.from_errno("fallocate", file: @path)
+      end
+    {% end %}
+  end
+
   def allocate(size, offset = 0, keep_size = false)
     {% if flag?(:linux) %}
       flags = case
