@@ -6,8 +6,8 @@
 A message queue server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
 
-Aims to be very fast, have low RAM requirements, handle extremely long queues,
-many connections and require minimal configuration.
+Aims to be very fast, has low RAM requirements, handles extremely long queues,
+many connections, and requires minimal configuration.
 
 ## Implementation
 
