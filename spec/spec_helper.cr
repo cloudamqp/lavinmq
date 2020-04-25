@@ -80,13 +80,11 @@ module TestHelpers
   end
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    log = Logger.new(STDERR, level: level)
-    AvalancheMQ::LogFormatter.use(log)
     AvalancheMQ::Config.instance.gc_segments_interval = 1
     AvalancheMQ::Config.instance.queue_max_acks = 10
     AvalancheMQ::Config.instance.segment_size = 512 * 1024
-    @@s = AvalancheMQ::Server.new(dir, log.dup)
-    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, log.dup)
+    @@s = AvalancheMQ::Server.new(dir)
+    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!)
     @@h.not_nil!.bind_tcp("localhost", HTTP_PORT)
     spawn { @@s.try &.listen("localhost", AMQP_PORT) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"

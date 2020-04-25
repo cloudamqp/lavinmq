@@ -2,8 +2,8 @@ require "./spec_helper"
 require "../src/avalanchemq/connection"
 
 class TestConnection < AvalancheMQ::Connection
-  def initialize(uri : String, log : Logger)
-    super(URI.parse(uri), log)
+  def initialize(uri : String)
+    super(URI.parse(uri))
   end
 
   def read_loop
@@ -31,18 +31,15 @@ class TestConnection < AvalancheMQ::Connection
 end
 
 describe AvalancheMQ::Connection do
-  log = Logger.new(STDOUT)
-  log.level = LOG_LEVEL
-
   it "should connect" do
-    conn = TestConnection.new(AMQP_BASE_URL, log)
+    conn = TestConnection.new(AMQP_BASE_URL)
     conn.closed?.should be_false
   ensure
     conn.try &.close
   end
 
   it "should close" do
-    conn = TestConnection.new(AMQP_BASE_URL, log)
+    conn = TestConnection.new(AMQP_BASE_URL)
     conn.read_loop
     Fiber.yield
     conn.close
@@ -53,7 +50,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support heartbeat query param" do
-    conn = TestConnection.new("#{AMQP_BASE_URL}?heartbeat=19", log)
+    conn = TestConnection.new("#{AMQP_BASE_URL}?heartbeat=19")
     Fiber.yield
     s.connections.last.as(AvalancheMQ::NetworkClient).heartbeat.should eq 19
   ensure
@@ -61,7 +58,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support channel_max query param" do
-    conn = TestConnection.new("#{AMQP_BASE_URL}?channel_max=19", log)
+    conn = TestConnection.new("#{AMQP_BASE_URL}?channel_max=19")
     Fiber.yield
     s.connections.last.as(AvalancheMQ::NetworkClient).channel_max.should eq 19
   ensure
@@ -69,7 +66,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support auth_mechanism query param" do
-    conn = TestConnection.new("#{AMQP_BASE_URL}?auth_mechanism=AMQPLAIN", log)
+    conn = TestConnection.new("#{AMQP_BASE_URL}?auth_mechanism=AMQPLAIN")
     Fiber.yield
     s.connections.last.as(AvalancheMQ::NetworkClient).auth_mechanism.should eq "AMQPLAIN"
   ensure
@@ -77,7 +74,7 @@ describe AvalancheMQ::Connection do
   end
 
   it "should support amqps verify=none" do
-    conn = TestConnection.new("#{AMQPS_BASE_URL}?verify=none", log)
+    conn = TestConnection.new("#{AMQPS_BASE_URL}?verify=none")
     Fiber.yield
     conn.verify_mode.should eq OpenSSL::SSL::VerifyMode::NONE
   ensure
@@ -89,7 +86,7 @@ describe AvalancheMQ::Connection do
     key = Dir.current + "/spec/resources/client_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
     uri = "#{AMQP_BASE_URL}?certfile=#{cert}&keyfile=#{key}&cacertfile=#{ca}"
-    conn = TestConnection.new(uri, log)
+    conn = TestConnection.new(uri)
     Fiber.yield
     s.connections.empty?.should be_false
   ensure
