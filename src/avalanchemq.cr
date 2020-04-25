@@ -13,8 +13,8 @@ config = AvalancheMQ::Config.instance
 
 p = OptionParser.parse do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
   parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config_file = v }
+  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
   parser.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
     config.amqp_port = v.to_i
   end
