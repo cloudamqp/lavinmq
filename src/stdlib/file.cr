@@ -1,6 +1,6 @@
 # No PR yet
 class File
-  def punch_hole(size, offset = 0, keep_size = false)
+  def punch_hole(size, offset = 0, keep_size = true)
     {% if flag?(:linux) %}
       flags = LibC::FALLOC_FL_PUNCH_HOLE
       flags |= LibC::FALLOC_FL_KEEP_SIZE if keep_size

@@ -592,7 +592,7 @@ module AvalancheMQ
           path = File.join(@data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
           if sp && sp.segment == seg
             pos = 0
-            File.open(path, "a") do |f|
+            File.open(path, "W+") do |f|
               while sp && sp.segment == seg
                 hole_size = sp.position - pos
                 f.punch_hole(hole_size, pos)
