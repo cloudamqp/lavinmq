@@ -256,6 +256,6 @@ Fork, create feature branch, submit pull request.
 
 The software is licensed under the [Apache License 2.0](LICENSE).
 
-Copyright 2018-2019 84codes AB
+Copyright 2018-2020 84codes AB
 
 AvalancheMQ is a trademark of 84codes AB
