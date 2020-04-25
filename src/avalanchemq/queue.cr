@@ -190,7 +190,7 @@ module AvalancheMQ
       end
     end
 
-    def referenced_sps(s : Set(SegmentPosition))
+    def referenced_sps(s)
       @unack_lock.synchronize do
         @unacked.each do |u|
           s << u.sp

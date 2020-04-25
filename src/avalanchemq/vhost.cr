@@ -1,5 +1,6 @@
 require "json"
 require "logger"
+require "../stdlib/*"
 require "./segment_position"
 require "./policy"
 require "./parameter_store"
@@ -573,7 +574,7 @@ module AvalancheMQ
       Deque(UInt32).new(segments)
     end
 
-    @referenced_sps = Set(SegmentPosition).new
+    @referenced_sps = SortedSet(SegmentPosition).new
 
     private def gc_segments_loop
       loop do
@@ -583,9 +584,7 @@ module AvalancheMQ
         @queues.each_value do |q|
           q.referenced_sps(@referenced_sps)
         end
-        sps = @referenced_sps.to_a.sort!
-        @referenced_sps.clear
-        iter = sps.each
+        iter = @referenced_sps.each
         sp = iter.next.as?(SegmentPosition)
         @segments_on_disk.delete_if do |seg|
           next if seg == @segment # don't hole punch the current segment
@@ -609,6 +608,8 @@ module AvalancheMQ
             true
           end
         end
+      ensure
+        @referenced_sps.clear
       end
     end
   end
