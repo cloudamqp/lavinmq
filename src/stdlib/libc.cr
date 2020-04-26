@@ -40,3 +40,17 @@ lib LibC
   end
   fun writev(fd : Int, iovec : IoVec*, n : SizeT) : SSizeT
 end
+
+lib LibC
+  {% if flag?(:linux) %}
+    fun sendfile(fd_out : Int, fd_in : Int, offset : OffT*, count : SizeT) : SSizeT
+  {% else %}
+    struct SendfileHeader
+      headers : IoVec*
+      hdr_cnt : Int
+      trailers : IoVec*
+      trl_cnt : Int
+    end
+    fun sendfile(fd : Int, s : Int, offset : OffT*, len : OffT*, hdtr : SendfileHeader*, flags : Int) : Int
+  {% end %}
+end
