@@ -93,15 +93,16 @@ lock.fsync
 
 backend = Log::IOBackend.new
 backend.formatter = -> (entry : Log::Entry, io : IO) do
+  if entry.context.size > 0
+    io << " -- " << entry.context
+  end
   io << entry.source << ": " << entry.message
-  if entry.context.size > 0
-    io << " -- " << entry.context
-  end
-  if entry.context.size > 0
-    io << " -- " << entry.context
-  end
-  if (ex = entry.exception) && entry.severity >= Log::Severity::Warning
-    io << "\n" << ex.inspect_with_backtrace
+  if ex = entry.exception
+    if entry.severity >= Log::Severity::Warning
+      io << "\n" << ex.inspect_with_backtrace
+    else
+      io << " -- " << ex.inspect
+    end
   end
 end
 
