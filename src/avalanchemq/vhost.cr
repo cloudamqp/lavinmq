@@ -12,12 +12,13 @@ require "./sortable_json"
 require "./durable_queue"
 require "./exchange"
 require "digest/sha1"
+require "./reference_counter"
 
 module AvalancheMQ
   class VHost
     include SortableJSON
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
-      direct_reply_channels, upstreams, default_user
+      direct_reply_channels, upstreams, default_user, sp_counter
     property? flow = true
     getter? closed = false
 
@@ -26,7 +27,7 @@ module AvalancheMQ
     @save = Channel(AMQP::Frame).new(32)
     @segment : UInt32
     @wfile : File
-    @segments_on_disk : Deque(UInt32)
+    @segments_on_disk = Hash(UInt32, File).new
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
@@ -43,8 +44,21 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
-      @segments_on_disk = load_segments_on_disk!
-      @segment = @segments_on_disk.last
+      @sp_counter = ZeroReferenceCounter(SegmentPosition).new do |sp|
+        # don't punch holes
+        next if sp.segment == @segment
+        segment = @segments_on_disk[sp.segment]
+
+        # calcuate the size of the message of disk in a poor way
+        segment.pos = sp.position
+        Message.skip(segment)
+        pos = segment.pos
+        message_size = pos - sp.position
+
+        segment.punch_hole(message_size, sp.position)
+      end
+      load_segments_on_disk!
+      @segment = @segments_on_disk.last_key
       @wfile = open_wfile
       @wfile.seek(0, IO::Seek::End)
       @pos = @wfile.pos.to_u32
@@ -203,17 +217,17 @@ module AvalancheMQ
     end
 
     private def open_new_segment
-      @segment += 1
-      @segments_on_disk << @segment
       fsync
+      @segment += 1
       @wfile.close
       @wfile = open_wfile
+      @segments_on_disk[@segment] = @wfile
     end
 
     private def open_wfile : File
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      File.open(File.join(@data_dir, filename), "a").tap do |f|
+      File.open(File.join(@data_dir, filename), "a+").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
         @pos = 0_u32
       end
@@ -461,6 +475,7 @@ module AvalancheMQ
 
     private def load_definitions!
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
+        io.buffer_size = Config.instance.file_buffer_size
         io.advise(File::Advice::Sequential)
         loop do
           begin
@@ -494,6 +509,7 @@ module AvalancheMQ
       @log.info "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
+        io.buffer_size = Config.instance.file_buffer_size
         @exchanges.each do |_name, e|
           next unless e.durable
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
@@ -563,61 +579,31 @@ module AvalancheMQ
     end
 
     private def load_segments_on_disk!
-      segments = Array(UInt32).new
       Dir.each_child(@data_dir) do |f|
         if f.starts_with? "msgs."
-          segments << f[5, 10].to_u32
+          seg = f[5, 10].to_u32
+          path = File.join(@data_dir, f)
+          @segments_on_disk[seg] = File.open(path, "a+").tap do |file|
+            file.buffer_size = Config.instance.file_buffer_size
+          end
         end
       end
-      segments.sort!
-      segments << 0_u32 if segments.empty?
-      Deque(UInt32).new(segments)
     end
-
-    @referenced_sps = SortedSet(SegmentPosition).new
 
     private def gc_segments_loop
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         @log.debug "Garbage collecting segments"
-        @queues.each_value do |q|
-          q.referenced_sps(@referenced_sps)
-        end
-        iter = @referenced_sps.each
-        sp = iter.next.as?(SegmentPosition)
-        @segments_on_disk.delete_if do |seg|
-          next if seg == @segment # don't hole punch the current segment
-          path = File.join(@data_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
-          if sp && sp.segment == seg
-            pos = 0
-            File.open(path, "a+") do |f|
-              while sp && sp.segment == seg
-                # the length between prev msg and this
-                hole_size = sp.position - pos
-                if hole_size > 0
-                  begin
-                    f.punch_hole(hole_size, pos)
-                    @log.debug { "Segment #{seg} got a #{hole_size} bytes hole punched" }
-                  rescue ex
-                    @log.error{ "#{ex.inspect} #{f.path} hole_size=#{hole_size} pos=#{pos}" }
-                  end
-                end
-                f.pos = sp.position
-                Message.skip(f)
-                pos = f.pos
-                sp = iter.next.as?(SegmentPosition)
-              end
-              f.truncate(pos)
-            end
-            false
-          else
-            File.delete path
+        @segments_on_disk.delete_if do |_, file|
+          if file.size.zero?
+            file.delete
+            file.close
             true
+          else
+            false
           end
         end
-      ensure
-        @referenced_sps.clear
       end
     end
   end

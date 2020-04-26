@@ -59,6 +59,7 @@ module AvalancheMQ
       @last_get_time = Time.monotonic
       @log = @vhost.log.dup
       @log.progname += " queue=#{@name}"
+      @sp_counter = @vhost.sp_counter
       handle_arguments
       spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
     end
@@ -391,6 +392,7 @@ module AvalancheMQ
         was_empty = @ready.empty?
         @ready.push sp
       end
+      @sp_counter.inc(sp)
       @publish_count += 1
       message_available if was_empty
       #@log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
@@ -684,6 +686,7 @@ module AvalancheMQ
         end
       end
       @deliveries.delete(sp)
+      @sp_counter.dec(sp)
       @ack_count += 1
       consumer_available
     end
@@ -696,7 +699,7 @@ module AvalancheMQ
       if in_ready
         @ready_lock.synchronize do
           if @ready.empty?
-            @log.debug { "Dropping #{sp} but ready queue is empty" }
+            @log.error { "Dropping #{sp} but ready queue is empty" }
           elsif @ready.first == sp
             @ready.shift
           else
@@ -714,6 +717,7 @@ module AvalancheMQ
         end
       end
       @deliveries.delete(sp)
+      @sp_counter.dec(sp)
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
