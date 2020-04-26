@@ -26,7 +26,7 @@ arch=amd64
 for dist in $dists
 do
   mkdir -p builds/debian/$dist
-  multipass launch --name avalanchemq-$dist $dist || true
+  multipass launch --mem 2G --name avalanchemq-$dist $dist || true
   multipass shell avalanchemq-$dist <<< "$provision"
   git archive HEAD | multipass transfer - avalanchemq-$dist:git.tar
   multipass shell avalanchemq-$dist <<< "$build"
