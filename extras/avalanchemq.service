@@ -12,7 +12,7 @@ Group=avalanchemq
 LimitNOFILE=infinity
 Type=notify
 ProtectSystem=full
-FileDescriptorStoreMax=infinity
+FileDescriptorStoreMax=1048576
 
 [Install]
 WantedBy=multi-user.target
