@@ -27,7 +27,7 @@ module AvalancheMQ
     @save = Channel(AMQP::Frame).new(32)
     @segment : UInt32
     @wfile : File
-    @segments_on_disk = Hash(UInt32, File).new
+    @segments_on_disk : Deque(UInt32)
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
@@ -44,21 +44,15 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
+      @ref_lock = Mutex.new(:unchecked)
+      @zero_references = SortedSet(SegmentPosition).new
       @sp_counter = ZeroReferenceCounter(SegmentPosition).new do |sp|
-        # don't punch holes
-        next if sp.segment == @segment
-        segment = @segments_on_disk[sp.segment]
-
-        # calcuate the size of the message of disk in a poor way
-        segment.pos = sp.position
-        Message.skip(segment)
-        pos = segment.pos
-        message_size = pos - sp.position
-
-        segment.punch_hole(message_size, sp.position)
+        @ref_lock.synchronize do
+          @zero_references << sp
+        end
       end
-      load_segments_on_disk!
-      @segment = @segments_on_disk.last_key
+      @segments_on_disk = load_segments_on_disk!
+      @segment = @segments_on_disk.last
       @wfile = open_wfile
       @wfile.seek(0, IO::Seek::End)
       @pos = @wfile.pos.to_u32
@@ -217,17 +211,17 @@ module AvalancheMQ
     end
 
     private def open_new_segment
-      fsync
       @segment += 1
+      @segments_on_disk << @segment
+      fsync
       @wfile.close
       @wfile = open_wfile
-      @segments_on_disk[@segment] = @wfile
     end
 
     private def open_wfile : File
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      File.open(File.join(@data_dir, filename), "a+").tap do |f|
+      File.open(File.join(@data_dir, filename), "a").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
         @pos = 0_u32
       end
@@ -579,30 +573,59 @@ module AvalancheMQ
     end
 
     private def load_segments_on_disk!
+      segments = Array(UInt32).new
       Dir.each_child(@data_dir) do |f|
         if f.starts_with? "msgs."
-          seg = f[5, 10].to_u32
-          path = File.join(@data_dir, f)
-          @segments_on_disk[seg] = File.open(path, "a+").tap do |file|
-            file.buffer_size = Config.instance.file_buffer_size
-          end
+          segments << f[5, 10].to_u32
         end
       end
+      segments.sort!
+      segments << 0_u32 if segments.empty?
+      Deque(UInt32).new(segments)
     end
 
+    # FIXME: SHould find longer holes
+    # On start, go through and make holes between all the existing SPs
     private def gc_segments_loop
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
-        @log.debug "Garbage collecting segments"
-        @segments_on_disk.delete_if do |_, file|
-          if file.size.zero?
-            file.delete
-            file.close
-            true
-          else
-            false
+        @log.debug { "Garbage collecting segments" }
+        @log.debug { "#{@zero_references.size} zero referenced SPs" }
+        next if @zero_references.empty?
+
+        @ref_lock.synchronize do
+          current_seg = @zero_references.first.segment
+          path = File.join(@data_dir, "msgs.#{current_seg.to_s.rjust(10, '0')}")
+          segment = File.open(path, "a+").tap do |f|
+            f.buffer_size = Config.instance.file_buffer_size
           end
+          @zero_references.each do |sp|
+            if current_seg != sp.segment
+              # delete the file if it's empty, but not the current segment
+              if @segment != current_seg && segment.size.zero?
+                segment.delete
+                @log.debug "Deleting #{segment.path}"
+              end
+              current_seg = sp.segment
+              segment.close
+              path = File.join(@data_dir, "msgs.#{current_seg.to_s.rjust(10, '0')}")
+              segment = File.open(path, "a+").tap do |f|
+                f.buffer_size = Config.instance.file_buffer_size
+              end
+            end
+            segment.pos = sp.position
+            Message.skip(segment)
+            pos = segment.pos
+            hole_size = pos - sp.position
+            segment.punch_hole(hole_size, sp.position)
+            @log.debug { "Punched hole in #{current_seg}, from #{sp.position}, #{hole_size} bytes long" }
+          end
+          if @segment != current_seg && segment.size.zero?
+            segment.delete
+          end
+          segment.close
+          @zero_references.clear
         end
       end
     end

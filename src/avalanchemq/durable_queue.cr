@@ -171,6 +171,7 @@ module AvalancheMQ
             sp = SegmentPosition.from_io enq
             next if acked.bsearch { |asp| asp >= sp } == sp
             @ready << sp
+            @sp_counter.inc(sp)
           rescue IO::EOFError
             break
           end

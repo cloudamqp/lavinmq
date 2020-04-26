@@ -33,6 +33,11 @@ class SortedSet(T)
     push(v)
   end
 
+
+  def each(&blk : T -> Nil)
+    @array.each(&blk)
+  end
+
   def each
     @array.each
   end
@@ -47,5 +52,13 @@ class SortedSet(T)
 
   def capacity
     @array.capacity
+  end
+
+  def empty?
+    @array.empty?
+  end
+
+  def first
+    @array.first
   end
 end

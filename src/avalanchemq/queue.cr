@@ -6,6 +6,7 @@ require "./observable"
 require "./stats"
 require "./sortable_json"
 require "./client/channel"
+require "./reference_counter"
 
 module AvalancheMQ
   class Queue
@@ -40,6 +41,7 @@ module AvalancheMQ
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @unacked = Deque(Unack).new(1024)
     @unack_lock = Mutex.new(:unchecked)
+    @sp_counter : ZeroReferenceCounter(SegmentPosition)
 
     record Unack,
       sp : SegmentPosition,
@@ -176,7 +178,6 @@ module AvalancheMQ
     def consumer_count
       @consumers.size.to_u32
     end
-
 
     def referenced_segments(s : Set(UInt32))
       @unack_lock.synchronize do
@@ -317,7 +318,9 @@ module AvalancheMQ
           sp = env.segment_position
           #@log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
-            unless c.no_ack
+            if c.no_ack
+              @sp_counter.dec(sp)
+            else
               @unack_lock.synchronize do
                 @unacked << Unack.new(sp, env.message.persistent?, c)
               end
@@ -597,7 +600,9 @@ module AvalancheMQ
       get(no_ack) do |env|
         if env
           @get_count += 1
-          unless no_ack
+          if no_ack
+            @sp_counter.dec(env.segment_position)
+          else
             @unack_lock.synchronize do
               @unacked << Unack.new(env.segment_position,
                                     env.message.persistent?,

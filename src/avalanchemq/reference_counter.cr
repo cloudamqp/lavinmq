@@ -62,6 +62,7 @@ module AvalancheMQ
           @counter.delete v
           @on_zero.call v
         end
+        cnt
       end
     end
 
