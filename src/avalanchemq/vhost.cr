@@ -598,9 +598,9 @@ module AvalancheMQ
                 if hole_size > 0
                   begin
                     f.punch_hole(hole_size, pos)
-                    Log.debug { "Segment #{seg} got a #{hole_size} bytes hole punched" }
+                    @log.debug { "Segment #{seg} got a #{hole_size} bytes hole punched" }
                   rescue ex
-                    Log.error(exception: ex) { "#{f.path} hole_size=#{hole_size} pos=#{pos}" }
+                    @log.error{ "#{ex.inspect} #{f.path} hole_size=#{hole_size} pos=#{pos}" }
                   end
                 end
                 f.pos = sp.position
