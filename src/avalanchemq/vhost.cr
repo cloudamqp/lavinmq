@@ -595,12 +595,17 @@ module AvalancheMQ
         next if @zero_references.empty?
 
         @ref_lock.synchronize do
-          current_seg = @zero_references.first.segment
+          iter = @zero_references.each
+          sp = iter.next.as?(SegmentPosition) || next
+          current_seg = sp.segment
+          start_pos = sp.position
+          end_pos = nil
           path = File.join(@data_dir, "msgs.#{current_seg.to_s.rjust(10, '0')}")
           segment = File.open(path, "a+").tap do |f|
             f.buffer_size = Config.instance.file_buffer_size
           end
-          @zero_references.each do |sp|
+          while sp
+            p sp
             if current_seg != sp.segment
               # delete the file if it's empty, but not the current segment
               if @segment != current_seg && segment.size.zero?
@@ -614,12 +619,24 @@ module AvalancheMQ
                 f.buffer_size = Config.instance.file_buffer_size
               end
             end
+
+            start_pos ||= sp.position
             segment.pos = sp.position
             Message.skip(segment)
-            pos = segment.pos
-            hole_size = pos - sp.position
-            segment.punch_hole(hole_size, sp.position)
-            @log.debug { "Punched hole in #{current_seg}, from #{sp.position}, #{hole_size} bytes long" }
+            end_pos = segment.pos
+
+            sp = iter.next.as?(SegmentPosition) || break
+            if sp.segment != current_seg || sp.position != end_pos
+              hole_size = end_pos - start_pos
+              segment.punch_hole(hole_size, start_pos)
+              @log.debug { "Punched hole in #{current_seg}, from #{start_pos}, #{hole_size} bytes long" }
+              start_pos = nil
+            end
+          end
+          if start_pos != nil && end_pos != nil
+            hole_size = end_pos.not_nil! - start_pos.not_nil!
+            segment.punch_hole(hole_size, start_pos.not_nil!)
+            @log.debug { "Punched hole in #{current_seg}, from #{start_pos}, #{hole_size} bytes long" }
           end
           if @segment != current_seg && segment.size.zero?
             segment.delete
