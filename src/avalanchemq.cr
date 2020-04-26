@@ -229,6 +229,9 @@ shutdown = ->(_s : Signal) do
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
+if SystemD.notify_ready > 0
+  log.info "Ready (Notified SystemD)"
+end
 GC.collect
 
 # write to the lock file to detect lost lock
