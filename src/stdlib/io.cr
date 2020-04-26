@@ -1,6 +1,6 @@
 class IO
   def self.copy(src, dst) : UInt64
-    buffer = uninitialized UInt8[131_072]
+    buffer = uninitialized UInt8[16384]
     count = 0_u64
     while (len = src.read(buffer.to_slice).to_i32) > 0
       dst.write buffer.to_slice[0, len]
@@ -16,7 +16,7 @@ class IO
 
     limit = limit.to_u64
 
-    buffer = uninitialized UInt8[131_072]
+    buffer = uninitialized UInt8[16384]
     remaining = limit
     while (len = src.read(buffer.to_slice[0, Math.min(buffer.size, Math.max(remaining, 0))])) > 0
       dst.write buffer.to_slice[0, len]
