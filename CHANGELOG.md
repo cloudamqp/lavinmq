@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Partial GC of segments by hole punching, disk usage is much lower now
+- Lower default file read buffer to 16KB
+- Removed some HTTP protection measures that aren't applicable
+- If writing to the definitions.amqp file fails abort the whole application
+- Periodically write to the lock file to detect lost lock
+
+### Added
+- Does now notify systemd when properly started
+
+### Fixed
+- All settings in the file config is respected now, not just a few
+
 ## [0.9.16] - 2020-04-13
 
 ### Fixed
