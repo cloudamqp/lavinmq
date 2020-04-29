@@ -605,11 +605,6 @@ module AvalancheMQ
           end
           while sp
             if current_seg != sp.segment
-              # delete the file if it's empty, but not the current segment
-              if @segment != current_seg && segment.size.zero?
-                segment.delete
-                @log.debug "Deleting #{segment.path}"
-              end
               current_seg = sp.segment
               segment.close
               start_pos = end_pos = nil
@@ -637,9 +632,6 @@ module AvalancheMQ
             hole_size = end_pos.not_nil! - start_pos.not_nil!
             segment.punch_hole(hole_size, start_pos.not_nil!)
             @log.debug { "Punched hole in #{current_seg}, from #{start_pos}, #{hole_size} bytes long" }
-          end
-          if @segment != current_seg && segment.size.zero?
-            segment.delete
           end
           segment.close
           @zero_references.clear
