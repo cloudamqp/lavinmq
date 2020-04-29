@@ -56,6 +56,12 @@ module AvalancheMQ
         @unacked.capacity
       end
 
+      def each_sp(&blk)
+        @lock.synchronize do
+          @unacked.each { |unack| yield unack.sp }
+        end
+      end
+
       def copy_to(set)
         @lock.synchronize do
           @unacked.each do |sp|

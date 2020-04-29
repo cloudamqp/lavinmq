@@ -164,9 +164,20 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def referenced_sps(s)
-      @unacked.copy_to(s)
-      @ready.copy_to(s)
+    def referenced_segments(set) : Nil
+      prev = nil
+      @unacked.each_sp do |sp|
+        if sp.segment != prev
+          set << sp.segment
+          prev = sp.segment
+        end
+      end
+      @ready.each do |sp|
+        if sp.segment != prev
+          set << sp.segment
+          prev = sp.segment
+        end
+      end
     end
 
     def close_segments
