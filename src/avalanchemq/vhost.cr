@@ -584,8 +584,8 @@ module AvalancheMQ
       Deque(UInt32).new(segments)
     end
 
-    # FIXME: SHould find longer holes
-    # On start, go through and make holes between all the existing SPs
+    # FIXME: On start, go through and make holes between all the existing SPs
+    # FIXME: Store message size so we don't have to "skip" it to find out
     private def gc_segments_loop
       loop do
         sleep Config.instance.gc_segments_interval
@@ -598,14 +598,12 @@ module AvalancheMQ
           iter = @zero_references.each
           sp = iter.next.as?(SegmentPosition) || next
           current_seg = sp.segment
-          start_pos = sp.position
-          end_pos = nil
+          start_pos = end_pos = nil
           path = File.join(@data_dir, "msgs.#{current_seg.to_s.rjust(10, '0')}")
           segment = File.open(path, "a+").tap do |f|
             f.buffer_size = Config.instance.file_buffer_size
           end
           while sp
-            p sp
             if current_seg != sp.segment
               # delete the file if it's empty, but not the current segment
               if @segment != current_seg && segment.size.zero?
@@ -614,6 +612,7 @@ module AvalancheMQ
               end
               current_seg = sp.segment
               segment.close
+              start_pos = end_pos = nil
               path = File.join(@data_dir, "msgs.#{current_seg.to_s.rjust(10, '0')}")
               segment = File.open(path, "a+").tap do |f|
                 f.buffer_size = Config.instance.file_buffer_size
@@ -621,16 +620,17 @@ module AvalancheMQ
             end
 
             start_pos ||= sp.position
-            segment.pos = sp.position
-            Message.skip(segment)
-            end_pos = segment.pos
+            segment.pos = sp.position unless end_pos == sp.position
+            len = Message.skip(segment)
+            end_pos = sp.position + len
+            @log.debug { "sp.position=#{sp.position} start_pos=#{start_pos} end_pos=#{end_pos}" }
 
             sp = iter.next.as?(SegmentPosition) || break
-            if sp.segment != current_seg || sp.position != end_pos
+            unless sp.segment == current_seg && sp.position == end_pos
               hole_size = end_pos - start_pos
               segment.punch_hole(hole_size, start_pos)
               @log.debug { "Punched hole in #{current_seg}, from #{start_pos}, #{hole_size} bytes long" }
-              start_pos = nil
+              start_pos = end_pos = nil
             end
           end
           if start_pos != nil && end_pos != nil
