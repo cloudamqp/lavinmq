@@ -26,43 +26,44 @@ module AvalancheMQ
 
     private def compact_index! : Nil
       @log.info { "Compacting index" }
-      @ready_lock.lock
-      @enq_lock.lock
-      @ack_lock.lock
-      @enq.close
-      i = 0
-      File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-        unacked = @unack_lock.synchronize { @unacked.map &.sp }.sort!.each
-        next_unacked = unacked.next
-        @ready.each do |sp|
-          loop do
-            break if next_unacked == Iterator::Stop::INSTANCE
-            break if sp < next_unacked.as(SegmentPosition)
-            f.write_bytes next_unacked.as(SegmentPosition)
-            next_unacked = unacked.next
+      @ready.locked_each do |all_ready|
+        @enq_lock.lock
+        @ack_lock.lock
+        @enq.close
+        i = 0
+        File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+          unacked = @unacked.all_segment_positions.sort!.each
+          next_unacked = unacked.next.as?(SegmentPosition)
+          while sp = all_ready.next.as?(SegmentPosition)
+            while next_unacked && next_unacked < sp
+              f.write_bytes next_unacked
+              @log.debug { "writing #{next_unacked} to enq.tmp" }
+              i += 1
+              next_unacked = unacked.next.as?(SegmentPosition)
+            end
+            f.write_bytes sp
+            @log.debug { "writing #{sp} to enq.tmp" }
             i += 1
           end
-          f.write_bytes sp
-          i += 1
+          while next_unacked
+            f.write_bytes next_unacked
+            @log.debug { "writing #{next_unacked} to enq.tmp" }
+            i += 1
+            next_unacked = unacked.next.as?(SegmentPosition)
+          end
         end
-        until next_unacked == Iterator::Stop::INSTANCE
-          f.write_bytes next_unacked.as(SegmentPosition)
-          next_unacked = unacked.next
-          i += 1
-        end
+
+        @log.info { "Wrote #{i} SPs to new enq file" }
+        File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+        @enq = File.open(File.join(@index_dir, "enq"), "a")
+        @enq.fsync(flush_metadata: true)
+
+        @ack.truncate
+        @acks = 0_u32
       end
-
-      @log.info { "Wrote #{i} SPs to new enq file" }
-      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-      @enq = File.open(File.join(@index_dir, "enq"), "a")
-      @enq.fsync(flush_metadata: true)
-
-      @ack.truncate
-      @acks = 0_u32
     ensure
       @ack_lock.unlock
       @enq_lock.unlock
-      @ready_lock.unlock
     end
 
     def close : Bool
@@ -82,39 +83,17 @@ module AvalancheMQ
     def publish(sp : SegmentPosition, persistent = false) : Bool
       super || return false
       @enq_lock.synchronize do
+        @log.debug { "writing #{sp} to enq" }
         @enq.write_bytes sp
         @enq.flush if persistent
       end
       true
     end
 
-    def get(no_ack : Bool, &blk : Envelope? -> Nil)
-      super(no_ack) do |env|
-        if env && no_ack
-          @ack_lock.synchronize do
-            @ack.write_bytes env.segment_position
-            @ack.flush if env.message.persistent?
-            @acks += 1
-          end
-          compact_index! if @acks >= Config.instance.queue_max_acks
-        end
-        yield env
-      end
-    end
-
-    def ack(sp : SegmentPosition, persistent : Bool) : Nil
+    protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       super
       @ack_lock.synchronize do
-        @ack.write_bytes sp
-        @ack.flush if persistent
-        @acks += 1
-      end
-      compact_index! if @acks >= Config.instance.queue_max_acks
-    end
-
-    private def drop(sp, delete_in_ready, persistent) : Nil
-      super
-      @ack_lock.synchronize do
+        @log.debug { "writing #{sp} to ack" }
         @ack.write_bytes sp
         @ack.flush if persistent
         @acks += 1
@@ -166,7 +145,7 @@ module AvalancheMQ
           # to avoid repetetive allocations in Dequeue#increase_capacity
           # we redeclare the ready queue with a larger initial capacity
           capacity = Math.max(enq.size.to_i64 - ack.size, 1024 * sp_size) // sp_size
-          @ready = Deque(SegmentPosition).new Math.pw2ceil(capacity)
+          @ready = ReadyQueue.new Math.pw2ceil(capacity)
           loop do
             sp = SegmentPosition.from_io enq
             next if acked.bsearch { |asp| asp >= sp } == sp

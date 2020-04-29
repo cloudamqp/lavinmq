@@ -7,6 +7,8 @@ require "./stats"
 require "./sortable_json"
 require "./client/channel"
 require "./reference_counter"
+require "./queue/ready"
+require "./queue/unacked"
 
 module AvalancheMQ
   class Queue
@@ -36,17 +38,10 @@ module AvalancheMQ
     @consumers_lock = Mutex.new(:unchecked)
     @message_available = Channel(Nil).new
     @consumer_available = Channel(Nil).new(1)
-    @ready = Deque(SegmentPosition).new(1024)
-    @ready_lock = Mutex.new(:reentrant)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
-    @unacked = Deque(Unack).new(1024)
-    @unack_lock = Mutex.new(:unchecked)
     @sp_counter : ZeroReferenceCounter(SegmentPosition)
-
-    record Unack,
-      sp : SegmentPosition,
-      persistent : Bool,
-      consumer : Client::Channel::Consumer?
+    @ready = ReadyQueue.new
+    @unacked = UnackQueue.new
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
@@ -141,16 +136,6 @@ module AvalancheMQ
       end
     end
 
-    private def drop_overflow
-      if ml = @max_length
-        @ready_lock.synchronize do
-          while @ready.size > ml
-            drophead || break
-          end
-        end
-      end
-    end
-
     private def handle_arguments
       @message_ttl = @arguments["x-message-ttl"]?.try &.as?(ArgumentNumber)
       @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
@@ -179,30 +164,9 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def referenced_segments(s : Set(UInt32))
-      @unack_lock.synchronize do
-        @unacked.each do |u|
-          s << u.sp.segment
-        end
-      end
-      @ready_lock.synchronize do
-        @ready.each do |sp|
-          s << sp.segment
-        end
-      end
-    end
-
     def referenced_sps(s)
-      @unack_lock.synchronize do
-        @unacked.each do |u|
-          s << u.sp
-        end
-      end
-      @ready_lock.synchronize do
-        @ready.each do |sp|
-          s << sp
-        end
-      end
+      @unacked.copy_to(s)
+      @ready.copy_to(s)
     end
 
     def close_segments
@@ -319,11 +283,9 @@ module AvalancheMQ
           #@log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
             if c.no_ack
-              @sp_counter.dec(sp)
+              delete_message(sp, false)
             else
-              @unack_lock.synchronize do
-                @unacked << Unack.new(sp, env.message.persistent?, c)
-              end
+              @unacked.push(sp, env.message.persistent?, c)
             end
             if env.redelivered
               @redeliver_count += 1
@@ -389,12 +351,8 @@ module AvalancheMQ
       return false if @closed
       #@log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
-      was_empty = false
-      @ready_lock.synchronize do
-        drop_on_overflow
-        was_empty = @ready.empty?
-        @ready.push sp
-      end
+      drop_overflow(1)
+      was_empty = @ready.push(sp) == 1
       @sp_counter.inc(sp)
       @publish_count += 1
       message_available if was_empty
@@ -413,10 +371,11 @@ module AvalancheMQ
       end
     end
 
-    private def drop_on_overflow
+    private def drop_overflow(extra = 0)
       if ml = @max_length
-        while @ready.size >= ml
-          drophead || break
+        @ready.limit_size(ml - extra) do |sp|
+          @log.debug { "Overflow drop head sp=#{sp}" }
+          expire_msg(sp, :maxlen)
         end
       end
     end
@@ -455,13 +414,15 @@ module AvalancheMQ
       end
     rescue ex : IO::Error
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop(sp, true, true)
+      @ready.delete sp
+      delete_message sp
       nil
     rescue ex : IO::EOFError
       pos = segment_file(sp.segment).pos.to_u32
       @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
       @segment_pos = pos
-      drop(sp, true, true)
+      @ready.delete sp
+      delete_message sp
       nil
     end
 
@@ -469,7 +430,7 @@ module AvalancheMQ
       @log.debug { "Checking if next message has to be expired" }
       meta = nil
       until meta
-        sp = @ready_lock.synchronize { @ready[0]? } || return
+        sp = @ready.first? || return
         meta = metadata(sp)
       end
       @log.debug { "Next message: #{meta}" }
@@ -486,12 +447,10 @@ module AvalancheMQ
     end
 
     private def expire_messages : Nil
-      @ready_lock.lock
       @read_lock.lock
       i = 0
       now = RoughTime.utc.to_unix_ms
-      loop do
-        sp = @ready[0]? || break
+      @ready.shift do |sp|
         @log.debug { "Checking if next message has to be expired" }
         read(sp) do |env|
           @log.debug { "Next message: #{env.message}" }
@@ -500,26 +459,25 @@ module AvalancheMQ
             expire_at = env.message.timestamp + exp_ms
             expire_in = expire_at - now
             if expire_in <= 0
-              @ready.shift
               expire_msg(env, :expired)
               if (i += 1) == 8192
                 Fiber.yield
                 i = 0
               end
+              true
             else
               @log.debug { "No more message to expire" }
-              return
+              false
             end
           else
             @log.debug { "No more message to expire" }
-            return
+            false
           end
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
     ensure
       @read_lock.unlock
-      @ready_lock.unlock
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
@@ -540,8 +498,7 @@ module AvalancheMQ
       else
         msg.body_io.skip(msg.size)
       end
-      persistent = msg.properties.delivery_mode == 2_u8
-      drop sp, false, persistent
+      delete_message sp, msg.persistent?
     rescue ex : IO::EOFError
       @segment_pos = segment_file(env.segment_position.segment).pos.to_u32
       raise ex
@@ -597,33 +554,32 @@ module AvalancheMQ
 
     def basic_get(no_ack, &blk : Envelope? -> Nil)
       @last_get_time = Time.monotonic
+      @get_count += 1
       get(no_ack) do |env|
+        yield env
         if env
-          @get_count += 1
           if no_ack
-            @sp_counter.dec(env.segment_position)
+            delete_message(env.segment_position, false)
           else
-            @unack_lock.synchronize do
-              @unacked << Unack.new(env.segment_position,
-                                    env.message.persistent?,
-                                    nil)
-            end
+            @unacked.push(env.segment_position, env.message.persistent?, nil)
           end
         end
-        yield env
       end
     end
 
+    # yield the next message in the ready queue
     private def get(no_ack : Bool, &blk : Envelope? -> Nil)
       return yield nil if @closed
-      sp = @ready_lock.synchronize { @ready.shift? }
-      return yield nil if sp.nil?
-      read(sp) do |env|
-        if @delivery_limit && !no_ack
-          yield with_delivery_count_header(env)
-        else
-          yield env
+      if sp = @ready.shift?
+        read(sp) do |env|
+          if @delivery_limit && !no_ack
+            yield with_delivery_count_header(env)
+          else
+            yield env
+          end
         end
+      else
+        yield nil
       end
     end
 
@@ -634,9 +590,7 @@ module AvalancheMQ
         delivery_count = @deliveries.fetch(sp, 0)
         #@log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
         if delivery_count >= limit
-          @ready_lock.synchronize do
-            expire_msg(env, :delivery_limit)
-          end
+          expire_msg(env, :delivery_limit)
           return nil
         end
         headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
@@ -667,15 +621,11 @@ module AvalancheMQ
       end
     rescue ex : IO::Error
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      drop sp, true, true
+      @ready.delete(sp)
+      delete_message sp
+      false
     rescue ex
-      if seg
-        @log.error "Error reading message at #{sp}: #{ex.inspect}"
-        @log.error "Hexdump of the first 1024 bytes on disk:"
-        seg.seek(sp.position, IO::Seek::Set)
-        io = IO::Hexdump.new(seg, output: STDERR, read: true)
-        io.skip 1024
-      end
+      @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
       @segment_pos = segment_file(sp.segment).pos.to_u32
       raise ex
     ensure
@@ -685,43 +635,14 @@ module AvalancheMQ
     def ack(sp : SegmentPosition, persistent : Bool) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @unack_lock.synchronize do
-        if idx = @unacked.index { |u| u.sp == sp }
-          @unacked.delete_at(idx)
-        end
-      end
-      @deliveries.delete(sp)
-      @sp_counter.dec(sp)
       @ack_count += 1
+      @unacked.delete(sp)
+      delete_message(sp, persistent)
       consumer_available
     end
 
-    # dropping a specific message/segmentposition
-    private def drop(sp, in_ready, persistent) : Nil
-      return if @deleted
-      @log.debug { "Dropping #{sp}" }
-
-      if in_ready
-        @ready_lock.synchronize do
-          if @ready.empty?
-            @log.error { "Dropping #{sp} but ready queue is empty" }
-          elsif @ready.first == sp
-            @ready.shift
-          else
-            @log.debug { "Dropping #{sp} wasn't at the head of the ready queue" }
-            if idx = @ready.bsearch_index { |rsp| rsp >= sp }
-              if @ready[idx] == sp
-                @ready.delete_at(idx)
-              else
-                @log.error { "Dropping #{sp} but wasn't in ready queue" }
-              end
-            else
-              @log.error { "Dropping #{sp} but wasn't in ready queue" }
-            end
-          end
-        end
-      end
-      @deliveries.delete(sp)
+    protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
+      @deliveries.delete(sp) if @delivery_limit
       @sp_counter.dec(sp)
     end
 
@@ -729,21 +650,13 @@ module AvalancheMQ
       return if @deleted
       @log.debug { "Rejecting #{sp}" }
 
-      @unack_lock.synchronize do
-        if idx = @unacked.index { |u| u.sp == sp }
-          @unacked.delete_at(idx)
-        end
-      end
-      @ready_lock.synchronize do
-        if requeue
-          was_empty = @ready.empty?
-          i = @ready.bsearch_index { |rsp| rsp > sp } || 0
-          @ready.insert(i, sp)
-          @requeued << sp
-          message_available if was_empty
-        else
-          expire_msg(sp, :rejected)
-        end
+      @unacked.delete(sp)
+      if requeue
+        was_empty = @ready.insert(sp) == 1
+        @requeued << sp
+        message_available if was_empty
+      else
+        expire_msg(sp, :rejected)
       end
       @reject_count += 1
     end
@@ -751,28 +664,10 @@ module AvalancheMQ
     private def requeue_many(sps : Enumerable(SegmentPosition))
       return if @deleted
       return if sps.empty?
-      was_empty = false
       @log.debug { "Returning #{sps.size} msgs to ready state" }
       @reject_count += sps.size
-      @ready_lock.synchronize do
-        was_empty = @ready.empty?
-        sps.reverse_each do |sp|
-          i = @ready.bsearch_index { |rsp| rsp > sp } || 0
-          @ready.insert(i, sp)
-          @requeued << sp
-        end
-      end
+      was_empty = @ready.insert(sps) == sps.size
       message_available if was_empty
-    end
-
-    private def drophead : Bool
-      if sp = @ready.shift?
-        @log.debug { "Overflow drop head sp=#{sp}" }
-        expire_msg(sp, :maxlen)
-        true
-      else
-        false
-      end
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
@@ -793,13 +688,7 @@ module AvalancheMQ
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        consumer_unacked = Array(SegmentPosition).new(consumer.prefetch_count)
-        @unacked.delete_if do |unack|
-          if unack.consumer == consumer
-            consumer_unacked << unack.sp
-            true
-          end
-        end
+        consumer_unacked = @unacked.delete(consumer)
         requeue_many(consumer_unacked)
         @log.debug { "Removing consumer with #{consumer_unacked.size} \
                       unacked messages \
@@ -810,12 +699,9 @@ module AvalancheMQ
     end
 
     def purge : UInt32
-      @ready_lock.synchronize do
-        purged_count = @ready.size
-        @ready.clear
-        @log.debug { "Purged #{purged_count} messages" }
-        purged_count.to_u32
-      end
+      purged_count = @ready.purge
+      @log.debug { "Purged #{purged_count} messages" }
+      purged_count.to_u32
     end
 
     def match?(frame)
@@ -840,5 +726,6 @@ module AvalancheMQ
 
     def fsync_ack
     end
+    class Error < Exception; end
   end
 end
