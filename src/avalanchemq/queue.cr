@@ -610,7 +610,7 @@ module AvalancheMQ
       env
     end
 
-    def read(sp : SegmentPosition, &blk : Envelope -> Nil)
+    def read(sp : SegmentPosition, &blk : Envelope -> _)
       @read_lock.lock
       seg = segment_file(sp.segment)
       if @segment_pos != sp.position
