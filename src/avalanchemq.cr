@@ -71,7 +71,7 @@ end
 # Can work as a poor mans cluster where the master nodes aquires
 # a file lock on a shared file system like NFS
 Dir.mkdir_p config.data_dir
-lock = File.open(File.join(config.data_dir, ".lock"), "w")
+lock = File.open(File.join(config.data_dir, ".lock"), "w+")
 lock.sync = true
 lock.read_buffering = false
 begin
