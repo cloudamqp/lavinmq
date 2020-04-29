@@ -567,7 +567,7 @@ module AvalancheMQ
       @last_get_time = Time.monotonic
       @get_count += 1
       get(no_ack) do |env|
-        yield env
+        res = yield env
         if env
           if no_ack
             delete_message(env.segment_position, false)
@@ -575,6 +575,7 @@ module AvalancheMQ
             @unacked.push(env.segment_position, env.message.persistent?, nil)
           end
         end
+        res
       end
     end
 
