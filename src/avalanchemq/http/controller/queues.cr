@@ -130,9 +130,12 @@ module AvalancheMQ
             ack = ack_mode.starts_with?(/(ack_|get)/)
             JSON.build(context.response) do |j|
               j.array do
+
+                sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
                   q.basic_get(false) do |env|
                     break if env.nil?
+                    sps << env.segment_position
                     size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
                     payload = String.build(size) do |io|
                       IO.copy env.message.body_io, io, size
@@ -162,12 +165,14 @@ module AvalancheMQ
                       j.field("payload", content)
                       j.field("payload_encoding", payload_encoding)
                     end
-                    if ack
-                      q.ack(env.segment_position, true)
-                      q.publish(env.segment_position) if requeue
-                    else
-                      q.reject(env.segment_position, requeue)
-                    end
+                  end
+                end
+                sps.each do |sp|
+                  if ack
+                    q.ack(sp, true)
+                    q.publish(sp) if requeue
+                  else
+                    q.reject(sp, requeue)
                   end
                 end
               end
