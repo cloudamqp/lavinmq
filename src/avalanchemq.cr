@@ -158,6 +158,7 @@ def report(s)
     puts_size_capacity vh.@queues, 4
     puts_size_capacity vh.@zero_references, 4
     puts_size_capacity vh.@sp_counter, 4
+    puts_size_capacity vh.@referenced_segments, 4
     vh.queues.each do |_, q|
       puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
       puts_size_capacity q.@consumers, 6
