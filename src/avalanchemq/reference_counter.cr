@@ -73,5 +73,9 @@ module AvalancheMQ
     def capacity
       @counter.capacity
     end
+
+    def rehash
+      @counter.rehash
+    end
   end
 end
