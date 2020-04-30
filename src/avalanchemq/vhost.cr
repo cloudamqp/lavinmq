@@ -599,13 +599,14 @@ module AvalancheMQ
       @log.debug { "#{@zero_references.size} zero referenced SPs" }
       return if @zero_references.empty?
 
+      punched = 0
       @ref_lock.synchronize do
         current_seg = segment = start_pos = end_pos = nil
         @zero_references.each do |sp|
           next unless @referenced_segments.includes? sp.segment
 
           if sp.segment != current_seg || sp.position != end_pos
-            punch_hole(segment, start_pos, end_pos)
+            punched += punch_hole(segment, start_pos, end_pos)
             start_pos = end_pos = nil
           end
 
@@ -626,18 +627,22 @@ module AvalancheMQ
           end_pos = sp.position + len
           @log.debug { "sp.position=#{sp.position} start_pos=#{start_pos} end_pos=#{end_pos}" }
         end
-        punch_hole(segment, start_pos, end_pos)
+        punched += punch_hole(segment, start_pos, end_pos)
         segment.try &.close
         @zero_references.clear
+        @sp_counter.rehash
+        @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
       end
     end
 
-    private def punch_hole(segment : File?, start_pos : Int?, end_pos : Int?)
+    private def punch_hole(segment : File?, start_pos : Int?, end_pos : Int?) : UInt32
       if segment && start_pos && end_pos
         hole_size = end_pos - start_pos
         segment.punch_hole(hole_size, start_pos)
         @log.debug { "Punched hole in #{segment.path}, from #{start_pos}, #{hole_size} bytes long" }
+        return hole_size
       end
+      0_u32
     end
 
     @referenced_segments = Set(UInt32).new
@@ -653,14 +658,17 @@ module AvalancheMQ
     private def delete_unused_segments
       @log.debug "Garbage collecting segments"
 
+      deleted_bytes = 0
       @segments_on_disk.delete_if do |seg|
         unless @referenced_segments.includes? seg
-          @log.debug "Deleting segment #{seg}"
+          @log.debug { "Deleting segment #{seg}" }
           filename = "msgs.#{seg.to_s.rjust(10, '0')}"
+          deleted_bytes += File.size(File.join(@data_dir, filename))
           File.delete File.join(@data_dir, filename)
           true
         end
       end
+      @log.info { "Garbage collected #{deleted_bytes.humanize_bytes} of unused segments" } if deleted_bytes > 0
       @log.debug { "#{@segments_on_disk.size} segments on disk" }
     end
   end
