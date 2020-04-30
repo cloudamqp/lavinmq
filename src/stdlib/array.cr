@@ -2,20 +2,11 @@ class Array(T)
   def capacity
     @capacity
   end
-
-  def insert_sorted(v : T)
-    i = bsearch_index { |x| x >= v }
-    if i
-      insert(i, v) unless self.[i] == v
-    else
-      push(v)
-    end
-  end
 end
 
 class SortedSet(T)
-  def initialize
-    @array = Array(T).new
+  def initialize(initial_capacity = 1024)
+    @array = Array(T).new(initial_capacity)
   end
 
   def push(v : T)
