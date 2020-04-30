@@ -711,9 +711,11 @@ module AvalancheMQ
     end
 
     def purge : UInt32
-      purged_count = @ready.purge
-      @log.debug { "Purged #{purged_count} messages" }
-      purged_count.to_u32
+      count = @ready.purge do |sp|
+        @sp_counter.dec(sp)
+      end
+      @log.debug { "Purged #{count} messages" }
+      count.to_u32
     end
 
     def match?(frame)

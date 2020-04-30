@@ -127,10 +127,12 @@ module AvalancheMQ
         @ready.empty?
       end
 
-      # clears and returns the number of messages before
+      # yields all messages, then clears it
+      # returns number of messages in the queue before purge
       def purge
         @lock.synchronize do
           count = @ready.size
+          @ready.each { |sp| yield sp }
           @ready.clear
           count
         end
