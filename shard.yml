@@ -1,8 +1,8 @@
 name: avalanchemq
-version: 0.10.1
+version: 0.10.2
 
 authors:
-  - Carl Hörberg <carl@cloudamqp.com>
+  - Carl Hörberg <carl@cloudamqp.com>
   - Anders Bälter <anders@cloudamqp.com>
 
 targets:

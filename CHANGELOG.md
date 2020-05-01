@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2020-05-01
+
+### Changed
+- The way to find holes in segment files to punch is much improved
+
 ## [0.10.1] - 2020-04-26
 
 ### Fixed
