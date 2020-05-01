@@ -1,3 +1,3 @@
 module AvalancheMQ
-  VERSION = {{ `git describe | cut -c2-`.chomp.stringify }}
+  VERSION = {{ `git describe 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
 end
