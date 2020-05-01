@@ -243,7 +243,7 @@ end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
 if SystemD.notify_ready > 0
-  log.info "Ready (Notified SystemD)"
+  Log.info { "SystemD notified" }
 end
 GC.collect
 
