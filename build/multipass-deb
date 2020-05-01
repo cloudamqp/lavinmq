@@ -13,12 +13,14 @@ echo 'deb https://dist.crystal-lang.org/apt crystal main' | sudo tee /etc/apt/so
 sudo apt-get update
 sudo apt-get upgrade -y
 sudo apt-get install -y crystal help2man lintian lsb-release fakeroot libsystemd-dev
-rm -rf *
+rm -rf build
 "
 
 build="
 set -eux
-tar xf git.tar
+mkdir build
+tar xf git.tar -C build
+cd build
 build/deb $version $revision
 "
 
@@ -31,7 +33,7 @@ do
   git archive HEAD | multipass transfer - avalanchemq-$dist:git.tar
   multipass shell avalanchemq-$dist <<< "$build"
   multipass transfer \
-    avalanchemq-$dist:builds/debian/$dist/avalanchemq_${version}-${revision}_${arch}.deb \
+    avalanchemq-$dist:build/builds/debian/$dist/avalanchemq_${version}-${revision}_${arch}.deb \
     builds/debian/$dist/
-  multipass suspend avalanchemq-$dist
+  multipass stop --time 5 avalanchemq-$dist
 done
