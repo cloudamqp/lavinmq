@@ -1,7 +1,5 @@
 module AvalancheMQ
-  module AMQPConnection
-    Log = ::Log.for(self)
-
+  class NetworkClient
     def self.start(socket, remote_address, local_address, vhosts, users)
       socket.read_timeout = 15
       confirm_header(socket) || return
@@ -10,17 +8,23 @@ module AvalancheMQ
       user = authenticate(socket, users, creds[:username], creds[:password], start_ok) || return
       tune_ok = tune(socket)
       if vhost = open(socket, vhosts, user)
-        NetworkClient.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
+        self.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
       else
         nil
       end
-    rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
+    rescue ex : Socket::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       Log.warn { "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection" }
-      socket.try &.close unless socket.try &.closed?
+      begin
+        socket.try &.close
+      rescue
+      end
       nil
-    rescue ex : Exception
+    rescue ex
       Log.error(exception: ex) { "Error while #{remote_address} tried to establish connection #{ex.inspect}" }
-      socket.try &.close unless socket.try &.closed?
+      begin
+        socket.try &.close
+      rescue
+      end
       nil
     ensure
       timeout =
@@ -35,14 +39,13 @@ module AvalancheMQ
     def self.confirm_header(socket)
       proto = uninitialized UInt8[8]
       socket.read(proto.to_slice)
-      if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
-        socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
-        socket.flush
-        socket.close
-        Log.debug { "Unknown protocol #{proto}, closing socket" }
-        return false
-      end
-      true
+      return true if proto == AMQP::PROTOCOL_START_0_9_1 ||
+                     proto == AMQP::PROTOCOL_START_0_9
+      Log.info { "Client #{socket.remote_address} sent bad protocol start header, closing: '#{proto}'" }
+      socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
+      socket.flush
+      socket.close
+      false
     end
 
     def self.start(socket)
@@ -127,21 +130,20 @@ module AvalancheMQ
       loop do
         AMQP::Frame.from_io(socket, IO::ByteFormat::NetworkEndian) do |frame|
           if frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
-            true
+            return
           else
             Log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             if frame.is_a?(AMQP::Frame::Body)
               Log.debug { "Skipping body" }
               frame.body.skip(frame.body_size)
             end
-            false
           end
-        end && break
+        end
       end
     rescue IO::EOFError
       Log.debug { "Client closed socket without sending CloseOk" }
     rescue ex : IO::Error | AMQP::Error::FrameDecode
-      Log.warn(exception: ex) { "#{ex.inspect} when waiting for CloseOk" }
+      Log.debug(exception: ex) { "#{ex.inspect} when waiting for CloseOk" }
     ensure
       socket.close
     end

@@ -3,6 +3,8 @@ require "./amqp_connection"
 
 module AvalancheMQ
   class NetworkClient < Client
+    Log = ::Log.for(self)
+
     getter user, max_frame_size, auth_mechanism, remote_address, heartbeat, channel_max
 
     @max_frame_size : UInt32
