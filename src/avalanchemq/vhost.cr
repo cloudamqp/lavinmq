@@ -599,7 +599,7 @@ module AvalancheMQ
       @log.debug { "#{@zero_references.size} zero referenced SPs" }
       return if @zero_references.empty?
 
-      punched = 0
+      punched = 0_u64
       @ref_lock.synchronize do
         current_seg = segment = start_pos = end_pos = nil
         @zero_references.each do |sp|
@@ -658,7 +658,7 @@ module AvalancheMQ
     private def delete_unused_segments
       @log.debug "Garbage collecting segments"
 
-      deleted_bytes = 0
+      deleted_bytes = 0_u64
       @segments_on_disk.delete_if do |seg|
         unless @referenced_segments.includes? seg
           @log.debug { "Deleting segment #{seg}" }
