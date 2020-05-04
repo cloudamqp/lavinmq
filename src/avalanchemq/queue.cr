@@ -363,8 +363,8 @@ module AvalancheMQ
       #@log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
-      was_empty = @ready.push(sp) == 1
       @sp_counter.inc(sp)
+      was_empty = @ready.push(sp) == 1
       @publish_count += 1
       message_available if was_empty
       #@log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }

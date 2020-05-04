@@ -45,24 +45,29 @@ module AvalancheMQ
   class ZeroReferenceCounter(T)
     def initialize(&blk : T -> Nil)
       @on_zero = blk
-      @counter = Hash(T, UInt32).new { 0_u32 }
+      @counter = Hash(T, UInt32).new
       @lock = Mutex.new(:unchecked)
     end
 
-    def inc(v : T) : UInt32
+    def inc(k : T) : UInt32
       @lock.synchronize do
-        @counter[v] += 1
+        v = @counter.fetch(k, 0_u32)
+        @counter[k] = v + 1
       end
     end
 
-    def dec(v : T) : UInt32
+    def dec(k : T) : UInt32
       @lock.synchronize do
-        cnt = @counter[v] -= 1
-        if cnt.zero?
-          @counter.delete v
-          @on_zero.call v
+        if v = @counter.fetch(k, nil)
+          cnt = @counter[k] = v - 1
+          if cnt.zero?
+            @counter.delete k
+            @on_zero.call k
+          end
+          cnt
+        else
+          raise KeyError.new("Missing key #{k}")
         end
-        cnt
       end
     end
 
@@ -72,10 +77,6 @@ module AvalancheMQ
 
     def capacity
       @counter.capacity
-    end
-
-    def rehash
-      @counter.rehash
     end
   end
 end

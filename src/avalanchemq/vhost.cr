@@ -630,7 +630,6 @@ module AvalancheMQ
         punched += punch_hole(segment, start_pos, end_pos)
         segment.try &.close
         @zero_references.clear
-        @sp_counter.rehash
         @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
       end
     end
