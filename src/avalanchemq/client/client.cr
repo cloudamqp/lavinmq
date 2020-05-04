@@ -6,7 +6,6 @@ require "./channel"
 require "../user"
 require "../stats"
 require "../sortable_json"
-require "../sparse_array"
 
 module AvalancheMQ
   abstract class Client
