@@ -125,7 +125,7 @@ module AvalancheMQ
         write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
-      ok = false
+      ok = 0
       found_queues.each do |q|
         if q.publish(sp, flush)
           ex.publish_out_count += 1
@@ -134,10 +134,11 @@ module AvalancheMQ
               @queues_to_fsync << q
             end
           end
-          ok = true
+          ok += 1
         end
       end
-      ok
+      @sp_counter[sp] = ok
+      ok > 0
     ensure
       visited.clear
       found_queues.clear

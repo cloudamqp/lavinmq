@@ -49,6 +49,12 @@ module AvalancheMQ
       @lock = Mutex.new(:unchecked)
     end
 
+    def []=(k : T, v : Int)
+      @lock.synchronize do
+        @counter[k] = v.to_u32
+      end
+    end
+
     def inc(k : T) : UInt32
       @lock.synchronize do
         v = @counter.fetch(k, 0_u32)
