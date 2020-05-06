@@ -78,7 +78,9 @@ module AvalancheMQ
           process_frame(frame)
         end || break
       rescue IO::TimeoutError # heartbeat
-        send(AMQP::Frame::Heartbeat.new) || break
+        if @last_heartbeat + @heartbeat.seconds < RoughTime.utc
+          send(AMQP::Frame::Heartbeat.new) || break
+        end
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
       @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?

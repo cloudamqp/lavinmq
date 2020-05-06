@@ -25,7 +25,7 @@ module AvalancheMQ
       timeout =
         if t = tune_ok
           if t.heartbeat > 0
-            t.heartbeat / 2
+            t.heartbeat + 1
           end
         end
       socket.read_timeout = timeout

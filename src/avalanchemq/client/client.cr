@@ -6,6 +6,7 @@ require "./channel"
 require "../user"
 require "../stats"
 require "../sortable_json"
+require "../rough_time"
 
 module AvalancheMQ
   abstract class Client
@@ -28,6 +29,7 @@ module AvalancheMQ
     @direct_reply_consumer_tag : String?
     @log : Logger
     @running = true
+    @last_heartbeat = RoughTime.utc
     rate_stats(%w(send_oct recv_oct))
 
     def initialize(@name : String, @vhost : VHost, @user : User,
@@ -134,7 +136,8 @@ module AvalancheMQ
       when AMQP::Frame::Basic::Recover
         with_channel frame, &.basic_recover(frame)
       when AMQP::Frame::Heartbeat
-        # send AMQP::HeartbeatFrame.new
+        @last_heartbeat = RoughTime.utc
+        send frame
       else
         raise AMQP::Error::NotImplemented.new(frame)
       end
