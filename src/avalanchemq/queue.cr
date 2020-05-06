@@ -196,13 +196,12 @@ module AvalancheMQ
         end
         if c = find_consumer(i)
           deliver_to_consumer(c)
+          # deliver 1024 msgs to a consumer then change consumer
+          i = 0 if (i += 1) == 1024
         else
           break if @closed
           i = 0
           consumer_or_expire || break
-        end
-        if i >= 1024
-          i = 0
         end
       rescue Channel::ClosedError
         break
