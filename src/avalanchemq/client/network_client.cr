@@ -59,8 +59,13 @@ module AvalancheMQ
     end
 
     private def read_loop
+      i = 0
       loop do
         AMQP::Frame.from_io(@socket) do |frame|
+          if (i += 1) == 8192
+            i = 0
+            Fiber.yield
+          end
           #@log.debug { "Read #{frame.inspect}" }
           if (!@running && !frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk))
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
