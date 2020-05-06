@@ -8,7 +8,7 @@ class RoughTime
     end
   end
 
-  def self.utc
+  def self.utc : Time
     @@t
   end
 end
