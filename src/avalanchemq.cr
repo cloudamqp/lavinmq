@@ -54,6 +54,9 @@ puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 {% unless flag?(:release) %}
   puts "WARNING: Not built in release mode"
 {% end %}
+{% if flag?(:preview_mt) %}
+  puts "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
+{% end %}
 puts "Pid: #{Process.pid}"
 puts "Data directory: #{config.data_dir}"
 
