@@ -36,7 +36,7 @@ module AvalancheMQ
     @read_lock = Mutex.new(:reentrant)
     @consumers = Deque(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new(:unchecked)
-    @message_available = Channel(Nil).new
+    @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @sp_counter : ZeroReferenceCounter(SegmentPosition)
