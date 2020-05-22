@@ -78,6 +78,10 @@
     }, 7000)
   }
 
+  function escapeHTML (str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+
   Object.assign(window.avalanchemq, {
     dom: {
       setChild,
@@ -85,7 +89,8 @@
       jsonToText,
       removeChildren,
       parseJSON,
-      toast
+      toast,
+      escapeHTML
     }
   })
 })()

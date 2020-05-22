@@ -282,7 +282,7 @@
     } else {
       const text = value == null ? '' : value.toString()
       if (cell.textContent !== text) {
-        cell.textContent = text
+        cell.textContent = avalanchemq.dom.escapeHTML(text)
       }
     }
     return cell

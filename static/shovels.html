@@ -142,6 +142,7 @@
     <script src="/js/table.js"></script>
     <script>
       /* globals avalanchemq */
+      const escapeHTML = avalanchemq.dom.escapeHTML
       avalanchemq.vhosts.addVhostOptions('createShovel')
 
       const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true }
@@ -156,10 +157,10 @@
         let srcEndpoint = ''
         let srcEndpointType = ''
         if (item.value['src-queue']) {
-          srcEndpoint = item.value['src-queue']
+          srcEndpoint = escapeHTML(item.value['src-queue'])
           srcEndpointType = 'queue'
         } else {
-          srcEndpoint = item.value['src-exchange']
+          srcEndpoint = escapeHTML(item.value['src-exchange'])
           srcEndpointType = 'exchange'
         }
         avalanchemq.table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
@@ -168,10 +169,10 @@
         let destEndpoint = ''
         let destEndpointType = ''
         if (item.value['dest-queue']) {
-          destEndpoint = item.value['dest-queue']
+          destEndpoint = escapeHTML(item.value['dest-queue'])
           destEndpointType = 'queue'
         } else {
-          destEndpoint = item.value['dest-exchange']
+          destEndpoint = escapeHTML(item.value['dest-exchange'])
           destEndpointType = 'exchange'
         }
         avalanchemq.table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')

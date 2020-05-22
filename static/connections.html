@@ -51,10 +51,13 @@
     <script src="/js/http.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/overview.js"></script>
+    <script src="/js/dom.js"></script>
     <script src="/js/table.js"></script>
     <script>
       /* globals avalanchemq */
       const vhost = window.sessionStorage.getItem('vhost')
+      const escapeHTML = avalanchemq.dom.escapeHTML
+
       let url = '/api/connections'
       if (vhost && vhost !== '_all') {
         url = `/api/vhosts/${encodeURIComponent(vhost)}/connections`
@@ -89,7 +92,7 @@
           avalanchemq.table.renderCell(tr, 5, item.protocol, 'center')
           avalanchemq.table.renderCell(tr, 7, item.channel_max, 'right')
           // avalanchemq.table.renderCell(tr, 8, item.auth_mechanism)
-          avalanchemq.table.renderHtmlCell(tr, 8, `${client}<br><small>${clientVersion}</small>`)
+          avalanchemq.table.renderHtmlCell(tr, 8, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
           avalanchemq.table.renderCell(tr, 9, new Date(item.connected_at).toLocaleString(), 'center')
         }
         avalanchemq.table.renderCell(tr, 3, null, `center state-${item.state}`)

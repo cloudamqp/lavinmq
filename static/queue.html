@@ -247,6 +247,7 @@
       const vhost = new URLSearchParams(window.location.search).get('vhost')
       const urlEncodedQueue = encodeURIComponent(queue)
       const urlEncodedVhost = encodeURIComponent(vhost)
+      const escapeHTML = avalanchemq.dom.escapeHTML
       document.title = queue + ' | AvalancheMQ'
 
       const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item) {
@@ -317,7 +318,7 @@
               .then(() => { avalanchemq.dom.removeNodes(tr) })
               .catch(avalanchemq.http.standardErrorHandler)
           }
-          const exchangeLink = `<a href="/exchange?vhost=${urlEncodedVhost}&name=${e}">${item.source}</a>`
+          const exchangeLink = `<a href="/exchange?vhost=${urlEncodedVhost}&name=${escapeHTML(e)}">${escapeHTML(item.source)}</a>`
           avalanchemq.table.renderHtmlCell(tr, 0, exchangeLink)
           avalanchemq.table.renderCell(tr, 1, item.routing_key)
           avalanchemq.table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>')

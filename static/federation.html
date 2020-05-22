@@ -150,7 +150,7 @@
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
         avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri.replace(/:([^:]+)@/, ':***@')))
-        avalanchemq.table.renderHtmlCell(tr, 3, item.resource + '<br><small>' + item.type + '</small>')
+        avalanchemq.table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
         avalanchemq.table.renderCell(tr, 4, item.timestamp)
       })
 
