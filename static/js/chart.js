@@ -1,6 +1,7 @@
 /* globals Chart */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
+  const helpers = window.avalanchemq.helpers
 
   const chartColors = ['#5899DA', '#E8743B', '#19A979', '#ED4A7B', '#945ECF', '#13A4B4',
     '#525DF4', '#BF399E', '#6C8893', '#EE6868', '#2F6497']
@@ -36,9 +37,9 @@
           intersect: false,
           position: 'nearest',
           callbacks: {
-            label: function(tooltipItem, data) {
+            label: function (tooltipItem, data) {
               var label = data.datasets[tooltipItem.datasetIndex].label || ''
-              label += ': ' + avalanchemq.helpers.formatNumber(tooltipItem.yLabel)
+              label += ': ' + helpers.formatNumber(tooltipItem.yLabel)
               return label
             }
           }
@@ -76,21 +77,21 @@
               beginAtZero: true,
               min: 0,
               suggestedMax: 10,
-              callback: window.avalanchemq.helpers.nFormatter
+              callback: helpers.nFormatter
             }
           }]
         },
         legendCallback: function (chart) {
-          let text = []
+          const text = []
           for (let i = 0; i < chart.data.datasets.length; i++) {
-            let dataSet = chart.data.datasets[i]
-            let value = dataSet.data[-1] ? dataSet.data[-1].y : ''
+            const dataSet = chart.data.datasets[i]
+            const value = dataSet.data[-1] ? dataSet.data[-1].y : ''
             text.push(`<div class="legend-item checked">
               <div class="toggle"></div>
               <div class="color-ref" style="background-color:${dataSet.backgroundColor}"></div>
               <div>
                 <div class="legend-label">${dataSet.label}</div>
-                <div class="legend-value">${avalanchemq.helpers.formatNumber(value)}</div>
+                <div class="legend-value">${helpers.formatNumber(value)}</div>
               </div>
             </div>`)
           }
@@ -111,10 +112,10 @@
       while (!target.classList.contains('legend-item')) {
         target = target.parentElement
       }
-      let parent = target.parentElement
-      let chartId = parseInt(parent.classList[1].split('-')[0], 10)
-      let chart = Chart.instances[chartId]
-      let index = Array.prototype.slice.call(parent.children).indexOf(target)
+      const parent = target.parentElement
+      const chartId = parseInt(parent.classList[1].split('-')[0], 10)
+      const chart = Chart.instances[chartId]
+      const index = Array.prototype.slice.call(parent.children).indexOf(target)
 
       chart.legend.options.onClick.call(chart, e, chart.legend.legendItems[index])
       if (chart.isDatasetVisible(index)) {
@@ -126,7 +127,7 @@
   }
 
   function formatLabel (key) {
-    let label = key.replace(/_/g, ' ').replace(/(rate|details|unroutable|messages)/ig, '').trim()
+    const label = key.replace(/_/g, ' ').replace(/(rate|details|unroutable|messages)/ig, '').trim()
       .replace(/^\w/, c => c.toUpperCase())
     return label || 'Total'
   }
@@ -136,7 +137,7 @@
   }
 
   function createDataset (key, color) {
-    let label = formatLabel(key)
+    const label = formatLabel(key)
     return {
       key,
       label,
@@ -152,7 +153,7 @@
   }
 
   function addToDataset (dataset, data, date, maxY) {
-    let point = {
+    const point = {
       x: date,
       y: value(data)
     }
@@ -166,28 +167,28 @@
     const date = new Date()
     const maxY = ticks(chart.ctx.canvas)
     let keys = Object.keys(data)
-    const has_details = keys.find(key => key.match(/_details$/))
-    if (has_details) { keys = keys.filter(key => key.match(/_details$/)) }
+    const hasDetails = keys.find(key => key.match(/_details$/))
+    if (hasDetails) { keys = keys.filter(key => key.match(/_details$/)) }
     const legend = chart.ctx.canvas.closest('.chart-container').querySelector('.legend')
-    for (let key in data) {
+    for (const key in data) {
       if (key.match(/_log$/)) continue
-      if (has_details && !key.match(/_details$/)) continue
+      if (hasDetails && !key.match(/_details$/)) continue
       let dataset = chart.data.datasets.find(dataset => dataset.key === key)
-      let i = keys.indexOf(key)
+      const i = keys.indexOf(key)
       if (dataset === undefined) {
-        let color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
+        const color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
         dataset = createDataset(key, color)
         chart.data.datasets.push(dataset)
         legend.innerHTML = chart.generateLegend()
-        let log = data[`${key}_log`] || data[key].log || []
+        const log = data[`${key}_log`] || data[key].log || []
         log.forEach((p, i) => {
-          let pDate = new Date(date.getTime() - 5000 * (log.length - i))
+          const pDate = new Date(date.getTime() - 5000 * (log.length - i))
           addToDataset(dataset, p, pDate, maxY)
         })
       }
       addToDataset(dataset, data[key], date, maxY)
       setTimeout(() => {
-        legend.children[i].querySelector('.legend-value').innerHTML = avalanchemq.helpers.formatNumber(dataset.data.slice(-1)[0].y)
+        legend.children[i].querySelector('.legend-value').innerHTML = helpers.formatNumber(dataset.data.slice(-1)[0].y)
       }, 50)
     }
     chart.update()

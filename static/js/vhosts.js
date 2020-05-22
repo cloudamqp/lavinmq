@@ -27,7 +27,7 @@
 
   function addVhostOptions (formId) {
     return fetch(vhosts => {
-      const select = document.forms[formId].elements['vhost']
+      const select = document.forms[formId].elements.vhost
       while (select.options.length) {
         select.remove(0)
       }

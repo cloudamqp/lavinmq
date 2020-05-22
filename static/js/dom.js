@@ -65,7 +65,7 @@
 
   function toast (text) {
     removeNodes('.toast')
-    let d = document.createElement('div')
+    const d = document.createElement('div')
     d.classList.add('toast')
     d.textContent = text
     document.body.appendChild(d)

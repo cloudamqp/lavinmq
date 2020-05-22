@@ -6,7 +6,7 @@
   }
 
   function getPassword () {
-    return window.atob(decodeURIComponent(getCookieValue('auth'))).split(":")[1]
+    return window.atob(decodeURIComponent(getCookieValue('auth'))).split(':')[1]
   }
 
   function setUsername () {
@@ -32,8 +32,8 @@
     clearCookieValue('username')
 
     var b64 = window.btoa(userInfo)
-    storeCookie({ 'auth': encodeURIComponent(b64) })
-    storeCookie({ 'username': userInfo.split(':')[0] })
+    storeCookie({ auth: encodeURIComponent(b64) })
+    storeCookie({ username: userInfo.split(':')[0] })
   }
 
   function storeCookie (dict) {
@@ -93,8 +93,14 @@
 
   Object.assign(window.avalanchemq, {
     auth: {
-      header, setAuth, storeCookie, signOut, setUsername, selectVhost,
-      getUsername, getPassword
+      header,
+      setAuth,
+      storeCookie,
+      signOut,
+      setUsername,
+      selectVhost,
+      getUsername,
+      getPassword
     }
   })
 })()

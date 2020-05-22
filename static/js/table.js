@@ -15,14 +15,14 @@
   function renderTable (id, options = {}, renderRow) {
     let sortKey = getQueryVariable('sort')
     let reverseOrder = getQueryVariable('sort_reverse')
-    let url = options.url
+    const url = options.url
     const table = document.getElementById(id)
     const container = table.parentElement
     const keyColumns = options.keyColumns
     const interval = options.interval
     let timer = null
     let searchTerm = getQueryVariable('filter')
-    let currentPage = getQueryVariable('page') || 1
+    const currentPage = getQueryVariable('page') || 1
     let pageSize = getQueryVariable('page_size') || 100
 
     makeHeadersSortable()
@@ -35,7 +35,7 @@
     }
 
     if (options.pagination) {
-      let footer = `<tfoot><tr>
+      const footer = `<tfoot><tr>
                       <td colspan="999"><div id="pagination"></div></td>
                     </tr></tfoot>`
       table.insertAdjacentHTML('beforeend', footer)
@@ -44,7 +44,7 @@
     if (url) {
       const raw = window.sessionStorage.getItem(url)
       if (raw) {
-        let data = JSON.parse(raw)
+        const data = JSON.parse(raw)
         updateTable(data.items || data)
       }
       fetchAndUpdate()
@@ -127,12 +127,12 @@
 
     function updateTable (response) {
       if (response == null && response.items == null) return
-      let data = response.items || response
-      let totalCount = response.filtered_count || response.length
+      const data = response.items || response
+      const totalCount = response.filtered_count || response.length
       document.getElementById(id + '-count').textContent = totalCount
       if (options.pagination && response.items) {
         pageSize = response.page_size
-        let pages = Math.ceil(response.filtered_count / pageSize)
+        const pages = Math.ceil(response.filtered_count / pageSize)
         createPagination(pages, response.page)
       }
       const t = document.getElementById(id).tBodies[0]
@@ -195,7 +195,7 @@
         updateQueryState({ filter: searchTerm })
         fetchAndUpdate()
       })
-      let str = `<form class="form" action="javascript:void(0);">
+      const str = `<form class="form" action="javascript:void(0);">
             <input class="filter-table" placeholder="Filter regex" value="${searchTerm}">
           </form>`
       container.insertAdjacentHTML('afterbegin', str)
@@ -307,7 +307,7 @@
   }
 
   function toggleCol (table, colIndex) {
-    let allCol = table.querySelectorAll(`tr > *:nth-child(${colIndex + 1})`)
+    const allCol = table.querySelectorAll(`tr > *:nth-child(${colIndex + 1})`)
     for (let i = 0; i < allCol.length; i++) {
       allCol[i].classList.toggle('hide')
     }
@@ -325,13 +325,13 @@
 
     container.addEventListener('click', e => {
       if (!e.target.classList.contains('col-toggle')) return true
-      let tooltip = container.parentElement.querySelector('.tooltip')
+      const tooltip = container.parentElement.querySelector('.tooltip')
       if (tooltip) return close()
       let str = '<form class="form tooltip"><a class="close">&times;</a>'
-      let allCol = table.getElementsByTagName('th')
+      const allCol = table.getElementsByTagName('th')
       for (let i = 0; i < allCol.length; i++) {
-        let col = allCol[i]
-        let checked = !col.classList.contains('hide') ? 'checked' : ''
+        const col = allCol[i]
+        const checked = !col.classList.contains('hide') ? 'checked' : ''
         str += `<label>
                   <span>${col.innerHTML}</span>
                   <input type="checkbox" class="col-toggle-checkbox" ${checked} data-index=${i}>
@@ -344,7 +344,7 @@
       })
       container.parentElement.addEventListener('change', e => {
         if (!e.target.classList.contains('col-toggle-checkbox')) return true
-        let i = parseInt(e.target.dataset.index)
+        const i = parseInt(e.target.dataset.index)
         toggleCol(table, i)
       })
       document.addEventListener('keyup', e => {
@@ -356,13 +356,13 @@
   function debounce (func, wait, immediate) {
     let timeout
     return function () {
-      let context = this
-      let args = arguments
+      const context = this
+      const args = arguments
       function later () {
         timeout = null
         if (!immediate) func.apply(context, args)
       }
-      let callNow = immediate && !timeout
+      const callNow = immediate && !timeout
       clearTimeout(timeout)
       timeout = setTimeout(later, wait || 200)
       if (callNow) func.apply(context, args)
@@ -370,11 +370,11 @@
   }
 
   function updateQueryState (params) {
-    let searchParams = new URLSearchParams(window.location.search)
+    const searchParams = new URLSearchParams(window.location.search)
     Object.keys(params).forEach(k => {
       searchParams.set(k, params[k])
     })
-    let newurl = window.location.pathname + '?' + searchParams.toString()
+    const newurl = window.location.pathname + '?' + searchParams.toString()
     window.history.replaceState(null, '', newurl)
   }
 
