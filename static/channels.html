@@ -56,7 +56,8 @@
       if (vhost && vhost !== '_all') {
         url = '/api/vhosts/' + encodeURIComponent(vhost) + '/channels'
       }
-      const tableOptions = { url,
+      const tableOptions = {
+  url,
         keyColumns: ['name'],
         interval: 5000,
         pagination: true,

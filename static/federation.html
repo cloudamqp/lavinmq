@@ -109,13 +109,14 @@
     <script src="/js/table.js"></script>
     <script>
       /* globals avalanchemq */
+      const escapeHTML = avalanchemq.dom.escapeHTML
       avalanchemq.vhosts.addVhostOptions('createUpstream')
 
       let url = '/api/parameters/federation-upstream'
       let linksUrl = '/api/federation-links'
       const vhost = window.sessionStorage.getItem('vhost')
       if (vhost && vhost !== '_all') {
-        let urlEncodedVhost = encodeURIComponent(vhost)
+        const urlEncodedVhost = encodeURIComponent(vhost)
         url += '/' + urlEncodedVhost
         linksUrl += '/' + urlEncodedVhost
       }
@@ -124,11 +125,11 @@
       const upstreamsTable = avalanchemq.table.renderTable('upstreamTable', utOpts, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['uri'].replace(/:([^:]+)@/, ':***@')))
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value.uri.replace(/:([^:]+)@/, ':***@')))
         avalanchemq.table.renderCell(tr, 3, item.value['prefetch-count'])
         avalanchemq.table.renderCell(tr, 4, item.value['reconnect-delay'])
         avalanchemq.table.renderCell(tr, 5, item.value['ack-mode'])
-        avalanchemq.table.renderCell(tr, 6, item.value['queue'])
+        avalanchemq.table.renderCell(tr, 6, item.value.queue)
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
@@ -162,11 +163,11 @@
         const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
         const body = {
           value: {
-            'uri': data.get('uri'),
+            uri: data.get('uri'),
             'prefetch-count': parseInt(data.get('prefetch-count')),
             'reconnect-delay': parseInt(data.get('reconnect-delay')),
             'ack-mode': data.get('ack-mode'),
-            'queue': data.get('queue')
+            queue: data.get('queue')
           }
         }
         avalanchemq.http.request('PUT', url, { body })

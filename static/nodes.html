@@ -87,7 +87,7 @@
       const ioChart = avalanchemq.chart.render('ioChart', 'ops', { aspectRatio: 2 })
       const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 })
 
-      const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10**6).toFixed(2)
+      const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10 ** 6).toFixed(2)
 
       function updateCharts (response) {
         const memoryStats = {

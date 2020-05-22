@@ -90,7 +90,7 @@
   function updateCharts (response) {
     avalanchemq.chart.update(msgChart, response.queue_totals)
     avalanchemq.chart.update(rateChart, response.message_stats)
-    let dataStats = {
+    const dataStats = {
       send_details: response.send_oct_details,
       receive_details: response.recv_oct_details
     }

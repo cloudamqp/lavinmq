@@ -82,7 +82,7 @@
       avalanchemq.vhosts.addVhostOptions('addExchange')
 
       avalanchemq.overview.get('exchange_types').then(exchangeTypes => {
-        const select = document.forms['addExchange'].elements['type']
+        const select = document.forms.addExchange.elements.type
         while (select.options.length) {
           select.remove(0)
         }
@@ -98,7 +98,8 @@
       if (vhost && vhost !== '_all') {
         url += '/' + encodeURIComponent(vhost)
       }
-      const tableOptions = { url,
+      const tableOptions = {
+  url,
         keyColumns: ['vhost', 'name'],
         interval: 5000,
         pagination: true,
@@ -107,8 +108,8 @@
       }
       const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
-          if (item.name === "") {
-            item.name = "amq.default"
+          if (item.name === '') {
+            item.name = 'amq.default'
           }
           let features = ''
           features += item.durable ? ' D' : ''

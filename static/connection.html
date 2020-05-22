@@ -132,7 +132,7 @@
       const connectionUrl = '/api/connections/' + urlEncodedConnection
       function updateConnection (all) {
         avalanchemq.http.request('GET', connectionUrl).then(item => {
-          let stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
+          const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
           avalanchemq.chart.update(chart, stats)
           const stateEl = document.getElementById('state')
           if (item.state !== stateEl.textContent) {

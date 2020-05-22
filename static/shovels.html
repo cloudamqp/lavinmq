@@ -199,7 +199,7 @@
       let url = '/api/parameters/shovel'
       let statusUrl = '/api/shovels'
       if (vhost && vhost !== '_all') {
-        let urlEncodedVhost = encodeURIComponent(vhost)
+        const urlEncodedVhost = encodeURIComponent(vhost)
         url += '/' + urlEncodedVhost
         statusUrl += '/' + urlEncodedVhost
       }
@@ -237,7 +237,8 @@
             'src-prefetch-count': parseInt(data.get('src-prefetch-count')),
             'src-delete-after': data.get('src-delete-after'),
             'reconnect-delay': parseInt(data.get('reconnect-delay')),
-            'ack-mode': data.get('ack-mode') }
+            'ack-mode': data.get('ack-mode')
+    }
         }
         if (data.get('src-type') === 'queue') {
           body.value['src-queue'] = data.get('src-endpoint')

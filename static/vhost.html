@@ -138,7 +138,7 @@
       })
 
       function addUserOptions (users) {
-        const select = document.forms['setPermission'].elements['user']
+        const select = document.forms.setPermission.elements.user
         while (select.options.length) select.remove(0)
         for (let i = 0; i < users.length; i++) {
           const opt = document.createElement('option')

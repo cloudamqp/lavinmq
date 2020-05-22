@@ -290,7 +290,7 @@
             }
             const qArgs = document.getElementById('q-arguments')
             let args = ''
-            for (let arg in item.arguments) {
+            for (const arg in item.arguments) {
               args += `<div>${arg}: ${item.arguments[arg]}</div>`
             }
             qArgs.innerHTML = args
@@ -298,7 +298,7 @@
         }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(qTimer))
       }
       updateQueue(true)
-      let qTimer = setInterval(updateQueue, 5000)
+      const qTimer = setInterval(updateQueue, 5000)
 
       const tableOptions = { url: queueUrl + '/bindings', keyColumns: ['properties_key'], interval: 5000 }
       const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
@@ -344,7 +344,7 @@
 
       function addProperty (key, value) { // eslint-disable-line no-unused-vars
         const el = document.querySelector('#publishMessage textarea[name=properties]')
-        let properties = avalanchemq.dom.parseJSON(el.value || '{}')
+        const properties = avalanchemq.dom.parseJSON(el.value || '{}')
         properties[key] = value
         el.value = JSON.stringify(properties)
       }

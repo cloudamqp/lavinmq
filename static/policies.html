@@ -126,10 +126,10 @@
         const vhost = encodeURIComponent(data.get('vhost'))
         const url = '/api/policies/' + vhost + '/' + name
         const body = {
-          'pattern': data.get('pattern').trim(),
-          'definition': avalanchemq.dom.parseJSON(data.get('definition')),
+          pattern: data.get('pattern').trim(),
+          definition: avalanchemq.dom.parseJSON(data.get('definition')),
           'apply-to': data.get('apply-to'),
-          'priority': parseInt(data.get('priority'))
+          priority: parseInt(data.get('priority'))
         }
         avalanchemq.http.request('PUT', url, { body })
           .then(() => {

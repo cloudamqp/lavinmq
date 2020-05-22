@@ -161,7 +161,7 @@
         }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(eTimer))
       }
       updateExchange()
-      let eTimer = setInterval(updateExchange, 5000)
+      const eTimer = setInterval(updateExchange, 5000)
 
       const tableOptions = { url: exchangeUrl + '/bindings/source', keyColumns: ['properties_key'], interval: 5000 }
       const bindingsTable = avalanchemq.table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
@@ -231,7 +231,7 @@
 
       function addProperty (key, value) { // eslint-disable-line no-unused-vars
         const el = document.querySelector('#publishMessage textarea[name=properties]')
-        let properties = avalanchemq.dom.parseJSON(el.value || '{}')
+        const properties = avalanchemq.dom.parseJSON(el.value || '{}')
         properties[key] = value
         el.value = JSON.stringify(properties)
       }
