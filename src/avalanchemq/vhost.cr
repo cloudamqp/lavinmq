@@ -586,8 +586,10 @@ module AvalancheMQ
         sleep Config.instance.gc_segments_interval
         collect_used_segments
         delete_unused_segments
-        @sp_counter.empty_zeros do |sp|
-          @zero_references << sp if @referenced_segments.includes? sp.segment
+        @sp_counter.empty_zero_referenced! do |sp|
+          if @referenced_segments.includes? sp.segment
+            @zero_references << sp
+          end
         end
         @zero_references.sort!
         hole_punch_segments

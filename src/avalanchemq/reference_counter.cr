@@ -118,7 +118,7 @@ module AvalancheMQ
     end
 
     # Yield and delete all zero referenced keys
-    def empty_zeros
+    def empty_zero_referenced!
       @lock.synchronize do
         @counter.delete_if do |sp, v|
           if v.zero?
