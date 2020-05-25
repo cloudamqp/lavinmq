@@ -27,7 +27,7 @@ class IO
     if limit > 16384
       if socket = dst.as?(Socket)
         if file = src.as?(IO::FileDescriptor)
-          return socket.sendfile file, limit
+          return socket.sendfile(file, limit).tap { Fiber.yield }
         end
       end
     end
