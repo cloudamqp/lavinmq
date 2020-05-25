@@ -39,7 +39,7 @@ module AvalancheMQ
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
-    @sp_counter : ZeroReferenceCounter(SegmentPosition)
+    @sp_counter : SafeReferenceCounter(SegmentPosition)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 

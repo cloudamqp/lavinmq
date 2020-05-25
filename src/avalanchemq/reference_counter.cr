@@ -85,4 +85,56 @@ module AvalancheMQ
       @counter.capacity
     end
   end
+
+  # A reference counter which performs an action
+  # when the counter goes down to zero again
+  class SafeReferenceCounter(T)
+    def initialize
+      @counter = Hash(T, UInt32).new
+      @lock = Mutex.new(:unchecked)
+    end
+
+    def []=(k : T, v : Int)
+      @lock.synchronize do
+        @counter[k] = v.to_u32
+      end
+    end
+
+    def inc(k : T) : UInt32
+      @lock.synchronize do
+        v = @counter.fetch(k, 0_u32)
+        @counter[k] = v + 1
+      end
+    end
+
+    def dec(k : T) : UInt32
+      @lock.synchronize do
+        if v = @counter.fetch(k, nil)
+          @counter[k] = v - 1
+        else
+          raise KeyError.new("Missing key #{k}")
+        end
+      end
+    end
+
+    # Yield and delete all zero referenced keys
+    def empty_zeros
+      @lock.synchronize do
+        @counter.delete_if do |sp, v|
+          if v.zero?
+            yield sp
+            true
+          end
+        end
+      end
+    end
+
+    def size
+      @counter.size
+    end
+
+    def capacity
+      @counter.capacity
+    end
+  end
 end

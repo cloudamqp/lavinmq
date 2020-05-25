@@ -44,10 +44,7 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
-      @zero_references_channel = Channel(SegmentPosition).new(1_000_000)
-      @sp_counter = ZeroReferenceCounter(SegmentPosition).new do |sp|
-        @zero_references_channel.send sp
-      end
+      @sp_counter = SafeReferenceCounter(SegmentPosition).new
       @segments_on_disk = load_segments_on_disk!
       @segment = @segments_on_disk.last
       @wfile = open_wfile
@@ -582,19 +579,20 @@ module AvalancheMQ
       Deque(UInt32).new(segments)
     end
 
-    @zero_references = Array(SegmentPosition).new(1_000_000)
+    @zero_references = Array(SegmentPosition).new
 
     private def gc_segments_loop
       until @closed
-        @zero_references << @zero_references_channel.receive
-        if @zero_references.size >= 1_000_000
-          @zero_references.sort!
-          collect_used_segments
-          delete_unused_segments
-          hole_punch_segments
-          @zero_references.clear
-          @referenced_segments.clear
+        sleep Config.instance.gc_segments_interval
+        collect_used_segments
+        delete_unused_segments
+        @sp_counter.empty_zeros do |sp|
+          @zero_references << sp if @referenced_segments.includes? sp.segment
         end
+        @zero_references.sort!
+        hole_punch_segments
+        @zero_references.clear
+        @referenced_segments.clear
       end
     end
 
