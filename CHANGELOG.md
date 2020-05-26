@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2020-05-26
+
+### Changed
+- Faster segment GC
+- Using zero-copy syscall `copy_file_range` between temp file and segment
+
+### Fixed
+- XSS in shovel UI
+- Echo incoming heartbeat if we didn't send one recently
+
 ## [0.10.2] - 2020-05-01
 
 ### Changed
