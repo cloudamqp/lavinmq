@@ -90,8 +90,8 @@ module AvalancheMQ
 
     def self.tune(socket)
       socket.write_bytes AMQP::Frame::Connection::Tune.new(
-        channel_max: 0_u16,
-        frame_max: 131072_u32,
+        channel_max: Config.instance.channel_max,
+        frame_max: Config.instance.frame_max,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
       AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }

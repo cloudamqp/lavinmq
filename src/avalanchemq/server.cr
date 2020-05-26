@@ -193,9 +193,9 @@ module AvalancheMQ
       socket.tcp_keepalive_idle = 60
       socket.tcp_keepalive_count = 3
       socket.tcp_keepalive_interval = 10
-      socket.tcp_nodelay = false
-      socket.write_timeout = 15
+      socket.tcp_nodelay = Config.instance.tcp_nodelay
       socket.buffer_size = Config.instance.socket_buffer_size
+      socket.write_timeout = 15
     end
 
     private def handle_connection_events

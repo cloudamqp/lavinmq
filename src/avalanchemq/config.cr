@@ -14,6 +14,8 @@ module AvalancheMQ
     property http_port = 15672
     property https_port = -1
     property heartbeat = 0_u16 # second
+    property frame_max = 1048576_u32 # bytes
+    property channel_max = 2048_u16 # number
     property segment_size : Int32 = 32 * 1024**2 # byte
     property gc_segments_interval = 60 # second
     property queue_max_acks = 2_000_000 # number of message
@@ -22,6 +24,7 @@ module AvalancheMQ
     property set_timestamp = false # in message headers when receive
     property file_buffer_size = 16384 # byte
     property socket_buffer_size = 16384 # byte
+    property tcp_nodelay = false # bool
 
     @@instance : Config = self.new
 
@@ -56,6 +59,7 @@ module AvalancheMQ
       settings["set_timestamp"]?.try { |v| @set_timestamp = true?(v) }
       settings["file_buffer_size"]?.try { |v| @file_buffer_size = v.to_i32 }
       settings["socket_buffer_size"]?.try { |v| @socket_buffer_size = v.to_i32 }
+      settings["tcp_nodelay"]?.try { |v| @tcp_nodelay = true?(v) }
       settings["tls_cert"]?.try { |v| @cert_path = v }
       settings["tls_key"]?.try { |v| @key_path = v }
     end
@@ -68,6 +72,8 @@ module AvalancheMQ
       settings["tls_key"]?.try { |v| @key_path = v } # backward compatibility
       settings["unix_path"]?.try { |v| @unix_path = v }
       settings["heartbeat"]?.try { |v| @heartbeat = v.to_u16 }
+      settings["channel_max"]?.try { |v| @channel_max = v.to_u16 }
+      settings["frame_max"]?.try { |v| @frame_max = v.to_u32 }
     end
 
     private def parse_mgmt(settings)
