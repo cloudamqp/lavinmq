@@ -1,7 +1,7 @@
 #!/bin/bash -eux
 version=$(git describe | cut -c2-)
 revision=${1:-1}
-dists=${2:-bionic}
+dists=${2:-bionic focal}
 
 provision="
 set -eux
