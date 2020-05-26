@@ -44,7 +44,7 @@ module AvalancheMQ
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
-        @next_msg_body = File.open(tmp_path, "a+")
+        @next_msg_body = File.open(tmp_path, "w+")
         @next_msg_body.delete
       end
 

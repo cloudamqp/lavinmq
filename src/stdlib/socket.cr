@@ -6,7 +6,7 @@ class Socket
   # Returns the number of bytes sent
   def sendfile(file : IO::FileDescriptor, limit : Int) : UInt64
     flush
-    file.seek(0, IO::Seek::Current) unless file.peek.empty?
+    file.seek(0, IO::Seek::Current) unless file.@in_buffer_rem.empty?
     evented_sendfile(limit, "sendfile") do |remaining|
       {% if flag?(:linux) %}
         LibC.sendfile(fd, file.fd, nil, remaining)

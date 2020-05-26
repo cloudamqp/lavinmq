@@ -49,4 +49,21 @@ class IO::FileDescriptor
 
     bytes_written
   end
+
+  # In-kernel copy between two file descriptors
+  # using the copy_file_range syscall
+  def copy_range_from(src : self, length : Int)
+    remaining = length
+    flush
+    src.seek(0, IO::Seek::Current) unless src.@in_buffer_rem.empty?
+    while remaining > 0
+      len = LibC.copy_file_range(src.fd, nil, fd, nil, remaining, 0)
+      if len == -1
+        raise IO::Error.from_errno "copy_file_range"
+      end
+      break if len.zero?
+      remaining -= len
+    end
+    length - remaining
+  end
 end

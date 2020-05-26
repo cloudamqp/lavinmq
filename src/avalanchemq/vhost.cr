@@ -27,6 +27,7 @@ module AvalancheMQ
     @save = Channel(AMQP::Frame).new(32)
     @segment : UInt32
     @wfile : File
+    @pos : UInt32
     @segments_on_disk : Deque(UInt32)
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
@@ -216,9 +217,10 @@ module AvalancheMQ
     private def open_wfile : File
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      File.open(File.join(@data_dir, filename), "a").tap do |f|
+      File.open(File.join(@data_dir, filename), "W").tap do |f|
         f.buffer_size = Config.instance.file_buffer_size
-        @pos = 0_u32
+        f.seek(0, IO::Seek::End)
+        @pos = f.pos.to_u32
       end
     end
 

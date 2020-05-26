@@ -22,14 +22,19 @@ class IO
 
     limit = limit.to_u64
 
-    # don't botter with small writes
-    # as both the socket and file's buffer has to be flushed
-    if limit > 16384
-      if socket = dst.as?(Socket)
-        if file = src.as?(IO::FileDescriptor)
-          return socket.sendfile(file, limit).tap { Fiber.yield }
+    if file = src.as?(IO::FileDescriptor)
+      #if socket = dst.as?(Socket)
+      #  # don't botter with small writes
+      #  # as both the socket and file's buffer has to be flushed
+      #  if limit > 16384
+      #    return socket.sendfile(file, limit)
+      #  end
+      #end
+      {% if flag?(:linux) || flag?(:freebsd) %}
+        if file_dst = dst.as?(IO::FileDescriptor)
+          return file_dst.copy_range_from(file, limit)
         end
-      end
+      {% end %}
     end
 
     buffer = uninitialized UInt8[16384]

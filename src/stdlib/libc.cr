@@ -39,6 +39,7 @@ lib LibC
     iov_len : SizeT
   end
   fun writev(fd : Int, iovec : IoVec*, n : SizeT) : SSizeT
+  fun readv(fd : Int, iovec : IoVec*, n : SizeT) : SSizeT
 end
 
 lib LibC
@@ -52,5 +53,11 @@ lib LibC
       trl_cnt : Int
     end
     fun sendfile(fd : Int, s : Int, offset : OffT*, len : OffT*, hdtr : SendfileHeader*, flags : Int) : Int
+  {% end %}
+end
+
+lib LibC
+  {% if flag?(:linux) || flag?(:freebsd) %}
+    fun copy_file_range(fd_in : Int, offset_in : OffT*, fd_out : Int, offset_out : OffT*, len : SizeT, flags : UInt) : Int
   {% end %}
 end
