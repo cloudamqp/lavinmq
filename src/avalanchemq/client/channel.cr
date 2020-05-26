@@ -45,6 +45,8 @@ module AvalancheMQ
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
         @next_msg_body = File.open(tmp_path, "w+")
+        @next_msg_body.sync = true
+        @next_msg_body.read_buffering = false
         @next_msg_body.delete
       end
 
@@ -144,7 +146,6 @@ module AvalancheMQ
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
           if @next_msg_body_pos == @next_msg_size
-            @next_msg_body.flush
             @next_msg_body.rewind
             begin
               finish_publish(@next_msg_body)
