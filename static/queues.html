@@ -36,6 +36,9 @@
                 <th data-sort-key="ready">Ready</th>
                 <th data-sort-key="unacked">Unacked</th>
                 <th data-sort-key="messages">Total</th>
+                <th>Publish rate</th>
+                <th>Deliver rate</th>
+                <th>Ack rate</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -119,6 +122,9 @@
         avalanchemq.table.renderCell(tr, 6, avalanchemq.helpers.formatNumber(item.ready), 'right')
         avalanchemq.table.renderCell(tr, 7, avalanchemq.helpers.formatNumber(item.unacked), 'right')
         avalanchemq.table.renderCell(tr, 8, avalanchemq.helpers.formatNumber(item.messages), 'right')
+        avalanchemq.table.renderCell(tr, 9, avalanchemq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
+        avalanchemq.table.renderCell(tr, 10, avalanchemq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
+        avalanchemq.table.renderCell(tr, 11, avalanchemq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
       })
 
       document.querySelector('#declare').addEventListener('submit', function (evt) {

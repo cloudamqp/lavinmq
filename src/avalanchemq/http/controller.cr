@@ -37,18 +37,20 @@ module AvalancheMQ
       private def page(context, iterator : Iterator(SortableJSON))
         params = query_params(context)
         all_items = filter_values(params, iterator.map(&.details_tuple))
-        if sort_by = params["sort"]?
+        if sort_by = params.fetch("sort", nil)
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
           if first_element = sorted_items.dig?(0, sort_by)
-            case first_element
-            when Int32
-              sorted_items.sort_by! { |i| i[sort_by].as(Int32) }
-            when UInt32
-              sorted_items.sort_by! { |i| i[sort_by].as(UInt32) }
-            else
-              sorted_items.sort_by! { |i| i[sort_by].to_s.downcase }
-            end
+            {% begin %}
+              case first_element
+                {% for k in { Int32, UInt32, UInt64, Float64 } %}
+                when {{k.id }}
+                  sorted_items.sort_by! { |i| i.dig(sort_by).as({{k.id}}) }
+                {% end %}
+              else
+                sorted_items.sort_by! { |i| i.dig(sort_by).to_s.downcase }
+              end
+            {% end %}
           end
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
