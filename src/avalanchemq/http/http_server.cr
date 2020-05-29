@@ -19,18 +19,13 @@ module AvalancheMQ
 
       def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
         @log.progname = "httpserver"
-        @cache = JSONCacheHandler.new(@log.dup)
         handlers = [
-          ::HTTP::Protection::FrameOptions.new,
-          #::HTTP::Protection::Origin.new,
-          #::HTTP::Protection::RemoteReferer.new,
           ::HTTP::Protection::StrictTransport.new,
-          #::HTTP::Protection::XSSHeader.new,
+          ::HTTP::Protection::FrameOptions.new,
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log.dup),
           StaticController.new,
           BasicAuthHandler.new(@amqp_server.users, @log.dup),
-          # @cache,
           MainController.new(@amqp_server, @log.dup).route_handler,
           DefinitionsController.new(@amqp_server, @log.dup).route_handler,
           ConnectionsController.new(@amqp_server, @log.dup).route_handler,
