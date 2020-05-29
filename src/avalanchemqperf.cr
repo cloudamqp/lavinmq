@@ -80,37 +80,59 @@ class Throughput < Perf
     end
   end
 
-  @pubs = 0
-  @consumes = 0
+  @pubs = 0_u64
+  @consumes = 0_u64
+  @stopped = false
 
   def run
     super
 
+    done = Channel(Nil).new
     @consumers.times do
-      spawn consume
+      spawn consume(done)
     end
 
     @publishers.times do
-      spawn pub
+      spawn pub(done)
+    end
+
+    Fiber.yield # wait for all clients to connect
+    start = Time.monotonic
+    Signal::INT.trap do
+      abort "Aborting" if @stopped
+      @stopped = true
+      (@publishers + @consumers).times { done.receive }
+      stop = Time.monotonic
+      elapsed = (stop - start).total_seconds
+
+      print "\nSummary:\n"
+      print "Average publish rate: "
+      print (@pubs / elapsed).round(1)
+      print " msgs/s\n"
+      print "Average consume rate: "
+      print (@consumes / elapsed).round(1)
+      print " msgs/s\n"
+      exit 0
     end
 
     loop do
+      pubs_last = @pubs
+      consumes_last = @consumes
       sleep 1
       print "Publish rate: "
-      print @pubs
+      print @pubs - pubs_last
       print " msgs/s Consume rate: "
-      print @consumes
+      print @consumes - consumes_last
       print " msgs/s\n"
-      @pubs = 0
-      @consumes = 0
     end
   end
 
-  private def pub
+  private def pub(done)
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
     data = IO::Memory.new(Bytes.new(@size))
-    loop do
+    Fiber.yield
+    until @stopped
       data.rewind
       if @confirm
         ch.basic_publish_confirm data, @exchange, @routing_key
@@ -122,11 +144,11 @@ class Throughput < Perf
         sleep 1.0 / @rate
       end
     end
-  ensure
-    a.try &.close
+    done.send nil
+    a.close
   end
 
-  private def consume
+  private def consume(done)
     a = AMQP::Client.new(@uri).connect
     ch = a.channel
     q = begin
@@ -137,15 +159,17 @@ class Throughput < Perf
         end
     ch.prefetch @prefetch unless @prefetch.zero?
     q.bind(@exchange, @routing_key) unless @exchange.empty?
-    q.subscribe(no_ack: @no_ack, block: true) do |m|
+    Fiber.yield
+    q.subscribe(tag: "c", no_ack: @no_ack, block: true) do |m|
       m.ack unless @no_ack
       @consumes += 1
+      ch.basic_cancel("c", no_wait: true) if @stopped
       unless @consume_rate.zero?
         sleep 1.0 / @consume_rate
       end
     end
-  ensure
-    a.try &.close
+    done.send nil
+    a.close
   end
 end
 
