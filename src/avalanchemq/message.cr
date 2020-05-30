@@ -17,12 +17,12 @@ module AvalancheMQ
       @properties.delivery_mode == 2_u8
     end
 
-    def self.skip(io, format = IO::ByteFormat::NetworkEndian) : UInt64
+    def self.skip(io, format) : UInt64
       skipped = 0_u64
       skipped += io.skip(sizeof(UInt64)) # ts
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
-      skipped += AMQP::Properties.skip(io)
+      skipped += AMQP::Properties.skip(io, format)
       skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
       skipped
     end

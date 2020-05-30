@@ -1,9 +1,6 @@
 require "./avalanchemq/version"
 require "./stdlib/*"
 require "./avalanchemq/config"
-require "./avalanchemq/server"
-require "./avalanchemq/http/http_server"
-require "./avalanchemq/log_formatter"
 require "option_parser"
 require "file"
 require "ini"
@@ -49,6 +46,11 @@ if config.data_dir.empty?
   STDERR.puts p
   exit 2
 end
+
+# config has to be loaded before we require vhost/queue, byte_format is a constant
+require "./avalanchemq/server"
+require "./avalanchemq/http/http_server"
+require "./avalanchemq/log_formatter"
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 {% unless flag?(:release) %}

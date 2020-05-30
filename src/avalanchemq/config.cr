@@ -25,6 +25,7 @@ module AvalancheMQ
     property file_buffer_size = 16384 # byte
     property socket_buffer_size = 16384 # byte
     property tcp_nodelay = false # bool
+    property byte_format = IO::ByteFormat::SystemEndian
 
     @@instance : Config = self.new
 
@@ -50,6 +51,7 @@ module AvalancheMQ
 
     private def parse_main(settings)
       settings["data_dir"]?.try { |v| @data_dir = v }
+      settings["byte_format"]?.try { |v| @byte_format = v =~ /network|big/i ? IO::ByteFormat::NetworkEndian : IO::ByteFormat::SystemEndian }
       settings["log_level"]?.try { |v| @log_level = Logger::Severity.parse(v) }
       settings["stats_interval"]?.try { |v| @stats_interval = v.to_i32 }
       settings["stats_log_size"]?.try { |v| @stats_log_size = v.to_i32 }

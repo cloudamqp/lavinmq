@@ -16,7 +16,10 @@ require "./reference_counter"
 
 module AvalancheMQ
   class VHost
+    ByteFormat = Config.instance.byte_format
+
     include SortableJSON
+
     getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
       direct_reply_channels, upstreams, default_user, sp_counter
     property? flow = true
@@ -184,11 +187,11 @@ module AvalancheMQ
       sp = SegmentPosition.new(@segment, @pos)
       @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                     size=#{msg.bytesize} sp=#{sp}" }
-      @wfile.write_bytes msg.timestamp, IO::ByteFormat::NetworkEndian
-      @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::NetworkEndian
-      @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::NetworkEndian
-      @wfile.write_bytes msg.properties, IO::ByteFormat::NetworkEndian
-      @wfile.write_bytes msg.size, IO::ByteFormat::NetworkEndian
+      @wfile.write_bytes msg.timestamp, ByteFormat
+      @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), ByteFormat
+      @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), ByteFormat
+      @wfile.write_bytes msg.properties, ByteFormat
+      @wfile.write_bytes msg.size, ByteFormat
       copied = IO.copy(msg.body_io, @wfile, msg.size)
       if copied != msg.size
         raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
@@ -470,7 +473,7 @@ module AvalancheMQ
         io.advise(File::Advice::Sequential)
         loop do
           begin
-            AMQP::Frame.from_io(io, IO::ByteFormat::NetworkEndian) do |frame|
+            AMQP::Frame.from_io(io, ByteFormat) do |frame|
               apply frame, loading: true
             end
           rescue ex : IO::EOFError
@@ -506,13 +509,13 @@ module AvalancheMQ
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
-          io.write_bytes f, ::IO::ByteFormat::NetworkEndian
+          io.write_bytes f, ByteFormat
         end
         @queues.each do |_name, q|
           next unless q.durable
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
-          io.write_bytes f, ::IO::ByteFormat::NetworkEndian
+          io.write_bytes f, ByteFormat
         end
         @exchanges.each do |_name, e|
           next unless e.durable
@@ -520,14 +523,14 @@ module AvalancheMQ
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
               f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, bt[0], false, args)
-              io.write_bytes f, ::IO::ByteFormat::NetworkEndian
+              io.write_bytes f, ByteFormat
             end
           end
           e.exchange_bindings.each do |bt, exchanges|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             exchanges.each do |ex|
               f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, bt[0], false, args)
-              io.write_bytes f, ::IO::ByteFormat::NetworkEndian
+              io.write_bytes f, ByteFormat
             end
           end
         end
@@ -560,7 +563,7 @@ module AvalancheMQ
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
-          f.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+          f.write_bytes frame, ByteFormat
           f.fsync
         end
       end
@@ -628,7 +631,7 @@ module AvalancheMQ
         start_pos ||= sp.position
         seg = segment.not_nil!
         seg.pos = sp.position unless sp.position == end_pos
-        len = Message.skip(seg)
+        len = Message.skip(seg, ByteFormat)
         end_pos = sp.position + len
         @log.debug { "sp.position=#{sp.position} start_pos=#{start_pos} end_pos=#{end_pos}" }
       end

@@ -6,7 +6,7 @@ shards:
 
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-    version: 0.3.9
+    version: 0.3.10
 
   amqp-client:
     github: cloudamqp/amqp-client.cr
