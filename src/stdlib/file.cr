@@ -1,3 +1,5 @@
+require "./libc"
+
 # No PR yet
 class File
   def punch_hole(size, offset = 0, keep_size = true)
