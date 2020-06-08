@@ -151,6 +151,7 @@ module AvalancheMQ
               finish_publish(@next_msg_body)
             ensure
               @next_msg_body.truncate
+              @next_msg_body.rewind
               @next_msg_body_pos = 0
             end
           end
