@@ -1,9 +1,13 @@
 # Lint with https://config.travis-ci.org/
+os: linux
 dist: bionic
 language: crystal
-os: linux
+addons:
+  apt:
+    packages:
+    - libsystemd-dev
 before_install:
-  - sudo apt-get -y install libsystemd-dev
+  - uname -a
 install:
   - shards install
 jobs:
