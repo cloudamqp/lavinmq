@@ -94,6 +94,7 @@ module AvalancheMQ
       return { cch, q }
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def shovel(msg, pch, queue_length)
       ex = @destination.exchange || msg.exchange
       rk = @destination.exchange_key || msg.routing_key

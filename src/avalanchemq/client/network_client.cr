@@ -66,21 +66,24 @@ module AvalancheMQ
             i = 0
             Fiber.yield
           end
-          #@log.debug { "Read #{frame.inspect}" }
-          if (!@running && !frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk))
-            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-            if frame.is_a?(AMQP::Frame::Body)
-              @log.debug "Skipping body"
+          if @running
+            process_frame(frame)
+          else
+            case frame
+            when AMQP::Frame::Connection::Close, AMQP::Frame::Connection::CloseOk
+              process_frame(frame)
+            when AMQP::Frame::Body
+              @log.debug { "Skipping body, waiting for Close(Ok)" }
               frame.body.skip(frame.body_size)
+              true
+            else
+              @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+              true
             end
-            next true
           end
-          process_frame(frame)
         end || break
-      rescue IO::TimeoutError # heartbeat
-        if @last_heartbeat + @heartbeat.seconds < RoughTime.utc
-          send(AMQP::Frame::Heartbeat.new) || break
-        end
+      rescue IO::TimeoutError
+        send_heartbeat || break
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
       @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
@@ -90,6 +93,14 @@ module AvalancheMQ
       send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     ensure
       @running = false
+    end
+
+    private def send_heartbeat
+      if @last_heartbeat + @heartbeat.seconds < RoughTime.utc
+        send(AMQP::Frame::Heartbeat.new)
+      else
+        true
+      end
     end
 
     def send(frame : AMQP::Frame)

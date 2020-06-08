@@ -540,11 +540,11 @@ module AvalancheMQ
       File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def save!
       File.open(File.join(@data_dir, "definitions.amqp"), "W") do |f|
         f.seek(0, IO::Seek::End)
-        loop do
-          frame = @save.receive? || break
+        while frame = @save.receive?
           case frame
           when AMQP::Frame::Exchange::Declare
             next unless frame.durable
