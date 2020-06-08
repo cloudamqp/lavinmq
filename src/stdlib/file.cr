@@ -55,7 +55,7 @@ class IO::FileDescriptor
   # In-kernel copy between two file descriptors
   # using the copy_file_range syscall
   def copy_range_from(src : self, length : Int)
-    if LibC.has_method?(:copy_file_range)
+    {% if LibC.has_method?(:copy_file_range) %}
       remaining = length
       flush
       src.seek(0, IO::Seek::Current) unless src.@in_buffer_rem.empty?
@@ -68,8 +68,8 @@ class IO::FileDescriptor
         remaining -= len
       end
       length - remaining
-    else
+    {% else %}
       IO.copy(src, self, length)
-    end
+    {% end %}
   end
 end

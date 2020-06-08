@@ -31,9 +31,9 @@ class IO
       #  end
       #end
       if file_dst = dst.as?(IO::FileDescriptor)
-        if LibC.has_method?(:copy_file_range)
+        {% if LibC.has_method?(:copy_file_range) %}
           return file_dst.copy_range_from(file, limit)
-        end
+        {% end %}
       end
     end
 
