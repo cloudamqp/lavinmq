@@ -30,11 +30,11 @@ class IO
       #    return socket.sendfile(file, limit)
       #  end
       #end
-      {% if flag?(:linux) || flag?(:freebsd) %}
-        if file_dst = dst.as?(IO::FileDescriptor)
+      if file_dst = dst.as?(IO::FileDescriptor)
+        if LibC.has_method?(:copy_file_range)
           return file_dst.copy_range_from(file, limit)
         end
-      {% end %}
+      end
     end
 
     buffer = uninitialized UInt8[16384]
