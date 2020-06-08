@@ -16,10 +16,6 @@ shards:
     github: schovi/baked_file_system
     version: 0.9.8
 
-  cache_hash:
-    github: carlhoerberg/cache-hash
-    commit: 3e4d453aa45c7ed0670ec8021d51b6b768041640
-
   http-protection:
     github: rogeriozambon/http-protection
     commit: 1817a4e60c58893cc25eb268aed4f444a681ac6b

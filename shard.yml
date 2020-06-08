@@ -22,9 +22,6 @@ dependencies:
     github: tbrand/router.cr
   baked_file_system:
     github: schovi/baked_file_system
-  cache_hash:
-    github: carlhoerberg/cache-hash
-    branch: time.utc
   amqp-client:
     github: cloudamqp/amqp-client.cr
     # path: ../amqp-client.cr

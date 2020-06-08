@@ -4,7 +4,6 @@ require "json"
 require "logger"
 require "router"
 require "./handler/*"
-require "./json_cache"
 require "./controller"
 require "./controller/*"
 
