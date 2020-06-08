@@ -8,6 +8,7 @@ addons:
     - libsystemd-dev
 before_install:
   - uname -a
+  - ldd --version
 install:
   - shards install
 jobs:
