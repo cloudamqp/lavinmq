@@ -1,0 +1,30 @@
+
+name: deb
+on: [push]
+
+jobs:
+  build_deb:
+    name: Build deb package
+    runs-on:
+      - ubuntu-18.04
+      - ubuntu-20.04
+    steps:
+      - name: Install Crystal
+        uses: MeilCli/setup-crystal-action@v3.0.0
+        with:
+          crystal_version: 0.34.0
+          shards_version: 0.10.0
+
+      - name: Install apt packages
+        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build deb package
+        run: build/deb 1-$(lsb_release -rs)
+
+      - name: Upload deb package
+        uses: actions/upload-artifact@v1
+        with:
+          path: builds/**/*.deb
