@@ -1,0 +1,23 @@
+name: CI
+on: [push]
+
+jobs:
+  build_test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup crystal
+        uses: MeilCli/setup-crystal-action@v3.0.0
+        with:
+          crystal_version: 0.34.0
+          shards_version: 0.10.0
+      - name: Install libsystemd-dev
+        run: sudo apt-get install -y libsystemd-dev
+      - name: Shards install
+        run: shards install
+      - name: Test
+        run: crystal spec
+      - name: Lint
+        run: ameba
