@@ -18,6 +18,6 @@ jobs:
       - name: Shards install
         run: shards install
       - name: Spec
-        run: crystal spec
+        run: crystal spec --no-color
       - name: Lint
         run: bin/ameba
