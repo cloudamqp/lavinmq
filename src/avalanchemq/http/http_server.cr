@@ -15,8 +15,6 @@ end
 module AvalancheMQ
   module HTTP
     class Server
-      getter cache
-
       def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
         @log.progname = "httpserver"
         handlers = [

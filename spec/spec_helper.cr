@@ -87,9 +87,6 @@ module TestHelpers
     @@s = AvalancheMQ::Server.new(dir, log.dup)
     @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, log.dup)
     @@h.not_nil!.bind_tcp("localhost", HTTP_PORT)
-    Spec.after_each do
-      @@h.try &.cache.purge
-    end
     spawn { @@s.try &.listen("localhost", AMQP_PORT) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
