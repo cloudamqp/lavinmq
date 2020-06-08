@@ -541,7 +541,8 @@ module AvalancheMQ
     end
 
     private def save!
-      File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
+      File.open(File.join(@data_dir, "definitions.amqp"), "W") do |f|
+        f.seek(0, IO::Seek::End)
         loop do
           frame = @save.receive? || break
           case frame
