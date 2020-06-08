@@ -8,7 +8,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Setup crystal
+      - name: Install Crystal
         uses: MeilCli/setup-crystal-action@v3.0.0
         with:
           crystal_version: 0.34.0
@@ -17,7 +17,7 @@ jobs:
         run: sudo apt-get install -y libsystemd-dev
       - name: Shards install
         run: shards install
-      - name: Test
+      - name: Spec
         run: crystal spec
       - name: Lint
-        run: ameba
+        run: bin/ameba
