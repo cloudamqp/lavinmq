@@ -4,7 +4,10 @@ on: [push]
 jobs:
   build_deb:
     name: Build deb package
-    runs-on: [ubuntu-18.04, ubuntu-20.04]
+    strategy:
+      matrix:
+        os: [ubuntu-18.04, ubuntu-20.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Install Crystal
         uses: MeilCli/setup-crystal-action@v3.0.0
