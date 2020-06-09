@@ -1,10 +1,10 @@
 class IO
   def self.copy(src, dst) : UInt64
-    if socket = dst.as?(Socket)
-      if file = src.as?(File)
-        return socket.sendfile file, file.size - file.pos
-      end
-    end
+    #if socket = dst.as?(Socket)
+    #  if file = src.as?(File)
+    #    return socket.sendfile file, file.size - file.pos
+    #  end
+    #end
 
     buffer = uninitialized UInt8[16384]
     count = 0_u64
