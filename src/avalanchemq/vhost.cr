@@ -61,7 +61,6 @@ module AvalancheMQ
       load!
       compact!
       spawn save!, name: "VHost/#{@name}#save!"
-      spawn fsync_loop, name: "VHost/#{@name}#fsync_loop"
       spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
     end
 
@@ -73,17 +72,12 @@ module AvalancheMQ
     @awaiting_confirm = Set(Client::Channel).new
 
     def waiting4confirm(channel)
-      @fsync = true
       @awaiting_confirm_lock.synchronize do
         @awaiting_confirm.add channel
-      end
-    end
-
-    private def fsync_loop
-      loop do
-        sleep 0.2
-        break if @closed
-        fsync
+        unless @fsync
+          @fsync = true
+          spawn(name: "VHost/#{@name}#fsync") { fsync }
+        end
       end
     end
 
@@ -102,8 +96,8 @@ module AvalancheMQ
           ch.confirm_ack(multiple: true)
         end
         @awaiting_confirm.clear
+        @fsync = false
       end
-      @fsync = false
     end
 
     # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
