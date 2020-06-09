@@ -27,10 +27,13 @@ jobs:
       - name: Get Ubuntu release name
         run: |
           echo "::set-env name=CODENAME::$(lsb_release -cs)"
-          echo "::set-env name=DESC::$(git describe)"
+          
+      - name: Get git tag
+        run: |   
+          echo "::set-env name=TAG::$(git describe)"
 
       - name: Upload deb package
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           path: builds/**/*.deb
-          name: avalanchemq-${{ env.DESC }}-1-${{ env.CODENAME }}.deb
+          name: avalanchemq-${{ env.TAG }}-1-${{ env.CODENAME }}.deb
