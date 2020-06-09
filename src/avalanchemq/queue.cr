@@ -9,6 +9,7 @@ require "./client/channel"
 require "./reference_counter"
 require "./queue/ready"
 require "./queue/unacked"
+require "./mfile"
 
 module AvalancheMQ
   class Queue
@@ -381,37 +382,30 @@ module AvalancheMQ
       end
     end
 
-    @segment_file : File? = nil
+    @segment_file : MFile? = nil
     @segment_id = 0_u32
-    @segment_pos = 0_u32
 
-    private def segment_file(id : UInt32) : File
+    private def segment_file(id : UInt32) : MFile
       return @segment_file.not_nil! if @segment_id == id && @segment_file
       path = File.join(@vhost.data_dir, "msgs.#{id.to_s.rjust(10, '0')}")
       @segment_file.try &.close
       @segment_id = id
-      @segment_pos = 0
-      @segment_file = File.open(path, "r").tap do |f|
-        f.buffer_size = Config.instance.file_buffer_size
-      end
+      @segment_file = MFile.open(path)
     end
 
     def metadata(sp) : MessageMetadata?
       @read_lock.synchronize do
         seg = segment_file(sp.segment)
-        if @segment_pos != sp.position
+        if seg.pos != sp.position
           @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
-          seg.seek(sp.position, IO::Seek::Set)
-          @segment_pos = sp.position
+          seg.seek(sp.position.to_i32, IO::Seek::Set)
         end
         ts = Int64.from_io seg, BYTE_FORMAT
         ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
         rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
         pr = AMQP::Properties.from_io seg, BYTE_FORMAT
         sz = UInt64.from_io seg, BYTE_FORMAT
-        meta = MessageMetadata.new(ts, ex, rk, pr, sz)
-        @segment_pos = sp.position + meta.bytesize
-        meta
+        MessageMetadata.new(ts, ex, rk, pr, sz)
       rescue ex : IO::Error
         @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
         @ready.delete sp
@@ -420,7 +414,6 @@ module AvalancheMQ
       rescue ex : IO::EOFError
         pos = segment_file(sp.segment).pos.to_u32
         @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
-        @segment_pos = pos
         @ready.delete sp
         delete_message sp
         nil
@@ -501,7 +494,6 @@ module AvalancheMQ
       end
       delete_message sp, msg.persistent?
     rescue ex : IO::EOFError
-      @segment_pos = segment_file(env.segment_position.segment).pos.to_u32
       raise ex
     end
 
@@ -604,10 +596,7 @@ module AvalancheMQ
     def read(sp : SegmentPosition, &blk : Envelope -> _)
       @read_lock.synchronize do
         seg = segment_file(sp.segment)
-        if @segment_pos != sp.position
-          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
-          seg.seek(sp.position, IO::Seek::Set)
-        end
+        seg.seek(sp.position.to_i32, IO::Seek::Set)
         ts = Int64.from_io seg, BYTE_FORMAT
         ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
         rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
@@ -616,13 +605,9 @@ module AvalancheMQ
         msg = Message.new(ts, ex, rk, pr, sz, seg)
         redelivered = @requeued.includes?(sp)
         begin
-          @log.debug { "yielding envlope in Queue#read" }
           yield Envelope.new(sp, msg, redelivered)
         ensure
-          @log.debug { "ensuring Queue#read" }
-          @segment_pos = sp.position + msg.bytesize
           @requeued.delete(sp) if redelivered
-          @log.debug { "ensuring done in Queue#read" }
         end
       rescue ex : IO::Error
         @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
@@ -631,7 +616,6 @@ module AvalancheMQ
         false
       rescue ex
         @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
-        @segment_pos = segment_file(sp.segment).pos.to_u32
         raise ex
       end
     end

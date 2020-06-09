@@ -61,3 +61,10 @@ lib LibC
     fun copy_file_range(fd_in : Int, offset_in : OffT*, fd_out : Int, offset_out : OffT*, len : SizeT, flags : UInt) : Int
   {% end %}
 end
+
+lib LibC
+  MS_ASYNC = 0x0001
+  MS_SYNC = 0x0004
+  fun munmap(addr : Void*, len : SizeT) : Int
+  fun msync(addr : Void*, len : SizeT, flags : Int) : Int
+end
