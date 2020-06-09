@@ -13,6 +13,7 @@ require "./durable_queue"
 require "./exchange"
 require "digest/sha1"
 require "./reference_counter"
+require "./mfile"
 
 module AvalancheMQ
   class VHost
@@ -30,8 +31,7 @@ module AvalancheMQ
     @queues = Hash(String, Queue).new
     @save = Channel(AMQP::Frame).new(32)
     @segment : UInt32
-    @wfile : File
-    @pos : UInt32
+    @wfile : MFile
     @segments_on_disk : Deque(UInt32)
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
@@ -54,7 +54,6 @@ module AvalancheMQ
       @segment = @segments_on_disk.last
       @wfile = open_wfile
       @wfile.seek(0, IO::Seek::End)
-      @pos = @wfile.pos.to_u32
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @shovels = ShovelStore.new(self)
@@ -88,7 +87,7 @@ module AvalancheMQ
     def fsync
       return unless @fsync
       @log.debug { "fsync" }
-      @wfile.fsync(flush_metadata: false)
+      @wfile.fsync
       @queues_to_fsync_lock.synchronize do
         @queues_to_fsync.each &.fsync_enq
       end
@@ -182,11 +181,11 @@ module AvalancheMQ
     end
 
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
-      if @pos >= Config.instance.segment_size
-        open_new_segment
+      if @wfile.capacity - @wfile.pos < msg.bytesize
+        open_new_segment(msg.bytesize)
       end
 
-      sp = SegmentPosition.new(@segment, @pos)
+      sp = SegmentPosition.new(@segment, @wfile.pos.to_u32)
       if store_offset
         headers = msg.properties.headers || AMQP::Table.new
         headers["x-offset"] = sp.to_i64
@@ -204,34 +203,30 @@ module AvalancheMQ
         raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
       end
       @wfile.flush
-      @pos += msg.bytesize
       sp
     rescue ex
       begin
         @wfile.flush
-        @pos = @wfile.pos.to_u32
       rescue
         open_new_segment
       end
       raise ex
     end
 
-    private def open_new_segment
+    private def open_new_segment(next_msg_size = 0)
       @segment += 1
       @segments_on_disk << @segment
       fsync
       @wfile.close
-      @wfile = open_wfile
+      @wfile = open_wfile(next_msg_size)
     end
 
-    private def open_wfile : File
+    private def open_wfile(next_msg_size = 0) : MFile
       @log.debug { "Opening message store segment #{@segment}" }
       filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
-      File.open(File.join(@data_dir, filename), "W").tap do |f|
-        f.buffer_size = Config.instance.file_buffer_size
-        f.seek(0, IO::Seek::End)
-        @pos = f.pos.to_u32
-      end
+      path = File.join(@data_dir, filename)
+      capacity = Config.instance.segment_size + next_msg_size
+      MFile.new(path, capacity)
     end
 
     def details_tuple
@@ -596,7 +591,11 @@ module AvalancheMQ
         end
       end
       segments.sort!
-      segments << 1_u32 if segments.empty?
+      if segments.empty?
+        segments << 1_u32
+      else
+        segments << segments.last + 1
+      end
       Deque(UInt32).new(segments)
     end
 
