@@ -3,7 +3,7 @@ on: [push]
 
 jobs:
   build_deb:
-    name: Build deb package
+    name: Build
     strategy:
       matrix:
         os: [ubuntu-18.04, ubuntu-20.04]
@@ -15,16 +15,17 @@ jobs:
           crystal_version: 0.34.0
           shards_version: 0.10.0
 
-      - name: Install apt packages
-        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man
+      - name: Install dependencies
+        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian
 
       - name: Checkout
         uses: actions/checkout@v2
 
       - name: Build deb package
-        run: build/deb 1-$(lsb_release -rs)
+        run: build/deb
 
       - name: Upload deb package
         uses: actions/upload-artifact@v1
         with:
           path: builds/**/*.deb
+          name: avalanchemq-${{ github.ref }}-1-${{ matrix.os }}.deb
