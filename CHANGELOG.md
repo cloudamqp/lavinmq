@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- fsyncing on publish confirm as soon as possible (previously only every 200ms)
+
 ## [0.10.4] - 2020-06-09
 
 ### Added
