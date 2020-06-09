@@ -31,10 +31,7 @@ module AvalancheMQ
             consumer_tag = URI.decode_www_form(params["consumer_tag"])
             connections(user).each.select { |conn| conn.vhost.name == vhost }.each do |conn|
               conn.channels.each_value do |ch|
-                ch.consumers.each do |c|
-                  next unless c.tag == consumer_tag
-                  c.cancel
-                end
+                ch.cancel_consumer(AMQP::Frame::Basic::Cancel.new(ch.id, consumer_tag, true))
               end
             end
           end
