@@ -20,9 +20,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v2
-
-      - name: Build deb package
-        run: build/deb 1
+        with:
+          fetch-depth: 0
 
       - name: Get Ubuntu release name
         run: |
@@ -31,6 +30,9 @@ jobs:
       - name: Get git tag
         run: |   
           echo "::set-env name=TAG::$(git describe)"
+
+      - name: Build deb package
+        run: build/deb 1
 
       - name: Upload deb package
         uses: actions/upload-artifact@v2
