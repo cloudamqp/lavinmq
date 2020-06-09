@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Display message rates in queues list in mgmt UI
+- Config for changing endianess of on-disk data
+
 ## [0.10.3] - 2020-05-26
 
 ### Changed
