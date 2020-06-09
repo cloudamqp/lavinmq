@@ -21,15 +21,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
+      - name: Build deb package
+        run: build/deb 1
+
       - name: Get Ubuntu release name
         run: |
           echo "::set-env name=CODENAME::$(lsb_release -cs)"
-
-      - name: Build deb package
-        run: build/deb 1
+          echo "::set-env name=DESC::$(git describe)"
 
       - name: Upload deb package
         uses: actions/upload-artifact@v1
         with:
           path: builds/**/*.deb
-          name: avalanchemq-${{ github.ref }}-1-${{ matrix.os }}.deb
+          name: avalanchemq-${{ env.DESC }}-1-${{ env.CODENAME }}.deb
