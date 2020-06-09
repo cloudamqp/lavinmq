@@ -24,18 +24,32 @@ module AvalancheMQ
           end
         end
 
-        delete "/api/consumers/:vhost/:consumer_tag" do |context, params|
+        delete "/api/consumers/:vhost/:connection/:channel/:consumer_tag" do |context, params|
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
             consumer_tag = URI.decode_www_form(params["consumer_tag"])
-            connections(user).each.select { |conn| conn.vhost.name == vhost }.each do |conn|
-              conn.channels.each_value do |ch|
-                ch.cancel_consumer(AMQP::Frame::Basic::Cancel.new(ch.id, consumer_tag, true))
-              end
+            conn_id = URI.decode_www_form(params["connection"])
+            ch_id = URI.decode_www_form(params["channel"]).to_i
+            connection = connections(user).find { |conn| conn.vhost.name == vhost && conn.name == conn_id }
+            unless connection
+              context.response.status_code = 404
+              break
             end
+            channel = connection.channels[ch_id]
+            unless channel
+              context.response.status_code = 404
+              break
+            end
+            consumer = channel.consumers.find { |c| c.tag == consumer_tag }
+            unless consumer
+              context.response.status_code = 404
+              break
+            end
+            consumer.queue.rm_consumer(consumer)
+            consumer.cancel
+            context.response.status_code = 204
           end
-          context.response.status_code = 204
           context
         end
       end
