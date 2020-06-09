@@ -6,9 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.4] - 2020-06-09
+
 ### Added
 - Display message rates in queues list in mgmt UI
 - Config for changing endianess of on-disk data
+
+### Fixed
+- Only use `copy_file_range` when the glibc version supports it
 
 ## [0.10.3] - 2020-05-26
 
