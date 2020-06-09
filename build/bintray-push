@@ -1,8 +1,8 @@
 #!/bin/bash
 set -eux
 app=avalanchemq
-pkg_version=$(git describe | cut -c2-)
-pkg_revision=${1:-1}
+pkg_version=${1:-$(git describe | cut -c2-)}
+pkg_revision=${2:-1}
 arch=amd64
 
 pushd builds/debian
