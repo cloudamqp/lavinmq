@@ -8,7 +8,7 @@ module AvalancheMQ
     def initialize(@segment : UInt32, @position : UInt32)
     end
 
-    def to_io(io : IO, format)
+    def to_io(io : IO, format) : Int64
       buf = uninitialized UInt8[8]
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])

@@ -4,7 +4,7 @@ class Socket
   # Zero-copy implementation of sending *limit* bytes of *file*
   # to the socket
   # Returns the number of bytes sent
-  def sendfile(file : IO::FileDescriptor, limit : Int) : UInt64
+  def sendfile(file : IO::FileDescriptor, limit : Int) : Int64
     flush
     file.seek(0, IO::Seek::Current) unless file.@in_buffer_rem.empty?
     evented_sendfile(limit, "sendfile") do |remaining|
@@ -20,8 +20,8 @@ class Socket
 end
 
 module IO::Evented
-  def evented_sendfile(limit : Int, errno_msg : String) : UInt64
-    limit = limit.to_u64
+  def evented_sendfile(limit : Int, errno_msg : String) : Int64
+    limit = limit.to_i64
     remaining = limit
     loop do
       bytes_written = (yield remaining).to_i32

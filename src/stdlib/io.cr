@@ -1,5 +1,5 @@
 class IO
-  def self.copy(src, dst) : UInt64
+  def self.copy(src, dst) : Int64
     #if socket = dst.as?(Socket)
     #  if file = src.as?(File)
     #    return socket.sendfile file, file.size - file.pos
@@ -7,7 +7,7 @@ class IO
     #end
 
     buffer = uninitialized UInt8[16384]
-    count = 0_u64
+    count = 0_i64
     while (len = src.read(buffer.to_slice).to_i32) > 0
       dst.write buffer.to_slice[0, len]
       count += len
@@ -16,11 +16,11 @@ class IO
     count
   end
 
-  def self.copy(src, dst, limit : Int) : UInt64
-    return 0_u64 if limit.zero?
+  def self.copy(src, dst, limit : Int) : Int64
+    return 0_i64 if limit.zero?
     raise ArgumentError.new("Negative limit") if limit < 0
 
-    limit = limit.to_u64
+    limit = limit.to_i64
 
     if file = src.as?(IO::FileDescriptor)
       #if socket = dst.as?(Socket)
@@ -48,7 +48,7 @@ class IO
     limit - remaining
   end
 
-  def skip(bytes_count : Int) : Int
+  def skip(bytes_count : Int) : Int64
     remaining = bytes_count
     buffer = uninitialized UInt8[16384]
     while remaining > 0
@@ -56,13 +56,13 @@ class IO
       raise IO::EOFError.new if read_count == 0
       remaining -= read_count
     end
-    bytes_count
+    bytes_count.to_i64
   end
 
   # Reads and discards bytes from `self` until there
   # are no more bytes.
-  def skip_to_end : Int
-    bytes_count = 0
+  def skip_to_end : Int64
+    bytes_count = 0_i64
     buffer = uninitialized UInt8[16384]
     while (len = read(buffer.to_slice)) > 0
       bytes_count += len
@@ -72,12 +72,12 @@ class IO
 end
 
 module IO::Buffered
-  def skip(bytes_count) : Int
+  def skip(bytes_count) : Int64
     check_open
 
     if bytes_count <= @in_buffer_rem.size
       @in_buffer_rem += bytes_count
-      return bytes_count
+      return bytes_count.to_i64
     end
 
     remaining = bytes_count
@@ -85,6 +85,6 @@ module IO::Buffered
     @in_buffer_rem = Bytes.empty
 
     super(remaining)
-    bytes_count
+    bytes_count.to_i64
   end
 end

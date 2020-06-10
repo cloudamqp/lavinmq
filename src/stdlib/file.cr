@@ -42,20 +42,21 @@ class File
 end
 
 class IO::FileDescriptor
-  def write_at(buffer, offset)
+  def write_at(buffer, offset) : Int64
     bytes_written = LibC.pwrite(fd, buffer, buffer.size, offset)
 
     if bytes_written == -1
       raise IO::Error.from_errno "Error writing file"
     end
 
-    bytes_written
+    bytes_written.to_i64
   end
 
   # In-kernel copy between two file descriptors
   # using the copy_file_range syscall
-  def copy_range_from(src : self, length : Int)
+  def copy_range_from(src : self, length : Int) : Int64
     {% if LibC.has_method?(:copy_file_range) %}
+      length = length.to_i64
       remaining = length
       flush
       src.seek(0, IO::Seek::Current) unless src.@in_buffer_rem.empty?

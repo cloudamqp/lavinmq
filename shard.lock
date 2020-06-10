@@ -1,34 +1,34 @@
-version: 1.0
+version: 2.0
 shards:
   ameba:
-    github: veelenga/ameba
+    git: https://github.com/veelenga/ameba.git
     version: 0.12.1
 
   amq-protocol:
-    github: cloudamqp/amq-protocol.cr
-    version: 0.3.10
+    path: ../amq-protocol.cr
+    version: 0.3.11
 
   amqp-client:
-    github: cloudamqp/amqp-client.cr
+    git: https://github.com/cloudamqp/amqp-client.cr.git
     version: 0.5.18
 
   baked_file_system:
-    github: schovi/baked_file_system
-    version: 0.9.8
+    git: https://github.com/carlhoerberg/baked_file_system.git
+    version: 0.9.8+git.commit.06bcba0b0f41fde77d4468556a15cfaa736c80c7
 
   http-protection:
-    github: rogeriozambon/http-protection
-    commit: 1817a4e60c58893cc25eb268aed4f444a681ac6b
+    git: https://github.com/rogeriozambon/http-protection.git
+    version: 0.2.0+git.commit.1817a4e60c58893cc25eb268aed4f444a681ac6b
 
   radix:
-    github: luislavena/radix
+    git: https://github.com/luislavena/radix.git
     version: 0.3.9
 
   router:
-    github: tbrand/router.cr
+    git: https://github.com/tbrand/router.cr.git
     version: 0.2.7
 
   systemd:
-    github: 84codes/systemd.cr
+    git: https://github.com/84codes/systemd.cr.git
     version: 1.0.0
 

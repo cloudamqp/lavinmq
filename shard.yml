@@ -15,13 +15,14 @@ targets:
 
 dependencies:
   amq-protocol:
-    github: cloudamqp/amq-protocol.cr
-    version: ~>0.3.0
-    #path: ../amq-protocol.cr
+    #github: cloudamqp/amq-protocol.cr
+    #version: ~>0.3.0
+    path: ../amq-protocol.cr
   router:
     github: tbrand/router.cr
   baked_file_system:
-    github: schovi/baked_file_system
+    github: carlhoerberg/baked_file_system
+    branch: crystal035
   amqp-client:
     github: cloudamqp/amqp-client.cr
     # path: ../amqp-client.cr
@@ -34,6 +35,6 @@ development_dependencies:
   ameba:
     github: veelenga/ameba
 
-crystal: 0.34.0
+crystal: 0.35.0
 
 license: Apache-2.0
