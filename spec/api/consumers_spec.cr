@@ -44,4 +44,22 @@ describe AvalancheMQ::HTTP::ConsumersController do
       body.as_a.empty?.should be_true
     end
   end
+
+  describe "DELETE /api/consumers/vhost/connection/channel/consumer" do
+    it "should return 204 when successful" do
+      with_channel do |ch|
+        q = ch.queue("")
+        consumer = q.subscribe { }
+        sleep 0.1
+        conn = s.connections.first.name
+        response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/#{consumer}")
+        response.status_code.should eq 204
+      end
+    end
+
+    it "should return 404 if connection, channel or consumer does not exist" do
+      response = delete("/api/consumers/%2f/test/1/consumer")
+      response.status_code.should eq 404
+    end
+  end
 end
