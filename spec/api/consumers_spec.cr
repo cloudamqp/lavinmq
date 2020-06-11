@@ -54,6 +54,8 @@ describe AvalancheMQ::HTTP::ConsumersController do
         conn = s.connections.first.name
         response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/#{consumer}")
         response.status_code.should eq 204
+        sleep 0.1
+        ch.has_subscriber?(consumer).should be_false
       end
     end
 
