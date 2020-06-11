@@ -5,12 +5,12 @@ shards:
     version: 0.12.1
 
   amq-protocol:
-    path: ../amq-protocol.cr
-    version: 0.3.11
+    git: https://github.com/cloudamqp/amq-protocol.cr.git
+    version: 0.3.12
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 0.5.18
+    version: 0.5.19
 
   baked_file_system:
     git: https://github.com/carlhoerberg/baked_file_system.git
