@@ -89,10 +89,11 @@ class MFile < IO
     close
   end
 
-  def write(slice : Bytes) : Nil
+  def write(slice : Bytes) : Int64
     raise IO::Error.new("Out of capacity") if @capacity - @pos < slice.size
     slice.copy_to(@buffer + @pos)
     @pos += slice.size
+    slice.size.to_i64
   end
 
   def read(slice : Bytes)
