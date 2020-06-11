@@ -10,6 +10,10 @@ module AvalancheMQ
         @ready = Deque(SegmentPosition).new(capacity)
       end
 
+      def includes?(sp)
+        @ready.includes?(sp)
+      end
+
       def shift
         @lock.synchronize do
           @ready.shift
@@ -51,9 +55,21 @@ module AvalancheMQ
         end
       end
 
+      def each(start : Int, count : Int, &blk)
+        @lock.synchronize do
+          @ready.each(start: start, count: count) { |sp| yield sp }
+        end
+      end
+
       def locked_each(&blk)
         @lock.synchronize do
           yield @ready.each
+        end
+      end
+
+      def bsearch_index(&blk)
+        @lock.synchronize do
+          @ready.bsearch_index { |sp, i| yield sp, i }
         end
       end
 

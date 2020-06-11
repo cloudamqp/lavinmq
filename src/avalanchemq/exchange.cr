@@ -3,11 +3,12 @@ require "./policy"
 require "./stats"
 require "./amqp"
 require "./queue"
+require "./persistent_exchange_queue"
 require "./sortable_json"
 
 module AvalancheMQ
   alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
-  alias Destination = Set(Queue | Exchange)
+  alias Destination = Queue | Exchange
 
   abstract class Exchange
     include PolicyTarget
@@ -18,6 +19,7 @@ module AvalancheMQ
     getter policy : Policy?
 
     @alternate_exchange : String?
+    getter persistent_queue : PersistentExchangeQueue?
     @log : Logger
 
     rate_stats(%w(publish_in publish_out))
@@ -57,6 +59,7 @@ module AvalancheMQ
 
     def handle_arguments
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+      init_persistent_queue
     end
 
     def details_tuple
@@ -120,10 +123,68 @@ module AvalancheMQ
       BindingDetails.new(name, vhost.name, key, destination)
     end
 
+    def persistent?
+      !@persistent_queue.nil?
+    end
+
+    MAX_NAME_LENGTH = 256
+
+    private def init_persistent_queue
+      return if @persistent_queue
+      persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
+      persist_ms = @arguments["x-persist-ms"]?.try &.as?(ArgumentNumber)
+      return unless persist_messages || persist_ms
+      q_name = "amq.persistent.#{@name}"
+      raise "Exchange name too long" if q_name.size > MAX_NAME_LENGTH
+      args = Hash(String, AMQP::Field).new
+      persist_messages.try do |n|
+        next if n <= 0
+        args["x-max-length"] = n
+      end
+      persist_ms.try do |ms|
+        next if ms <= 0
+        args["x-message-ttl"] = ms
+      end
+      @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
+      @vhost.queues[q_name] = @persistent_queue.not_nil!
+    end
+
+    REPUBLISH_METHODS = {"x-head", "x-tail", "x-from"}
+
+    private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
+      if (pq = @persistent_queue) && headers && headers.any?
+        method = headers.select(REPUBLISH_METHODS).first_key?
+        return unless method
+        arg = headers[method].try &.as?(ArgumentNumber)
+        return true unless arg && pq.any?
+        persisted = pq.message_count
+        @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
+        case destination
+        when Queue
+          republish = ->(sp : SegmentPosition) do
+            return unless destination.as(Queue).publish(sp)
+            @publish_out_count += 1
+            @vhost.sp_counter.inc(sp)
+          end
+          case method
+          when "x-head"
+            pq.head(arg, &republish)
+          when "x-tail"
+            pq.tail(arg, &republish)
+          when "x-from"
+            pq.from(arg.to_i64, &republish)
+          end
+        when Exchange
+          raise "Not Implemented"
+        end
+      end
+      true
+    end
+
     private def after_unbind
       if @auto_delete &&
-          @queue_bindings.each_value.all? &.empty? &&
-          @exchange_bindings.each_value.all? &.empty?
+         @queue_bindings.each_value.all? &.empty? &&
+         @exchange_bindings.each_value.all? &.empty?
         delete
       end
     end
@@ -179,10 +240,12 @@ module AvalancheMQ
 
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
@@ -197,6 +260,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       @queue_bindings[{routing_key, nil}].each { |q| yield q }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -221,6 +285,7 @@ module AvalancheMQ
       if q = @vhost.queues[routing_key]?
         yield q
       end
+      @persistent_queue.try { |pq| yield pq } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -235,10 +300,12 @@ module AvalancheMQ
 
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
@@ -253,6 +320,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       @queue_bindings.each_value { |s| s.each { |q| yield q } }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -278,17 +346,19 @@ module AvalancheMQ
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
       @queue_binding_keys[routing_key.split(".")] << destination
+      after_bind(destination, headers)
+    end
+
+    def bind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}] << destination
+      @exchange_binding_keys[routing_key.split(".")] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}].delete destination
       @queue_binding_keys[routing_key.split(".")].delete destination
       after_unbind
-    end
-
-    def bind(destination : Exchange, routing_key, headers = nil)
-      @exchange_bindings[{routing_key, nil}] << destination
-      @exchange_binding_keys[routing_key.split(".")] << destination
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
@@ -299,6 +369,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       matches(@queue_binding_keys, routing_key, headers) { |q| yield q.as(Queue) }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -376,11 +447,13 @@ module AvalancheMQ
     def bind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @queue_bindings[{routing_key, args}] << destination
+      after_bind(destination, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @exchange_bindings[{routing_key, args}] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers)

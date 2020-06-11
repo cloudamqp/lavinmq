@@ -13,18 +13,18 @@ module AvalancheMQ
     property http_bind = "0.0.0.0"
     property http_port = 15672
     property https_port = -1
-    property heartbeat = 0_u16 # second
-    property frame_max = 1048576_u32 # bytes
-    property channel_max = 2048_u16 # number
+    property heartbeat = 0_u16                   # second
+    property frame_max = 1048576_u32             # bytes
+    property channel_max = 2048_u16              # number
     property segment_size : Int32 = 32 * 1024**2 # byte
-    property gc_segments_interval = 60 # second
-    property queue_max_acks = 2_000_000 # number of message
-    property stats_interval = 5000 # millisecond
-    property stats_log_size = 120 # 10 mins at 5s interval
-    property set_timestamp = false # in message headers when receive
-    property file_buffer_size = 16384 # byte
-    property socket_buffer_size = 16384 # byte
-    property tcp_nodelay = false # bool
+    property gc_segments_interval = 60           # second
+    property queue_max_acks = 2_000_000          # number of message
+    property stats_interval = 5000               # millisecond
+    property stats_log_size = 120                # 10 mins at 5s interval
+    property set_timestamp = false               # in message headers when receive
+    property file_buffer_size = 16384            # byte
+    property socket_buffer_size = 16384          # byte
+    property tcp_nodelay = false                 # bool
     property byte_format : IO::ByteFormat = IO::ByteFormat::NetworkEndian
 
     @@instance : Config = self.new
@@ -71,7 +71,7 @@ module AvalancheMQ
       settings["port"]?.try { |v| @amqp_port = v.to_i32 }
       settings["tls_port"]?.try { |v| @amqps_port = v.to_i32 }
       settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
-      settings["tls_key"]?.try { |v| @key_path = v } # backward compatibility
+      settings["tls_key"]?.try { |v| @key_path = v }   # backward compatibility
       settings["unix_path"]?.try { |v| @unix_path = v }
       settings["heartbeat"]?.try { |v| @heartbeat = v.to_u16 }
       settings["channel_max"]?.try { |v| @channel_max = v.to_u16 }
@@ -83,20 +83,20 @@ module AvalancheMQ
       settings["port"]?.try { |v| @http_port = v.to_i32 }
       settings["tls_port"]?.try { |v| @https_port = v.to_i32 }
       settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
-      settings["tls_key"]?.try { |v| @key_path = v } # backward compatibility
+      settings["tls_key"]?.try { |v| @key_path = v }   # backward compatibility
     end
 
     private def true?(str : String?)
-      { "true", "yes", "y", "1" }.includes? str
+      {"true", "yes", "y", "1"}.includes? str
     end
 
     private def parse_byte_format(str : String?)
       case str
-      when /little/i then IO::ByteFormat::LittleEndian
-      when /big/i then IO::ByteFormat::BigEndian
+      when /little/i  then IO::ByteFormat::LittleEndian
+      when /big/i     then IO::ByteFormat::BigEndian
       when /network/i then IO::ByteFormat::NetworkEndian
-      when /system/i then IO::ByteFormat::SystemEndian
-      else raise "Failed to parse byte format: #{str}"
+      when /system/i  then IO::ByteFormat::SystemEndian
+      else                 raise "Failed to parse byte format: #{str}"
       end
     end
   end

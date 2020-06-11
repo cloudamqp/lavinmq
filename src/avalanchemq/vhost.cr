@@ -16,7 +16,7 @@ require "./reference_counter"
 
 module AvalancheMQ
   class VHost
-    ByteFormat = Config.instance.byte_format
+    BYTE_FORMAT = Config.instance.byte_format
 
     include SortableJSON
 
@@ -110,15 +110,15 @@ module AvalancheMQ
     # False if no queue was able to receive the message because they're
     # closed
     def publish(msg : Message, immediate = false,
-                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool?
-      ex = @exchanges[msg.exchange_name]? || return
+                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
+      ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
-      return if found_queues.empty?
-      return if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      return false if found_queues.empty?
+      return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
-        write_to_disk(msg)
+        write_to_disk(msg, ex.persistent?)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
@@ -144,7 +144,11 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
-      ex.queue_matches(routing_key, headers) { |q| queues << q }
+      persistent_ex = ex.persistent?
+      ex.queue_matches(routing_key, headers) do |q|
+        next if !persistent_ex && q.internal?
+        queues << q
+      end
 
       visited.add(ex)
       ex.exchange_matches(routing_key, headers) do |e2e|
@@ -174,19 +178,24 @@ module AvalancheMQ
       end
     end
 
-    private def write_to_disk(msg) : SegmentPosition
+    private def write_to_disk(msg, store_offset = false) : SegmentPosition
       if @pos >= Config.instance.segment_size
         open_new_segment
       end
 
       sp = SegmentPosition.new(@segment, @pos)
+      if store_offset
+        headers = msg.properties.headers || AMQP::Table.new
+        headers["x-offset"] = sp.to_i64
+        msg.properties.headers = headers
+      end
       @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                     size=#{msg.bytesize} sp=#{sp}" }
-      @wfile.write_bytes msg.timestamp, ByteFormat
-      @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), ByteFormat
-      @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), ByteFormat
-      @wfile.write_bytes msg.properties, ByteFormat
-      @wfile.write_bytes msg.size, ByteFormat
+      @wfile.write_bytes msg.timestamp, BYTE_FORMAT
+      @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), BYTE_FORMAT
+      @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), BYTE_FORMAT
+      @wfile.write_bytes msg.properties, BYTE_FORMAT
+      @wfile.write_bytes msg.size, BYTE_FORMAT
       copied = IO.copy(msg.body_io, @wfile, msg.size)
       if copied != msg.size
         raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
@@ -294,10 +303,11 @@ module AvalancheMQ
         return false unless @exchanges.has_key? f.exchange_name
         if x = @exchanges.delete f.exchange_name
           @exchanges.each_value do |ex|
-            ex.exchange_bindings.each_value do |destination|
-              destination.delete x
+            ex.exchange_bindings.each do |binding_args, destinations|
+              ex.unbind(x, *binding_args) if destinations.includes?(x)
             end
           end
+          x.persistent_queue.try &.delete
         else
           return false
         end
@@ -475,7 +485,7 @@ module AvalancheMQ
         io.advise(File::Advice::Sequential)
         loop do
           begin
-            AMQP::Frame.from_io(io, ByteFormat) do |frame|
+            AMQP::Frame.from_io(io, BYTE_FORMAT) do |frame|
               apply frame, loading: true
             end
           rescue ex : IO::EOFError
@@ -511,13 +521,13 @@ module AvalancheMQ
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
-          io.write_bytes f, ByteFormat
+          io.write_bytes f, BYTE_FORMAT
         end
         @queues.each do |_name, q|
           next unless q.durable
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
-          io.write_bytes f, ByteFormat
+          io.write_bytes f, BYTE_FORMAT
         end
         @exchanges.each do |_name, e|
           next unless e.durable
@@ -525,14 +535,14 @@ module AvalancheMQ
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
               f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, bt[0], false, args)
-              io.write_bytes f, ByteFormat
+              io.write_bytes f, BYTE_FORMAT
             end
           end
           e.exchange_bindings.each do |bt, exchanges|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             exchanges.each do |ex|
               f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, bt[0], false, args)
-              io.write_bytes f, ByteFormat
+              io.write_bytes f, BYTE_FORMAT
             end
           end
         end
@@ -566,7 +576,7 @@ module AvalancheMQ
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
-          f.write_bytes frame, ByteFormat
+          f.write_bytes frame, BYTE_FORMAT
           f.fsync
         end
       end
@@ -634,7 +644,7 @@ module AvalancheMQ
         start_pos ||= sp.position
         seg = segment.not_nil!
         seg.pos = sp.position unless sp.position == end_pos
-        len = Message.skip(seg, ByteFormat)
+        len = Message.skip(seg, BYTE_FORMAT)
         end_pos = sp.position + len
         @log.debug { "sp.position=#{sp.position} start_pos=#{start_pos} end_pos=#{end_pos}" }
       end

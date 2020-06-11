@@ -28,9 +28,19 @@ module AvalancheMQ
       self.new(seg, pos)
     end
 
+    def self.from_i64(i : Int64)
+      seg = i.bits(32..)
+      pos = i.bits(0..31)
+      SegmentPosition.new(seg.to_u32, pos.to_u32)
+    end
+
     def to_s(io : IO)
       io << @segment.to_s.rjust(10, '0')
       io << @position.to_s.rjust(10, '0')
+    end
+
+    def to_i64
+      ((segment.to_i64 << 32) | position).to_i64
     end
 
     def self.parse(s)

@@ -12,14 +12,12 @@ require "./queue/unacked"
 
 module AvalancheMQ
   class Queue
-    ByteFormat = Config.instance.byte_format
+    BYTE_FORMAT = Config.instance.byte_format
 
     include PolicyTarget
     include Observable
     include Stats
     include SortableJSON
-
-    alias ArgumentNumber = UInt16 | Int32 | Int64
 
     @durable = false
     @log : Logger
@@ -51,6 +49,7 @@ module AvalancheMQ
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers
     getter policy : Policy?
     getter? closed
+    property? internal = false
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
@@ -60,7 +59,9 @@ module AvalancheMQ
       @log.progname += " queue=#{@name}"
       @sp_counter = @vhost.sp_counter
       handle_arguments
-      spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+      unless @internal
+        spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+      end
     end
 
     def inspect(io : IO)
@@ -108,7 +109,11 @@ module AvalancheMQ
         end
       end
       @policy = policy
-      # force trigger a loop in delivery_loop
+      step_loop
+    end
+
+    # force trigger a loop in delivery_loop
+    private def step_loop
       message_available
       consumer_available
     end
@@ -160,6 +165,10 @@ module AvalancheMQ
 
     def empty? : Bool
       @ready.size.zero?
+    end
+
+    def any? : Bool
+      !empty?
     end
 
     def consumer_count
@@ -221,7 +230,7 @@ module AvalancheMQ
       @log.debug "No consumer available"
       q_ttl = time_to_expiration
       m_ttl = time_to_message_expiration
-      ttl = { q_ttl, m_ttl }.select(Time::Span).min?
+      ttl = {q_ttl, m_ttl}.select(Time::Span).min?
       if ttl
         select
         when @consumer_available.receive
@@ -242,7 +251,7 @@ module AvalancheMQ
     end
 
     private def find_consumer(i)
-      #@log.debug { "Looking for available consumers" }
+      # @log.debug { "Looking for available consumers" }
       case @consumers.size
       when 0
         nil
@@ -266,11 +275,11 @@ module AvalancheMQ
     end
 
     private def deliver_to_consumer(c)
-      #@log.debug { "Getting a new message" }
+      # @log.debug { "Getting a new message" }
       get(c.no_ack) do |env|
         if env
           sp = env.segment_position
-          #@log.debug { "Delivering #{sp} to consumer" }
+          # @log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
             if c.no_ack
               delete_message(sp, false)
@@ -282,7 +291,7 @@ module AvalancheMQ
             else
               @deliver_count += 1
             end
-            #@log.debug { "Delivery done" }
+            # @log.debug { "Delivery done" }
           else
             @log.debug { "Delivery failed" }
           end
@@ -334,6 +343,7 @@ module AvalancheMQ
         state: @closed ? :closed : :running,
         effective_policy_definition: @policy,
         message_stats: stats_details,
+        internal: @internal,
       }
     end
 
@@ -341,13 +351,13 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
-      #@log.debug { "Enqueuing message sp=#{sp}" }
+      # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
       message_available if was_empty
-      #@log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
+      # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ex : RejectOverFlow
       @log.debug { "Overflow reject message sp=#{sp}" }
@@ -394,11 +404,11 @@ module AvalancheMQ
           seg.seek(sp.position, IO::Seek::Set)
           @segment_pos = sp.position
         end
-        ts = Int64.from_io seg, ByteFormat
-        ex = AMQP::ShortString.from_io seg, ByteFormat
-        rk = AMQP::ShortString.from_io seg, ByteFormat
-        pr = AMQP::Properties.from_io seg, ByteFormat
-        sz = UInt64.from_io seg, ByteFormat
+        ts = Int64.from_io seg, BYTE_FORMAT
+        ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        pr = AMQP::Properties.from_io seg, BYTE_FORMAT
+        sz = UInt64.from_io seg, BYTE_FORMAT
         meta = MessageMetadata.new(ts, ex, rk, pr, sz)
         @segment_pos = sp.position + meta.bytesize
         meta
@@ -530,9 +540,9 @@ module AvalancheMQ
     end
 
     private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
-      #@log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+      # @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
       ok = @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
-                                      props, msg.size, msg.body_io)
+        props, msg.size, msg.body_io)
       msg.body_io.skip(msg.size) if ok.nil?
     end
 
@@ -580,7 +590,7 @@ module AvalancheMQ
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
-        #@log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
+        # @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
         if delivery_count >= limit
           expire_msg(env, :delivery_limit)
           return nil
@@ -598,11 +608,11 @@ module AvalancheMQ
           @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
           seg.seek(sp.position, IO::Seek::Set)
         end
-        ts = Int64.from_io seg, ByteFormat
-        ex = AMQP::ShortString.from_io seg, ByteFormat
-        rk = AMQP::ShortString.from_io seg, ByteFormat
-        pr = AMQP::Properties.from_io seg, ByteFormat
-        sz = UInt64.from_io seg, ByteFormat
+        ts = Int64.from_io seg, BYTE_FORMAT
+        ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        pr = AMQP::Properties.from_io seg, BYTE_FORMAT
+        sz = UInt64.from_io seg, BYTE_FORMAT
         msg = Message.new(ts, ex, rk, pr, sz, seg)
         redelivered = @requeued.includes?(sp)
         begin
@@ -721,6 +731,7 @@ module AvalancheMQ
 
     def fsync_ack
     end
+
     class Error < Exception; end
   end
 end
