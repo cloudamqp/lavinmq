@@ -59,9 +59,36 @@ describe AvalancheMQ::HTTP::ConsumersController do
       end
     end
 
-    it "should return 404 if connection, channel or consumer does not exist" do
-      response = delete("/api/consumers/%2f/test/1/consumer")
-      response.status_code.should eq 404
+    it "should return 404 if connection does not exist" do
+      with_channel do |ch|
+        q = ch.queue("")
+        consumer = q.subscribe { }
+        sleep 0.1
+        response = delete("/api/consumers/%2f/#{URI.encode("abc")}/#{ch.id}/#{consumer}")
+        response.status_code.should eq 404
+      end
+    end
+
+    it "should return 404 if channel does not exist" do
+      with_channel do |ch|
+        conn = s.connections.first.name
+        q = ch.queue("")
+        consumer = q.subscribe { }
+        sleep 0.1
+        response = delete("/api/consumers/%2f/#{URI.encode(conn)}/123/#{consumer}")
+        response.status_code.should eq 404
+      end
+    end
+
+    it "should return 404 if consumer does not exist" do
+      with_channel do |ch|
+        conn = s.connections.first.name
+        q = ch.queue("")
+        q.subscribe { }
+        sleep 0.1
+        response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/test")
+        response.status_code.should eq 404
+      end
     end
   end
 end
