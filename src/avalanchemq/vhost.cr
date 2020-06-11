@@ -115,13 +115,19 @@ module AvalancheMQ
       ex.publish_in_count += 1
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
-      return if found_queues.empty?
-      return if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      unless ex.persistent?
+        return if found_queues.empty?
+        return if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      end
       sp = @write_lock.synchronize do
         write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
+      if ex.persistent?
+        ex.persist(sp) # todo respect flush?
+        ok += 1
+      end
       found_queues.each do |q|
         if q.publish(sp, flush)
           ex.publish_out_count += 1
@@ -138,6 +144,13 @@ module AvalancheMQ
     ensure
       visited.clear
       found_queues.clear
+    end
+
+    def replay_persited_to_queue(sp, ex, q)
+      return if q.includes_segment_position?(sp)
+      return unless q.publish(sp)
+      ex.publish_out_count += 1
+      @sp_counter.inc(sp)
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
@@ -415,6 +428,8 @@ module AvalancheMQ
           sleep 0.1
         end
         @queues.each_value &.close
+        Fiber.yield
+        @exchanges.each_value &.close
         Fiber.yield
         @save.close
         Fiber.yield

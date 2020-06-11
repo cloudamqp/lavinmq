@@ -10,6 +10,10 @@ module AvalancheMQ
         @ready = Deque(SegmentPosition).new(capacity)
       end
 
+      def includes?(sp)
+        @ready.includes?(sp)
+      end
+
       def shift
         @lock.synchronize do
           @ready.shift

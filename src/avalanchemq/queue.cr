@@ -19,8 +19,6 @@ module AvalancheMQ
     include Stats
     include SortableJSON
 
-    alias ArgumentNumber = UInt16 | Int32 | Int64
-
     @durable = false
     @log : Logger
     @message_ttl : ArgumentNumber?
@@ -221,7 +219,7 @@ module AvalancheMQ
       @log.debug "No consumer available"
       q_ttl = time_to_expiration
       m_ttl = time_to_message_expiration
-      ttl = { q_ttl, m_ttl }.select(Time::Span).min?
+      ttl = {q_ttl, m_ttl}.select(Time::Span).min?
       if ttl
         select
         when @consumer_available.receive
@@ -242,7 +240,7 @@ module AvalancheMQ
     end
 
     private def find_consumer(i)
-      #@log.debug { "Looking for available consumers" }
+      # @log.debug { "Looking for available consumers" }
       case @consumers.size
       when 0
         nil
@@ -266,11 +264,11 @@ module AvalancheMQ
     end
 
     private def deliver_to_consumer(c)
-      #@log.debug { "Getting a new message" }
+      # @log.debug { "Getting a new message" }
       get(c.no_ack) do |env|
         if env
           sp = env.segment_position
-          #@log.debug { "Delivering #{sp} to consumer" }
+          # @log.debug { "Delivering #{sp} to consumer" }
           if c.deliver(env.message, sp, env.redelivered)
             if c.no_ack
               delete_message(sp, false)
@@ -282,7 +280,7 @@ module AvalancheMQ
             else
               @deliver_count += 1
             end
-            #@log.debug { "Delivery done" }
+            # @log.debug { "Delivery done" }
           else
             @log.debug { "Delivery failed" }
           end
@@ -341,13 +339,13 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
-      #@log.debug { "Enqueuing message sp=#{sp}" }
+      # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
       message_available if was_empty
-      #@log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
+      # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ex : RejectOverFlow
       @log.debug { "Overflow reject message sp=#{sp}" }
@@ -530,9 +528,9 @@ module AvalancheMQ
     end
 
     private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
-      #@log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+      # @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
       ok = @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
-                                      props, msg.size, msg.body_io)
+        props, msg.size, msg.body_io)
       msg.body_io.skip(msg.size) if ok.nil?
     end
 
@@ -580,7 +578,7 @@ module AvalancheMQ
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
-        #@log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
+        # @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
         if delivery_count >= limit
           expire_msg(env, :delivery_limit)
           return nil
@@ -721,6 +719,7 @@ module AvalancheMQ
 
     def fsync_ack
     end
+
     class Error < Exception; end
   end
 end

@@ -7,7 +7,7 @@ require "./sortable_json"
 
 module AvalancheMQ
   alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
-  alias Destination = Set(Queue | Exchange)
+  alias Destination = Queue | Exchange
 
   abstract class Exchange
     include PolicyTarget
@@ -18,6 +18,7 @@ module AvalancheMQ
     getter policy : Policy?
 
     @alternate_exchange : String?
+    @persist_messages : ArgumentNumber?
     @log : Logger
 
     rate_stats(%w(publish_in publish_out))
@@ -32,9 +33,41 @@ module AvalancheMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
+      @message_store = Array(SegmentPosition).new
       @log = @vhost.log.dup
       @log.progname += " exchange=#{@name}"
       handle_arguments
+      init_message_store if persistent?
+    end
+
+    private def message_store_path
+      File.join(@vhost.data_dir, "#{name}.persisted")
+    end
+
+    private def init_message_store
+      path = message_store_path
+      @log.debug { "Recover #{name} from #{path}" }
+      return unless File.exists? path
+      File.open(path, "r") do |f|
+        n = f.peek.not_nil!.size
+        while n > 0
+          @message_store << SegmentPosition.from_io(f)
+          n = f.peek.not_nil!.size
+        end
+      end
+      @log.info { "Recovered #{@message_store.size} messages for persistent exchange #{name}" }
+    end
+
+    private def write_message_store!
+      path = message_store_path
+      @log.info { "Persisting #{@message_store.size} messages for exchange #{name} to #{path}" }
+      File.open(path, "a+") do |f|
+        f.truncate
+        @message_store.each do |sp|
+          sp.to_io(f, IO::ByteFormat::SystemEndian)
+        end
+        f.fsync
+      end
     end
 
     def apply_policy(policy : Policy)
@@ -57,6 +90,7 @@ module AvalancheMQ
 
     def handle_arguments
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+      @persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
     end
 
     def details_tuple
@@ -120,10 +154,52 @@ module AvalancheMQ
       BindingDetails.new(name, vhost.name, key, destination)
     end
 
+    def persistent?
+      !@persist_messages.nil?
+    end
+
+    def persist(sp : SegmentPosition)
+      return unless persistent?
+      if @message_store.size >= @persist_messages.not_nil!
+        @message_store.shift
+      end
+      @message_store.push(sp)
+    end
+
+    def referenced_segments(set) : Nil
+      @message_store.each do |sp|
+        set << sp.segment
+      end
+    end
+
+    def close
+      return unless persistent?
+      write_message_store!
+    end
+
+    private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
+      return true if !persistent? || headers.nil? || headers.not_nil!.empty? || @message_store.empty?
+      if head = headers.not_nil!["x-head"]?.try &.as?(ArgumentNumber)
+        head = [head, @message_store.size].min
+        @log.debug { "after_bind replaying persited message from head-#{head}, total_peristed: #{@message_store.size}" }
+        while head > 0
+          i = @message_store.size - head
+          case destination
+          when Queue
+            @vhost.replay_persited_to_queue(@message_store[i], self, destination)
+          when Exchange
+            # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
+          end
+          head -= 1
+        end
+      end
+      true
+    end
+
     private def after_unbind
       if @auto_delete &&
-          @queue_bindings.each_value.all? &.empty? &&
-          @exchange_bindings.each_value.all? &.empty?
+         @queue_bindings.each_value.all? &.empty? &&
+         @exchange_bindings.each_value.all? &.empty?
         delete
       end
     end
@@ -179,10 +255,12 @@ module AvalancheMQ
 
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
@@ -235,10 +313,12 @@ module AvalancheMQ
 
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
@@ -278,17 +358,19 @@ module AvalancheMQ
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
       @queue_binding_keys[routing_key.split(".")] << destination
+      after_bind(destination, headers)
+    end
+
+    def bind(destination : Exchange, routing_key, headers = nil)
+      @exchange_bindings[{routing_key, nil}] << destination
+      @exchange_binding_keys[routing_key.split(".")] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}].delete destination
       @queue_binding_keys[routing_key.split(".")].delete destination
       after_unbind
-    end
-
-    def bind(destination : Exchange, routing_key, headers = nil)
-      @exchange_bindings[{routing_key, nil}] << destination
-      @exchange_binding_keys[routing_key.split(".")] << destination
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
@@ -376,11 +458,13 @@ module AvalancheMQ
     def bind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @queue_bindings[{routing_key, args}] << destination
+      after_bind(destination, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @exchange_bindings[{routing_key, args}] << destination
+      after_bind(destination, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers)

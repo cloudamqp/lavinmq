@@ -15,6 +15,10 @@ module AvalancheMQ
         @unacked = Deque(Unack).new(capacity)
       end
 
+      def includes?(sp)
+        @unacked.includes?(sp)
+      end
+
       def push(sp : SegmentPosition, persistent : Bool, consumer : Client::Channel::Consumer?)
         @lock.synchronize do
           @unacked << Unack.new(sp, persistent, consumer)
