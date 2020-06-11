@@ -36,7 +36,7 @@ module AvalancheMQ
               context.response.status_code = 404
               break
             end
-            channel = connection.channels[ch_id]
+            channel = connection.channels[ch_id]?
             unless channel
               context.response.status_code = 404
               break
