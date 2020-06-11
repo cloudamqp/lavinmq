@@ -128,48 +128,53 @@ class Throughput < Perf
   end
 
   private def pub(done)
-    a = AMQP::Client.new(@uri).connect
-    ch = a.channel
     data = IO::Memory.new(Bytes.new(@size))
-    Fiber.yield
-    until @stopped
-      data.rewind
-      if @confirm
-        ch.basic_publish_confirm data, @exchange, @routing_key
-      else
-        ch.basic_publish data, @exchange, @routing_key
-      end
-      @pubs += 1
-      unless @rate.zero?
-        sleep 1.0 / @rate
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      Fiber.yield
+      until @stopped
+        data.rewind
+        if @confirm
+          ch.basic_publish_confirm data, @exchange, @routing_key
+        else
+          ch.basic_publish data, @exchange, @routing_key
+        end
+        @pubs += 1
+        unless @rate.zero?
+          sleep 1.0 / @rate
+        end
       end
     end
+  ensure
     done.send nil
-    a.close
   end
 
   private def consume(done)
-    a = AMQP::Client.new(@uri).connect
-    ch = a.channel
-    q = begin
-          ch.queue @queue
-        rescue
-          ch = a.channel
-          ch.queue(@queue, passive: true)
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      q = begin
+            ch.queue @queue
+          rescue
+            ch = a.channel
+            ch.queue(@queue, passive: true)
+          end
+      ch.prefetch @prefetch unless @prefetch.zero?
+      q.bind(@exchange, @routing_key) unless @exchange.empty?
+      Fiber.yield
+      q.subscribe(tag: "c", no_ack: @no_ack) do |m|
+        m.ack unless @no_ack
+        @consumes += 1
+        unless @consume_rate.zero?
+          sleep 1.0 / @consume_rate
         end
-    ch.prefetch @prefetch unless @prefetch.zero?
-    q.bind(@exchange, @routing_key) unless @exchange.empty?
-    Fiber.yield
-    q.subscribe(tag: "c", no_ack: @no_ack, block: true) do |m|
-      m.ack unless @no_ack
-      @consumes += 1
-      ch.basic_cancel("c", no_wait: true) if @stopped
-      unless @consume_rate.zero?
-        sleep 1.0 / @consume_rate
       end
+      until @stopped
+        sleep 1
+      end
+      ch.basic_cancel("c", no_wait: true)
     end
+  ensure
     done.send nil
-    a.close
   end
 end
 
