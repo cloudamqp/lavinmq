@@ -23,6 +23,35 @@ module AvalancheMQ
             page(context, itr)
           end
         end
+
+        delete "/api/consumers/:vhost/:connection/:channel/:consumer_tag" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
+            consumer_tag = URI.decode_www_form(params["consumer_tag"])
+            conn_id = URI.decode_www_form(params["connection"])
+            ch_id = URI.decode_www_form(params["channel"]).to_i
+            connection = connections(user).find { |conn| conn.vhost.name == vhost && conn.name == conn_id }
+            unless connection
+              context.response.status_code = 404
+              break
+            end
+            channel = connection.channels[ch_id]?
+            unless channel
+              context.response.status_code = 404
+              break
+            end
+            consumer = channel.consumers.find { |c| c.tag == consumer_tag }
+            unless consumer
+              context.response.status_code = 404
+              break
+            end
+            consumer.queue.rm_consumer(consumer)
+            consumer.cancel
+            context.response.status_code = 204
+          end
+          context
+        end
       end
 
       private def all_consumers(user)
