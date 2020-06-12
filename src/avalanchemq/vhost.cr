@@ -110,14 +110,14 @@ module AvalancheMQ
     # False if no queue was able to receive the message because they're
     # closed
     def publish(msg : Message, immediate = false,
-                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool?
-      ex = @exchanges[msg.exchange_name]? || return
+                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
+      ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       unless ex.persistent?
-        return if found_queues.empty?
-        return if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+        return false if found_queues.empty?
+        return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       end
       sp = @write_lock.synchronize do
         write_to_disk(msg)
@@ -157,7 +157,10 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
-      ex.queue_matches(routing_key, headers) { |q| queues << q }
+      ex.queue_matches(routing_key, headers) do |q|
+        next if q.internal?
+        queues << q
+      end
 
       visited.add(ex)
       ex.exchange_matches(routing_key, headers) do |e2e|

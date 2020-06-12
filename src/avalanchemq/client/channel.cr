@@ -109,9 +109,14 @@ module AvalancheMQ
         @next_publish_routing_key = frame.routing_key
         @next_publish_mandatory = frame.mandatory
         @next_publish_immediate = frame.immediate
-        unless @client.vhost.exchanges[@next_publish_exchange_name]?
+        ex = @client.vhost.exchanges[@next_publish_exchange_name]?
+        unless ex
           msg = "No exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}'"
           @client.send_not_found(frame, msg)
+        end
+        if ex && ex.internal
+          msg = "Exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}' is internal"
+          @client.send_access_refused(frame, msg)
         end
       end
 
@@ -267,6 +272,10 @@ module AvalancheMQ
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
         elsif q = @client.vhost.queues[frame.queue]? || nil
+          if q.internal?
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
+            return
+          end
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
             return

@@ -84,7 +84,10 @@ module AvalancheMQ
               access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
             end
             if context.request.query_params["if-unused"]? == "true"
-              bad_request(context, "Exchange #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
+              bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
+            end
+            if q.internal?
+              bad_request(context, "Not allowed to delete internal queue")
             end
             @amqp_server.vhosts[vhost].delete_queue(q.name)
             context.response.status_code = 204
@@ -120,6 +123,9 @@ module AvalancheMQ
             q = queue(context, params, vhost)
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
+            end
+            if q.internal?
+              bad_request(context, "Not allowed to get from internal queue")
             end
             body = parse_body(context)
             get_count = body["count"]?.try(&.as_i) || 1

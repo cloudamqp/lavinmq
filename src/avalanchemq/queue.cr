@@ -42,13 +42,15 @@ module AvalancheMQ
     @sp_counter : SafeReferenceCounter(SegmentPosition)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
+    @internal = false
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
 
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers
     getter policy : Policy?
-    getter? closed
+    getter? closed, internal
+    setter internal
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
