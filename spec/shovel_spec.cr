@@ -82,7 +82,11 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
       shovel.run
       x.publish_confirm "shovel me", "sf_q1"
-      rmsg = q2.get(no_ack: true)
+      rmsg = 10.times do
+        msg = q2.get(no_ack: true)
+        break msg if msg
+        sleep 0.1
+      end
       rmsg.not_nil!.body_io.to_s.should eq "shovel me"
     end
   ensure
