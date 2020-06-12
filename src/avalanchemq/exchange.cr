@@ -3,6 +3,7 @@ require "./policy"
 require "./stats"
 require "./amqp"
 require "./queue"
+require "./persistent_exchange_queue"
 require "./sortable_json"
 
 module AvalancheMQ
@@ -19,6 +20,7 @@ module AvalancheMQ
 
     @alternate_exchange : String?
     @persist_messages : ArgumentNumber?
+    @persistent_queue : PersistentExchangeQueue?
     @log : Logger
 
     rate_stats(%w(publish_in publish_out))
@@ -33,41 +35,9 @@ module AvalancheMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
-      @message_store = Array(SegmentPosition).new
       @log = @vhost.log.dup
       @log.progname += " exchange=#{@name}"
       handle_arguments
-      init_message_store if persistent?
-    end
-
-    private def message_store_path
-      File.join(@vhost.data_dir, "#{name}.persisted")
-    end
-
-    private def init_message_store
-      path = message_store_path
-      @log.debug { "Recover #{name} from #{path}" }
-      return unless File.exists? path
-      File.open(path, "r") do |f|
-        n = f.peek.not_nil!.size
-        while n > 0
-          @message_store << SegmentPosition.from_io(f)
-          n = f.peek.not_nil!.size
-        end
-      end
-      @log.info { "Recovered #{@message_store.size} messages for persistent exchange #{name}" }
-    end
-
-    private def write_message_store!
-      path = message_store_path
-      @log.info { "Persisting #{@message_store.size} messages for exchange #{name} to #{path}" }
-      File.open(path, "a+") do |f|
-        f.truncate
-        @message_store.each do |sp|
-          sp.to_io(f, IO::ByteFormat::SystemEndian)
-        end
-        f.fsync
-      end
     end
 
     def apply_policy(policy : Policy)
@@ -91,6 +61,11 @@ module AvalancheMQ
     def handle_arguments
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
       @persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
+      if persistent?
+        q_name = "amq.persistent.#{@name}"
+        @vhost.queues[q_name] ||= PersistentExchangeQueue.new(@vhost, q_name)
+        @persistent_queue = @vhost.queues[q_name]
+      end
     end
 
     def details_tuple
@@ -155,38 +130,29 @@ module AvalancheMQ
     end
 
     def persistent?
-      !@persist_messages.nil?
+      !@persistent_queue.nil?
     end
 
-    def persist(sp : SegmentPosition)
+    def persist(sp : SegmentPosition, flush : Bool)
       return unless persistent?
-      if @message_store.size >= @persist_messages.not_nil!
-        @message_store.shift
-      end
-      @message_store.push(sp)
-    end
-
-    def referenced_segments(set) : Nil
-      @message_store.each do |sp|
-        set << sp.segment
-      end
-    end
-
-    def close
-      return unless persistent?
-      write_message_store!
+      @persistent_queue.publish(sp, flush)
     end
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
-      return true if !persistent? || headers.nil? || headers.not_nil!.empty? || @message_store.empty?
+      return true if !persistent? || headers.nil? || headers.not_nil!.empty? || @persistent_queue.empty?
       if head = headers.not_nil!["x-head"]?.try &.as?(ArgumentNumber)
-        head = [head, @message_store.size].min
-        @log.debug { "after_bind replaying persited message from head-#{head}, total_peristed: #{@message_store.size}" }
+        persisted = @persistent_queue.message_count
+        head = [head, persisted].min
+        @log.debug { "after_bind replaying persited message from head-#{head}, total_peristed: #{persisted}" }
         while head > 0
-          i = @message_store.size - head
+          i = persisted - head
           case destination
           when Queue
-            @vhost.replay_persited_to_queue(@message_store[i], self, destination)
+            sp = @persistent_queue.peek
+            next if destination.includes_segment_position?(sp)
+            next unless destination.publish(sp)
+            publish_out_count += 1
+            @vhost.sp_counter.inc(sp)
           when Exchange
             # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
           end

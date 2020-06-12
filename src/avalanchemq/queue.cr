@@ -60,7 +60,9 @@ module AvalancheMQ
       @log.progname += " queue=#{@name}"
       @sp_counter = @vhost.sp_counter
       handle_arguments
-      spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+      unless @internal
+        spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
+      end
     end
 
     def inspect(io : IO)

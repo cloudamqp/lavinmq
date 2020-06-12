@@ -125,7 +125,7 @@ module AvalancheMQ
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
       if ex.persistent?
-        ex.persist(sp) # todo respect flush?
+        ex.persist(sp, flush)
         ok += 1
       end
       found_queues.each do |q|
@@ -144,13 +144,6 @@ module AvalancheMQ
     ensure
       visited.clear
       found_queues.clear
-    end
-
-    def replay_persited_to_queue(sp, ex, q)
-      return if q.includes_segment_position?(sp)
-      return unless q.publish(sp)
-      ex.publish_out_count += 1
-      @sp_counter.inc(sp)
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
