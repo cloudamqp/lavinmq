@@ -130,7 +130,6 @@ module AvalancheMQ
             ack = ack_mode.starts_with?(/(ack_|get)/)
             JSON.build(context.response) do |j|
               j.array do
-
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
                   q.basic_get(false) do |env|

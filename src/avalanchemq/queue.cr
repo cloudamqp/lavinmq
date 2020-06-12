@@ -12,7 +12,7 @@ require "./queue/unacked"
 
 module AvalancheMQ
   class Queue
-    ByteFormat = Config.instance.byte_format
+    BYTE_FORMAT = Config.instance.byte_format
 
     include PolicyTarget
     include Observable
@@ -392,11 +392,11 @@ module AvalancheMQ
           seg.seek(sp.position, IO::Seek::Set)
           @segment_pos = sp.position
         end
-        ts = Int64.from_io seg, ByteFormat
-        ex = AMQP::ShortString.from_io seg, ByteFormat
-        rk = AMQP::ShortString.from_io seg, ByteFormat
-        pr = AMQP::Properties.from_io seg, ByteFormat
-        sz = UInt64.from_io seg, ByteFormat
+        ts = Int64.from_io seg, BYTE_FORMAT
+        ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        pr = AMQP::Properties.from_io seg, BYTE_FORMAT
+        sz = UInt64.from_io seg, BYTE_FORMAT
         meta = MessageMetadata.new(ts, ex, rk, pr, sz)
         @segment_pos = sp.position + meta.bytesize
         meta
@@ -596,11 +596,11 @@ module AvalancheMQ
           @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
           seg.seek(sp.position, IO::Seek::Set)
         end
-        ts = Int64.from_io seg, ByteFormat
-        ex = AMQP::ShortString.from_io seg, ByteFormat
-        rk = AMQP::ShortString.from_io seg, ByteFormat
-        pr = AMQP::Properties.from_io seg, ByteFormat
-        sz = UInt64.from_io seg, ByteFormat
+        ts = Int64.from_io seg, BYTE_FORMAT
+        ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
+        pr = AMQP::Properties.from_io seg, BYTE_FORMAT
+        sz = UInt64.from_io seg, BYTE_FORMAT
         msg = Message.new(ts, ex, rk, pr, sz, seg)
         redelivered = @requeued.includes?(sp)
         begin

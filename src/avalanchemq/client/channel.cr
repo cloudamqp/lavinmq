@@ -291,13 +291,15 @@ module AvalancheMQ
         if q = @client.vhost.queues.fetch(frame.queue, nil)
           if q.exclusive && !@client.exclusive_queues.includes? q
             @client.send_resource_locked(frame, "Exclusive queue")
+          elsif q.internal?
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           else
             q.basic_get(frame.no_ack) do |env|
               if env
                 persistent = env.message.properties.delivery_mode == 2_u8
                 delivery_tag = next_delivery_tag(q, env.segment_position,
-                                                 persistent, frame.no_ack,
-                                                 nil)
+                  persistent, frame.no_ack,
+                  nil)
                 get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                   env.redelivered, env.message.exchange_name,
                   env.message.routing_key, q.message_count)
