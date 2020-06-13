@@ -1,6 +1,10 @@
 lib LibC
   MS_ASYNC = 0x0001
-  MS_SYNC = 0x0004
+  {% if flag?(:linux) %}
+    MS_SYNC = 0x0004
+  {% else %}
+    MS_SYNC = 0x0010
+  {% end %}
   fun munmap(addr : Void*, len : SizeT) : Int
   fun msync(addr : Void*, len : SizeT, flags : Int) : Int
   fun truncate(path : Char*, len : OffT) : Int
@@ -8,10 +12,11 @@ end
 
 # Memory mapped file
 # Max 2GB files (Slice is currently limited to Int32)
-# Beware the file is truncated to its `capacity`, at graceful
-# close the file will be trunacted to `@size` which hte longest we've
-# written. But if there's a crash the file might be `@capacity` long,
-# and the end will just be 0's.
+# If no `capacity` is given the file is open in read only mode and
+# `capacity` is set to the current file size.
+# If the process crashes the file will be `capacity` large,
+# not `size` large, only on graceful close is the file truncated to its `size`.
+# The file does not expand further than initial `capacity`.
 class MFile < IO
   property pos = 0
   getter? closed = false
@@ -89,27 +94,20 @@ class MFile < IO
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
   end
 
-  @synced_pos = 0
-
-  def flush(from = @synced_pos, to = @pos)
-    async(from, to)
+  def flush
+    async
   end
 
-  def fsync(from = @synced_pos, to = @pos)
-    sync(from, to)
+  def fsync
+    sync
   end
 
-  def async(from = @synced_pos, to = @pos)
-    addr = @buffer + from
-    len = to - from
-    msync(addr.to_unsafe, len, LibC::MS_ASYNC)
+  def async
+    msync(@buffer.to_unsafe, @pos, LibC::MS_ASYNC)
   end
 
-  def sync(from = @synced_pos, to = @pos)
-    addr = @buffer + from
-    len = to - from
-    msync(addr.to_unsafe, len, LibC::MS_SYNC)
-    @synced_pos = @pos
+  def sync
+    msync(@buffer.to_unsafe, @pos, LibC::MS_SYNC)
   end
 
   private def msync(addr, len, flag) : Nil
