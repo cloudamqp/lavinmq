@@ -95,18 +95,10 @@ class MFile < IO
   end
 
   def flush
-    async
-  end
-
-  def fsync
-    sync
-  end
-
-  def async
     msync(@buffer.to_unsafe, @pos, LibC::MS_ASYNC)
   end
 
-  def sync
+  def fsync
     msync(@buffer.to_unsafe, @pos, LibC::MS_SYNC)
   end
 
