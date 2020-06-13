@@ -129,6 +129,19 @@ module AvalancheMQ
       end
     end
 
+    def referenced_segments(set)
+      @lock.synchronize do
+        prev = nil
+        @counter.each do |sp, v|
+          next if v.zero?
+          if sp.segment != prev
+            set << sp.segment
+            prev = sp.segment
+          end
+        end
+      end
+    end
+
     def size
       @counter.size
     end

@@ -198,14 +198,6 @@ Signal::USR1.trap do
 end
 
 Signal::USR2.trap do
-  STDOUT.puts "Closing segments"
-  STDOUT.flush
-  amqp_server.vhosts.each_value do |vh|
-    vh.queues.each_value do |q|
-      q.close_segments
-    end
-  end
-
   STDOUT.puts "Garbage collecting"
   STDOUT.flush
   GC.collect

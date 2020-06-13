@@ -649,9 +649,7 @@ module AvalancheMQ
 
     private def collect_used_segments
       @referenced_segments << @segment
-      @queues.each_value do |q|
-        q.referenced_segments(@referenced_segments)
-      end
+      @sp_counter.referenced_segments(@referenced_segments)
       @log.debug { "#{@referenced_segments.size} segments in use" }
     end
 

@@ -166,28 +166,6 @@ module AvalancheMQ
       @consumers.size.to_u32
     end
 
-    def referenced_segments(set) : Nil
-      prev = nil
-      @unacked.each_sp do |sp|
-        if sp.segment != prev
-          set << sp.segment
-          prev = sp.segment
-        end
-      end
-      @ready.each do |sp|
-        if sp.segment != prev
-          set << sp.segment
-          prev = sp.segment
-        end
-      end
-    end
-
-    def close_segments
-      @read_lock.synchronize do
-        @segment_file.try &.close
-      end
-    end
-
     private def deliver_loop
       i = 0
       loop do
