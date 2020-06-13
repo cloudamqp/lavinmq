@@ -596,7 +596,7 @@ module AvalancheMQ
         end
       end
       segments.sort!
-      segments << 0_u32 if segments.empty?
+      segments << 1_u32 if segments.empty?
       Deque(UInt32).new(segments)
     end
 
