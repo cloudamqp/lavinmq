@@ -6,6 +6,16 @@ addons:
   apt:
     packages:
     - libsystemd-dev
+    - gcc
+    - pkg-config
+    - git
+    - tzdata
+    - libpcre3-dev
+    - libevent-dev
+    - libyaml-dev
+    - libgmp-dev
+    - libssl-dev
+    - libxml2-dev
 before_install:
   - uname -a
   - ldd --version
