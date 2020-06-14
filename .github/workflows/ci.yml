@@ -19,5 +19,7 @@ jobs:
         run: shards install
       - name: Spec
         run: crystal spec --no-color
-      - name: Lint
-        run: bin/ameba
+      - name: Crystal Ameba Linter
+        uses: crystal-ameba/github-action@v0.2.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
