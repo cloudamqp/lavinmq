@@ -2,21 +2,32 @@ module AvalancheMQ
   struct SegmentPosition
     include Comparable(self)
 
-    getter segment, position
-    def_equals_and_hash @segment, @position
+    @segment : UInt32
+    @position : UInt32
+    @timestamp : UInt64
+
+    getter segment, position, timestamp
+    def_equals_and_hash @segment, @position, @timestamp
 
     def initialize(@segment : UInt32, @position : UInt32)
+      @timestamp = 0
+    end
+
+    def initialize(@segment : UInt32, @position : UInt32, @timestamp : UInt64)
     end
 
     def to_io(io : IO, format)
-      buf = uninitialized UInt8[8]
+      buf = uninitialized UInt8[sizeof(SegmentPosition)]
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])
+      format.encode(@timestamp, slice[8, 8])
       io.write(slice)
     end
 
     def <=>(other : self)
+      r = timestamp <=> other.timestamp
+      return r unless r.zero?
       r = segment <=> other.segment
       return r unless r.zero?
       position <=> other.position
@@ -25,7 +36,8 @@ module AvalancheMQ
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
       seg = UInt32.from_io(io, format)
       pos = UInt32.from_io(io, format)
-      self.new(seg, pos)
+      ts = UInt64.from_io(io, format)
+      self.new(seg, pos, ts)
     end
 
     def self.from_i64(i : Int64)
@@ -37,6 +49,7 @@ module AvalancheMQ
     def to_s(io : IO)
       io << @segment.to_s.rjust(10, '0')
       io << @position.to_s.rjust(10, '0')
+      io << @timestamp.to_s.rjust(20, '0')
     end
 
     def to_i64
@@ -44,10 +57,11 @@ module AvalancheMQ
     end
 
     def self.parse(s)
-      raise ArgumentError.new("A SegmentPosition string has to be 20 chars long") if s.bytesize != 20
+      raise ArgumentError.new("A SegmentPosition string has to be 40 chars long") if s.bytesize != 40
       seg = s[0, 10].to_u32
       pos = s[10, 10].to_u32
-      self.new seg, pos
+      ts = s[20, 20].to_u64
+      self.new seg, pos, ts
     end
   end
 end
