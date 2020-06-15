@@ -12,8 +12,8 @@ jobs:
       - name: Install Crystal
         uses: MeilCli/setup-crystal-action@v3.0.0
         with:
-          crystal_version: 0.34.0
-          shards_version: 0.10.0
+          crystal_version: 0.35.0
+          shards_version: 0.11.1
 
       - name: Install dependencies
         run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian
