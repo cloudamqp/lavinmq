@@ -77,8 +77,13 @@ module AvalancheMQ
       # returns SPs in the deque after the operation
       def insert(sp : SegmentPosition)
         @lock.synchronize do
-          i = @ready.bsearch_index { |rsp| rsp > sp } || 0
-          @ready.insert(i, sp)
+          i = @ready.bsearch_index { |rsp| rsp > sp }
+          puts "i=#{i} for #{sp}"
+          if i.nil?
+            @ready.push(sp)
+          else
+            @ready.insert(i, sp)
+          end
           @ready.size
         end
       end
@@ -87,8 +92,12 @@ module AvalancheMQ
       def insert(sps : Enumerable(SegmentPosition))
         @lock.synchronize do
           sps.reverse_each do |sp|
-            i = @ready.bsearch_index { |rsp| rsp > sp } || 0
-            @ready.insert(i, sp)
+            i = @ready.bsearch_index { |rsp| rsp > sp }
+            if i.nil?
+              @ready.push(sp)
+            else
+              @ready.insert(i, sp)
+            end
           end
           @ready.size
         end
@@ -168,6 +177,12 @@ module AvalancheMQ
             set << sp
           end
         end
+      end
+    end
+
+    class SortedReadyQueue < ReadyQueue
+      def push(sp : SegmentPosition) : Int32
+        insert(sp)
       end
     end
   end
