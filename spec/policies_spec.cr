@@ -89,19 +89,19 @@ describe AvalancheMQ::VHost do
   it "should apply message TTL policy on existing queue" do
     definitions = {"message-ttl" => JSON::Any.new(0_i64)} of String => JSON::Any
     with_channel do |ch|
-      q = ch.queue("ttl")
+      q = ch.queue("policy-ttl")
       10.times do
         q.publish_confirm "body"
       end
-      ch.queue_declare("ttl", passive: true)[:message_count].should eq 10
+      ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 10
       s.vhosts["/"].add_policy("ttl", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
       sleep 0.01
-      ch.queue_declare("ttl", passive: true)[:message_count].should eq 0
+      ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 0
       s.vhosts["/"].delete_policy("ttl")
     end
   ensure
     s.vhosts["/"].delete_policy("ttl")
-    vhost.delete_queue("ttl")
+    vhost.delete_queue("policy-ttl")
   end
 
   it "should apply queue TTL policy on existing queue" do
