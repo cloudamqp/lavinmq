@@ -49,7 +49,7 @@ module TestHelpers
     ch = conn.channel
     yield ch
   ensure
-    conn.try &.close(wait_for_ok: true)
+    conn.try &.close(no_wait: false)
   end
 
   def with_ssl_channel(**args)
