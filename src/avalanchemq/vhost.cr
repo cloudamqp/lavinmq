@@ -657,13 +657,15 @@ module AvalancheMQ
       @log.debug "Garbage collecting segments"
 
       deleted_bytes = 0_u64
-      @log.debug { "segments on_disk=#{@segments_on_disk} referecned=#{@referenced_segments}" }
+      @log.debug { "segments on_disk=#{@segments_on_disk} referenced=#{@referenced_segments}" }
       @segments_on_disk.delete_if do |seg|
         unless @referenced_segments.includes? seg
           @log.debug { "Deleting segment #{seg}" }
           filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-          deleted_bytes += File.size(File.join(@data_dir, filename))
-          File.delete File.join(@data_dir, filename)
+          file = File.join(@data_dir, filename)
+          next unless File.exists? file
+          deleted_bytes += File.size file
+          File.delete file
           true
         end
       end
