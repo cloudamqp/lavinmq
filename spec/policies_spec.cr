@@ -17,15 +17,15 @@ describe AvalancheMQ::VHost do
   end
 
   it "should remove policy from resource when deleted" do
-    vhost.queues["test"] = AvalancheMQ::Queue.new(vhost, "test")
+    vhost.queues["test1"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
     sleep 0.01
-    vhost.queues["test"].policy.try(&.name).should eq "test"
+    vhost.queues["test1"].policy.try(&.name).should eq "test"
     vhost.delete_policy("test")
     sleep 0.01
-    vhost.queues["test"].policy.should be_nil
+    vhost.queues["test1"].policy.should be_nil
   ensure
-    vhost.delete_queue("test")
+    vhost.delete_queue("test1")
   end
 
   it "should be able to list policies" do

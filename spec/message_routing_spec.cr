@@ -168,32 +168,45 @@ describe AvalancheMQ::HeadersExchange do
 
   describe "match all" do
     it "should match if same args" do
+      x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
       q6 = AvalancheMQ::Queue.new(vhost, "q6")
       x.bind(q6, "", hdrs_all)
       x.matches("", hdrs_all).should eq(Set{q6})
+    ensure
+      vhost.delete_queue("q6")
+      vhost.delete_exchange("h")
     end
 
     it "should not match if not all args are the same" do
+      x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
       q7 = AvalancheMQ::Queue.new(vhost, "q7")
       x.bind(q7, "", hdrs_all)
       msg_hdrs = hdrs_all.dup
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
       x.matches("", msg_hdrs).size.should eq 0
+    ensure
+      vhost.delete_queue("q7")
+      vhost.delete_exchange("h")
     end
   end
 
   describe "match any" do
     it "should match if any args are the same" do
+      x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
       q8 = AvalancheMQ::Queue.new(vhost, "q8")
       x.bind(q8, "", hdrs_any)
       msg_hdrs = hdrs_any.dup
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
       x.matches("", msg_hdrs).should eq(Set{q8})
+    ensure
+      vhost.delete_queue("q8")
+      vhost.delete_exchange("h")
     end
 
     it "should not match if no args are the same" do
+      x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
       q9 = AvalancheMQ::Queue.new(vhost, "q9")
       x.bind(q9, "", hdrs_any)
       msg_hdrs = hdrs_any.dup
@@ -201,6 +214,9 @@ describe AvalancheMQ::HeadersExchange do
       msg_hdrs["org"] = "google"
       msg_hdrs["user"] = "hest"
       x.matches("", msg_hdrs).size.should eq 0
+    ensure
+      vhost.delete_queue("q9")
+      vhost.delete_exchange("h")
     end
   end
 
