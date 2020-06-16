@@ -3,6 +3,7 @@ require "./stdlib/*"
 require "option_parser"
 require "amqp-client"
 require "benchmark"
+require "json"
 
 class Perf
   @uri = "amqp://guest:guest@localhost"
@@ -38,6 +39,11 @@ class Throughput < Perf
   @confirm = false
   @persistent = false
   @prefetch = 0_u32
+  @quiet = false
+  @json_output = false
+  @timeout = Time::Span.zero
+  @pmessages = 0
+  @cmessages = 0
 
   def initialize
     super
@@ -78,6 +84,21 @@ class Throughput < Perf
     @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
       @prefetch = v.to_u32
     end
+    @parser.on("-j", "--json", "Output result as JSON") do
+      @json_output = true
+    end
+    @parser.on("-z seconds", "--time=seconds", "Only run for X seconds") do |v|
+      @timeout = Time::Span.new(seconds: v.to_i)
+    end
+    @parser.on("-q", "--quiet", "Quiet, only print the summary") do
+      @quiet = true
+    end
+    @parser.on("-C messages", "--pmessages=messages", "Publish max X number of messages") do |v|
+      @pmessages = v.to_i
+    end
+    @parser.on("-D messages", "--cmessages=messages", "Consume max X number of messages") do |v|
+      @cmessages = v.to_i
+    end
   end
 
   @pubs = 0_u64
@@ -96,33 +117,65 @@ class Throughput < Perf
       spawn pub(done)
     end
 
+    if @timeout != Time::Span.zero
+      spawn do
+        sleep @timeout
+        @stopped = true
+      end
+    end
+
     Fiber.yield # wait for all clients to connect
     start = Time.monotonic
     Signal::INT.trap do
       abort "Aborting" if @stopped
       @stopped = true
-      (@publishers + @consumers).times { done.receive }
-      stop = Time.monotonic
-      elapsed = (stop - start).total_seconds
-
-      print "\nSummary:\n"
-      print "Average publish rate: "
-      print (@pubs / elapsed).round(1)
-      print " msgs/s\n"
-      print "Average consume rate: "
-      print (@consumes / elapsed).round(1)
-      print " msgs/s\n"
+      summary(start, done)
       exit 0
     end
 
+    spawn do
+      (@publishers + @consumers).times { done.receive }
+      @stopped = true
+    end
+
     loop do
+      break if @stopped
       pubs_last = @pubs
       consumes_last = @consumes
       sleep 1
-      print "Publish rate: "
-      print @pubs - pubs_last
-      print " msgs/s Consume rate: "
-      print @consumes - consumes_last
+      unless @quiet
+        print "Publish rate: "
+        print @pubs - pubs_last
+        print " msgs/s Consume rate: "
+        print @consumes - consumes_last
+        print " msgs/s\n"
+      end
+    end
+    summary(start, done)
+  end
+
+  private def summary(start : Time::Span, done)
+    stop = Time.monotonic
+    elapsed = (stop - start).total_seconds
+    avg_pub = (@pubs / elapsed).round(1)
+    avg_consume = (@consumes / elapsed).round(1)
+    if @json_output
+      print "\n"
+      JSON.build(STDOUT) do |json|
+        json.object do
+          json.field "elapsed_seconds", elapsed
+          json.field "avg_pub_rate", avg_pub
+          json.field "avg_consume_rate", avg_consume
+        end
+      end
+      print "\n"
+    else
+      print "\nSummary:\n"
+      print "Average publish rate: "
+      print avg_pub
+      print " msgs/s\n"
+      print "Average consume rate: "
+      print avg_consume
       print " msgs/s\n"
     end
   end
@@ -132,6 +185,8 @@ class Throughput < Perf
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       Fiber.yield
+      start = Time.monotonic
+      pubs_this_second = 0
       until @stopped
         data.rewind
         if @confirm
@@ -140,8 +195,17 @@ class Throughput < Perf
           ch.basic_publish data, @exchange, @routing_key
         end
         @pubs += 1
+        break if @pubs == @pmessages
         unless @rate.zero?
-          sleep 1.0 / @rate
+          pubs_this_second += 1
+          if pubs_this_second >= @rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            pubs_this_second = 0
+          end
         end
       end
     end
@@ -161,17 +225,26 @@ class Throughput < Perf
       ch.prefetch @prefetch unless @prefetch.zero?
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
-      q.subscribe(tag: "c", no_ack: @no_ack) do |m|
+      consumes_this_second = 0
+      start = Time.monotonic
+      q.subscribe(tag: "c", no_ack: @no_ack, block: true) do |m|
         m.ack unless @no_ack
         @consumes += 1
+        if @stopped || @consumes == @cmessages
+          ch.basic_cancel("c")
+        end
         unless @consume_rate.zero?
-          sleep 1.0 / @consume_rate
+          consumes_this_second += 1
+          if consumes_this_second >= @consume_rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            consumes_this_second = 0
+          end
         end
       end
-      until @stopped
-        sleep 1
-      end
-      ch.basic_cancel("c", no_wait: true)
     end
   ensure
     done.send nil
