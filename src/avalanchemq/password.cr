@@ -37,7 +37,7 @@ module AvalancheMQ
         dgst = OpenSSL::Digest.new(hash_algorithm)
         dgst.update @salt
         dgst.update password
-        Crypto::Subtle.constant_time_compare(@hash, dgst.digest)
+        Crypto::Subtle.constant_time_compare(@hash, dgst.final)
       end
 
       def to_s(io)
