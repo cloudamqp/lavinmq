@@ -320,8 +320,8 @@ module AvalancheMQ
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
           @exchanges.each_value do |ex|
-            ex.queue_bindings.each_value do |destinations|
-              destinations.delete q
+            ex.queue_bindings.each do |binding_args, destinations|
+              ex.unbind(q, *binding_args) if destinations.includes?(q)
             end
           end
           q.delete
