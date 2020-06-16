@@ -49,7 +49,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
                 "vhost", "user", "protocol", "auth_mechanism", "host", "port", "name", "ssl",
                 "state"]
         val = body.as_a.last
-        keys.each { |k| val.as_h.keys.should contain(k) } 
+        keys.each { |k| val.as_h.keys.should contain(k) }
       end
     end
 
