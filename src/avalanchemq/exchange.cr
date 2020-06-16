@@ -81,8 +81,6 @@ module AvalancheMQ
         TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "headers"
         HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      when "x-delayed-message"
-        DelayedMessageExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise "Cannot make exchange type #{type}"
       end
     end
@@ -204,8 +202,8 @@ module AvalancheMQ
 
     private def after_unbind
       if @auto_delete &&
-         @queue_bindings.each_value.all? &.empty? &&
-         @exchange_bindings.each_value.all? &.empty?
+          @queue_bindings.each_value.all? &.empty? &&
+          @exchange_bindings.each_value.all? &.empty?
         delete
       end
     end
@@ -519,47 +517,6 @@ module AvalancheMQ
           end
         end
       end
-    end
-  end
-
-  class DelayedMessageExchange < Exchange
-    @wrapped_exchange : Exchange
-
-    def type : String
-      "x-delayed-message"
-    end
-
-    def initialize(*args)
-      super(*args)
-
-      wrapped_exchange_type = @arguments["x-delayed-type"]?.try &.to_s
-      raise "Missing x-delayed-type" if wrapped_exchange_type.nil?
-
-      wrapped_arguments = Hash(String, AMQP::Field).new
-      wrapped_arguments.merge(@arguments)
-      wrapped_arguments.delete("x-delayed-type")
-
-      @wrapped_exchange = Exchange.make(@vhost, name, wrapped_exchange_type,
-                                        false, false, true, wrapped_arguments)
-    end
-
-    def binding_details
-      @wrapped_exchange.bindings_details
-    end
-
-    def bind(destination, routing_key, headers = nil)
-      @wrapped_exchange.bind(destination, routing_key, headers)
-    end
-
-    def unbind(destination, routing_key, headers = nil)
-      @wrapped_exchange.unbind(destination, routing_key, headers)
-    end
-
-    def queue_matches(routing_key, headers = nil, &blk : Queue ->)
-      @wrapped_exchange.queue_matches(routing_key, headers, &blk)
-    end
-
-    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
     end
   end
 end
