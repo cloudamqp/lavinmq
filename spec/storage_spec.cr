@@ -73,7 +73,7 @@ describe AvalancheMQ::VHost do
     body = Bytes.new(msg_size)
 
     segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
-    sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.1
+    sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.2
 
     size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
 
@@ -89,7 +89,7 @@ describe AvalancheMQ::VHost do
       ch.wait_for_confirm(msgid)
       segments.call.size.should eq 2
       q.purge
-      sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.2
+      sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.4
       segments.call.size.should eq 1
     end
   end
