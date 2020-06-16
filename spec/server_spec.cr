@@ -182,7 +182,7 @@ describe AvalancheMQ::Server do
       q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "100")
       sleep 0.05
       q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "100")
-      sleep 0.20
+      sleep 0.5
       msg = q.get(no_ack: true)
       msg.should be_nil
     end
