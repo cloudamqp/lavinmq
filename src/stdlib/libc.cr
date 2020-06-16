@@ -57,7 +57,7 @@ lib LibC
 end
 
 lib LibC
-  {% if flag?(:linux) && compare_versions(`ldd --version | awk '/GLIBC/ { print $5 }'`.chomp + ".0", "2.27.0") >= 0 %}
+  {% if flag?(:linux) && compare_versions(`ldd --version | awk '/GLIBC/ { print $NF }'`.chomp + ".0", "2.27.0") >= 0 %}
     fun copy_file_range(fd_in : Int, offset_in : OffT*, fd_out : Int, offset_out : OffT*, len : SizeT, flags : UInt) : Int
   {% end %}
 end
