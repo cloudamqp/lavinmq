@@ -45,10 +45,11 @@ module TestHelpers
   end
 
   def with_channel(**args)
-    AMQP::Client.start(**args.merge(port: AMQP_PORT)) do |conn|
-      ch = conn.channel
-      yield ch
-    end
+    conn = AMQP::Client.new(**args.merge(port: AMQP_PORT)).connect
+    ch = conn.channel
+    yield ch
+  ensure
+    conn.try &.close(wait_for_ok: true)
   end
 
   def with_ssl_channel(**args)
