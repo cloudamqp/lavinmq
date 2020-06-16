@@ -222,22 +222,26 @@ describe AvalancheMQ::HeadersExchange do
 
   it "should handle multiple bindings" do
     q10 = AvalancheMQ::Queue.new(vhost, "q10")
-    hx = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
+    x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
     hdrs1 = {"x-match" => "any", "org" => "84codes",
              "user" => "test"} of String => AvalancheMQ::AMQP::Field
     hdrs2 = {"x-match" => "all", "org" => "google",
              "user" => "test"} of String => AvalancheMQ::AMQP::Field
 
-    hx.bind(q10, "", hdrs1)
-    hx.bind(q10, "", hdrs2)
+    x.bind(q10, "", hdrs1)
+    x.bind(q10, "", hdrs2)
     hdrs1.delete "x-match"
     hdrs2.delete "x-match"
-    hx.matches("", hdrs1).should eq Set{q10}
-    hx.matches("", hdrs2).should eq Set{q10}
+    x.matches("", hdrs1).should eq Set{q10}
+    x.matches("", hdrs2).should eq Set{q10}
+  ensure
+    vhost.delete_queue("q10")
+    vhost.delete_exchange("h")
   end
 
   it "should handle all Field types" do
     q11 = AvalancheMQ::Queue.new(vhost, "q11")
+    x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
     hsh = {"k" => "v"} of String => AvalancheMQ::AMQP::Field
     arrf = [1] of AvalancheMQ::AMQP::Field
     arru = [1_u8] of AvalancheMQ::AMQP::Field
@@ -249,23 +253,33 @@ describe AvalancheMQ::HeadersExchange do
     } of String => AvalancheMQ::AMQP::Field
     x.bind(q11, "", hdrs)
     x.matches("", hdrs).should eq Set{q11}
+  ensure
+    vhost.delete_queue("q11")
+    vhost.delete_exchange("h")
   end
 
   it "should handle unbind" do
     q12 = AvalancheMQ::Queue.new(vhost, "q12")
-    hx = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
+    x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
     hdrs1 = {"x-match" => "any", "org" => "84codes",
              "user" => "test"} of String => AvalancheMQ::AMQP::Field
-    hx.bind(q12, "", hdrs1)
-    hx.unbind(q12, "", hdrs1)
-    hx.matches("", hdrs1).size.should eq 0
+    x.bind(q12, "", hdrs1)
+    x.unbind(q12, "", hdrs1)
+    x.matches("", hdrs1).size.should eq 0
+  ensure
+    vhost.delete_queue("q12")
+    vhost.delete_exchange("h")
   end
 
   describe "match empty" do
     it "should match if both args and headers are empty" do
+      x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
       q13 = AvalancheMQ::Queue.new(vhost, "q13")
       x.bind(q13, "", nil)
       x.matches("", nil).size.should eq 1
+    ensure
+      vhost.delete_queue("q13")
+      vhost.delete_exchange("h")
     end
   end
 end
