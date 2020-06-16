@@ -657,6 +657,7 @@ module AvalancheMQ
       @log.debug "Garbage collecting segments"
 
       deleted_bytes = 0_u64
+      @log.debug { "segments on_disk=#{@segments_on_disk} referecned=#{@referenced_segments}" }
       @segments_on_disk.delete_if do |seg|
         unless @referenced_segments.includes? seg
           @log.debug { "Deleting segment #{seg}" }

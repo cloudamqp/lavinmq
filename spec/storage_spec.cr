@@ -30,6 +30,8 @@ describe AvalancheMQ::DurableQueue do
           q.unsubscribe("tag")
         end
       end
+    ensure
+      ch.queue_delete "d"
     end
   end
 
