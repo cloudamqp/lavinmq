@@ -61,10 +61,14 @@ module AvalancheMQ
     def handle_arguments
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
       @persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
-      if persistent?
-        q_name = "amq.persistent.#{@name}"
-        @vhost.queues[q_name] ||= PersistentExchangeQueue.new(@vhost, q_name)
-        @persistent_queue = @vhost.queues[q_name]
+      @persist_messages.try do |pm|
+        if  pm > 0
+          q_name = "amq.persistent.#{@name}"
+          unless @vhost.queues.has_key? q_name
+            @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name)
+            @vhost.queues[q_name] =  @persistent_queue.not_nil!
+          end
+        end
       end
     end
 
@@ -133,30 +137,22 @@ module AvalancheMQ
       !@persistent_queue.nil?
     end
 
-    def persist(sp : SegmentPosition, flush : Bool)
-      return unless persistent?
-      @persistent_queue.publish(sp, flush)
-    end
-
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
-      return true if !persistent? || headers.nil? || headers.not_nil!.empty? || @persistent_queue.empty?
+      return true if !persistent? || headers.nil? || headers.not_nil!.empty? || @persistent_queue.not_nil!.empty?
       if head = headers.not_nil!["x-head"]?.try &.as?(ArgumentNumber)
-        persisted = @persistent_queue.message_count
-        head = [head, persisted].min
+        pq = @persistent_queue.not_nil!
+        persisted = pq.message_count
         @log.debug { "after_bind replaying persited message from head-#{head}, total_peristed: #{persisted}" }
-        while head > 0
-          i = persisted - head
-          case destination
-          when Queue
-            sp = @persistent_queue.peek
-            next if destination.includes_segment_position?(sp)
+        case destination
+        when Queue
+          pq.peek(head) do |sp|
+            # next if destination.includes_segment_position?(sp)
             next unless destination.publish(sp)
-            publish_out_count += 1
+            # publish_out_count += 1
             @vhost.sp_counter.inc(sp)
-          when Exchange
-            # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
           end
-          head -= 1
+        when Exchange
+          # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
         end
       end
       true
@@ -241,6 +237,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       @queue_bindings[{routing_key, nil}].each { |q| yield q }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -265,6 +262,7 @@ module AvalancheMQ
       if q = @vhost.queues[routing_key]?
         yield q
       end
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -299,6 +297,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       @queue_bindings.each_value { |s| s.each { |q| yield q } }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -347,6 +346,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       matches(@queue_binding_keys, routing_key, headers) { |q| yield q.as(Queue) }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)

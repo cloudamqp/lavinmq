@@ -2,6 +2,7 @@ require "./spec_helper"
 
 describe "Persistent Exchange" do
   x_name = "persistent-topic"
+  q_name = "amq.persistent.#{x_name}"
   it "retains 1 messages" do
     with_channel do |ch|
       x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})

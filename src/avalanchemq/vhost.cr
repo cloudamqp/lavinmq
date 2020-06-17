@@ -115,19 +115,13 @@ module AvalancheMQ
       ex.publish_in_count += 1
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
-      unless ex.persistent?
-        return false if found_queues.empty?
-        return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
-      end
+      return false if found_queues.empty?
+      return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
         write_to_disk(msg)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
-      if ex.persistent?
-        ex.persist(sp, flush)
-        ok += 1
-      end
       found_queues.each do |q|
         if q.publish(sp, flush)
           ex.publish_out_count += 1
@@ -151,7 +145,6 @@ module AvalancheMQ
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
       ex.queue_matches(routing_key, headers) do |q|
-        next if q.internal?
         queues << q
       end
 
