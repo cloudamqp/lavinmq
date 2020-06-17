@@ -92,7 +92,7 @@ lock.fsync
 
 
 backend = Log::IOBackend.new
-backend.formatter = -> (entry : Log::Entry, io : IO) do
+backend.formatter = Log::Formatter.new do |entry, io|
   if entry.context.size > 0
     io << " -- " << entry.context
   end
@@ -106,6 +106,7 @@ backend.formatter = -> (entry : Log::Entry, io : IO) do
   end
 end
 
+Log.builder.clear
 Log.builder.bind "*", config.log_level, backend
 amqp_server = AvalancheMQ::Server.new(config.data_dir)
 
