@@ -1,5 +1,5 @@
 module AvalancheMQ
-  class NetworkClient
+  module AMQPConnection
     def self.start(socket, remote_address, local_address, vhosts, users)
       socket.read_timeout = 15
       confirm_header(socket) || return
