@@ -25,7 +25,6 @@ dependencies:
     branch: crystal035
   amqp-client:
     github: cloudamqp/amqp-client.cr
-    branch: wait-for-ok
     # path: ../amqp-client.cr
   http-protection:
     github: rogeriozambon/http-protection

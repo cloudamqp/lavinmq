@@ -10,7 +10,7 @@ shards:
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 0.5.19+git.commit.15fa1e1a363931f6495554ef9cf567c1af589b8b
+    version: 0.5.20
 
   baked_file_system:
     git: https://github.com/carlhoerberg/baked_file_system.git
