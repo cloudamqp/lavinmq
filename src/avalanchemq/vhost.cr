@@ -663,7 +663,10 @@ module AvalancheMQ
           @log.debug { "Deleting segment #{seg}" }
           filename = "msgs.#{seg.to_s.rjust(10, '0')}"
           file = File.join(@data_dir, filename)
-          next unless File.exists? file
+          unless File.exists? file
+            @log.error { "Segment file #{file} missing" }
+            next
+          end
           deleted_bytes += File.size file
           File.delete file
           true
