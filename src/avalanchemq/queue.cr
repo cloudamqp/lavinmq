@@ -312,8 +312,9 @@ module AvalancheMQ
     def delete : Bool
       return false if @deleted
       @deleted = true
-      purge
       close
+      @ready.each { |sp| @sp_counter.dec(sp) }
+      @unacked.each_sp { |sp| @sp_counter.dec(sp) }
       @vhost.delete_queue(@name)
       notify_observers(:delete)
       @log.debug { "Deleted" }

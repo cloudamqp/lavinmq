@@ -76,8 +76,11 @@ module AvalancheMQ
       end
     end
 
-    def delete
-      FileUtils.rm_rf @index_dir if super
+    def delete : Bool
+      super.tap do |deleted|
+        next unless deleted
+        FileUtils.rm_rf @index_dir
+      end
     end
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
