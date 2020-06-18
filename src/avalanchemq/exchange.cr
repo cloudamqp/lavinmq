@@ -233,14 +233,28 @@ module AvalancheMQ
     abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, &blk : Exchange -> _)
 
     def queue_matches(routing_key : String, headers = nil, &blk : Queue -> _)
-      if delayed? && !headers.nil? &&  headers.has_key?("x-delay")
+      if should_delay_message?(headers)
         yield @delayed_queue.as(Queue)
       else
         do_queue_matches(routing_key, headers, &blk)
       end
     end
 
+    private def should_delay_message?(headers)
+      return false if headers.nil? || headers.empty?
+      return false unless delayed?
+      x_delay = headers["x-delay"]?
+      return false unless x_delay
+      x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
+      @log.debug { "Exchange#should_delay_message? x_deaths: #{x_deaths}" }
+      x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
+      @log.debug { "Exchange#should_delay_message? x_death: #{x_death}" }
+      return true unless x_death
+      return x_death["queue"]? != "amq.delayed.#{@name}"
+    end
+
     def exchange_matches(routing_key : String, headers = nil, &blk : Exchange -> _)
+      return if should_delay_message?(headers)
       do_exchange_matches(routing_key, headers, &blk)
     end
 
@@ -249,7 +263,7 @@ module AvalancheMQ
     end
 
     def setup_delayed_queue
-      name = "amq.delayed-exchange.#{@name}"
+      name = "amq.delayed.#{@name}"
       @log.debug { "Declaring delayed queue: #{name}" }
       arguments = Hash(String, AMQP::Field) { "x-dead-letter-exchange" => @name }
       @delayed_queue = DurableDelayedExchangeQueue.new(@vhost, name, false, false, arguments)

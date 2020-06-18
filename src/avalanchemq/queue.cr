@@ -347,11 +347,12 @@ module AvalancheMQ
 
     class RejectOverFlow < Exception; end
 
-    def publish(sp : SegmentPosition, persistent = false) : Bool
+    def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
       return false if @closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
+      sp = calculate_message_expiration_ts(sp, message)
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
       message_available if was_empty
@@ -360,6 +361,12 @@ module AvalancheMQ
     rescue ex : RejectOverFlow
       @log.debug { "Overflow reject message sp=#{sp}" }
       raise ex
+    end
+
+    protected def calculate_message_expiration_ts(sp : SegmentPosition, message : Message) : SegmentPosition
+      exp_ms = message.properties.expiration.try(&.to_i64?)
+      sp = SegmentPosition.new(sp.segment, sp.position, message.timestamp + exp_ms) unless exp_ms.nil?
+      sp
     end
 
     private def reject_on_overflow
@@ -407,21 +414,28 @@ module AvalancheMQ
     private def time_to_message_expiration : Time::Span?
       @log.debug { "Checking if next message has to be expired" }
       meta = nil
-      until meta
+      expire_at : Int64 = 0
+      loop do
         sp = @ready.first? || return
-        meta = metadata(sp)
-      end
-      @log.debug { "Next message: #{meta}" }
-      exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
-      if exp_ms
-        expire_at = meta.timestamp + exp_ms
-        expire_in = expire_at - RoughTime.utc.to_unix_ms
-        if expire_in > 0
-          expire_in.milliseconds
-        else
-          Time::Span.zero
+        expire_at = sp.expiration_ts
+        break if expire_at > 0
+        return unless @message_ttl
+        if meta = metadata(sp)
+          expire_at = meta.timestamp + @message_ttl.not_nil!
+          break
         end
       end
+      expire_in = expire_at - RoughTime.utc.to_unix_ms
+      if expire_in > 0
+        expire_in.milliseconds
+      else
+        Time::Span.zero
+      end
+    end
+
+    private def calculate_expire_at(sp : SegementPosition) : Int64
+
+
     end
 
     private def expire_messages : Nil
@@ -429,11 +443,17 @@ module AvalancheMQ
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
         @log.debug { "Checking if next message has to be expired" }
-        env = read(sp)
-        @log.debug { "Next message: #{env.message}" }
-        exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
-        if exp_ms
-          expire_at = env.message.timestamp + exp_ms
+        read(sp) do |env|
+          expire_at = sp.expiration_ts
+          if expire_at.zero?
+            if @message_ttl.nil?
+              @log.debug { "No more message to expire" }
+              next false
+            end
+            expire_at = env.message.timestamp + (@message_ttl || 0)
+          end
+
+          @log.debug { "Next message: #{env.message}" }
           expire_in = expire_at - now
           if expire_in <= 0
             expire_msg(env, :expired)
@@ -446,9 +466,6 @@ module AvalancheMQ
             @log.debug { "No more message to expire" }
             false
           end
-        else
-          @log.debug { "No more message to expire" }
-          false
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0

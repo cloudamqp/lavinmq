@@ -120,7 +120,7 @@ module AvalancheMQ
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
-        if q.publish(sp, flush)
+        if q.publish(sp, msg, flush)
           ex.publish_out_count += 1
           if q.is_a?(DurableQueue) && flush
             @queues_to_fsync_lock.synchronize do
