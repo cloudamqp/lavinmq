@@ -163,4 +163,24 @@ describe "Persistent Exchange" do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "x-all" do
+    it "should get all persisted message" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
+        x.publish "test message 3", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-all" => 1})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
 end

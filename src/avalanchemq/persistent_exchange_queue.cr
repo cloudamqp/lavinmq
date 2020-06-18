@@ -31,6 +31,10 @@ module AvalancheMQ
       end
     end
 
+    def all(&blk : SegmentPosition -> Nil)
+      peek(0, @ready.size, &blk)
+    end
+
     def peek(start : Int, stop : Int, &blk : SegmentPosition -> Nil)
       return if @ready.empty?
       start = 0 if start < 0

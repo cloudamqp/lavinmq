@@ -166,6 +166,8 @@ module AvalancheMQ
             pq.head(arg, &republish)
           when "x-tail"
             pq.tail(arg, &republish)
+          when "x-all"
+            pq.all(&republish)
           end
         when Exchange
           # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
