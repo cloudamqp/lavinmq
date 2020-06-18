@@ -65,7 +65,7 @@ module AvalancheMQ
         if  pm > 0
           q_name = "amq.persistent.#{@name}"
           unless @vhost.queues.has_key? q_name
-            @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name)
+            @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, pm)
             @vhost.queues[q_name] =  @persistent_queue.not_nil!
           end
         end
