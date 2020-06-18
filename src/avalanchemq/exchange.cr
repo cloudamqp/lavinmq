@@ -141,37 +141,30 @@ module AvalancheMQ
     end
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
-      return true if !persistent? || headers.nil? || headers.not_nil!.empty? || @persistent_queue.not_nil!.empty?
-      if head = headers.not_nil!["x-head"]?.try &.as?(ArgumentNumber)
-        pq = @persistent_queue.not_nil!
-        persisted = pq.message_count
-        @log.debug { "after_bind replaying persited message from head-#{head}, total_peristed: #{persisted}" }
-        case destination
-        when Queue
-          pq.head(head) do |sp|
-            # next if destination.includes_segment_position?(sp)
-            next unless destination.as(Queue).publish(sp)
-            @publish_out_count += 1
-            @vhost.sp_counter.inc(sp)
-          end
-        when Exchange
-          # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
+      return true unless @persistent_queue.try &.any?
+      return false unless headers.try &.any?
+      method = headers.first_key
+      arg = headers[method].try &.as?(ArgumentNumber)
+      return false unless arg
+      pq = @persistent_queue.not_nil!
+      persisted = pq.message_count
+      @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
+      case destination
+      when Queue
+        republish = ->(sp : SegmentPosition) do
+          # next if destination.includes_segment_position?(sp)
+          return unless destination.as(Queue).publish(sp)
+          @publish_out_count += 1
+          @vhost.sp_counter.inc(sp)
         end
-      elsif tail = headers.not_nil!["x-tail"]?.try &.as?(ArgumentNumber)
-        pq = @persistent_queue.not_nil!
-        persisted = pq.message_count
-        @log.debug { "after_bind replaying persited message from tail-#{tail}, total_peristed: #{persisted}" }
-        case destination
-        when Queue
-          pq.tail(tail) do |sp|
-            # next if destination.includes_segment_position?(sp)
-            next unless destination.as(Queue).publish(sp)
-            @publish_out_count += 1
-            @vhost.sp_counter.inc(sp)
-          end
-        when Exchange
-          # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
+        case method
+        when "x-head"
+          pq.head(arg, &republish)
+        when "x-tail"
+          pq.tail(arg, &republish)
         end
+      when Exchange
+        # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
       end
       true
     end
