@@ -5,6 +5,8 @@ require "./amqp"
 require "./queue"
 require "./persistent_exchange_queue"
 require "./sortable_json"
+require "./durable_queue"
+require "./delayed_exchange_queue"
 
 module AvalancheMQ
   alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
@@ -20,7 +22,10 @@ module AvalancheMQ
 
     @alternate_exchange : String?
     getter persistent_queue : PersistentExchangeQueue?
+    @delayed : Bool
+    @delayed_queue : Queue?
     @log : Logger
+    @deleted = false
 
     rate_stats(%w(publish_in publish_out unroutable))
     property publish_in_count, publish_out_count, unroutable_count
@@ -34,9 +39,11 @@ module AvalancheMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
+      @delayed = false
       @log = @vhost.log.dup
       @log.progname += " exchange=#{@name}"
       handle_arguments
+      setup_delayed_queue if delayed?
     end
 
     def apply_policy(policy : Policy)
@@ -60,6 +67,7 @@ module AvalancheMQ
     def handle_arguments
       @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
       init_persistent_queue
+      @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
     end
 
     def details_tuple
@@ -202,15 +210,18 @@ module AvalancheMQ
 
     private def after_unbind
       if @auto_delete &&
-          @queue_bindings.each_value.all? &.empty? &&
-          @exchange_bindings.each_value.all? &.empty?
+         @queue_bindings.each_value.all? &.empty? &&
+         @exchange_bindings.each_value.all? &.empty?
         delete
       end
     end
 
     protected def delete
+      return if @deleted
+      @deleted = true
       @log.info { "Deleting exchange: #{@name}" }
-      @vhost.apply AMQP::Frame::Exchange::Delete.new 0_u16, 0_u16, @name, false, false
+      @delayed_queue.try &.delete
+      @vhost.delete_exchange(@name)
     end
 
     abstract def type : String
@@ -218,8 +229,32 @@ module AvalancheMQ
     abstract def unbind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
     abstract def bind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
     abstract def unbind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def queue_matches(routing_key : String, headers : Hash(String, AMQP::Field)?, &blk : Queue -> _)
-    abstract def exchange_matches(routing_key : String, headers : Hash(String, AMQP::Field)?, &blk : Exchange -> _)
+    abstract def do_queue_matches(routing_key : String, headers : AMQP::Table?, &blk : Queue -> _)
+    abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, &blk : Exchange -> _)
+
+    def queue_matches(routing_key : String, headers = nil, &blk : Queue -> _)
+      if delayed? && !headers.nil? &&  headers.has_key?("x-delay")
+        yield @delayed_queue.as(Queue)
+      else
+        do_queue_matches(routing_key, headers, &blk)
+      end
+    end
+
+    def exchange_matches(routing_key : String, headers = nil, &blk : Exchange -> _)
+      do_exchange_matches(routing_key, headers, &blk)
+    end
+
+    def delayed?
+      @delayed
+    end
+
+    def setup_delayed_queue
+      name = "amq.delayed-exchange.#{@name}"
+      @log.debug { "Declaring delayed queue: #{name}" }
+      arguments = Hash(String, AMQP::Field) { "x-dead-letter-exchange" => @name }
+      @delayed_queue = DurableDelayedExchangeQueue.new(@vhost, name, false, false, arguments)
+      @vhost.queues[name] = @delayed_queue.as(Queue)
+    end
   end
 
   struct BindingDetails
@@ -277,12 +312,12 @@ module AvalancheMQ
       after_unbind
     end
 
-    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+    def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       @queue_bindings[{routing_key, nil}].each { |q| yield q }
       @persistent_queue.try { |q| yield q } if persistent?
     end
 
-    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
       @exchange_bindings[{routing_key, nil}].each { |x| yield x }
     end
   end
@@ -300,14 +335,14 @@ module AvalancheMQ
       raise "Access refused"
     end
 
-    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+    def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       if q = @vhost.queues[routing_key]?
         yield q
       end
       @persistent_queue.try { |pq| yield pq } if persistent?
     end
 
-    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
       # noop
     end
   end
@@ -337,12 +372,12 @@ module AvalancheMQ
       after_unbind
     end
 
-    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+    def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       @queue_bindings.each_value { |s| s.each { |q| yield q } }
       @persistent_queue.try { |q| yield q } if persistent?
     end
 
-    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
       @exchange_bindings.each_value { |s| s.each { |q| yield q } }
     end
   end
@@ -386,12 +421,12 @@ module AvalancheMQ
       after_unbind
     end
 
-    def queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+    def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       matches(@queue_binding_keys, routing_key, headers) { |q| yield q.as(Queue) }
       @persistent_queue.try { |q| yield q } if persistent?
     end
 
-    def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
       matches(@exchange_binding_keys, routing_key, headers) { |e| yield e.as(Exchange) }
     end
 
@@ -488,12 +523,12 @@ module AvalancheMQ
       after_unbind
     end
 
-    def queue_matches(routing_key, headers = nil, &blk : Queue ->)
+    def do_queue_matches(routing_key, headers = nil, &blk : Queue ->)
       matches(@queue_bindings, routing_key, headers) { |d| yield d.as(Queue) }
       @persistent_queue.try { |q| yield q } if persistent?
     end
 
-    def exchange_matches(routing_key, headers = nil, &blk : Exchange ->)
+    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange ->)
       matches(@exchange_bindings, routing_key, headers) { |d| yield d.as(Exchange) }
     end
 

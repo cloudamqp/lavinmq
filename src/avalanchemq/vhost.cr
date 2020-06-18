@@ -302,6 +302,7 @@ module AvalancheMQ
             end
           end
           x.persistent_queue.try &.delete
+          x.delete
         else
           return false
         end
