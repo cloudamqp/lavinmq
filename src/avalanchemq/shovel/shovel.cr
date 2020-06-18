@@ -96,16 +96,14 @@ module AvalancheMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def shovel(msg, pch, queue_length)
-      queue_length = queue_length.to_i64
       ex = @destination.exchange || msg.exchange
       rk = @destination.exchange_key || msg.routing_key
       msgid = pch.basic_publish(msg.body_io, ex, rk)
       delete_after_this =
         @source.delete_after == DeleteAfter::QueueLength &&
         msg.delivery_tag == queue_length
-      short_queue = queue_length - msg.delivery_tag < @source.prefetch
       should_multi_ack = msgid % (@source.prefetch / 2).ceil.to_i == 0
-      if delete_after_this || short_queue || should_multi_ack
+      if delete_after_this || should_multi_ack
         case @ack_mode
         when AckMode::OnConfirm
           pch.wait_for_confirm(msgid)

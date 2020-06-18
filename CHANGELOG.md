@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Prevent overflow exception in shovel, don't look for short queues
+
 ## [0.10.6] - 2020-06-19
 
 ### Fixed
