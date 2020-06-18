@@ -6,7 +6,7 @@ module AvalancheMQ
         dgst = OpenSSL::Digest.new(self.hash_algorithm)
         dgst.update salt
         dgst.update password
-        self.new(salt, dgst.digest)
+        self.new(salt, dgst.final)
       end
 
       def initialize(@salt : Bytes, @hash : Bytes)
