@@ -20,8 +20,9 @@ module AvalancheMQ
 
     include SortableJSON
 
-    getter name, exchanges, queues, log, data_dir, policies, parameters, log, shovels,
-      direct_reply_channels, upstreams, default_user, sp_counter
+    getter name, exchanges, queues, log, data_dir, policies, parameters,
+      log, shovels, direct_reply_channels, upstreams, default_user,
+      sp_counter, connections
     property? flow = true
     getter? closed = false
 
@@ -38,11 +39,11 @@ module AvalancheMQ
     @upstreams : Federation::UpstreamStore?
     @write_lock = Mutex.new(:unchecked)
     @fsync = false
+    @connections = Array(Client).new
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String,
-                   @log : Logger, @default_user : User,
-                   @connection_events = Server::ConnectionsEvents.new(16))
+                   @log : Logger, @default_user : User)
       @log.progname = "vhost=#{@name}"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -359,9 +360,9 @@ module AvalancheMQ
     end
 
     def add_connection(client : Client)
-      @connection_events.send({client, :connected})
+      @connections << client
       client.on_close do |c|
-        @connection_events.send({c, :disconnected})
+        @connections.delete c
       end
     end
 
@@ -406,6 +407,13 @@ module AvalancheMQ
         Fiber.yield
         stop_upstream_links
         Fiber.yield
+        @log.debug "Closing connections"
+        @connections.each &.close("Broker shutdown")
+        # wait up to 10s for clients to gracefully close
+        100.times do
+          break if @connections.size.zero?
+          sleep 0.1
+        end
         @queues.each_value &.close
         Fiber.yield
         @save.close

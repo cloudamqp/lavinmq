@@ -38,6 +38,7 @@ module AvalancheMQ
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
+      @vhost.add_connection(self)
       @log.debug "Connected"
     end
 
