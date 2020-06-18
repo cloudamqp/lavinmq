@@ -4,16 +4,16 @@ module AvalancheMQ
 
     @segment : UInt32
     @position : UInt32
-    @timestamp : UInt64
+    @expiration_ts : Int64
 
-    getter segment, position, timestamp
-    def_equals_and_hash @segment, @position, @timestamp
+    getter segment, position, expiration_ts
+    def_equals_and_hash @segment, @position
 
     def initialize(@segment : UInt32, @position : UInt32)
-      @timestamp = 0
+      @expiration_ts = 0
     end
 
-    def initialize(@segment : UInt32, @position : UInt32, @timestamp : UInt64)
+    def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64)
     end
 
     def to_io(io : IO, format)
@@ -21,12 +21,12 @@ module AvalancheMQ
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])
-      format.encode(@timestamp, slice[8, 8])
+      format.encode(@expiration_ts, slice[8, 8])
       io.write(slice)
     end
 
     def <=>(other : self)
-      r = timestamp <=> other.timestamp
+      r = expiration_ts <=> other.expiration_ts
       return r unless r.zero?
       r = segment <=> other.segment
       return r unless r.zero?
@@ -36,7 +36,7 @@ module AvalancheMQ
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
       seg = UInt32.from_io(io, format)
       pos = UInt32.from_io(io, format)
-      ts = UInt64.from_io(io, format)
+      ts = Int64.from_io(io, format)
       self.new(seg, pos, ts)
     end
 
@@ -49,7 +49,7 @@ module AvalancheMQ
     def to_s(io : IO)
       io << @segment.to_s.rjust(10, '0')
       io << @position.to_s.rjust(10, '0')
-      io << @timestamp.to_s.rjust(20, '0')
+      io << @expiration_ts.to_s.rjust(20, '0')
     end
 
     def to_i64
@@ -60,7 +60,7 @@ module AvalancheMQ
       raise ArgumentError.new("A SegmentPosition string has to be 40 chars long") if s.bytesize != 40
       seg = s[0, 10].to_u32
       pos = s[10, 10].to_u32
-      ts = s[20, 20].to_u64
+      ts = s[20, 20].to_i64
       self.new seg, pos, ts
     end
   end
