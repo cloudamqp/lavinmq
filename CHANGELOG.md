@@ -6,8 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5] - 2020-06-18
+
 ### Changed
 - fsyncing on publish confirm as soon as possible (previously only every 200ms)
+
+### Fixed
+- Crystal 0.35 compatibility
+- Decrease segment position counter on queue delete
+
+### Added
+- robots.txt file to disallow crawling
+- Possibility to cancel consumers from the UI
 
 ## [0.10.4] - 2020-06-09
 
