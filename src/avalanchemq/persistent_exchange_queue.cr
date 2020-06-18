@@ -3,22 +3,8 @@ require "./durable_queue"
 module AvalancheMQ
   class PersistentExchangeQueue < DurableQueue
     @internal = true
-    def initialize(vhost : VHost, name : String, limit : ArgumentNumber)
-      super(vhost, name, false, false, Hash(String, AMQP::Field).new)
-
-      pd = Hash(String, JSON::Any).new
-      pd["max-length"] = JSON::Any.new(Int64.new(limit))
-
-      # pd["message-ttl"] = 2
-
-      persistent_policy = Policy.new(
-        "persistent_queue",
-        vhost.name,
-        Regex.new(name),
-        Policy::Target::Queues,
-        pd,
-        0)
-      apply_policy(persistent_policy)
+    def initialize(vhost : VHost, name : String, args)
+      super(vhost, name, false, false, args)
     end
 
     def peek(c : Int, &blk : SegmentPosition -> Nil)

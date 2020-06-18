@@ -62,10 +62,13 @@ module AvalancheMQ
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
       @persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
       @persist_messages.try do |pm|
-        if  pm > 0
+        if pm > 0
           q_name = "amq.persistent.#{@name}"
           unless @vhost.queues.has_key? q_name
-            @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, pm)
+            args = Hash(String, AMQP::Field).new
+            args["x-max-length"] = pm
+            # args["x-message-ttl"] = ????
+            @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
             @vhost.queues[q_name] =  @persistent_queue.not_nil!
           end
         end
