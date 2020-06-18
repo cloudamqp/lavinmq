@@ -20,6 +20,10 @@ shards:
     git: https://github.com/rogeriozambon/http-protection.git
     version: 0.2.0+git.commit.1817a4e60c58893cc25eb268aed4f444a681ac6b
 
+  logger:
+    git: https://github.com/84codes/logger.cr.git
+    version: 1.0.0
+
   radix:
     git: https://github.com/luislavena/radix.git
     version: 0.3.9
