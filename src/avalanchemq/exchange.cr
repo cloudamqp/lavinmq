@@ -69,7 +69,7 @@ module AvalancheMQ
             args["x-max-length"] = pm
             # args["x-message-ttl"] = ????
             @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
-            @vhost.queues[q_name] =  @persistent_queue.not_nil!
+            @vhost.queues[q_name] = @persistent_queue.not_nil!
           end
         end
       end
@@ -148,10 +148,10 @@ module AvalancheMQ
         @log.debug { "after_bind replaying persited message from head-#{head}, total_peristed: #{persisted}" }
         case destination
         when Queue
-          pq.peek(head) do |sp|
+          pq.head(head) do |sp|
             # next if destination.includes_segment_position?(sp)
-            next unless destination.publish(sp)
-            # publish_out_count += 1
+            next unless destination.as(Queue).publish(sp)
+            @publish_out_count += 1
             @vhost.sp_counter.inc(sp)
           end
         when Exchange
