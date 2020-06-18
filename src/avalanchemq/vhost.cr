@@ -420,8 +420,6 @@ module AvalancheMQ
         end
         @queues.each_value &.close
         Fiber.yield
-        @exchanges.each_value &.close
-        Fiber.yield
         @save.close
         Fiber.yield
         compact!
