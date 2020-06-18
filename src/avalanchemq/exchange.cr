@@ -157,6 +157,21 @@ module AvalancheMQ
         when Exchange
           # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
         end
+      elsif tail = headers.not_nil!["x-tail"]?.try &.as?(ArgumentNumber)
+        pq = @persistent_queue.not_nil!
+        persisted = pq.message_count
+        @log.debug { "after_bind replaying persited message from tail-#{tail}, total_peristed: #{persisted}" }
+        case destination
+        when Queue
+          pq.tail(tail) do |sp|
+            # next if destination.includes_segment_position?(sp)
+            next unless destination.as(Queue).publish(sp)
+            @publish_out_count += 1
+            @vhost.sp_counter.inc(sp)
+          end
+        when Exchange
+          # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
+        end
       end
       true
     end

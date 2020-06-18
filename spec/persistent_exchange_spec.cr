@@ -123,21 +123,21 @@ describe "Persistent Exchange" do
     end
   end
 
-  # describe "x-tail" do
-  #   it "should retain 1 messages" do
-  #     with_channel do |ch|
-  #       x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
-  #       x = ch.exchange(x_name, "topic", args: x_args)
-  #       q = ch.queue
-  #       pmsg = "test message"
-  #       x.publish pmsg, q.name
-  #       bind_args = AMQP::Client::Arguments.new({"x-tail" => 1})
-  #       q.bind(x.name, "#", args: bind_args)
-  #       msg = q.get(no_ack: true).not_nil!
-  #       msg.body_io.to_s.should eq("test message")
-  #     end
-  #   ensure
-  #     s.vhosts["/"].delete_exchange(x_name)
-  #   end
-  # end
+  describe "x-tail" do
+    it "should retain 1 messages" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        pmsg = "test message"
+        x.publish pmsg, q.name
+        bind_args = AMQP::Client::Arguments.new({"x-tail" => 1})
+        q.bind(x.name, "#", args: bind_args)
+        msg = q.get(no_ack: true).not_nil!
+        msg.body_io.to_s.should eq("test message")
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
 end
