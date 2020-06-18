@@ -10,12 +10,11 @@ describe "Persistent Exchange" do
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
-        pmsg = "test message"
-        x.publish pmsg, q.name
+        x.publish "test message", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).should be_nil
       end
     ensure
       s.vhosts["/"].delete_exchange(x_name)
@@ -26,14 +25,12 @@ describe "Persistent Exchange" do
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
-        pmsg = "test message"
-        x.publish pmsg, q.name
-        pmsg = "test message 2"
-        x.publish pmsg, q.name
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).should be_nil
       end
     ensure
       s.vhosts["/"].delete_exchange(x_name)
@@ -44,14 +41,12 @@ describe "Persistent Exchange" do
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
-        pmsg = "test message"
-        x.publish pmsg, q.name
-        pmsg = "test message 2"
-        x.publish pmsg, q.name
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).should be_nil
       end
     ensure
       s.vhosts["/"].delete_exchange("persistent-topic")
@@ -62,14 +57,12 @@ describe "Persistent Exchange" do
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
-        pmsg = "test message"
-        x.publish pmsg, q.name
-        pmsg = "test message 2"
-        x.publish pmsg, q.name
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => -1})
         q.bind(x.name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).should be_nil
       end
     ensure
       s.vhosts["/"].delete_exchange("persistent-topic")
@@ -80,18 +73,13 @@ describe "Persistent Exchange" do
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
-        pmsg = "test message"
-        x.publish pmsg, q.name
-        pmsg = "test message 2"
-        x.publish pmsg, q.name
-        pmsg = "test message 3"
-        x.publish pmsg, q.name
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
+        x.publish "test message 3", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 3})
         q.bind(x.name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message 2")
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message 3")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -104,8 +92,7 @@ describe "Persistent Exchange" do
         ch.confirm_select
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
         x = ch.exchange(x_name, "topic", args: x_args)
-        pmsg = "test message"
-        id = x.publish pmsg, q_name
+        id = x.publish "test message", q_name
         ch.wait_for_confirm(id)
       end
       close_servers
@@ -114,8 +101,8 @@ describe "Persistent Exchange" do
         q = ch.queue q_name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x_name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).should be_nil
       end
     ensure
       s.vhosts["/"].delete_exchange(x_name)
@@ -133,8 +120,44 @@ describe "Persistent Exchange" do
         x.publish pmsg, q.name
         bind_args = AMQP::Client::Arguments.new({"x-tail" => 1})
         q.bind(x.name, "#", args: bind_args)
-        msg = q.get(no_ack: true).not_nil!
-        msg.body_io.to_s.should eq("test message")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+
+    it "should get last 2" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 3})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
+        x.publish "test message 3", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-tail" => 2})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+
+    it "should skip first for tail -1" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 3})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
+        x.publish "test message 3", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-tail" => -1})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).should be_nil
       end
     ensure
       s.vhosts["/"].delete_exchange(x_name)
