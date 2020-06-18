@@ -8,7 +8,7 @@ module AvalancheMQ
           JSON.build(context.response) do |json|
             json.array do
               {
-                uptime:              @amqp_server.uptime.total_milliseconds.to_i,
+                uptime:              @amqp_server.uptime.total_milliseconds.to_i64,
                 os_pid:              Process.pid,
                 fd_total:            System.file_descriptor_limit[0],
                 fd_used:             System.file_descriptor_count,

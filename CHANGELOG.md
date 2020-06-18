@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed overflow exception in /api/nodes if uptime was more than Int32::MAX milliseconds
+
 ## [0.10.5] - 2020-06-18
 
 ### Changed
