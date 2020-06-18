@@ -96,6 +96,7 @@ module AvalancheMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def shovel(msg, pch, queue_length)
+      queue_length = queue_length.to_i64
       ex = @destination.exchange || msg.exchange
       rk = @destination.exchange_key || msg.routing_key
       msgid = pch.basic_publish(msg.body_io, ex, rk)
