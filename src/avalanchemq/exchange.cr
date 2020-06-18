@@ -20,7 +20,7 @@ module AvalancheMQ
 
     @alternate_exchange : String?
     @persist_messages : ArgumentNumber?
-    @persistent_queue : PersistentExchangeQueue?
+    getter persistent_queue : PersistentExchangeQueue?
     @log : Logger
 
     rate_stats(%w(publish_in publish_out))

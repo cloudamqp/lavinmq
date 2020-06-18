@@ -300,6 +300,7 @@ module AvalancheMQ
               destination.delete x
             end
           end
+          x.persistent_queue.try &.delete
         else
           return false
         end
