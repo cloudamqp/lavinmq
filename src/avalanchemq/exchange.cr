@@ -141,30 +141,29 @@ module AvalancheMQ
     end
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
-      return true unless @persistent_queue.try &.any?
-      return false unless headers.try &.any?
-      method = headers.first_key
-      arg = headers[method].try &.as?(ArgumentNumber)
-      return false unless arg
-      pq = @persistent_queue.not_nil!
-      persisted = pq.message_count
-      @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
-      case destination
-      when Queue
-        republish = ->(sp : SegmentPosition) do
-          # next if destination.includes_segment_position?(sp)
-          return unless destination.as(Queue).publish(sp)
-          @publish_out_count += 1
-          @vhost.sp_counter.inc(sp)
+      if (pq = @persistent_queue) && headers && headers.any?
+        method = headers.first_key
+        arg = headers[method].try &.as?(ArgumentNumber)
+        return true unless arg && pq.any?
+        persisted = pq.message_count
+        @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
+        case destination
+        when Queue
+          republish = ->(sp : SegmentPosition) do
+            # next if destination.includes_segment_position?(sp)
+            return unless destination.as(Queue).publish(sp)
+            @publish_out_count += 1
+            @vhost.sp_counter.inc(sp)
+          end
+          case method
+          when "x-head"
+            pq.head(arg, &republish)
+          when "x-tail"
+            pq.tail(arg, &republish)
+          end
+        when Exchange
+          # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
         end
-        case method
-        when "x-head"
-          pq.head(arg, &republish)
-        when "x-tail"
-          pq.tail(arg, &republish)
-        end
-      when Exchange
-        # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
       end
       true
     end

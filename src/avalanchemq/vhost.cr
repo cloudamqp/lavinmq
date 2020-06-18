@@ -297,8 +297,8 @@ module AvalancheMQ
         return false unless @exchanges.has_key? f.exchange_name
         if x = @exchanges.delete f.exchange_name
           @exchanges.each_value do |ex|
-            ex.exchange_bindings.each_value do |destination|
-              destination.delete x
+            ex.exchange_bindings.each do |binding_args, destinations|
+              ex.unbind(x, *binding_args) if destinations.includes?(x)
             end
           end
           x.persistent_queue.try &.delete
