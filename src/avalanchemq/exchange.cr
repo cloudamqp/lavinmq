@@ -19,7 +19,6 @@ module AvalancheMQ
     getter policy : Policy?
 
     @alternate_exchange : String?
-    @persist_messages : ArgumentNumber?
     getter persistent_queue : PersistentExchangeQueue?
     @log : Logger
 
@@ -60,19 +59,7 @@ module AvalancheMQ
 
     def handle_arguments
       @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
-      @persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
-      @persist_messages.try do |pm|
-        if pm > 0
-          q_name = "amq.persistent.#{@name}"
-          unless @vhost.queues.has_key? q_name
-            args = Hash(String, AMQP::Field).new
-            args["x-max-length"] = pm
-            # args["x-message-ttl"] = ????
-            @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
-            @vhost.queues[q_name] = @persistent_queue.not_nil!
-          end
-        end
-      end
+      init_persistent_queue
     end
 
     def details_tuple
@@ -138,6 +125,25 @@ module AvalancheMQ
 
     def persistent?
       !@persistent_queue.nil?
+    end
+
+    private def init_persistent_queue
+      persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
+      persist_seconds = @arguments["x-persist-seconds"]?.try &.as?(ArgumentNumber)
+      return unless persist_messages || persist_seconds
+      return if persistent?
+      q_name = "amq.persistent.#{@name}"
+      args = Hash(String, AMQP::Field).new
+      persist_messages.try do |n|
+        next if n <= 0
+        args["x-max-length"] = n
+      end
+      persist_seconds.try do |s|
+        next if s <= 0
+        args["x-message-ttl"] = s * 1000
+      end
+      @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
+      @vhost.queues[q_name] = @persistent_queue.not_nil!
     end
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
