@@ -7,13 +7,20 @@ module AvalancheMQ
   end
 
   class DurableDelayedExchangeQueue < DurableQueue
-    @ready = SortedReadyQueue.new
+    def initialize(*args)
+      super
+      @ready = SortedReadyQueue.new
+    end
 
     def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
       delay = message.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
       @log.debug("DurableDelayedExchange#publish delaying message: #{delay}")
       sp = SegmentPosition.new(sp.segment, sp.position, message.timestamp + delay) unless delay.nil?
-      super(sp, message, persistent)
+      was_empty = empty?
+      if result = super(sp, message, persistent)
+        refresh_ttl_timeout unless was_empty
+      end
+      result
     end
   end
 end

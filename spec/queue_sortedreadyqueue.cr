@@ -19,4 +19,17 @@ describe AvalancheMQ::Queue::SortedReadyQueue do
       sp1.should eq(sp2)
     end
   end
+
+  it "should return SegmentPosition with lowest expiration ts" do
+    q = AvalancheMQ::Queue::SortedReadyQueue.new
+    sps = [
+      AvalancheMQ::SegmentPosition.new(10,10,5),
+      AvalancheMQ::SegmentPosition.new(10,10,1),
+      AvalancheMQ::SegmentPosition.new(10,10,10),
+      AvalancheMQ::SegmentPosition.new(10,10,3)
+    ]
+    sps.each { |sp| q.push(sp) }
+    sp = q.first?
+    sp.should eq (AvalancheMQ::SegmentPosition.new(10,10,1))
+  end
 end

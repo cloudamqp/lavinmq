@@ -78,7 +78,6 @@ module AvalancheMQ
       def insert(sp : SegmentPosition)
         @lock.synchronize do
           i = @ready.bsearch_index { |rsp| rsp > sp }
-          puts "i=#{i} for #{sp}"
           if i.nil?
             @ready.push(sp)
           else

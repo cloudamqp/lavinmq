@@ -39,6 +39,7 @@ module AvalancheMQ
     @consumers_lock = Mutex.new(:unchecked)
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
+    @refresh_ttl_timeout = Channel(Nil).new(1)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @sp_counter : SafeReferenceCounter(SegmentPosition)
     @ready = ReadyQueue.new
@@ -144,6 +145,13 @@ module AvalancheMQ
       end
     end
 
+    def refresh_ttl_timeout
+      select
+      when @refresh_ttl_timeout.send nil
+      else
+      end
+    end
+
     private def handle_arguments
       @message_ttl = @arguments["x-message-ttl"]?.try &.as?(ArgumentNumber)
       @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
@@ -233,9 +241,12 @@ module AvalancheMQ
       m_ttl = time_to_message_expiration
       ttl = {q_ttl, m_ttl}.select(Time::Span).min?
       if ttl
+        @log.debug "Queue#consumer_or_expire TTL: #{ttl}"
         select
         when @consumer_available.receive
-          @log.debug "Consumer available"
+          @log.debug "Queue#consumer_or_expire Consumer available"
+        when @refresh_ttl_timeout.receive
+          @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
         when timeout ttl
           case ttl
           when q_ttl
@@ -412,7 +423,7 @@ module AvalancheMQ
     end
 
     private def time_to_message_expiration : Time::Span?
-      @log.debug { "Checking if next message has to be expired" }
+      @log.debug { "Checking if next message has to be expired ready: #{@ready}" }
       meta = nil
       expire_at : Int64 = 0
       loop do
