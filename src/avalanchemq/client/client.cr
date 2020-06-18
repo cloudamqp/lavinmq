@@ -18,7 +18,6 @@ module AvalancheMQ
     abstract def connection_details
     abstract def deliver(frame : AMQP::Frame, msg : Message)
     abstract def channel_name_prefix
-    private abstract def cleanup
 
     setter direct_reply_consumer_tag
     getter vhost, channels, log, exclusive_queues,
@@ -159,7 +158,7 @@ module AvalancheMQ
       true
     end
 
-    def cleanup
+    protected def cleanup
       @running = false
       @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)

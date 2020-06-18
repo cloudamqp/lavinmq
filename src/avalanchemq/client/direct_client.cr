@@ -28,7 +28,7 @@ module AvalancheMQ
       @name
     end
 
-    private def cleanup
+    protected def cleanup
       # noop
     end
 

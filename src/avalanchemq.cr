@@ -213,18 +213,26 @@ Signal::HUP.trap do
   STDOUT.flush
 end
 
+first_shutdown_attempt = true
 shutdown = ->(_s : Signal) do
-  puts "Shutting down gracefully..."
-  puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-  puts System.resource_usage
-  puts GC.prof_stats
-  http_server.try &.close
-  amqp_server.close
-  Fiber.yield
-  puts "Fibers: "
-  Fiber.list { |f| puts f.inspect }
-  lock.close
-  exit 0
+  if first_shutdown_attempt
+    first_shutdown_attempt = false
+    puts "Shutting down gracefully..."
+    puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
+    puts System.resource_usage
+    puts GC.prof_stats
+    amqp_server.close
+    http_server.try &.close
+    Fiber.yield
+    puts "Fibers: "
+    Fiber.list { |f| puts f.inspect }
+    lock.close
+    exit 0
+  else
+    puts "Fibers: "
+    Fiber.list { |f| puts f.inspect }
+    exit 1
+  end
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
