@@ -7,6 +7,16 @@ module AvalancheMQ
     def initialize(vhost : VHost, name : String, args)
       args["x-overflow"] = "drop-head"
       super(vhost, name, false, false, args)
+      unless @message_ttl.nil?
+        spawn expire_loop, name: "PersistentExchangeQueue#expire_loop #{@vhost.name}/#{@name}"
+      end
+    end
+
+    def expire_loop
+      loop do
+        sleep 1.seconds
+        consumer_or_expire
+      end
     end
 
     def head(c : Int, &blk : SegmentPosition -> Nil)

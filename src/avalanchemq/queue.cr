@@ -110,7 +110,11 @@ module AvalancheMQ
         end
       end
       @policy = policy
-      # force trigger a loop in delivery_loop
+      loop_step
+    end
+
+    # force trigger a loop in delivery_loop
+    private def loop_step
       message_available
       consumer_available
     end

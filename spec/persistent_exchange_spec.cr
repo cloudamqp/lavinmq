@@ -183,4 +183,24 @@ describe "Persistent Exchange" do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "x-persist-seconds" do
+    it "should expire messages" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-seconds" => 1})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-all" => 1})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.unbind(x.name, "#", args: bind_args)
+        wait_for { s.vhosts["/"].exchanges[x_name].persistent_queue.try(&.empty?) }
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
 end
