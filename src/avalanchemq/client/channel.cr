@@ -388,6 +388,7 @@ module AvalancheMQ
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
+        @log.debug { "done rejecting" }
       end
 
       def basic_nack(frame)
