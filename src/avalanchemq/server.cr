@@ -39,7 +39,10 @@ module AvalancheMQ
     end
 
     def connections
-      @vhosts.flat_map { |_, v| v.connections }
+      count = @vhosts.sum { |_, v| v.connections.size }
+      arr = Array(Client).new(count)
+      @vhosts.each_value { |v| arr.concat(v.connections) }
+      arr
     end
 
     def listen(bind = "::", port = 5672)
