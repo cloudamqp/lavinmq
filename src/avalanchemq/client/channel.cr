@@ -451,10 +451,12 @@ module AvalancheMQ
       end
 
       def recover(consumer)
-        @unacked.delete_if do |unack|
-          if unack.consumer == consumer
-            yield unack.sp
-            true
+        @unack_lock.synchronize do
+          @unacked.delete_if do |unack|
+            if unack.consumer == consumer
+              yield unack.sp
+              true
+            end
           end
         end
       end
