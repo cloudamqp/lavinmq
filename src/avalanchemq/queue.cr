@@ -423,7 +423,7 @@ module AvalancheMQ
     end
 
     private def time_to_message_expiration : Time::Span?
-      @log.debug { "Checking if next message has to be expired ready: #{@ready}" }
+      @log.debug { "Checking if next message has to be expired ready" }
       meta = nil
       expire_at : Int64 = 0
       loop do

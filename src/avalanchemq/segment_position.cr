@@ -26,11 +26,13 @@ module AvalancheMQ
     end
 
     def <=>(other : self)
-      r = expiration_ts <=> other.expiration_ts
-      return r unless r.zero?
       r = segment <=> other.segment
       return r unless r.zero?
       position <=> other.position
+    end
+
+    def ==(other : self)
+      segment == other.segment && position == other.position
     end
 
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)

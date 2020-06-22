@@ -183,6 +183,35 @@ module AvalancheMQ
       def push(sp : SegmentPosition) : Int32
         insert(sp)
       end
+
+      def insert(sp : SegmentPosition)
+        @lock.synchronize do
+          insert_sorted(sp)
+          @ready.size
+        end
+      end
+
+      # Insert SPs sorted, the array should ideally be sorted too
+      def insert(sps : Enumerable(SegmentPosition))
+        @lock.synchronize do
+          sps.reverse_each do |sp|
+            insert_sorted(sp)
+          end
+          @ready.size
+        end
+      end
+
+      private def insert_sorted(sp)
+        i = @ready.bsearch_index do |rsp|
+          next true if rsp.expiration_ts >= sp.expiration_ts
+          rsp >= sp
+        end
+        if i.nil?
+          @ready.push(sp)
+        else
+          @ready.insert(i, sp)
+        end
+      end
     end
   end
 end
