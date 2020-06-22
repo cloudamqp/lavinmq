@@ -246,9 +246,8 @@ module AvalancheMQ
       x_delay = headers["x-delay"]?
       return false unless x_delay
       x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
-      @log.debug { "Exchange#should_delay_message? x_deaths: #{x_deaths}" }
       x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
-      @log.debug { "Exchange#should_delay_message? x_death: #{x_death}" }
+      @log.debug { "Exchange#should_delay_message? x_death=#{x_death}" }
       return true unless x_death
       return x_death["queue"]? != "amq.delayed.#{@name}"
     end
