@@ -402,19 +402,19 @@ module AvalancheMQ
         meta = MessageMetadata.new(ts, ex, rk, pr, sz)
         @segment_pos = sp.position + meta.bytesize
         meta
+      rescue ex : IO::Error
+        @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+        @ready.delete sp
+        delete_message sp
+        nil
+      rescue ex : IO::EOFError
+        pos = segment_file(sp.segment).pos.to_u32
+        @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
+        @segment_pos = pos
+        @ready.delete sp
+        delete_message sp
+        nil
       end
-    rescue ex : IO::Error
-      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      @ready.delete sp
-      delete_message sp
-      nil
-    rescue ex : IO::EOFError
-      pos = segment_file(sp.segment).pos.to_u32
-      @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
-      @segment_pos = pos
-      @ready.delete sp
-      delete_message sp
-      nil
     end
 
     private def time_to_message_expiration : Time::Span?
