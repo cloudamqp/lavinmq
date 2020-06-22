@@ -5,7 +5,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    container: crystallang/crystal:0.35.0
+    container: crystallang/crystal:0.35.1
 
     steps:
       - name: Checkout
@@ -17,9 +17,9 @@ jobs:
   spec:
     name: Spec
     runs-on: ubuntu-latest
-    container: crystallang/crystal:0.35.0
+    container: crystallang/crystal:0.35.1
 
-    steps: 
+    steps:
       - name: Checkout
         uses: actions/checkout@v2
 
