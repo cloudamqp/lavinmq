@@ -592,36 +592,38 @@ module AvalancheMQ
     end
 
     def read(sp : SegmentPosition, &blk : Envelope -> _)
-      @read_lock.lock
-      seg = segment_file(sp.segment)
-      if @segment_pos != sp.position
-        @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
-        seg.seek(sp.position, IO::Seek::Set)
+      @read_lock.synchronize do
+        seg = segment_file(sp.segment)
+        if @segment_pos != sp.position
+          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
+          seg.seek(sp.position, IO::Seek::Set)
+        end
+        ts = Int64.from_io seg, ByteFormat
+        ex = AMQP::ShortString.from_io seg, ByteFormat
+        rk = AMQP::ShortString.from_io seg, ByteFormat
+        pr = AMQP::Properties.from_io seg, ByteFormat
+        sz = UInt64.from_io seg, ByteFormat
+        msg = Message.new(ts, ex, rk, pr, sz, seg)
+        redelivered = @requeued.includes?(sp)
+        begin
+          @log.debug { "yielding envlope in Queue#read" }
+          yield Envelope.new(sp, msg, redelivered)
+        ensure
+          @log.debug { "ensuring Queue#read" }
+          @segment_pos = sp.position + msg.bytesize
+          @requeued.delete(sp) if redelivered
+          @log.debug { "ensuring done in Queue#read" }
+        end
+      rescue ex : IO::Error
+        @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+        @ready.delete(sp)
+        delete_message sp
+        false
+      rescue ex
+        @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
+        @segment_pos = segment_file(sp.segment).pos.to_u32
+        raise ex
       end
-      ts = Int64.from_io seg, ByteFormat
-      ex = AMQP::ShortString.from_io seg, ByteFormat
-      rk = AMQP::ShortString.from_io seg, ByteFormat
-      pr = AMQP::Properties.from_io seg, ByteFormat
-      sz = UInt64.from_io seg, ByteFormat
-      msg = Message.new(ts, ex, rk, pr, sz, seg)
-      redelivered = @requeued.includes?(sp)
-      begin
-        yield Envelope.new(sp, msg, redelivered)
-      ensure
-        @segment_pos = sp.position + msg.bytesize
-        @requeued.delete(sp) if redelivered
-      end
-    rescue ex : IO::Error
-      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      @ready.delete(sp)
-      delete_message sp
-      false
-    rescue ex
-      @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
-      @segment_pos = segment_file(sp.segment).pos.to_u32
-      raise ex
-    ensure
-      @read_lock.unlock
     end
 
     def ack(sp : SegmentPosition, persistent : Bool) : Nil
@@ -641,7 +643,6 @@ module AvalancheMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
       @log.debug { "Rejecting #{sp}" }
-
       @unacked.delete(sp)
       if requeue
         was_empty = @ready.insert(sp) == 1
