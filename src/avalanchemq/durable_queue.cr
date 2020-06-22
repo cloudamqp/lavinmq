@@ -37,17 +37,14 @@ module AvalancheMQ
           while sp = all_ready.next.as?(SegmentPosition)
             while next_unacked && next_unacked < sp
               f.write_bytes next_unacked
-              @log.debug { "writing #{next_unacked} to enq.tmp" }
               i += 1
               next_unacked = unacked.next.as?(SegmentPosition)
             end
             f.write_bytes sp
-            @log.debug { "writing #{sp} to enq.tmp" }
             i += 1
           end
           while next_unacked
             f.write_bytes next_unacked
-            @log.debug { "writing #{next_unacked} to enq.tmp" }
             i += 1
             next_unacked = unacked.next.as?(SegmentPosition)
           end
