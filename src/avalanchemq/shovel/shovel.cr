@@ -66,7 +66,7 @@ module AvalancheMQ
           end
         end
       rescue ex
-        @state = State::Terminated
+        @state = State::Stopped
         select
         when @stop.receive?
           break
@@ -123,9 +123,9 @@ module AvalancheMQ
 
     # Does not trigger reconnect, but a graceful close
     def stop
-      return if stopped?
-      @log.info { "Stopping" }
+      return if terminated?
       @stop.close
+      @log.info { "Terminated" }
     end
 
     def delete
@@ -133,13 +133,14 @@ module AvalancheMQ
       @vhost.delete_parameter("shovel", @name)
     end
 
-    def stopped?
+    def terminated?
       @state == State::Terminated
     end
 
     enum State
       Starting
       Running
+      Stopped
       Terminated
     end
 
