@@ -63,6 +63,10 @@
           <input type="checkbox" name="internal" value="1">
         </label>
         <label>
+          <span>Delayed</span>
+          <input type="checkbox" name="delayed" value="1">
+        </label>
+        <label>
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
         </label>
@@ -115,6 +119,7 @@
           features += item.durable ? ' D' : ''
           features += item.auto_delete ? ' AD' : ''
           features += item.internal ? ' I' : ''
+          features += item.arguments['x-delayed-exchange'] ? ' d' : ''
           const exchangeLink = document.createElement('a')
           exchangeLink.href = '/exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
           exchangeLink.textContent = item.name
@@ -142,6 +147,7 @@
           durable: data.get('durable') === '1',
           auto_delete: data.get('auto_delete') === '1',
           internal: data.get('internal') === '1',
+          delayed: data.get('delayed') === '1',
           type: data.get('type'),
           arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
         }
