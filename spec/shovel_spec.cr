@@ -35,7 +35,7 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "ql_"
       x.publish "shovel me", "ql_q1"
       shovel.run
-      wait_for { shovel.stopped? }
+      wait_for { shovel.terminated? }
       q2.get(no_ack: true).not_nil!.body_io.to_s.should eq "shovel me"
       s.vhosts["/"].shovels.not_nil!.empty?.should be_true
     end
@@ -59,7 +59,7 @@ describe AvalancheMQ::Shovel do
       x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
       x.publish_confirm "a" * 200_000, "lm_q1"
       shovel.run
-      wait_for { shovel.stopped? }
+      wait_for { shovel.terminated? }
       q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 200_000
     end
   ensure
@@ -175,7 +175,7 @@ describe AvalancheMQ::Shovel do
       end
       wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
       shovel.run
-      wait_for { shovel.stopped? }
+      wait_for { shovel.terminated? }
       s.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
       s.vhosts["/"].queues["prefetch_q2"].message_count.should eq 100
     end
@@ -268,5 +268,25 @@ describe AvalancheMQ::Shovel do
   ensure
     ShovelSpecHelpers.cleanup "ssl_"
     shovel.try &.delete
+  end
+
+  describe "authentication errror" do
+    it "should be stopped until terminated" do
+      source = AvalancheMQ::Shovel::Source.new(
+        "amqp://foo:bar@localhost:5672",
+        "q1"
+      )
+      dest = AvalancheMQ::Shovel::Destination.new(
+        "amqp://foo:bar@localhost:5672",
+        "q2"
+      )
+      shovel = AvalancheMQ::Shovel.new(source, dest, "auth_fail", vhost)
+      shovel.run
+      sleep 0.1
+      shovel.state.should eq "Stopped"
+      shovel.terminate
+      sleep 0.1
+      shovel.state.should eq "Terminated"
+    end
   end
 end

@@ -391,7 +391,7 @@ module AvalancheMQ
     end
 
     def stop_shovels
-      @shovels.not_nil!.each_value &.stop
+      @shovels.not_nil!.each_value &.terminate
     end
 
     def stop_upstream_links

@@ -67,12 +67,12 @@ module AvalancheMQ
         end
       rescue ex
         @state = State::Stopped
+        @log.error { "Shovel error: #{ex.message}" }
         select
         when @stop.receive?
           break
-        else
-          @log.error { "Shovel error: #{ex.message}" }
-          sleep @reconnect_delay.seconds
+        when timeout @reconnect_delay.seconds
+          @log.info { "Shovel try reconnect" }
         end
       end
     ensure
@@ -122,14 +122,14 @@ module AvalancheMQ
     end
 
     # Does not trigger reconnect, but a graceful close
-    def stop
+    def terminate
       return if terminated?
       @stop.close
       @log.info { "Terminated" }
     end
 
     def delete
-      stop
+      terminate
       @vhost.delete_parameter("shovel", @name)
     end
 
