@@ -202,15 +202,10 @@ module AvalancheMQ
       end
 
       private def insert_sorted(sp)
-        i = @ready.bsearch_index do |rsp|
-          next true if rsp.expiration_ts >= sp.expiration_ts
-          rsp >= sp
+        idx = @ready.bsearch_index do |rsp|
+          rsp.expiration_ts >= sp.expiration_ts || rsp >= sp
         end
-        if i.nil?
-          @ready.push(sp)
-        else
-          @ready.insert(i, sp)
-        end
+        idx ? @ready.insert(idx, sp) : @ready.push(sp)
       end
     end
   end
