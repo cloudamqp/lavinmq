@@ -19,6 +19,7 @@ module AvalancheMQ
 
     getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter policy : Policy?
+    getter? delayed
 
     @alternate_exchange : String?
     getter persistent_queue : PersistentExchangeQueue?
@@ -255,10 +256,6 @@ module AvalancheMQ
     def exchange_matches(routing_key : String, headers = nil, &blk : Exchange -> _)
       return if should_delay_message?(headers)
       do_exchange_matches(routing_key, headers, &blk)
-    end
-
-    def delayed?
-      @delayed
     end
 
     def setup_delayed_queue
