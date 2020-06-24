@@ -409,6 +409,8 @@ module AvalancheMQ
         send_access_refused(frame, "Not allowed to bind to the default exchange")
       elsif source.try(&.internal) || destination.try(&.internal)
         send_access_refused(frame, "Not allowed to bind to internal exchange")
+      elsif source.try(&.persistent?)
+        send_access_refused(frame, "Not allowed to bind persistent exchange to exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait

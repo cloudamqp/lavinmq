@@ -248,4 +248,18 @@ describe "Persistent Exchange" do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "Exchange to exchange binding" do
+    it "should not be allowed" do
+      expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+        with_channel do |ch|
+          x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
+          ch.exchange(x_name, "topic", args: x_args)
+          ch.topic_exchange.bind(x_name, "#")
+        end
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
 end

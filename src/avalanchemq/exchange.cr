@@ -170,7 +170,7 @@ module AvalancheMQ
             pq.from(arg.to_i64, &republish)
           end
         when Exchange
-          # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
+          raise "Not Implemented"
         end
       end
       true
