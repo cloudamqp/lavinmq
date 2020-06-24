@@ -55,6 +55,12 @@ module AvalancheMQ
         end
       end
 
+      def each(start : Int, count : Int, &blk)
+        @lock.synchronize do
+          @ready.each(start: start, count: count) { |sp| yield sp }
+        end
+      end
+
       def reverse_each(&blk)
         @lock.synchronize do
           @ready.reverse_each { |sp| yield sp }

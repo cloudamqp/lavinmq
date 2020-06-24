@@ -247,6 +247,35 @@ describe "Persistent Exchange" do
     ensure
       s.vhosts["/"].delete_exchange(x_name)
     end
+
+    it "should get all persisted message, same or newer" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 3})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", q.name
+        x.publish "test message 2", q.name
+        x.publish "test message 3", q.name
+
+        # Publish on other queue to advance segment position
+        ch.queue.publish("test message 1")
+
+        bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
+        q.bind(x.name, "#", args: bind_args)
+        offset = q.get(no_ack: true)
+          .try { |msg| msg.properties.headers }
+          .try { |h| h["x-offset"] }
+
+        bind_args = AMQP::Client::Arguments.new({"x-from" => offset.as(Int64) + 1})
+        q = ch.queue
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+
   end
 
   describe "Exchange to exchange binding" do

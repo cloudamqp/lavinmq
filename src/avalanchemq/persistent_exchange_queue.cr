@@ -22,48 +22,32 @@ module AvalancheMQ
     def head(c : Int, &blk : SegmentPosition -> Nil)
       q_size = @ready.size
       if c < 0
-        stop = q_size + c - 1
-        peek(0, stop, &blk)
+        count = q_size + c
+        return if count < 0
+        @ready.each(0, count, &blk)
       else
-        stop = c - 1
-        peek(0, stop, &blk)
+        @ready.each(0, c, &blk)
       end
     end
 
     def tail(c : Int, &blk : SegmentPosition -> Nil)
       q_size = @ready.size
       if c < 0
-        start = c.abs
-        peek(start, q_size, &blk)
+        @ready.each(c.abs, q_size, &blk)
       else
-        start = q_size - c
-        peek(start, q_size, &blk)
+        @ready.each(Math.max(0, q_size - c), q_size, &blk)
       end
     end
 
-    def all(&blk : SegmentPosition -> Nil)
-      peek(0, @ready.size, &blk)
-    end
-
     def from(offset : Int64, &blk : SegmentPosition -> Nil)
-      return all(&blk) if offset == 0
+      return @ready.each(&blk) if offset == 0
       start_sp = SegmentPosition.from_i64(offset)
       found_offset = false
       @ready.each do |sp|
         unless found_offset
-          next unless start_sp == sp
+          next if start_sp > sp
           found_offset = true
         end
-        yield sp
-      end
-    end
-
-    def peek(start : Int, stop : Int, &blk : SegmentPosition -> Nil)
-      return if @ready.empty?
-      start = 0 if start < 0
-      @ready.each_with_index do |sp, i|
-        next if i < start
-        break if i > stop
         yield sp
       end
     end
