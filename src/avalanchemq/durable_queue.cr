@@ -80,6 +80,16 @@ module AvalancheMQ
       end
     end
 
+    def publish(sp : SegmentPosition, persistent = false) : Bool
+      super || return false
+      @enq_lock.synchronize do
+        @log.debug { "writing #{sp} to enq" }
+        @enq.write_bytes sp
+        @enq.flush if persistent
+      end
+      true
+    end
+
     protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       super
       @ack_lock.synchronize do
