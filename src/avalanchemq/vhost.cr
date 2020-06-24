@@ -108,13 +108,20 @@ module AvalancheMQ
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       properties = msg.properties
-      find_all_queues(ex, msg.routing_key, properties.headers, visited, found_queues)
+      headers = properties.headers
+      find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
       end
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      if headers && headers.has_key? "x-death"
+        headers["x-death"].as?(Array(AMQP::Field)).try &.each do |xd|
+          queue = found_queues.find { |q| q.name == xd.as(AMQ::Protocol::Table)["queue"]? }
+          found_queues.delete(queue)
+        end
+      end
       sp = write_to_disk(msg, ex.persistent?)
       flush = properties.delivery_mode == 2_u8
       ok = 0
