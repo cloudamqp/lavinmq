@@ -2,15 +2,13 @@ module AvalancheMQ
   struct SegmentPosition
     include Comparable(self)
 
-    @segment : UInt32
-    @position : UInt32
-    @expiration_ts : Int64
+    getter segment : UInt32
+    getter position : UInt32
+    getter expiration_ts = 0_i64
 
-    getter segment, position, expiration_ts
     def_equals_and_hash @segment, @position
 
     def initialize(@segment : UInt32, @position : UInt32)
-      @expiration_ts = 0
     end
 
     def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64)
