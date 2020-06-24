@@ -102,8 +102,10 @@
           features += item.durable ? ' D' : ''
           features += item.auto_delete ? ' AD' : ''
           features += item.exclusive ? ' E' : ''
+          features += item.internal ? ' I' : ''
           const queueLink = document.createElement('a')
-          queueLink.href = '/queue?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
+          const view = item.internal ? 'queue_internal' : 'queue'
+          queueLink.href = '/' + view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
           queueLink.textContent = item.name
           avalanchemq.table.renderCell(tr, 0, item.vhost)
           avalanchemq.table.renderCell(tr, 1, queueLink)

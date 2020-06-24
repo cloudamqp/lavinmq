@@ -344,6 +344,7 @@ module AvalancheMQ
         state: @closed ? :closed : :running,
         effective_policy_definition: @policy,
         message_stats: stats_details,
+        internal: @internal,
       }
     end
 
