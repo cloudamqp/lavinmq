@@ -117,8 +117,9 @@ module AvalancheMQ
       @log.debug { "publish queues#found=#{found_queues.size}" }
       return false if found_queues.empty?
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      store_offset = found_queues.any? { |q| q.is_a?(PersistentExchangeQueue) }
       sp = @write_lock.synchronize do
-        write_to_disk(msg)
+        write_to_disk(msg, store_offset)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
@@ -177,12 +178,17 @@ module AvalancheMQ
       end
     end
 
-    private def write_to_disk(msg) : SegmentPosition
+    private def write_to_disk(msg, store_offset = false) : SegmentPosition
       if @pos >= Config.instance.segment_size
         open_new_segment
       end
 
       sp = SegmentPosition.new(@segment, @pos)
+      if store_offset
+        headers = msg.properties.headers || AMQP::Table.new
+        headers["x-offset"] = sp.to_i64
+        msg.properties.headers = headers
+      end
       @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                     size=#{msg.bytesize} sp=#{sp}" }
       @wfile.write_bytes msg.timestamp, BYTE_FORMAT

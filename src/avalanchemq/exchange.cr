@@ -166,8 +166,8 @@ module AvalancheMQ
             pq.head(arg, &republish)
           when "x-tail"
             pq.tail(arg, &republish)
-          when "x-all"
-            pq.all(&republish)
+          when "x-from"
+            pq.from(arg.to_i64, &republish)
           end
         when Exchange
           # TODO @vhost.publish_segment_position(sp, self, Set(Queue).new([destination]))
@@ -280,7 +280,7 @@ module AvalancheMQ
       if q = @vhost.queues[routing_key]?
         yield q
       end
-      @persistent_queue.try { |q| yield q } if persistent?
+      @persistent_queue.try { |pq| yield pq } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)

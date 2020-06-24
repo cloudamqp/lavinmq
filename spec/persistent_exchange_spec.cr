@@ -4,6 +4,24 @@ describe "Persistent Exchange" do
   x_name = "persistent-topic"
   q_name = "amq.persistent.#{x_name}"
 
+  describe "x-offset header" do
+    it "should set the x-offset header" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true)
+          .try { |msg| msg.properties.headers }
+          .try { |h| h["x-offset"] }
+          .should_not be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
   describe "x-head" do
     it "should retain 1 messages" do
       with_channel do |ch|
@@ -164,16 +182,45 @@ describe "Persistent Exchange" do
     end
   end
 
-  describe "x-all" do
-    it "should get all persisted message" do
+  describe "x-persist-seconds" do
+    it "should expire messages" do
       with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
+        x_args = AMQP::Client::Arguments.new({"x-persist-seconds" => 1})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.unbind(x.name, "#", args: bind_args)
+        wait_for { s.vhosts["/"].exchanges[x_name].persistent_queue.try(&.empty?) }
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
+
+  describe "x-from" do
+    it "should get all persisted message from offset" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 3})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
         x.publish "test message 1", q.name
         x.publish "test message 2", q.name
         x.publish "test message 3", q.name
-        bind_args = AMQP::Client::Arguments.new({"x-all" => 1})
+        bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+
+        offset = q.get(no_ack: true)
+          .try { |msg| msg.properties.headers }
+          .try { |h| h["x-offset"] }
+
+        bind_args = AMQP::Client::Arguments.new({"x-from" => offset})
+        q = ch.queue
         q.bind(x.name, "#", args: bind_args)
         q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
         q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
@@ -182,21 +229,19 @@ describe "Persistent Exchange" do
     ensure
       s.vhosts["/"].delete_exchange(x_name)
     end
-  end
 
-  describe "x-persist-seconds" do
-    it "should expire messages" do
+    it "should get all persisted message" do
       with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-persist-seconds" => 1})
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
         x.publish "test message 1", q.name
-        bind_args = AMQP::Client::Arguments.new({"x-all" => 1})
+        x.publish "test message 2", q.name
+        x.publish "test message 3", q.name
+        bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
-        q.unbind(x.name, "#", args: bind_args)
-        wait_for { s.vhosts["/"].exchanges[x_name].persistent_queue.try(&.empty?) }
-        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure

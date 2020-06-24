@@ -45,6 +45,19 @@ module AvalancheMQ
       peek(0, @ready.size, &blk)
     end
 
+    def from(offset : Int64, &blk : SegmentPosition -> Nil)
+      return all(&blk) if offset == 0
+      start_sp = SegmentPosition.from_i64(offset)
+      found_offset = false
+      @ready.each do |sp|
+        unless found_offset
+          next unless start_sp == sp
+          found_offset = true
+        end
+        yield sp
+      end
+    end
+
     def peek(start : Int, stop : Int, &blk : SegmentPosition -> Nil)
       return if @ready.empty?
       start = 0 if start < 0

@@ -80,16 +80,6 @@ module AvalancheMQ
       end
     end
 
-    def publish(sp : SegmentPosition, persistent = false) : Bool
-      super || return false
-      @enq_lock.synchronize do
-        @log.debug { "writing #{sp} to enq" }
-        @enq.write_bytes sp
-        @enq.flush if persistent
-      end
-      true
-    end
-
     protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       super
       @ack_lock.synchronize do
@@ -115,13 +105,13 @@ module AvalancheMQ
 
     def fsync_enq
       return if @closed
-      #@log.debug "fsyncing enq"
+      # @log.debug "fsyncing enq"
       @enq.fsync(flush_metadata: false)
     end
 
     def fsync_ack
       return if @closed
-      #@log.debug "fsyncing ack"
+      # @log.debug "fsyncing ack"
       @ack.fsync(flush_metadata: false)
     end
 
