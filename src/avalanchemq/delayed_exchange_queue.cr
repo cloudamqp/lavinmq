@@ -14,7 +14,7 @@ module AvalancheMQ
 
     def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
       delay = message.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
-      @log.debug("DurableDelayedExchange#publish delaying message: #{delay}")
+      @log.debug { "DurableDelayedExchange#publish delaying message: #{delay}" }
       sp = SegmentPosition.new(sp.segment, sp.position, message.timestamp + delay) unless delay.nil?
       was_empty = empty?
       if result = super(sp, message, persistent)
