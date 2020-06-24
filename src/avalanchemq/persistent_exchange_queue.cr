@@ -14,8 +14,19 @@ module AvalancheMQ
 
     def expire_loop
       loop do
-        sleep 1.seconds
-        consumer_or_expire
+        ttl = time_to_message_expiration
+        if ttl
+          select
+          when timeout ttl
+            expire_messages
+          end
+        else
+          @message_available.receive
+        end
+      rescue Channel::ClosedError
+        break
+      rescue ex
+        @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
       end
     end
 
