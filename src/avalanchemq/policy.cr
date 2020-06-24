@@ -20,17 +20,15 @@ module AvalancheMQ
     end
 
     include SortableJSON
+    include JSON::Serializable
 
-    SortableJSON.mapping(
-      name: {type: String, setter: false},
-      vhost: {type: String, setter: false},
-      pattern: {type: Regex, setter: false},
-      apply_to: {key: "apply-to", type: Target, setter: false},
-      definition: {type: Hash(String, JSON::Any), setter: false},
-      priority: {type: Int8, setter: false}
-    )
-
-    getter name, vhost, definition, pattern, apply_to, priority
+    getter name : String
+    getter vhost : String
+    getter pattern : Regex
+    @[JSON::Field(key: "apply-to")]
+    getter apply_to : Target
+    getter priority : Int8
+    getter definition : Hash(String, JSON::Any)
 
     def initialize(@name : String, @vhost : String, @pattern : Regex, @apply_to : Target,
                    @definition : Hash(String, JSON::Any), @priority : Int8)
@@ -44,6 +42,17 @@ module AvalancheMQ
                   @apply_to == Target::Exchanges || @apply_to == Target::All
                 end
       applies && !@pattern.match(resource.name).nil?
+    end
+
+    def details_tuple
+      {
+        name: @name,
+        vhost: @vhost,
+        pattern: @pattern,
+        "apply-to": @apply_to,
+        priority: @priority,
+        definition: @definition
+      }
     end
   end
 end
