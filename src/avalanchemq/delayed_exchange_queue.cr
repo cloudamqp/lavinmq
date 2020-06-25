@@ -2,25 +2,25 @@ require "./queue"
 require "./durable_queue"
 
 module AvalancheMQ
+  module DelayedExchangeQueuePublishMixin
+    def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
+      delay = message.properties.headers.try(&.fetch("x-delay", nil)).try &.as(Queue::ArgumentNumber)
+      @log.debug { "DelayedExchangeQueuePublishMixin#publish delaying message: #{delay}" }
+      sp = SegmentPosition.new(sp.segment, sp.position, message.timestamp + delay) if delay
+      was_not_empty = !empty?
+      result = super(sp, message, persistent)
+      refresh_ttl_timeout if result && delay && was_not_empty
+      result
+    end
+  end
+
   class DelayedExchangeQueue < Queue
-    @ready = SortedReadyQueue.new
+    include DelayedExchangeQueuePublishMixin
+    @ready = Queue::SortedReadyQueue.new
   end
 
   class DurableDelayedExchangeQueue < DurableQueue
-    def initialize(*args)
-      super
-      @ready = SortedReadyQueue.new
-    end
-
-    def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
-      delay = message.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
-      @log.debug { "DurableDelayedExchange#publish delaying message: #{delay}" }
-      sp = SegmentPosition.new(sp.segment, sp.position, message.timestamp + delay) unless delay.nil?
-      was_empty = empty?
-      if result = super(sp, message, persistent)
-        refresh_ttl_timeout unless was_empty
-      end
-      result
-    end
+    include DelayedExchangeQueuePublishMixin
+    @ready = Queue::SortedReadyQueue.new
   end
 end
