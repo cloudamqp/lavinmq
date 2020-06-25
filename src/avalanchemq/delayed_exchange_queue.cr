@@ -3,6 +3,8 @@ require "./durable_queue"
 
 module AvalancheMQ
   module DelayedExchangeQueuePublishMixin
+    @ready : Queue::ReadyQueue = Queue::SortedReadyQueue.new
+
     def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
       delay = message.properties.headers.try(&.fetch("x-delay", nil)).try &.as(Queue::ArgumentNumber)
       @log.debug { "DelayedExchangeQueuePublishMixin#publish delaying message: #{delay}" }
@@ -16,11 +18,9 @@ module AvalancheMQ
 
   class DelayedExchangeQueue < Queue
     include DelayedExchangeQueuePublishMixin
-    @ready = Queue::SortedReadyQueue.new
   end
 
   class DurableDelayedExchangeQueue < DurableQueue
     include DelayedExchangeQueuePublishMixin
-    @ready = Queue::SortedReadyQueue.new
   end
 end
