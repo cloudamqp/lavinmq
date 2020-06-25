@@ -22,8 +22,8 @@ module AvalancheMQ
     getter persistent_queue : PersistentExchangeQueue?
     @log : Logger
 
-    rate_stats(%w(publish_in publish_out))
-    property publish_in_count, publish_out_count
+    rate_stats(%w(publish_in publish_out unroutable))
+    property publish_in_count, publish_out_count, unroutable_count
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
