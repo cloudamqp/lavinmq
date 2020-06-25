@@ -53,14 +53,8 @@ module AvalancheMQ
     def from(offset : Int64, &blk : SegmentPosition -> Nil)
       return @ready.each(&blk) if offset == 0
       start_sp = SegmentPosition.from_i64(offset)
-      found_offset = false
-      @ready.each do |sp|
-        unless found_offset
-          next if start_sp > sp
-          found_offset = true
-        end
-        yield sp
-      end
+      i = @ready.bsearch_index { |sp| sp >= start_sp } || 0
+      @ready.each(i, @ready.size, &blk)
     end
   end
 end

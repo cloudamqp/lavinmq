@@ -79,6 +79,12 @@ module AvalancheMQ
         end
       end
 
+      def bsearch_index(&blk)
+        @lock.synchronize do
+          @ready.bsearch_index { |sp, i| yield sp, i }
+        end
+      end
+
       # insert a SP, keeps the deque sorted
       # returns SPs in the deque after the operation
       def insert(sp : SegmentPosition)
