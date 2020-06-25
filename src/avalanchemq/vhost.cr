@@ -115,7 +115,10 @@ module AvalancheMQ
       ex.publish_in_count += 1
       find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
-      return false if found_queues.empty?
+      if found_queues.empty?
+        ex.unroutable_count += 1
+        return false
+      end
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = @write_lock.synchronize do
         write_to_disk(msg, ex.persistent?)
