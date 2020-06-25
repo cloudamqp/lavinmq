@@ -277,25 +277,26 @@ module AvalancheMQ
     end
 
     private def delete_queue(frame)
-      if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
-          send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
-        elsif frame.if_unused && !q.consumer_count.zero?
-          send_precondition_failed(frame, "Queue '#{q.name}' in use")
-        elsif frame.if_empty && !q.message_count.zero?
-          send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
-        elsif !@user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have permissions to delete queue '#{q.name}'")
-        elsif q.internal?
-          send_access_refused(frame, "Not allowed to delete internal queue")
-        else
-          size = q.message_count
-          @vhost.apply(frame)
-          @exclusive_queues.delete(q) if q.exclusive
-          send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
-        end
+      q = @vhost.queues.fetch(frame.queue_name, nil)
+      unless q
+       send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+       return
+      end
+      if q.exclusive && !exclusive_queues.includes? q
+        send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
+      elsif frame.if_unused && !q.consumer_count.zero?
+        send_precondition_failed(frame, "Queue '#{q.name}' in use")
+      elsif frame.if_empty && !q.message_count.zero?
+        send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
+      elsif !@user.can_config?(@vhost.name, frame.queue_name)
+        send_access_refused(frame, "User doesn't have permissions to delete queue '#{q.name}'")
+      elsif q.internal?
+        send_access_refused(frame, "Not allowed to delete internal queue")
       else
-        send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+        size = q.message_count
+        @vhost.apply(frame)
+        @exclusive_queues.delete(q) if q.exclusive
+        send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
       end
     end
 
