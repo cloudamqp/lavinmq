@@ -117,9 +117,8 @@ module AvalancheMQ
       @log.debug { "publish queues#found=#{found_queues.size}" }
       return false if found_queues.empty?
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
-      store_offset = found_queues.any? { |q| q.is_a?(PersistentExchangeQueue) }
       sp = @write_lock.synchronize do
-        write_to_disk(msg, store_offset)
+        write_to_disk(msg, ex.persistent?)
       end
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
@@ -145,8 +144,9 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
+      persistent_ex = ex.persistent?
       ex.queue_matches(routing_key, headers) do |q|
-        next if !ex.persistent? && q.internal?
+        next if !persistent_ex && q.internal?
         queues << q
       end
 
