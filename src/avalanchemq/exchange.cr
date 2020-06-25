@@ -127,28 +127,34 @@ module AvalancheMQ
       !@persistent_queue.nil?
     end
 
+    MAX_NAME_LENGTH = 256
+
     private def init_persistent_queue
+      return if @persistent_queue
       persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
-      persist_seconds = @arguments["x-persist-seconds"]?.try &.as?(ArgumentNumber)
-      return unless persist_messages || persist_seconds
-      return if persistent?
+      persist_ms = @arguments["x-persist-ms"]?.try &.as?(ArgumentNumber)
+      return unless persist_messages || persist_ms
       q_name = "amq.persistent.#{@name}"
+      raise "Exchange name too long" if q_name.size > MAX_NAME_LENGTH
       args = Hash(String, AMQP::Field).new
       persist_messages.try do |n|
         next if n <= 0
         args["x-max-length"] = n
       end
-      persist_seconds.try do |s|
-        next if s <= 0
-        args["x-message-ttl"] = s * 1000
+      persist_ms.try do |ms|
+        next if ms <= 0
+        args["x-message-ttl"] = ms
       end
       @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
       @vhost.queues[q_name] = @persistent_queue.not_nil!
     end
 
+    REPUBLISH_METHODS = {"x-head", "x-tail", "x-from"}
+
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
       if (pq = @persistent_queue) && headers && headers.any?
-        method = headers.first_key
+        method = headers.select(REPUBLISH_METHODS).first_key?
+        return unless method
         arg = headers[method].try &.as?(ArgumentNumber)
         return true unless arg && pq.any?
         persisted = pq.message_count
@@ -156,7 +162,6 @@ module AvalancheMQ
         case destination
         when Queue
           republish = ->(sp : SegmentPosition) do
-            # next if destination.includes_segment_position?(sp)
             return unless destination.as(Queue).publish(sp)
             @publish_out_count += 1
             @vhost.sp_counter.inc(sp)

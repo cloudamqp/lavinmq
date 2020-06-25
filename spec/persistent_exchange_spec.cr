@@ -185,7 +185,7 @@ describe "Persistent Exchange" do
   describe "x-persist-seconds" do
     it "should expire messages" do
       with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-persist-seconds" => 1})
+        x_args = AMQP::Client::Arguments.new({"x-persist-ms" => 1})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
         x.publish "test message 1", q.name
@@ -275,7 +275,6 @@ describe "Persistent Exchange" do
     ensure
       s.vhosts["/"].delete_exchange(x_name)
     end
-
   end
 
   describe "Exchange to exchange binding" do

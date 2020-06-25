@@ -61,18 +61,6 @@ module AvalancheMQ
         end
       end
 
-      def reverse_each(&blk)
-        @lock.synchronize do
-          @ready.reverse_each { |sp| yield sp }
-        end
-      end
-
-      def each_with_index(&blk)
-        @lock.synchronize do
-          @ready.each_with_index { |sp, i| yield sp, i }
-        end
-      end
-
       def locked_each(&blk)
         @lock.synchronize do
           yield @ready.each

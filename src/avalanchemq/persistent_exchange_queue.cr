@@ -14,12 +14,9 @@ module AvalancheMQ
 
     def expire_loop
       loop do
-        ttl = time_to_message_expiration
-        if ttl
-          select
-          when timeout ttl
-            expire_messages
-          end
+        if ttl = time_to_message_expiration
+          sleep ttl
+          expire_messages
         else
           @message_available.receive
         end
@@ -30,23 +27,23 @@ module AvalancheMQ
       end
     end
 
-    def head(c : Int, &blk : SegmentPosition -> Nil)
+    def head(count : Int, &blk : SegmentPosition -> Nil)
       q_size = @ready.size
-      if c < 0
-        count = q_size + c
+      if count < 0
+        count = q_size + count
         return if count < 0
         @ready.each(0, count, &blk)
       else
-        @ready.each(0, c, &blk)
+        @ready.each(0, count, &blk)
       end
     end
 
-    def tail(c : Int, &blk : SegmentPosition -> Nil)
+    def tail(count : Int, &blk : SegmentPosition -> Nil)
       q_size = @ready.size
-      if c < 0
-        @ready.each(c.abs, q_size, &blk)
+      if count < 0
+        @ready.each(count.abs, q_size, &blk)
       else
-        @ready.each(Math.max(0, q_size - c), q_size, &blk)
+        @ready.each(Math.max(0, q_size - count), q_size, &blk)
       end
     end
 
