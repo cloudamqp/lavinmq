@@ -26,6 +26,7 @@ module AvalancheMQ
     property socket_buffer_size = 16384 # byte
     property tcp_nodelay = false # bool
     property byte_format : IO::ByteFormat = IO::ByteFormat::NetworkEndian
+    property auth_ratelimit = 1000 # requests per second
 
     @@instance : Config = self.new
 
@@ -64,6 +65,7 @@ module AvalancheMQ
       settings["tcp_nodelay"]?.try { |v| @tcp_nodelay = true?(v) }
       settings["tls_cert"]?.try { |v| @cert_path = v }
       settings["tls_key"]?.try { |v| @key_path = v }
+      settings["auth_ratelimit"]?.try { |v| @auth_ratelimit = v.to_i32 }
     end
 
     private def parse_amqp(settings)

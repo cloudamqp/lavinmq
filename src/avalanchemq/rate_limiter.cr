@@ -30,13 +30,22 @@ class TokenRateItem < RateItem
   end
 end
 
-# TODO: Allow multiple rates in same limiter (allow to initialize with multiple rates)
+abstract class RateLimiter
+  abstract def limited?(key : String)
+
+  def allowed?(key : String)
+    !limited?(key)
+  end
+end
+
 # TODO: Thread safety?
+# TODO: Allow multiple rates in same limiter (allow to initialize with multiple rates)
 # TODO: Use https://github.com/crystal-lang/crystal/pull/8506
-# TODO: increase resolution
-class RateLimiter
-  def initialize(@rate_seconds : Int32, rate_klass : RateItem.class)
-    @pool = Hash(String, RateItem).new { |h,k| h[k] = rate_klass.new(@rate_seconds) }
+class SecondsRateLimiter < RateLimiter
+  def initialize(@rate_seconds = 1000)
+    raise ArgumentError.new("rate must be positive") if @rate_seconds <= 0
+
+    @pool = Hash(String, RateItem).new { |h,k| h[k] = TokenRateItem.new(@rate_seconds) }
   end
 
   def limited?(key : String)
@@ -47,5 +56,11 @@ class RateLimiter
 
   def inspect(io)
     io << self.class << "keys=" << @pool.size
+  end
+end
+
+class NoRateLimiter < RateLimiter
+  def limited?(key)
+    false
   end
 end

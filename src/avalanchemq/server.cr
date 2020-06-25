@@ -27,7 +27,7 @@ module AvalancheMQ
     @closed = false
     @flow = true
 
-    def initialize(@data_dir : String, @log : Logger)
+    def initialize(@data_dir : String, @log : Logger, @rate_limiter : (RateLimiter|Nil) = nil)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket).new(3)
@@ -175,6 +175,10 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket, remote_address, local_address)
+      if @rate_limiter.try &.limited?(remote_address.address)
+        return socket.close
+      end
+
       client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
       if client
         @connection_events.send({client, :connected})

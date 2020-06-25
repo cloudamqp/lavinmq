@@ -51,6 +51,7 @@ end
 require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
 require "./avalanchemq/log_formatter"
+require "./avalanchemq/rate_limiter"
 
 puts "AvalancheMQ #{AvalancheMQ::VERSION}"
 {% unless flag?(:release) %}
@@ -91,9 +92,11 @@ lock.truncate
 lock.print System.hostname
 lock.fsync
 
+rate_limiter : RateLimiter = config.auth_ratelimit == 0 ? NoRateLimiter.new : SecondsRateLimiter.new(config.auth_ratelimit)
+
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
-amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
+amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup, rate_limiter)
 
 if config.amqp_port > 0
   spawn(name: "AMQP listening on #{config.amqp_port}") do
@@ -116,7 +119,7 @@ unless config.unix_path.empty?
 end
 
 if config.http_port > 0 || config.https_port > 0
-  http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
+  http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup, rate_limiter)
   if config.http_port > 0
     http_server.bind_tcp(config.http_bind, config.http_port)
   end

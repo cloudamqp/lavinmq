@@ -14,12 +14,13 @@ end
 module AvalancheMQ
   module HTTP
     class Server
-      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
+      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger, @rate_limiter = NoRateLimiter.new)
         @log.progname = "httpserver"
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
           ApiDefaultsHandler.new,
+          RateLimitHandler.new(@log.dup, @rate_limiter),
           ApiErrorHandler.new(@log.dup),
           StaticController.new,
           BasicAuthHandler.new(@amqp_server.users, @log.dup),
