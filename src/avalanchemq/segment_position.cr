@@ -29,10 +29,6 @@ module AvalancheMQ
       position <=> other.position
     end
 
-    def ==(other : self)
-      segment == other.segment && position == other.position
-    end
-
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
       seg = UInt32.from_io(io, format)
       pos = UInt32.from_io(io, format)
