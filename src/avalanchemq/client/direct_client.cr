@@ -8,9 +8,7 @@ module AvalancheMQ
       log = vhost.log.dup
       log.progname += " direct=#{self.hash}"
       name = "localhost:#{self.hash}"
-      vhost.add_connection(self)
       super(name, vhost, user, log, client_properties)
-      @log.info "Connected"
     end
 
     def details_tuple
@@ -30,7 +28,7 @@ module AvalancheMQ
       @name
     end
 
-    private def cleanup
+    protected def cleanup
       # noop
     end
 

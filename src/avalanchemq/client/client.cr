@@ -18,7 +18,6 @@ module AvalancheMQ
     abstract def connection_details
     abstract def deliver(frame : AMQP::Frame, msg : Message)
     abstract def channel_name_prefix
-    private abstract def cleanup
 
     setter direct_reply_consumer_tag
     getter vhost, channels, log, exclusive_queues,
@@ -38,6 +37,7 @@ module AvalancheMQ
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
+      @vhost.add_connection(self)
       @log.debug "Connected"
     end
 
@@ -158,7 +158,7 @@ module AvalancheMQ
       true
     end
 
-    def cleanup
+    protected def cleanup
       @running = false
       @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)
@@ -172,7 +172,8 @@ module AvalancheMQ
     def close(reason = nil)
       reason ||= "Connection closed"
       @log.info { "Closing, #{reason}" }
-      send AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
+      close_frame = AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
+      send(close_frame) || cleanup
       @running = false
     end
 

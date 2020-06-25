@@ -10,24 +10,20 @@ module AvalancheMQ
   alias ParameterId = {String?, String} | String
 
   class Parameter
-    getter component_name, parameter_name, value
-    setter value
+    include JSON::Serializable
 
-    JSON.mapping(
-      component_name: {key: "component", setter: false, type: String?},
-      parameter_name: {key: "name", setter: false, type: String},
-      value: {setter: false, type: JSON::Any}
-    )
-
-    @name : ParameterId?
+    @[JSON::Field(key: "component")]
+    getter component_name : String?
+    @[JSON::Field(key: "name")]
+    getter parameter_name : String
+    @[JSON::Field(key: "value")]
+    property value
 
     def initialize(@component_name : String?, @parameter_name : String, @value : JSON::Any)
-      @name = {@component_name, @parameter_name}
     end
 
     def name
-      @name ||= {@component_name, @parameter_name}
-      @name
+      { @component_name, @parameter_name }
     end
   end
 end

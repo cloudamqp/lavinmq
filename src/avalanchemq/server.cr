@@ -18,7 +18,7 @@ require "./proxy_protocol"
 
 module AvalancheMQ
   class Server
-    getter connections, vhosts, users, data_dir, log, parameters
+    getter vhosts, users, data_dir, log, parameters
     getter? closed, flow
     alias ConnectionsEvents = Channel(Tuple(Client, Symbol))
     include ParameterTarget
@@ -31,14 +31,18 @@ module AvalancheMQ
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket).new(3)
-      @connections = Array(Client).new
-      @connection_events = ConnectionsEvents.new(16)
       @users = UserStore.new(@data_dir, @log)
-      @vhosts = VHostStore.new(@data_dir, @connection_events, @log, @users.default_user)
+      @vhosts = VHostStore.new(@data_dir, @log, @users.default_user)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
-      spawn handle_connection_events, name: "Server#handle_connection_events"
       spawn stats_loop, name: "Server#stats_loop"
+    end
+
+    def connections
+      count = @vhosts.sum { |_, v| v.connections.size }
+      arr = Array(Client).new(count)
+      @vhosts.each_value { |v| arr.concat(v.connections) }
+      arr
     end
 
     def listen(bind = "::", port = 5672)
@@ -129,8 +133,6 @@ module AvalancheMQ
       @closed = true
       @log.debug "Closing listeners"
       @listeners.each &.close
-      @log.debug "Closing connections"
-      @connections.each &.close("Broker shutdown")
       @log.debug "Closing vhosts"
       @vhosts.close
     end
@@ -180,14 +182,7 @@ module AvalancheMQ
       end
 
       client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
-      if client
-        @connection_events.send({client, :connected})
-        client.on_close do |c|
-          @connection_events.send({c, :disconnected})
-        end
-      else
-        socket.close
-      end
+      socket.close if client.nil?
     rescue ex : IO::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
     end
@@ -202,22 +197,6 @@ module AvalancheMQ
       socket.write_timeout = 15
     end
 
-    private def handle_connection_events
-      loop do
-        conn, event = @connection_events.receive
-        case event
-        when :connected
-          @connections.push conn
-        when :disconnected
-          @connections.delete conn
-        else raise "Unexpected event '#{event}'"
-        end
-        @log.debug { "#{@connections.size} connected clients" }
-      end
-    rescue Channel::ClosedError
-      @log.debug { "Connection events channel closed" }
-    end
-
     private def stats_loop
       loop do
         break if closed?
@@ -225,10 +204,10 @@ module AvalancheMQ
         @vhosts.each_value do |vhost|
           vhost.queues.each_value(&.update_rates)
           vhost.exchanges.each_value(&.update_rates)
-        end
-        @connections.each do |connection|
-          connection.update_rates
-          connection.channels.each_value(&.update_rates)
+          vhost.connections.each do |connection|
+            connection.update_rates
+            connection.channels.each_value(&.update_rates)
+          end
         end
 
         interval = Config.instance.stats_interval.milliseconds.to_i

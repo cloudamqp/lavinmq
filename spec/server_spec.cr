@@ -53,6 +53,37 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "can reject while consuming" do
+    done = ::Channel(Nil).new(1)
+    data = Bytes.new(1000)
+    spawn do
+      with_channel do |ch|
+        q = ch.queue("reject")
+        200.times do
+          q.publish data
+        end
+      end
+    end
+    with_channel do |ch|
+      q = ch.queue("reject")
+      q.subscribe(no_ack: false) do |msg|
+        msg.reject(requeue: false)
+        done.send nil
+      end
+      timeout = false
+      200.times do
+        select
+        when done.receive
+        when timeout 1.seconds
+          timeout = true
+        end
+      end
+      timeout.should be_false
+    end
+  ensure
+    s.vhosts["/"].delete_queue("reject")
+  end
+
   it "rejects all unacked msgs when disconnecting" do
     with_channel do |ch|
       pmsg = "m1"
@@ -179,9 +210,9 @@ describe AvalancheMQ::Server do
   it "expires multiple messages" do
     with_channel do |ch|
       q = ch.queue
-      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "100")
-      sleep 0.05
-      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "100")
+      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
+      sleep 0.5
+      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
       sleep 0.5
       msg = q.get(no_ack: true)
       msg.should be_nil

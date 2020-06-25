@@ -177,7 +177,7 @@ module AvalancheMQ
       raise ex
     end
 
-    def cleanup
+    protected def cleanup
       super
       begin
         @socket.close unless @socket.closed?

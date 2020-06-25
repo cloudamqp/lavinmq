@@ -145,18 +145,6 @@ end
 
 def report(s)
   puts "Flow=#{s.flow?}"
-  puts_size_capacity s.@connections
-  s.connections.each do |c|
-    puts "  #{c.name}"
-    puts_size_capacity c.@channels, 4
-    c.channels.each_value do |ch|
-      puts "    #{ch.id} prefetch=#{ch.prefetch_size}"
-      puts_size_capacity ch.@unacked, 6
-      puts_size_capacity ch.@consumers, 6
-      puts_size_capacity ch.@visited, 6
-      puts_size_capacity ch.@found_queues, 6
-    end
-  end
   puts_size_capacity s.@users
   puts_size_capacity s.@vhosts
   s.vhosts.each do |_, vh|
@@ -174,6 +162,18 @@ def report(s)
       puts_size_capacity q.@unacked, 6
       puts_size_capacity q.@requeued, 6
       puts_size_capacity q.@deliveries, 6
+    end
+    puts_size_capacity vh.@connections
+    vh.connections.each do |c|
+      puts "  #{c.name}"
+      puts_size_capacity c.@channels, 4
+      c.channels.each_value do |ch|
+        puts "    #{ch.id} prefetch=#{ch.prefetch_size}"
+        puts_size_capacity ch.@unacked, 6
+        puts_size_capacity ch.@consumers, 6
+        puts_size_capacity ch.@visited, 6
+        puts_size_capacity ch.@found_queues, 6
+      end
     end
   end
 end
@@ -216,18 +216,26 @@ Signal::HUP.trap do
   STDOUT.flush
 end
 
+first_shutdown_attempt = true
 shutdown = ->(_s : Signal) do
-  puts "Shutting down gracefully..."
-  puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-  puts System.resource_usage
-  puts GC.prof_stats
-  http_server.try &.close
-  amqp_server.close
-  Fiber.yield
-  puts "Fibers: "
-  Fiber.list { |f| puts f.inspect }
-  lock.close
-  exit 0
+  if first_shutdown_attempt
+    first_shutdown_attempt = false
+    puts "Shutting down gracefully..."
+    puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
+    puts System.resource_usage
+    puts GC.prof_stats
+    amqp_server.close
+    http_server.try &.close
+    Fiber.yield
+    puts "Fibers: "
+    Fiber.list { |f| puts f.inspect }
+    lock.close
+    exit 0
+  else
+    puts "Fibers: "
+    Fiber.list { |f| puts f.inspect }
+    exit 1
+  end
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown

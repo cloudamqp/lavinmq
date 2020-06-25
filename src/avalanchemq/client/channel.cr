@@ -315,43 +315,55 @@ module AvalancheMQ
         end
       end
 
-      # Find one (more multiple) unacked delivery tags, yielding each item
-      # Returns true if found at least one item, else false
-      private def delete_unacked(delivery_tag, multiple = false, &blk : Unack -> _) : Bool
-        found = false
+      private def delete_unacked(delivery_tag) : Unack?
         @unack_lock.synchronize do
-          if multiple
-            while unack = @unacked.shift?
-              if delivery_tag.zero? || unack.tag <= delivery_tag
-                found = true
-                yield unack
-              else
-                @unacked.unshift unack
-                break
-              end
-            end
+          # optimization for acking first unacked
+          if @unacked[0]?.try(&.tag) == delivery_tag
+            @log.debug { "Unacked found tag at front" }
+            @unacked.shift
           else
-            # optimization for acking first unacked
-            if @unacked[0]?.try(&.tag) == delivery_tag
-              @log.debug { "Unacked found tag at front" }
-              found = true
-              yield @unacked.shift
-            else
-              # @unacked is always sorted so can do a binary search
-              idx = @unacked.bsearch_index { |ua, _| ua.tag >= delivery_tag }
-              @log.debug { "Bsearch of unacked found tag at idx #{idx}" }
-              if idx
-                found = true
-                yield @unacked.delete_at idx
-              end
+            # @unacked is always sorted so can do a binary search
+            idx = @unacked.bsearch_index { |ua, _| ua.tag >= delivery_tag }
+            @log.debug { "Bsearch of unacked found tag at idx #{idx}" }
+            if idx
+              @unacked.delete_at idx
             end
           end
         end
-        found
+      end
+
+      private def delete_all_unacked : Array(Unack)
+        @unack_lock.synchronize do
+          unacked = Array(Unack).new(@unacked.size) { |i| @unacked[i] }
+          @unacked.clear
+          unacked
+        end
+      end
+
+      private def delete_multiple_unacked(delivery_tag) : Array(Unack)
+        unacks = Array(Unack).new
+        @unack_lock.synchronize do
+          while unack = @unacked.shift?
+            if unack.tag <= delivery_tag
+              unacks << unack
+            else
+              @unacked.unshift unack
+              break
+            end
+          end
+        end
+        unacks
       end
 
       def basic_ack(frame)
-        found = delete_unacked(frame.delivery_tag, frame.multiple) do |unack|
+        found = false
+        if frame.multiple
+          delete_multiple_unacked(frame.delivery_tag).each do |unack|
+            found = true
+            do_ack(unack)
+          end
+        elsif unack = delete_unacked(frame.delivery_tag)
+          found = true
           do_ack(unack)
         end
         unless found
@@ -369,17 +381,25 @@ module AvalancheMQ
       end
 
       def basic_reject(frame)
-        found = delete_unacked(frame.delivery_tag, false) do |unack|
+        @log.debug { "rejecting #{frame.inspect}" }
+        if unack = delete_unacked(frame.delivery_tag)
           do_reject(frame.requeue, unack)
-        end
-        unless found
+        else
           reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
           @client.send_precondition_failed(frame, reply_text)
         end
+        @log.debug { "done rejecting" }
       end
 
       def basic_nack(frame)
-        found = delete_unacked(frame.delivery_tag, frame.multiple) do |unack|
+        found = false
+        if frame.multiple
+          delete_multiple_unacked(frame.delivery_tag).each do |unack|
+            found = true
+            do_reject(frame.requeue, unack)
+          end
+        elsif unack = delete_unacked(frame.delivery_tag)
+          found = true
           do_reject(frame.requeue, unack)
         end
         unless found
@@ -405,7 +425,7 @@ module AvalancheMQ
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
-        delete_unacked(0_u64, multiple: true) do |unack|
+        delete_all_unacked.each do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
@@ -414,7 +434,7 @@ module AvalancheMQ
       def close
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
-        delete_unacked(0_u64, multiple: true) do |unack|
+        delete_all_unacked.each do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         @next_msg_body.close
@@ -432,10 +452,12 @@ module AvalancheMQ
       end
 
       def recover(consumer)
-        @unacked.delete_if do |unack|
-          if unack.consumer == consumer
-            yield unack.sp
-            true
+        @unack_lock.synchronize do
+          @unacked.delete_if do |unack|
+            if unack.consumer == consumer
+              yield unack.sp
+              true
+            end
           end
         end
       end
