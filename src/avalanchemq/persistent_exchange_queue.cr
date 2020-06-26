@@ -7,24 +7,6 @@ module AvalancheMQ
     def initialize(vhost : VHost, name : String, args)
       args["x-overflow"] = "drop-head"
       super(vhost, name, false, false, args)
-      unless @message_ttl.nil?
-        spawn expire_loop, name: "PersistentExchangeQueue#expire_loop #{@vhost.name}/#{@name}"
-      end
-    end
-
-    def expire_loop
-      loop do
-        if ttl = time_to_message_expiration
-          sleep ttl
-          expire_messages
-        else
-          @message_available.receive
-        end
-      rescue Channel::ClosedError
-        break
-      rescue ex
-        @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
-      end
     end
 
     def head(count : Int, &blk : SegmentPosition -> Nil)

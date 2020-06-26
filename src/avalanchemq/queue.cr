@@ -61,7 +61,9 @@ module AvalancheMQ
       @log.progname += " queue=#{@name}"
       @sp_counter = @vhost.sp_counter
       handle_arguments
-      unless @internal
+      if @internal
+        spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
+      else
         spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       end
     end
@@ -183,6 +185,26 @@ module AvalancheMQ
     def consumer_count
       @consumers.size.to_u32
     end
+
+    private def expire_loop
+      loop do
+        if ttl = time_to_message_expiration
+          select
+          when @refresh_ttl_timeout.receive
+            @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
+          when timeout ttl
+            expire_messages
+          end
+        else
+          @message_available.receive
+        end
+      rescue Channel::ClosedError
+        break
+      rescue ex
+        @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
+      end
+    end
+
 
     private def deliver_loop
       i = 0
@@ -358,12 +380,12 @@ module AvalancheMQ
 
     class RejectOverFlow < Exception; end
 
-    def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
+    def publish(sp : SegmentPosition, message : Message? = nil, persistent = false) : Bool
       return false if @closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
-      sp = calculate_message_expiration_ts(sp, message)
+      sp = calculate_message_expiration_ts(sp, message) if message
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
       message_available if was_empty

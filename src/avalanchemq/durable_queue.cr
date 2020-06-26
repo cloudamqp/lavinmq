@@ -80,7 +80,7 @@ module AvalancheMQ
       end
     end
 
-    def publish(sp : SegmentPosition, message : Message, persistent = false) : Bool
+    def publish(sp : SegmentPosition, message : Message? = nil, persistent = false) : Bool
       super || return false
       @enq_lock.synchronize do
         @log.debug { "writing #{sp} to enq" }
