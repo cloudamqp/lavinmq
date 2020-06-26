@@ -3,6 +3,7 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
+  const numFormatter = new Intl.NumberFormat()
   const url = '/api/overview'
   const raw = window.sessionStorage.getItem(cacheKey())
   let data = null
@@ -55,9 +56,9 @@
     const table = document.querySelector('#overview')
     if (table) {
       Object.keys(data.object_totals).forEach(function (key) {
-        table.querySelector('.' + key).innerText = data.object_totals[key]
+        table.querySelector('.' + key).innerText = numFormatter.format(data.object_totals[key])
       })
-      table.querySelector('.uptime').innerText = data.uptime
+      table.querySelector('.uptime').innerText = avalanchemq.helpers.duration(data.uptime)
     }
   }
 

@@ -3,6 +3,7 @@
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
+  const numFormatter = new Intl.NumberFormat()
   const url = '/api/nodes'
   let data = null
   let updateTimer = null
@@ -59,8 +60,7 @@
 
   const updateDetails = (nodeStats) => {
     document.getElementById('tr-name').textContent = nodeStats.name
-    document.getElementById('tr-uptime').textContent = (
-      nodeStats.uptime / 1000).toFixed(0) + ' seconds'
+    document.getElementById('tr-uptime').textContent = avalanchemq.helpers.duration((nodeStats.uptime / 1000).toFixed(0))
     document.getElementById('tr-vcpu').textContent = nodeStats.processors
     document.getElementById('tr-memory').textContent = (
       nodeStats.mem_used / 10 ** 9
@@ -143,7 +143,7 @@
       row.append(th)
       for (const items of rowStats.content) {
         const td = document.createElement('td')
-        td.textContent = items.heading + ': ' + nodeStats[items.key]
+        td.textContent = items.heading + ': ' + numFormatter.format(nodeStats[items.key])
         row.append(td)
       }
       table.append(row)
