@@ -149,52 +149,54 @@ module AvalancheMQ
       @vhost.queues[q_name] = @persistent_queue.not_nil!
     end
 
-    REPUBLISH_METHODS = {"x-head", "x-tail", "x-from"}
+    REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
       if (pq = @persistent_queue) && headers && headers.any?
-        method = headers.select(REPUBLISH_METHODS).first_key?
+        method = headers.select(REPUBLISH_HEADERS).first_key?
         return unless method
         arg = headers[method].try &.as?(ArgumentNumber)
         return true unless arg && pq.any?
         persisted = pq.message_count
-        ex_type = type
         @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
         case destination
         when Queue
-          q = destination.as(Queue)
-          republish = ->(sp : SegmentPosition) do
-            case ex_type
-            when "topic", "headers"
-              if msg_metadata = q.metadata(sp)
-                rk = msg_metadata.routing_key
-                headers = msg_metadata.properties.headers
-                queue_matches(rk, headers) do |mq|
-                  next unless mq == q
-                  next unless q.publish(sp)
-                  @publish_out_count += 1
-                  @vhost.sp_counter.inc(sp)
-                end
-              end
-            else
-              return unless q.publish(sp)
-              @publish_out_count += 1
-              @vhost.sp_counter.inc(sp)
-            end
-          end
-          case method
-          when "x-head"
-            pq.head(arg, &republish)
-          when "x-tail"
-            pq.tail(arg, &republish)
-          when "x-from"
-            pq.from(arg.to_i64, &republish)
-          end
+          republish_to_q(pq, destination.as(Queue), method, arg)
         when Exchange
           raise "Not Implemented"
         end
       end
       true
+    end
+
+    private def republish_to_q(pq, q, method, arg)
+      republish = ->(sp : SegmentPosition) do
+        case type
+        when "topic", "headers"
+          if msg_metadata = q.metadata(sp)
+            rk = msg_metadata.routing_key
+            headers = msg_metadata.properties.headers
+            queue_matches(rk, headers) do |mq|
+              next unless mq == q
+              next unless q.publish(sp)
+              @publish_out_count += 1
+              @vhost.sp_counter.inc(sp)
+            end
+          end
+        else
+          return unless q.publish(sp)
+          @publish_out_count += 1
+          @vhost.sp_counter.inc(sp)
+        end
+      end
+      case method
+      when "x-head"
+        pq.head(arg, &republish)
+      when "x-tail"
+        pq.tail(arg, &republish)
+      when "x-from"
+        pq.from(arg.to_i64, &republish)
+      end
     end
 
     private def after_unbind
