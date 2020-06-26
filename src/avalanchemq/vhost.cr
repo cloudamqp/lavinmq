@@ -301,7 +301,6 @@ module AvalancheMQ
               ex.unbind(x, *binding_args) if destinations.includes?(x)
             end
           end
-          x.persistent_queue.try &.delete
           x.delete
         else
           return false

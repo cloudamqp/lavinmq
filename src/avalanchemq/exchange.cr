@@ -22,7 +22,7 @@ module AvalancheMQ
     getter? delayed
 
     @alternate_exchange : String?
-    getter persistent_queue : PersistentExchangeQueue?
+    @persistent_queue : PersistentExchangeQueue?
     @delayed : Bool
     @delayed_queue : Queue?
     @log : Logger
@@ -222,6 +222,7 @@ module AvalancheMQ
       @deleted = true
       @log.info { "Deleting exchange: #{@name}" }
       @delayed_queue.try &.delete
+      @persistent_queue.try &.delete
       @vhost.delete_exchange(@name)
     end
 
