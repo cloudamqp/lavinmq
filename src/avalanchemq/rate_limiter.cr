@@ -9,11 +9,11 @@ end
 class TokenRateItem < RateItem
   def initialize(@max_tokens : Int32)
     @tokens = @max_tokens
-    @last_used = Time.utc
+    @last_used = RoughTime.utc
   end
 
   def limited?
-    now = Time.utc
+    now = RoughTime.utc
     @tokens += tokens_to_add(now)
     return true if @tokens == 0
     @last_used = now
@@ -22,7 +22,7 @@ class TokenRateItem < RateItem
   end
 
   def pristine?
-    (@tokens + tokens_to_add(Time.utc)) == @max_tokens
+    (@tokens + tokens_to_add(RoughTime.utc)) == @max_tokens
   end
 
   private def tokens_to_add(time)
