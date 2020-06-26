@@ -71,13 +71,13 @@
     }
     return res
   }
-
+  const numFormatter = new Intl.NumberFormat()
   function render (data) {
     document.querySelector('#version').innerText = data.avalanchemq_version
     const table = document.querySelector('#overview')
     if (table) {
       Object.keys(data.object_totals).forEach(function (key) {
-        table.querySelector('.' + key).innerText = data.object_totals[key]
+        table.querySelector('.' + key).innerText = numFormatter.format(data.object_totals[key])
       })
       table.querySelector('.uptime').innerText = duration(data.uptime)
     }

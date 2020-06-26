@@ -151,6 +151,7 @@
     }
   ]
 
+  const numFormatter = new Intl.NumberFormat()
   const updateStats = (nodeStats) => {
     const table = document.getElementById('stats-table')
     while (table.firstChild) {
@@ -164,7 +165,7 @@
       row.append(th)
       for (const items of rowStats.content) {
         const td = document.createElement('td')
-        td.textContent = items.heading + ': ' + nodeStats[items.key]
+        td.textContent = items.heading + ': ' + numFormatter.format(nodeStats[items.key])
         row.append(td)
       }
       table.append(row)
