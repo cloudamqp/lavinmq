@@ -34,7 +34,7 @@ describe SecondsRateLimiter do
     limiter.limited?(key).should be_false
     limiter.limited?(key).should be_false
     limiter.limited?(key).should be_true
-    sleep 1
+    sleep 1.1
     limiter.limited?(key).should be_false
     limiter.limited?(key).should be_false
     limiter.limited?(key).should be_true
