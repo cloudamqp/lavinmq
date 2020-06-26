@@ -31,10 +31,31 @@
     return window.avalanchemq.helpers.formatNumber(num) + suffix
   }
 
+  function duration (seconds) {
+    let res = ''
+    const days = Math.floor(seconds / (24 * 3600))
+    if (days > 0) {
+      res += days + 'd, '
+    }
+    const daysRest = seconds % (24 * 3600)
+    const hours = Math.floor(daysRest / 3600)
+    if (hours > 0) {
+      res += hours + 'h, '
+    }
+    const hoursRest = daysRest % 3600
+    const minutes = Math.floor(hoursRest / 60)
+    res += minutes + 'm '
+    if (days === 0) {
+      res += Math.ceil(hoursRest % 60) + 's'
+    }
+    return res
+  }
+
   Object.assign(window.avalanchemq, {
     helpers: {
       formatNumber,
-      nFormatter
+      nFormatter,
+      duration
     }
   })
 })()
