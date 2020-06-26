@@ -149,11 +149,11 @@ module AvalancheMQ
       @vhost.queues[q_name] = @persistent_queue.not_nil!
     end
 
-    REPUBLISH_METHODS = {"x-head", "x-tail", "x-from"}
+    REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
       if (pq = @persistent_queue) && headers && headers.any?
-        method = headers.select(REPUBLISH_METHODS).first_key?
+        method = headers.select(REPUBLISH_HEADERS).first_key?
         return unless method
         arg = headers[method].try &.as?(ArgumentNumber)
         return true unless arg && pq.any?
@@ -161,24 +161,43 @@ module AvalancheMQ
         @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
         case destination
         when Queue
-          republish = ->(sp : SegmentPosition) do
-            return unless destination.as(Queue).publish(sp)
-            @publish_out_count += 1
-            @vhost.sp_counter.inc(sp)
-          end
-          case method
-          when "x-head"
-            pq.head(arg, &republish)
-          when "x-tail"
-            pq.tail(arg, &republish)
-          when "x-from"
-            pq.from(arg.to_i64, &republish)
-          end
+          republish(destination.as(Queue), method, arg)
         when Exchange
           raise "Not Implemented"
         end
       end
       true
+    end
+
+    private def republish(queue : Queue, method : String, arg : ArgumentNumber)
+      return unless pq = @persistent_queue
+      republish = ->(sp : SegmentPosition) do
+        case type
+        when "topic", "headers"
+          if msg_metadata = queue.metadata(sp)
+            rk = msg_metadata.routing_key
+            headers = msg_metadata.properties.headers
+            queue_matches(rk, headers) do |mq|
+              next unless mq == queue
+              next unless queue.publish(sp)
+              @publish_out_count += 1
+              @vhost.sp_counter.inc(sp)
+            end
+          end
+        else
+          return unless queue.publish(sp)
+          @publish_out_count += 1
+          @vhost.sp_counter.inc(sp)
+        end
+      end
+      case method
+      when "x-head"
+        pq.head(arg, &republish)
+      when "x-tail"
+        pq.tail(arg, &republish)
+      when "x-from"
+        pq.from(arg.to_i64, &republish)
+      end
     end
 
     private def after_unbind
@@ -470,6 +489,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue ->)
       matches(@queue_bindings, routing_key, headers) { |d| yield d.as(Queue) }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange ->)
@@ -486,11 +506,11 @@ module AvalancheMQ
         else
           case args["x-match"]?
           when "any"
-            if args.any? { |k, v| k != "x-match" && headers[k]? == v }
+            if args.any? { |k, v| !k.starts_with?("x-") && headers[k]? == v }
               dst.each { |d| yield d }
             end
           else
-            if args.all? { |k, v| k == "x-match" || headers[k]? == v }
+            if args.all? { |k, v| k.starts_with?("x-") || headers[k]? == v }
               dst.each { |d| yield d }
             end
           end

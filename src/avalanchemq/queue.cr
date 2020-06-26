@@ -396,7 +396,7 @@ module AvalancheMQ
       end
     end
 
-    private def metadata(sp) : MessageMetadata?
+    def metadata(sp) : MessageMetadata?
       @read_lock.synchronize do
         seg = segment_file(sp.segment)
         if @segment_pos != sp.position
