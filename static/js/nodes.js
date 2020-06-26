@@ -57,10 +57,31 @@
     })
   }
 
+  function duration (secs) {
+    let res = ''
+    const days = Math.floor(secs / (24 * 3600))
+    if (days > 0) {
+      res += days + ' d, '
+    }
+    const daysRest = secs % (24 * 3600)
+    const hours = Math.floor(daysRest / 3600)
+    if (hours > 0) {
+      res += hours + ' h, '
+    }
+    const hoursRest = daysRest % 3600
+    const minutes = Math.floor(hoursRest / 60)
+    res += minutes + ' m '
+    const minRest = hoursRest % 60
+    const seconds = Math.ceil(minRest)
+    if (days === 0) {
+      res += seconds + ' s'
+    }
+    return res
+  }
+
   const updateDetails = (nodeStats) => {
     document.getElementById('tr-name').textContent = nodeStats.name
-    document.getElementById('tr-uptime').textContent = (
-      nodeStats.uptime / 1000).toFixed(0) + ' seconds'
+    document.getElementById('tr-uptime').textContent = duration((nodeStats.uptime / 1000).toFixed(0))
     document.getElementById('tr-vcpu').textContent = nodeStats.processors
     document.getElementById('tr-memory').textContent = (
       nodeStats.mem_used / 10 ** 9

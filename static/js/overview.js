@@ -50,6 +50,28 @@
     }).catch(avalanchemq.http.standardErrorHandler).catch(stop)
   }
 
+  function duration (secs) {
+    let res = ''
+    const days = Math.floor(secs / (24 * 3600))
+    if (days > 0) {
+      res += days + ' d, '
+    }
+    const daysRest = secs % (24 * 3600)
+    const hours = Math.floor(daysRest / 3600)
+    if (hours > 0) {
+      res += hours + ' h, '
+    }
+    const hoursRest = daysRest % 3600
+    const minutes = Math.floor(hoursRest / 60)
+    res += minutes + ' m '
+    const minRest = hoursRest % 60
+    const seconds = Math.ceil(minRest)
+    if (days === 0) {
+      res += seconds + ' s'
+    }
+    return res
+  }
+
   function render (data) {
     document.querySelector('#version').innerText = data.avalanchemq_version
     const table = document.querySelector('#overview')
@@ -57,7 +79,7 @@
       Object.keys(data.object_totals).forEach(function (key) {
         table.querySelector('.' + key).innerText = data.object_totals[key]
       })
-      table.querySelector('.uptime').innerText = data.uptime
+      table.querySelector('.uptime').innerText = duration(data.uptime)
     }
   }
 
