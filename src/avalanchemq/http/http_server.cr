@@ -20,7 +20,7 @@ module AvalancheMQ
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
           ApiDefaultsHandler.new,
-          RateLimitHandler.new(@log.dup, @rate_limiter),
+          RateLimitHandler.new(@rate_limiter, @log.dup),
           ApiErrorHandler.new(@log.dup),
           StaticController.new,
           BasicAuthHandler.new(@amqp_server.users, @log.dup),

@@ -95,4 +95,24 @@ describe AvalancheMQ::Connection do
   ensure
     conn.try &.close
   end
+
+  it "should rate limit connection attempts" do
+    close_servers
+    TestHelpers.create_servers(rate_limiter: SecondsRateLimiter.new(1))
+
+    connections = [] of TestConnection
+
+    connections << TestConnection.new(AMQP_BASE_URL, log)
+    Fiber.yield
+
+    expect_raises(IO::Error) do
+      connections << TestConnection.new(AMQP_BASE_URL, log)
+      Fiber.yield
+    end
+  ensure
+    connections.try &.each(&.close)
+
+    close_servers
+    TestHelpers.setup
+  end
 end

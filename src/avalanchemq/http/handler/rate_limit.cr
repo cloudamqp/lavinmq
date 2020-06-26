@@ -10,7 +10,7 @@ module AvalancheMQ
 
       RESPONSE_BODY = {error: "API rate limit exceeded"}.to_json
 
-      def initialize(@log : Logger, @rate_limiter : RateLimiter)
+      def initialize(@rate_limiter : RateLimiter, @log : Logger)
       end
 
       def call(context)

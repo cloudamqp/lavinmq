@@ -15,6 +15,7 @@ require "./parameter"
 require "./chained_logger"
 require "./config"
 require "./proxy_protocol"
+require "./rate_limiter"
 
 module AvalancheMQ
   class Server
@@ -27,7 +28,7 @@ module AvalancheMQ
     @closed = false
     @flow = true
 
-    def initialize(@data_dir : String, @log : Logger, @rate_limiter : (RateLimiter|Nil) = nil)
+    def initialize(@data_dir : String, @log : Logger, @rate_limiter : RateLimiter = NoRateLimiter.new)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket).new(3)
@@ -178,7 +179,8 @@ module AvalancheMQ
 
     private def handle_connection(socket, remote_address, local_address)
       if @rate_limiter.try &.limited?(remote_address.address)
-        return socket.close
+        socket.close
+        return
       end
 
       client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
