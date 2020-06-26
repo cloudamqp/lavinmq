@@ -14,7 +14,7 @@ end
 module AvalancheMQ
   module HTTP
     class Server
-      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger, @rate_limiter = NoRateLimiter.new)
+      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger, @rate_limiter : RateLimiter = NoRateLimiter.new)
         @log.progname = "httpserver"
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
