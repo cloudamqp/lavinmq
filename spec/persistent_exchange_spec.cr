@@ -290,4 +290,39 @@ describe "Persistent Exchange" do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "Routing" do
+    it "should resprect routing key" do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 2})
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue
+        x.publish "test message 1", "rk.1"
+        x.publish "test message 2", "rk.2"
+        bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
+        q.bind(x.name, "rk.2", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+
+    it "should resprect routing headers" do
+      with_channel do |ch|
+        hdrs = AMQP::Client::Arguments.new({"x-persist-messages" => 2, "x-match" => "all", "test" => "test"})
+        x = ch.exchange(x_name, "headers", args: hdrs)
+        q = ch.queue
+        x.publish "test message 1", "rk.1", props: AMQP::Client::Properties.new(headers: hdrs)
+        hdrs["test"] = "no_match"
+        x.publish "test message 2", "rk.2", props: AMQP::Client::Properties.new(headers: hdrs)
+        bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
+        q.bind(x.name, "#", args: bind_args)
+        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).should be_nil
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
 end

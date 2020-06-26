@@ -158,13 +158,29 @@ module AvalancheMQ
         arg = headers[method].try &.as?(ArgumentNumber)
         return true unless arg && pq.any?
         persisted = pq.message_count
+        ex_type = type
         @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
         case destination
         when Queue
+          q = destination.as(Queue)
           republish = ->(sp : SegmentPosition) do
-            return unless destination.as(Queue).publish(sp)
-            @publish_out_count += 1
-            @vhost.sp_counter.inc(sp)
+            case ex_type
+            when "topic", "headers"
+              if msg_metadata = q.metadata(sp)
+                rk = msg_metadata.routing_key
+                headers = msg_metadata.properties.headers
+                queue_matches(rk, headers) do |mq|
+                  next unless mq == q
+                  next unless q.publish(sp)
+                  @publish_out_count += 1
+                  @vhost.sp_counter.inc(sp)
+                end
+              end
+            else
+              return unless q.publish(sp)
+              @publish_out_count += 1
+              @vhost.sp_counter.inc(sp)
+            end
           end
           case method
           when "x-head"
@@ -470,6 +486,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key, headers = nil, &blk : Queue ->)
       matches(@queue_bindings, routing_key, headers) { |d| yield d.as(Queue) }
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     def exchange_matches(routing_key, headers = nil, &blk : Exchange ->)
@@ -486,11 +503,11 @@ module AvalancheMQ
         else
           case args["x-match"]?
           when "any"
-            if args.any? { |k, v| k != "x-match" && headers[k]? == v }
+            if args.any? { |k, v| !k.starts_with?("x-") && headers[k]? == v }
               dst.each { |d| yield d }
             end
           else
-            if args.all? { |k, v| k == "x-match" || headers[k]? == v }
+            if args.all? { |k, v| k.starts_with?("x-") || headers[k]? == v }
               dst.each { |d| yield d }
             end
           end
