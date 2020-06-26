@@ -161,7 +161,7 @@ module AvalancheMQ
         @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
         case destination
         when Queue
-          republish_to_q(pq, destination.as(Queue), method, arg)
+          republish(destination.as(Queue), method, arg)
         when Exchange
           raise "Not Implemented"
         end
@@ -169,22 +169,23 @@ module AvalancheMQ
       true
     end
 
-    private def republish_to_q(pq, q, method, arg)
+    private def republish(queue : Queue, method : String, arg : ArgumentNumber)
+      return unless pq = @persistent_queue
       republish = ->(sp : SegmentPosition) do
         case type
         when "topic", "headers"
-          if msg_metadata = q.metadata(sp)
+          if msg_metadata = queue.metadata(sp)
             rk = msg_metadata.routing_key
             headers = msg_metadata.properties.headers
             queue_matches(rk, headers) do |mq|
-              next unless mq == q
-              next unless q.publish(sp)
+              next unless mq == queue
+              next unless queue.publish(sp)
               @publish_out_count += 1
               @vhost.sp_counter.inc(sp)
             end
           end
         else
-          return unless q.publish(sp)
+          return unless queue.publish(sp)
           @publish_out_count += 1
           @vhost.sp_counter.inc(sp)
         end
