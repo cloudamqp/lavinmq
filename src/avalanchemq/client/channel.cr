@@ -303,20 +303,20 @@ module AvalancheMQ
           elsif q.internal?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           else
-            q.basic_get(frame.no_ack) do |env|
-              if env
-                persistent = env.message.properties.delivery_mode == 2_u8
-                delivery_tag = next_delivery_tag(q, env.segment_position,
-                  persistent, frame.no_ack,
-                  nil)
-                get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
-                  env.redelivered, env.message.exchange_name,
-                  env.message.routing_key, q.message_count)
-                deliver(get_ok, env.message)
-                @redeliver_count += 1 if env.redelivered
-              else
-                send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
-              end
+            c = @basic_get_consumer ||= BasicGetConsumer.new
+            c.no_ack = frame.no_ack
+            if env = q.basic_get(c)
+              persistent = env.message.properties.delivery_mode == 2_u8
+              delivery_tag = next_delivery_tag(q, env.segment_position,
+                persistent, frame.no_ack,
+                nil)
+              get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
+                env.redelivered, env.message.exchange_name,
+                env.message.routing_key, q.message_count)
+              deliver(get_ok, env.message)
+              @redeliver_count += 1 if env.redelivered
+            else
+              send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
             end
           end
           @get_count += 1
@@ -437,7 +437,7 @@ module AvalancheMQ
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
         delete_all_unacked do |unack|
-          unack.queue.reject(unack.sp, true) if unack.consumer.nil?
+          unack.queue.reject(unack.sp, true) if unack.consumer == @basic_get_consumer
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -446,7 +446,7 @@ module AvalancheMQ
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
         delete_all_unacked do |unack|
-          unack.queue.reject(unack.sp, true) if unack.consumer.nil?
+          unack.queue.reject(unack.sp, true) if unack.consumer == @basic_get_consumer
         end
         @next_msg_body.close
         @log.debug { "Closed" }

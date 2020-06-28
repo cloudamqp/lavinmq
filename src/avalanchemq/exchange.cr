@@ -3,6 +3,7 @@ require "./policy"
 require "./stats"
 require "./amqp"
 require "./queue"
+require "./durable_queue"
 require "./persistent_exchange_queue"
 require "./sortable_json"
 

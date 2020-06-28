@@ -14,6 +14,7 @@ require "./exchange"
 require "digest/sha1"
 require "./reference_counter"
 require "./mfile"
+require "./durable_queue"
 
 module AvalancheMQ
   class VHost

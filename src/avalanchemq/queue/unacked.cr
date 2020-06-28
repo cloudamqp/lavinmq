@@ -7,7 +7,7 @@ module AvalancheMQ
       record Unack,
         sp : SegmentPosition,
         persistent : Bool,
-        consumer : Client::Channel::Consumer?
+        consumer : Client::Channel::BasicConsumer?
 
       @lock = Mutex.new(:checked)
 
@@ -19,7 +19,7 @@ module AvalancheMQ
         @unacked.includes?(sp)
       end
 
-      def push(sp : SegmentPosition, persistent : Bool, consumer : Client::Channel::Consumer?)
+      def push(sp : SegmentPosition, persistent : Bool, consumer : Client::Channel::BasicConsumer?)
         @lock.synchronize do
           @unacked << Unack.new(sp, persistent, consumer)
         end
@@ -33,7 +33,7 @@ module AvalancheMQ
         end
       end
 
-      def delete(consumer : Client::Channel::Consumer) : Array(SegmentPosition)
+      def delete(consumer : Client::Channel::BasicConsumer) : Array(SegmentPosition)
         consumer_unacked = Array(SegmentPosition).new(consumer.prefetch_count)
         @lock.synchronize do
           @unacked.delete_if do |unack|

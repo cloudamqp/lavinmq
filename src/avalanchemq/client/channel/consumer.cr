@@ -1,13 +1,56 @@
 require "logger"
+require "../../message"
 require "../../sortable_json"
 
 module AvalancheMQ
   abstract class Client
     class Channel
-      class Consumer
+      abstract class BasicConsumer
+        abstract def no_ack : Bool
+        abstract def accepts? : Bool
+        abstract def deliver(msg : BytesMessage, sp : SegmentPosition, redelivered = false, recover = false)
+        abstract def cancel
+        abstract def tag : String
+        abstract def to_json(json : JSON::Builder)
+      end
+
+      class BasicGetConsumer < BasicConsumer
+        getter message = ::Channel(Envelope).new
+        property no_ack = true
+
+        def initialize(@channel : Channel)
+        end
+
+        def accepts? : Bool
+          true
+        end
+
+        def tag : String
+          "basic_get_consumer"
+        end
+
+        def deliver(msg : BytesMessage, sp : SegmentPosition,
+                    redelivered = false, recover = false)
+          @message.send Envelope.new(sp, msg)
+        end
+
+        def cancel
+          @message.close
+        end
+
+        def to_json(json)
+          json.object do
+          end
+        end
+      end
+
+      class Consumer < BasicConsumer
         include SortableJSON
 
-        getter no_ack, queue, unacked, tag, exclusive, channel
+        getter no_ack : Bool
+        getter tag : String
+
+        getter queue, unacked, exclusive, channel
 
         @log : Logger
         @unacked = 0
@@ -26,7 +69,7 @@ module AvalancheMQ
           @channel.prefetch_count
         end
 
-        def accepts?
+        def accepts? : Bool
           (prefetch_count.zero? || (@unacked < prefetch_count)) &&
             @channel.client_flow?
         end

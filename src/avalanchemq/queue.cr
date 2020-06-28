@@ -34,8 +34,7 @@ module AvalancheMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
-    @read_lock = Mutex.new(:reentrant)
-    @consumers = Deque(Client::Channel::Consumer).new
+    @consumers = Deque(Client::Channel::BasicConsumer).new
     @consumers_lock = Mutex.new(:unchecked)
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
@@ -521,19 +520,31 @@ module AvalancheMQ
       true
     end
 
-    def basic_get(no_ack, &blk : Envelope? -> Nil)
+    def basic_get : Envelope?
+      c = Client::Channel::BasicGetConsumer.new(true)
+      basic_get(c)
+    end
+
+    def basic_get(consumer : Client::Channel::BasicGetConsumer) : Envelope?
       @last_get_time = Time.monotonic
       @get_count += 1
-      get(no_ack) do |env|
-        res = yield env
-        if env
-          if no_ack
-            delete_message(env.segment_position, false)
-          else
-            @unacked.push(env.segment_position, env.message.persistent?, nil)
-          end
+      return nil if @ready.empty?
+
+      begin
+        @consumers_lock.synchronize do
+          @consumers.unshift consumer
         end
-        res
+        consumer_available
+        select
+        when env = consumer.message.receive
+          return env
+        when timeout 5.seconds
+          return nil
+        end
+      ensure
+        @consumers_lock.synchronize do
+          @consumers.delete consumer
+        end
       end
     end
 
@@ -627,7 +638,7 @@ module AvalancheMQ
       message_available if was_empty
     end
 
-    def add_consumer(consumer : Client::Channel::Consumer)
+    def add_consumer(consumer : Client::Channel::BasicConsumer)
       return if @closed
       @last_get_time = Time.monotonic
       @consumers_lock.synchronize do
@@ -641,7 +652,7 @@ module AvalancheMQ
       end
     end
 
-    def rm_consumer(consumer : Client::Channel::Consumer)
+    def rm_consumer(consumer : Client::Channel::BasicConsumer)
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
       if deleted
         @exclusive_consumer = false if consumer.exclusive

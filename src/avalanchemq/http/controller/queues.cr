@@ -134,42 +134,40 @@ module AvalancheMQ
             truncate = body["truncate"]?.try(&.as_i)
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode.ends_with?("requeue_true")
             ack = ack_mode.starts_with?(/(ack_|get)/)
+            basic_consumer = Client::Channel::BasicGetConsumer.new(false)
             JSON.build(context.response) do |j|
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
-                  q.basic_get(false) do |env|
-                    break if env.nil?
-                    sps << env.segment_position
-                    size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
-                    payload = String.build(size) do |io|
-                      IO.copy env.message.body_io, io, size
-                    end
-                    case encoding
-                    when "auto"
-                      if payload.valid_encoding?
-                        content = payload
-                        payload_encoding = "string"
-                      else
-                        content = Base64.urlsafe_encode(payload)
-                        payload_encoding = "base64"
-                      end
-                    when "base64"
+                  env = q.basic_get(basic_consumer)
+                  break if env.nil?
+                  sps << env.segment_position
+                  size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
+                  payload = String.new(env.message.body[0, size])
+                  case encoding
+                  when "auto"
+                    if payload.valid_encoding?
+                      content = payload
+                      payload_encoding = "string"
+                    else
                       content = Base64.urlsafe_encode(payload)
                       payload_encoding = "base64"
-                    else
-                      bad_request(context, "Unknown encoding #{encoding}")
                     end
-                    j.object do
-                      j.field("payload_bytes", env.message.size)
-                      j.field("redelivered", env.redelivered)
-                      j.field("exchange", env.message.exchange_name)
-                      j.field("routing_key", env.message.routing_key)
-                      j.field("message_count", q.message_count)
-                      j.field("properties", env.message.properties)
-                      j.field("payload", content)
-                      j.field("payload_encoding", payload_encoding)
-                    end
+                  when "base64"
+                    content = Base64.urlsafe_encode(payload)
+                    payload_encoding = "base64"
+                  else
+                    bad_request(context, "Unknown encoding #{encoding}")
+                  end
+                  j.object do
+                    j.field("payload_bytes", env.message.size)
+                    j.field("redelivered", env.redelivered)
+                    j.field("exchange", env.message.exchange_name)
+                    j.field("routing_key", env.message.routing_key)
+                    j.field("message_count", q.message_count)
+                    j.field("properties", env.message.properties)
+                    j.field("payload", content)
+                    j.field("payload_encoding", payload_encoding)
                   end
                 end
                 sps.each do |sp|
