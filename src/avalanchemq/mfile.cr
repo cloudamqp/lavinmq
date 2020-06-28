@@ -31,7 +31,7 @@ class MFile < IO
     fd = open_fd
     @size = file_size(fd)
     @capacity = (capacity || @size).to_i32
-    truncate(fd, @capacity) unless @readonly
+    truncate(fd, @capacity) unless @capacity == @size
     @buffer = mmap(fd)
     close_fd(fd)
   end
@@ -84,12 +84,12 @@ class MFile < IO
 
   # Unmapping the file
   # The file will be truncated to the current position unless readonly or deleted
-  def close : Nil
+  def close(truncate_to_size = true) : Nil
     return if @closed
     @closed = true
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
-    return if @readonly || @deleted
+    return if @readonly || @deleted || !truncate_to_size
     code = LibC.truncate(@path.check_no_null_byte, @size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
   end
@@ -108,15 +108,14 @@ class MFile < IO
   end
 
   def finalize
-    close
+    close(truncate_to_size: false)
   end
 
-  def write(slice : Bytes) : Int64
-    raise IO::Error.new("Out of capacity") if @capacity - @pos < slice.size
+  def write(slice : Bytes) : Nil
+    raise IO::Error.new("Out of capacity") if @capacity < @pos + slice.size
     slice.copy_to(@buffer + @pos)
     @pos += slice.size
     @size = @pos if @pos > @size
-    slice.size.to_i64
   end
 
   def read(slice : Bytes)
