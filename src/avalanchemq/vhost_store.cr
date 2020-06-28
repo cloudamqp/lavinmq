@@ -38,11 +38,12 @@ module AvalancheMQ
         save!
         vhost
       end
+    ensure
+      GC.collect
     end
 
     def close
       @vhosts.each_value &.close
-      save!
     end
 
     def to_json(json : JSON::Builder)
@@ -68,8 +69,7 @@ module AvalancheMQ
         end
       else
         @log.debug "Loading default vhosts"
-        create("/", save: false)
-        save!
+        create("/")
       end
       @log.debug("#{size} vhosts loaded")
     end
@@ -77,8 +77,9 @@ module AvalancheMQ
     private def save!
       @log.debug "Saving vhosts to file"
       tmpfile = File.join(@data_dir, "vhosts.json.tmp")
+      file = File.join(@data_dir, "vhosts.json")
       File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename tmpfile, File.join(@data_dir, "vhosts.json")
+      File.rename tmpfile, file
     end
   end
 end

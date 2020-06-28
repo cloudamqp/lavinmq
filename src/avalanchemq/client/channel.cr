@@ -303,23 +303,21 @@ module AvalancheMQ
           elsif q.internal?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           else
-            q.basic_get(frame.no_ack) do |env|
-              if env
-                persistent = env.message.properties.delivery_mode == 2_u8
-                delivery_tag = next_delivery_tag(q, env.segment_position,
-                  persistent, frame.no_ack,
-                  nil)
-                get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
-                  env.redelivered, env.message.exchange_name,
-                  env.message.routing_key, q.message_count)
-                deliver(get_ok, env.message)
-                @redeliver_count += 1 if env.redelivered
-              else
-                send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
-              end
+            if env = q.basic_get(frame.no_ack)
+              persistent = env.message.properties.delivery_mode == 2_u8
+              delivery_tag = next_delivery_tag(q, env.segment_position,
+                persistent, frame.no_ack,
+                nil)
+              get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
+                env.redelivered, env.message.exchange_name,
+                env.message.routing_key, q.message_count)
+              deliver(get_ok, env.message)
+              @get_count += 1
+              @redeliver_count += 1 if env.redelivered
+            else
+              send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
             end
           end
-          @get_count += 1
         else
           @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
           close
@@ -343,33 +341,33 @@ module AvalancheMQ
         end
       end
 
-      private def delete_all_unacked : Array(Unack)
+      private def delete_all_unacked
         @unack_lock.synchronize do
-          unacked = Array(Unack).new(@unacked.size) { |i| @unacked[i] }
-          @unacked.clear
-          unacked
+          begin
+            @unacked.each { |unack| yield unack }
+          ensure
+            @unacked.clear
+          end
         end
       end
 
-      private def delete_multiple_unacked(delivery_tag) : Array(Unack)
-        unacks = Array(Unack).new
+      private def delete_multiple_unacked(delivery_tag)
         @unack_lock.synchronize do
           while unack = @unacked.shift?
             if unack.tag <= delivery_tag
-              unacks << unack
+              yield unack
             else
               @unacked.unshift unack
               break
             end
           end
         end
-        unacks
       end
 
       def basic_ack(frame)
         found = false
         if frame.multiple
-          delete_multiple_unacked(frame.delivery_tag).each do |unack|
+          delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
             do_ack(unack)
           end
@@ -405,7 +403,7 @@ module AvalancheMQ
       def basic_nack(frame)
         found = false
         if frame.multiple
-          delete_multiple_unacked(frame.delivery_tag).each do |unack|
+          delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
             do_reject(frame.requeue, unack)
           end
@@ -436,7 +434,7 @@ module AvalancheMQ
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
-        delete_all_unacked.each do |unack|
+        delete_all_unacked do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
@@ -445,7 +443,7 @@ module AvalancheMQ
       def close
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
-        delete_all_unacked.each do |unack|
+        delete_all_unacked do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         @next_msg_body.close

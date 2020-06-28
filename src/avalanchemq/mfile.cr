@@ -139,4 +139,8 @@ class MFile < IO
       @pos = @size + offset
     end
   end
+
+  def to_slice
+    @buffer
+  end
 end
