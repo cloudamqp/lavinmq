@@ -182,6 +182,8 @@ class Throughput < Perf
 
   private def pub(done)
     data = IO::Memory.new(Bytes.new(@size))
+    props = AMQ::Protocol::Properties.new
+    props.delivery_mode = 2_u8 if @persistent
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       Fiber.yield
@@ -190,9 +192,9 @@ class Throughput < Perf
       until @stopped
         data.rewind
         if @confirm
-          ch.basic_publish_confirm data, @exchange, @routing_key
+          ch.basic_publish_confirm data, @exchange, @routing_key, props: props
         else
-          ch.basic_publish data, @exchange, @routing_key
+          ch.basic_publish data, @exchange, @routing_key, props: props
         end
         @pubs += 1
         break if @pubs == @pmessages
