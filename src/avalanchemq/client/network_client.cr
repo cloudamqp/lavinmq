@@ -155,7 +155,12 @@ module AvalancheMQ
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
           #@log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
-          body = AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
+          body = case msg
+                 in BytesMessage
+                   AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
+                 in Message
+                   AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
+                 end
           @socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
           @send_oct_count += 8_u64 + body.bytesize
           pos += length
