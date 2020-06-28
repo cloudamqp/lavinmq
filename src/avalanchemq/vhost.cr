@@ -30,16 +30,15 @@ module AvalancheMQ
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @save = Channel(AMQP::Frame).new(32)
-    @segment : UInt32
+    @write_lock = Mutex.new(:unchecked)
     @wfile : MFile
-    @segments_on_disk : Deque(UInt32)
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
-    @write_lock = Mutex.new(:unchecked)
     @fsync = false
     @connections = Array(Client).new
+    @segments : Hash(UInt32, MFile)
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream)
 
     def initialize(@name : String, @server_data_dir : String,
@@ -50,10 +49,8 @@ module AvalancheMQ
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
       @sp_counter = SafeReferenceCounter(SegmentPosition).new
-      @segments_on_disk = load_segments_on_disk!
-      @segment = @segments_on_disk.last
-      @wfile = open_wfile
-      @wfile.seek(0, IO::Seek::End)
+      @segments = load_segments_on_disk
+      @wfile = @segments.last_value
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @shovels = ShovelStore.new(self)
@@ -119,9 +116,7 @@ module AvalancheMQ
         return false
       end
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
-      sp = @write_lock.synchronize do
-        write_to_disk(msg, ex.persistent?)
-      end
+      sp = write_to_disk(msg, ex.persistent?)
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
@@ -181,52 +176,50 @@ module AvalancheMQ
     end
 
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
-      if @wfile.capacity - @wfile.pos < msg.bytesize
+      if @wfile.capacity < @wfile.size + msg.bytesize
         open_new_segment(msg.bytesize)
       end
-
-      sp = SegmentPosition.new(@segment, @wfile.pos.to_u32)
-      if store_offset
-        headers = msg.properties.headers || AMQP::Table.new
-        headers["x-offset"] = sp.to_i64
-        msg.properties.headers = headers
+      wfile = @wfile
+      @write_lock.synchronize do
+        wfile.seek(0, IO::Seek::End)
+        sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32)
+        if store_offset
+          headers = msg.properties.headers || AMQP::Table.new
+          headers["x-offset"] = sp.to_i64
+          msg.properties.headers = headers
+        end
+        @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
+                      size=#{msg.bytesize} sp=#{sp}" }
+        wfile.write_bytes msg.timestamp, BYTE_FORMAT
+        wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), BYTE_FORMAT
+        wfile.write_bytes AMQP::ShortString.new(msg.routing_key), BYTE_FORMAT
+        wfile.write_bytes msg.properties, BYTE_FORMAT
+        wfile.write_bytes msg.size, BYTE_FORMAT
+        copied = IO.copy(msg.body_io, wfile, msg.size)
+        if copied != msg.size
+          raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
+        end
+        wfile.flush if msg.persistent?
+        sp
       end
-      @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
-                    size=#{msg.bytesize} sp=#{sp}" }
-      @wfile.write_bytes msg.timestamp, BYTE_FORMAT
-      @wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), BYTE_FORMAT
-      @wfile.write_bytes AMQP::ShortString.new(msg.routing_key), BYTE_FORMAT
-      @wfile.write_bytes msg.properties, BYTE_FORMAT
-      @wfile.write_bytes msg.size, BYTE_FORMAT
-      copied = IO.copy(msg.body_io, @wfile, msg.size)
-      if copied != msg.size
-        raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
-      end
-      @wfile.flush
-      sp
-    rescue ex
-      begin
-        @wfile.flush
-      rescue
-        open_new_segment
-      end
-      raise ex
     end
 
     private def open_new_segment(next_msg_size = 0)
-      @segment += 1
-      @segments_on_disk << @segment
       fsync
-      @wfile.close
       @wfile = open_wfile(next_msg_size)
     end
 
     private def open_wfile(next_msg_size = 0) : MFile
-      @log.debug { "Opening message store segment #{@segment}" }
-      filename = "msgs.#{@segment.to_s.rjust(10, '0')}"
+      next_id = @segments.empty? ? 1_u32 : @segments.last_key + 1
+      @log.debug { "Opening message store segment #{next_id}" }
+      filename = "msgs.#{next_id.to_s.rjust(10, '0')}"
       path = File.join(@data_dir, filename)
       capacity = Config.instance.segment_size + next_msg_size
-      MFile.new(path, capacity)
+      @segments[next_id] = MFile.new(path, capacity)
+    end
+
+    def segment_file(id : UInt32) : MFile
+      @segments[id]
     end
 
     def details_tuple
@@ -410,26 +403,23 @@ module AvalancheMQ
     def close
       @closed = true
       @log.info("Closing")
-      @write_lock.synchronize do
-        stop_shovels
-        Fiber.yield
-        stop_upstream_links
-        Fiber.yield
-        @log.debug "Closing connections"
-        @connections.each &.close("Broker shutdown")
-        # wait up to 10s for clients to gracefully close
-        100.times do
-          break if @connections.size.zero?
-          sleep 0.1
-        end
-        @queues.each_value &.close
-        Fiber.yield
-        @save.close
-        Fiber.yield
-        compact!
-        @wfile.close
+      stop_shovels
+      Fiber.yield
+      stop_upstream_links
+      Fiber.yield
+      @log.debug "Closing connections"
+      @connections.each &.close("Broker shutdown")
+      # wait up to 10s for clients to gracefully close
+      100.times do
+        break if @connections.empty?
+        sleep 0.1
       end
-      GC.collect
+      @queues.each_value &.close
+      Fiber.yield
+      @save.close
+      Fiber.yield
+      @segments.each_value &.close
+      compact!
     end
 
     def delete
@@ -583,23 +573,35 @@ module AvalancheMQ
       abort "ERROR: Writing definitions. #{ex.inspect}"
     end
 
-    private def load_segments_on_disk!
-      segments = Array(UInt32).new
+    private def load_segments_on_disk
+      ids = Array(UInt32).new
       Dir.each_child(@data_dir) do |f|
         if f.starts_with? "msgs."
-          segments << f[5, 10].to_u32
+          ids << f[5, 10].to_u32
         end
       end
-      segments.sort!
-      segments << 1_u32 if segments.empty?
-      Deque(UInt32).new(segments)
+      ids.sort!
+      ids << 1_u32 if ids.empty?
+      segments = Hash(UInt32, MFile).new(initial_capacity: Math.pw2ceil(ids.size))
+      last_idx = ids.size - 1
+      ids.each_with_index do |seg, idx|
+        filename = "msgs.#{seg.to_s.rjust(10, '0')}"
+        path = File.join(@data_dir, filename)
+        if idx == last_idx
+          segments[seg] = MFile.new(path, Config.instance.segment_size)
+        else
+          segments[seg] = MFile.new(path)
+        end
+      end
+      segments
     end
 
     @zero_references = Array(SegmentPosition).new
 
     private def gc_segments_loop
-      until @closed
+      loop do
         sleep Config.instance.gc_segments_interval
+        break if @closed
         collect_used_segments
         delete_unused_segments
         @sp_counter.empty_zero_referenced! do |sp|
@@ -664,7 +666,7 @@ module AvalancheMQ
     @referenced_segments = Set(UInt32).new
 
     private def collect_used_segments
-      @referenced_segments << @segment
+      @referenced_segments << @segments.last_key
       @sp_counter.referenced_segments(@referenced_segments)
       @log.debug { "#{@referenced_segments.size} segments in use" }
     end
@@ -673,23 +675,18 @@ module AvalancheMQ
       @log.debug "Garbage collecting segments"
 
       deleted_bytes = 0_u64
-      @log.debug { "segments on_disk=#{@segments_on_disk} referenced=#{@referenced_segments}" }
-      @segments_on_disk.delete_if do |seg|
+      @log.debug { "segments on_disk=#{@segments.size} referenced=#{@referenced_segments}" }
+      @segments.delete_if do |seg, mfile|
         unless @referenced_segments.includes? seg
           @log.debug { "Deleting segment #{seg}" }
-          filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-          file = File.join(@data_dir, filename)
-          unless File.exists? file
-            @log.error { "Segment file #{file} missing" }
-            next
-          end
-          deleted_bytes += File.size file
-          File.delete file
+          deleted_bytes += mfile.size
+          mfile.delete
+          mfile.close
           true
         end
       end
       @log.info { "Garbage collected #{deleted_bytes.humanize_bytes} of unused segments" } if deleted_bytes > 0
-      @log.debug { "#{@segments_on_disk.size} segments on disk" }
+      @log.debug { "#{@segments.size} segments on disk" }
     end
   end
 end

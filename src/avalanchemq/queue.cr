@@ -277,28 +277,26 @@ module AvalancheMQ
 
     private def deliver_to_consumer(c)
       # @log.debug { "Getting a new message" }
-      get(c.no_ack) do |env|
-        if env
-          sp = env.segment_position
-          # @log.debug { "Delivering #{sp} to consumer" }
-          if c.deliver(env.message, sp, env.redelivered)
-            if c.no_ack
-              delete_message(sp, false)
-            else
-              @unacked.push(sp, env.message.persistent?, c)
-            end
-            if env.redelivered
-              @redeliver_count += 1
-            else
-              @deliver_count += 1
-            end
-            # @log.debug { "Delivery done" }
+      if env = get(c.no_ack)
+        sp = env.segment_position
+        # @log.debug { "Delivering #{sp} to consumer" }
+        if c.deliver(env.message, sp, env.redelivered)
+          if c.no_ack
+            delete_message(sp, false)
           else
-            @log.debug { "Delivery failed" }
+            @unacked.push(sp, env.message.persistent?, c)
           end
+          if env.redelivered
+            @redeliver_count += 1
+          else
+            @deliver_count += 1
+          end
+          # @log.debug { "Delivery done" }
         else
-          @log.debug { "Consumer found, but not a message" }
+          @log.debug { "Delivery failed" }
         end
+      else
+        @log.debug { "Consumer found, but not a message" }
       end
     end
 
@@ -311,7 +309,6 @@ module AvalancheMQ
         @consumers.each &.cancel
         @consumers.clear
       end
-      @segment_file.try &.close
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
@@ -382,42 +379,29 @@ module AvalancheMQ
       end
     end
 
-    @segment_file : MFile? = nil
     @segment_id = 0_u32
+    @segment_file = IO::Memory.new(0)
 
-    private def segment_file(id : UInt32) : MFile
-      return @segment_file.not_nil! if @segment_id == id && @segment_file
-      path = File.join(@vhost.data_dir, "msgs.#{id.to_s.rjust(10, '0')}")
-      @segment_file.try &.close
-      @segment_id = id
-      @segment_file = MFile.open(path)
+    private def segment_file(id : UInt32) : IO::Memory
+      return @segment_file if @segment_id == id
+      mfile = @vhost.segment_file(id)
+      @segment_file = IO::Memory.new(mfile.to_slice, writeable: false)
     end
 
     def metadata(sp) : MessageMetadata?
-      @read_lock.synchronize do
-        seg = segment_file(sp.segment)
-        if seg.pos != sp.position
-          @log.debug { "Seeking to #{sp.position}, was at #{@segment_pos}" }
-          seg.seek(sp.position.to_i32, IO::Seek::Set)
-        end
-        ts = Int64.from_io seg, BYTE_FORMAT
-        ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
-        rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
-        pr = AMQP::Properties.from_io seg, BYTE_FORMAT
-        sz = UInt64.from_io seg, BYTE_FORMAT
-        MessageMetadata.new(ts, ex, rk, pr, sz)
-      rescue ex : IO::Error
-        @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-        @ready.delete sp
-        delete_message sp
-        nil
-      rescue ex : IO::EOFError
-        pos = segment_file(sp.segment).pos.to_u32
-        @log.error { "EOF when reading metadata for sp=#{sp}, is at=#{pos}" }
-        @ready.delete sp
-        delete_message sp
-        nil
-      end
+      seg = segment_file(sp.segment)
+      seg.seek(sp.position.to_i32, IO::Seek::Set)
+      ts = Int64.from_io seg, BYTE_FORMAT
+      ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
+      rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
+      pr = AMQP::Properties.from_io seg, BYTE_FORMAT
+      sz = UInt64.from_io seg, BYTE_FORMAT
+      MessageMetadata.new(ts, ex, rk, pr, sz)
+    rescue ex : IO::Error
+      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
+      @ready.delete sp
+      delete_message sp
+      nil
     end
 
     private def time_to_message_expiration : Time::Span?
@@ -441,43 +425,38 @@ module AvalancheMQ
     end
 
     private def expire_messages : Nil
-      @read_lock.lock
       i = 0
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
         @log.debug { "Checking if next message has to be expired" }
-        read(sp) do |env|
-          @log.debug { "Next message: #{env.message}" }
-          exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
-          if exp_ms
-            expire_at = env.message.timestamp + exp_ms
-            expire_in = expire_at - now
-            if expire_in <= 0
-              expire_msg(env, :expired)
-              if (i += 1) == 8192
-                Fiber.yield
-                i = 0
-              end
-              true
-            else
-              @log.debug { "No more message to expire" }
-              false
+        env = read(sp)
+        @log.debug { "Next message: #{env.message}" }
+        exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
+        if exp_ms
+          expire_at = env.message.timestamp + exp_ms
+          expire_in = expire_at - now
+          if expire_in <= 0
+            expire_msg(env, :expired)
+            if (i += 1) == 8192
+              Fiber.yield
+              i = 0
             end
+            true
           else
             @log.debug { "No more message to expire" }
             false
           end
+        else
+          @log.debug { "No more message to expire" }
+          false
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
-    ensure
-      @read_lock.unlock
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
-      read(sp) do |env|
-        expire_msg(env, reason)
-      end
+      env = read(sp)
+      expire_msg(env, reason)
     end
 
     private def expire_msg(env : Envelope, reason : Symbol)
@@ -489,8 +468,6 @@ module AvalancheMQ
         dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
         props = handle_dlx_header(msg, reason)
         dead_letter_msg(msg, sp, props, dlx, dlrk)
-      else
-        msg.body_io.skip(msg.size)
       end
       delete_message sp, msg.persistent?
     rescue ex : IO::EOFError
@@ -531,11 +508,10 @@ module AvalancheMQ
       props
     end
 
-    private def dead_letter_msg(msg : Message, sp, props, dlx, dlrk)
-      # @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
-      ok = @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
-        props, msg.size, msg.body_io)
-      msg.body_io.skip(msg.size) if ok.nil?
+    private def dead_letter_msg(msg : BytesMessage, sp, props, dlx, dlrk)
+      @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+      @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
+                                   props, msg.size, IO::Memory.new(msg.body))
     end
 
     private def expire_queue(now = Time.monotonic) : Bool
@@ -561,19 +537,16 @@ module AvalancheMQ
       end
     end
 
-    # yield the next message in the ready queue
-    private def get(no_ack : Bool, &blk : Envelope? -> Nil)
-      return yield nil if @closed
+    # return the next message in the ready queue
+    private def get(no_ack : Bool)
+      return nil if @closed
       if sp = @ready.shift?
-        read(sp) do |env|
-          if @delivery_limit && !no_ack
-            yield with_delivery_count_header(env)
-          else
-            yield env
-          end
+        env = read(sp)
+        if @delivery_limit && !no_ack
+          with_delivery_count_header(env)
+        else
+          env
         end
-      else
-        yield nil
       end
     end
 
@@ -593,31 +566,28 @@ module AvalancheMQ
       env
     end
 
-    def read(sp : SegmentPosition, &blk : Envelope -> _)
-      @read_lock.synchronize do
-        seg = segment_file(sp.segment)
-        seg.seek(sp.position.to_i32, IO::Seek::Set)
-        ts = Int64.from_io seg, BYTE_FORMAT
-        ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
-        rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
-        pr = AMQP::Properties.from_io seg, BYTE_FORMAT
-        sz = UInt64.from_io seg, BYTE_FORMAT
-        msg = Message.new(ts, ex, rk, pr, sz, seg)
-        redelivered = @requeued.includes?(sp)
-        begin
-          yield Envelope.new(sp, msg, redelivered)
-        ensure
-          @requeued.delete(sp) if redelivered
-        end
-      rescue ex : IO::Error
-        @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-        @ready.delete(sp)
-        delete_message sp
-        false
-      rescue ex
-        @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
-        raise ex
-      end
+    def read(sp : SegmentPosition)
+      seg = segment_file(sp.segment)
+      seg.seek(sp.position.to_i32, IO::Seek::Set)
+      ts = Int64.from_io seg, BYTE_FORMAT
+      ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
+      rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
+      pr = AMQP::Properties.from_io seg, BYTE_FORMAT
+      sz = UInt64.from_io seg, BYTE_FORMAT
+      body = seg.to_slice[seg.pos, sz]
+      msg = BytesMessage.new(ts, ex, rk, pr, sz, body)
+      redelivered = @requeued.includes?(sp)
+      Envelope.new(sp, msg, redelivered)
+    rescue ex : IO::Error
+      @log.error { "Message #{sp} not found, possible message loss. #{ex.inspect}" }
+      @ready.delete(sp)
+      delete_message sp
+      raise ex
+    rescue ex
+      @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
+      raise ex
+    ensure
+      @requeued.delete(sp) if redelivered
     end
 
     def ack(sp : SegmentPosition, persistent : Bool) : Nil
