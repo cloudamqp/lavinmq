@@ -22,8 +22,6 @@ describe "Exchange" do
         q.bind(x.name, q.name)
         x.publish_confirm "test message 1", "none"
         x.publish_confirm "test message 2", q.name
-        puts s.vhosts["/"].exchanges[x_name]
-        puts s.vhosts["/"].exchanges[x_name].unroutable_count
         s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
       end
     ensure
