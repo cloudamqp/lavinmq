@@ -230,8 +230,11 @@ module AvalancheMQ
     end
 
     def message_details
-      ready = @queues.each_value.reduce(0) { |m, q| m += q.message_count; m }
-      unacked = @queues.each_value.reduce(0) { |m, q| m += q.unacked_count; m }
+      ready = unacked = 0
+      @queues.each_value do |q|
+        ready += q.message_count
+        unacked += q.unacked_count
+      end
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,

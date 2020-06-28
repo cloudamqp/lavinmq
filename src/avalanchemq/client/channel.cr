@@ -343,33 +343,33 @@ module AvalancheMQ
         end
       end
 
-      private def delete_all_unacked : Array(Unack)
+      private def delete_all_unacked
         @unack_lock.synchronize do
-          unacked = Array(Unack).new(@unacked.size) { |i| @unacked[i] }
-          @unacked.clear
-          unacked
+          begin
+            @unacked.each { |unack| yield unack }
+          ensure
+            @unacked.clear
+          end
         end
       end
 
-      private def delete_multiple_unacked(delivery_tag) : Array(Unack)
-        unacks = Array(Unack).new
+      private def delete_multiple_unacked(delivery_tag)
         @unack_lock.synchronize do
           while unack = @unacked.shift?
             if unack.tag <= delivery_tag
-              unacks << unack
+              yield unack
             else
               @unacked.unshift unack
               break
             end
           end
         end
-        unacks
       end
 
       def basic_ack(frame)
         found = false
         if frame.multiple
-          delete_multiple_unacked(frame.delivery_tag).each do |unack|
+          delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
             do_ack(unack)
           end
@@ -405,7 +405,7 @@ module AvalancheMQ
       def basic_nack(frame)
         found = false
         if frame.multiple
-          delete_multiple_unacked(frame.delivery_tag).each do |unack|
+          delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
             do_reject(frame.requeue, unack)
           end
@@ -436,7 +436,7 @@ module AvalancheMQ
 
       def basic_recover(frame)
         @consumers.each { |c| c.recover(frame.requeue) }
-        delete_all_unacked.each do |unack|
+        delete_all_unacked do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
@@ -445,7 +445,7 @@ module AvalancheMQ
       def close
         @running = false
         @consumers.each { |c| c.queue.rm_consumer(c) }
-        delete_all_unacked.each do |unack|
+        delete_all_unacked do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         @next_msg_body.close
