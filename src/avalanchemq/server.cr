@@ -178,7 +178,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket, remote_address, local_address)
-      if @rate_limiter.try &.limited?(remote_address.address)
+      if @rate_limiter.limited?(remote_address.address)
         socket.close
         return
       end
