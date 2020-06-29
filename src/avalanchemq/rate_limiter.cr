@@ -44,14 +44,16 @@ end
 class SecondsRateLimiter < RateLimiter
   def initialize(@rate_seconds = 1000)
     raise ArgumentError.new("rate must be positive") if @rate_seconds <= 0
-
+    @mutex = Mutex.new
     @pool = Hash(String, RateItem).new { |h,k| h[k] = TokenRateItem.new(@rate_seconds) }
   end
 
   def limited?(key : String)
-    res = @pool[key].limited?
-    @pool.delete_if { |_k,item| item.pristine? }
-    res
+    @mutex.synchronize do
+      res = @pool[key].limited?
+      @pool.delete_if { |_k,item| item.pristine? }
+      res
+    end
   end
 
   def inspect(io)
