@@ -53,6 +53,13 @@ describe AvalancheMQ::TopicExchange do
   vhost = AvalancheMQ::VHost.new("x", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
   x = AvalancheMQ::TopicExchange.new(vhost, "t", false, false, true)
 
+  it "matches prefixed star-wildcard" do
+    q1 = AvalancheMQ::Queue.new(vhost, "q1")
+    x.bind(q1, "*.test")
+    x.matches("rk2.test").should eq(Set{q1})
+    x.unbind(q1, "*.test")
+  end
+
   it "matches exact rk" do
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
     x.bind(q1, "rk1")

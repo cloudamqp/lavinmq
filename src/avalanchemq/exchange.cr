@@ -423,6 +423,7 @@ module AvalancheMQ
               # More than 1 rk left ok move on
             elsif rk_parts.size > j + 1
               j += 1
+              next
             else
               ok = false
               j += 1
