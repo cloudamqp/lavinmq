@@ -42,6 +42,7 @@ module AvalancheMQ
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
+    @paused = Channel(Nil).new(1)
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
@@ -50,6 +51,7 @@ module AvalancheMQ
     getter policy : Policy?
     getter? closed
     property? internal = false
+    getter? flow = true
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
@@ -206,6 +208,11 @@ module AvalancheMQ
       end
     end
 
+    def flow=(@flow : Bool)
+      return unless @flow
+      @paused.send nil
+    end
+
     private def deliver_loop
       i = 0
       loop do
@@ -214,7 +221,7 @@ module AvalancheMQ
           i = 0
           receive_or_expire || break
         end
-        if c = find_consumer(i)
+        if @flow && (c = find_consumer(i))
           deliver_to_consumer(c)
           # deliver 4096 msgs to a consumer then change consumer
           i = 0 if (i += 1) == 4096
@@ -265,6 +272,8 @@ module AvalancheMQ
       if ttl
         @log.debug "Queue#consumer_or_expire TTL: #{ttl}"
         select
+        when @paused.receive
+          @log.debug { "Queue unpaused" }
         when @consumer_available.receive
           @log.debug "Queue#consumer_or_expire Consumer available"
         when @refresh_ttl_timeout.receive
@@ -278,6 +287,8 @@ module AvalancheMQ
           else raise "Unknown TTL"
           end
         end
+      elsif !@flow
+        @paused.receive
       else
         @consumer_available.receive
       end
@@ -582,6 +593,7 @@ module AvalancheMQ
     end
 
     def basic_get(no_ack) : Envelope?
+      return nil unless @flow
       @last_get_time = Time.monotonic
       @get_count += 1
       if env = get(no_ack)
