@@ -44,7 +44,6 @@ module AvalancheMQ
       @log = @vhost.log.dup
       @log.progname += " exchange=#{@name}"
       handle_arguments
-      setup_delayed_queue if delayed?
     end
 
     def apply_policy(policy : Policy)
@@ -69,6 +68,7 @@ module AvalancheMQ
       @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
       init_persistent_queue
       @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
+      init_delayed_queue if delayed?
     end
 
     def details_tuple
@@ -259,7 +259,7 @@ module AvalancheMQ
       do_exchange_matches(routing_key, headers, &blk)
     end
 
-    def setup_delayed_queue
+    def init_delayed_queue
       name = "amq.delayed.#{@name}"
       @log.debug { "Declaring delayed queue: #{name}" }
       arguments = Hash(String, AMQP::Field) { "x-dead-letter-exchange" => @name }
