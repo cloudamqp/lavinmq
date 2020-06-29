@@ -19,9 +19,10 @@ module AvalancheMQ
     end
 
     # Adds a user to the use store
-    # Returns nil if user is already created
     def create(name, password, tags = Array(Tag).new, save = true)
-      return if has_key?(name)
+      if user = @users[name]?
+        return user
+      end
       user = User.create(name, password, "Bcrypt", tags)
       @users[name] = user
       save! if save

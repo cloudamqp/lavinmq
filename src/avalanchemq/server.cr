@@ -32,7 +32,7 @@ module AvalancheMQ
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket).new(3)
       @users = UserStore.new(@data_dir, @log)
-      @vhosts = VHostStore.new(@data_dir, @log, @users.default_user)
+      @vhosts = VHostStore.new(@data_dir, @log, @users)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"

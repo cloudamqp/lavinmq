@@ -4,9 +4,11 @@ require "./vhost"
 module AvalancheMQ
   class VHostStore
     include Enumerable({String, VHost})
+    @default_user : User
 
     def initialize(@data_dir : String,
-                   @log : Logger, @default_user : User)
+                   @log : Logger, @users : UserStore)
+      @default_user = @users.default_user
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -19,11 +21,12 @@ module AvalancheMQ
       end
     end
 
-    def create(name, save = true)
+    def create(name, user = @default_user, save = true)
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @log.dup, @default_user)
+      vhost = VHost.new(name, @data_dir, @log.dup, user)
+      @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
       vhost

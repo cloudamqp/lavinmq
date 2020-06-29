@@ -62,6 +62,23 @@ describe AvalancheMQ::HTTP::VHostsController do
     ensure
       s.users.delete("arnold")
     end
+
+    it "should create a vhost with full permissions to user" do
+      vhost = "test-vhost"
+      username = "arnold"
+
+      user = s.users.create(username, "pw", [AvalancheMQ::Tag::Administrator])
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      response = put("/api/vhosts/#{vhost}", headers: hdrs)
+      response.status_code.should eq 204
+      p = user.permissions[vhost]
+      p[:config].should eq /.*/
+      p[:read].should eq /.*/
+      p[:write].should eq /.*/
+    ensure
+      s.vhosts.delete(vhost)
+      s.users.delete(username)
+    end
   end
 
   describe "DELETE /api/vhosts/vhost" do

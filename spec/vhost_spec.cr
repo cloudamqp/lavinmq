@@ -60,4 +60,32 @@ describe AvalancheMQ::Server do
   ensure
     s.vhosts.delete("test")
   end
+
+  describe "auto add permissions" do
+    it "should add permission to the user creating the vhost" do
+      username = "test-user"
+      user = s.users.create(username, "password", [AvalancheMQ::Tag::Administrator])
+      vhost = "test-vhost"
+      s.vhosts.create(vhost, user)
+      p = user.permissions[vhost]
+      p[:config].should eq /.*/
+      p[:read].should eq /.*/
+      p[:write].should eq /.*/
+    ensure
+      s.vhosts.delete(vhost)
+      s.users.delete(username)
+    end
+
+    it "should auto add permission to the default user" do
+      vhost = "test-vhost"
+      s.vhosts.create(vhost)
+      user = s.users.default_user
+      p = user.permissions[vhost]
+      p[:config].should eq /.*/
+      p[:read].should eq /.*/
+      p[:write].should eq /.*/
+    ensure
+      s.vhosts.delete(vhost)
+    end
+  end
 end
