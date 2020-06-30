@@ -9,14 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Using mmap to read/write to the segment files, almost doubling the performance
 - UI: format uptime, format numbers according to browser locale
+- Automatically add permissions for the user creating a vhost to that vhost
 
 ### Added
 - Persistent exchange support, an exchange that can republish messages to a queue
 - Unroutable message count on exchanges
+- perf throughput now accepts --time, --pmessages and --cmessages arguments
+- perf throughput rate limiter is vastly improved and much more accurate
+- robots.txt to disallow crawling of the mgmt UI
 
 ### Fixed
 - The --persistent flag is actually being respected in avalanchemqperf throughput
 - On shutdown, force close client connections
+- Can now successfully delete shovels that has connection problems
 
 ## [0.10.7] - 2020-06-19
 
