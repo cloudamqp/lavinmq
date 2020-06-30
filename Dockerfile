@@ -1,4 +1,7 @@
-FROM crystallang/crystal:0.34.0 AS builder
+FROM crystallang/crystal:0.35.1 AS builder
+
+# install dependencies
+RUN apt-get update && apt-get install -y libsystemd-dev
 
 WORKDIR /tmp
 
@@ -12,6 +15,7 @@ COPY ./src ./src
 
 # Build
 RUN shards build --production --release avalanchemq
+RUN strip bin/avalanchemq
 
 # start from scratch and only copy the built binary
 FROM ubuntu:18.04
