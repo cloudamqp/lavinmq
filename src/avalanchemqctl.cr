@@ -7,24 +7,25 @@ options = {
   "host" => "http://127.0.0.1:8080"
 } of String => String
 
-parser = OptionParser.new
-banner = parser.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
-parser.on("-a data", "--add=data", "Create entity (queue, policy, etc.), data is json") do |a|
-  options["add"] = a
+banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
+OptionParser.parse do |parser|
+  parser.banner = banner
+  parser.on("-a data", "--add=data", "Create entity (queue, policy, etc.), data is json") do |a|
+    options["add"] = a
+  end
+  parser.on("-r name", "--remove=name", "Remove entity(queue, policy, etc.)") do |r|
+    options["remove"] = r
+  end
+  parser.on("-v vhost", "--vhost=vhost", "Specify vhost") do |v|
+    options["vhost"] = v
+  end
+  parser.on("-H host", "--host=host", "Specify host. Default: #{options["host"]}") do |v|
+    options["vhost"] = v
+  end
+  parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
+  parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
+  parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
 end
-parser.on("-r name", "--remove=name", "Remove entity(queue, policy, etc.)") do |r|
-  options["remove"] = r
-end
-parser.on("-v vhost", "--vhost=vhost", "Specify vhost") do |v|
-  options["vhost"] = v
-end
-parser.on("-H host", "--host=host", "Specify host. Default: #{options["host"]}") do |v|
-  options["vhost"] = v
-end
-parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
-parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
-parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
-parser.parse!
 
 ENTITIES = ["queues", "policies", "exchanges", "vhosts"]
 abort banner unless (entity = ARGV.shift?) && ENTITIES.includes?(entity)
