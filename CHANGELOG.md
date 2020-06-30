@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Using mmap to read/write to the segment files, almost doubling the performance
+- UI: format uptime, format numbers according to browser locale
+
+### Added
+- Persistent exchange support, an exchange that can republish messages to a queue
+- Unroutable message count on exchanges
+
+### Fixed
+- The --persistent flag is actually being respected in avalanchemqperf throughput
+- On shutdown, force close client connections
+
 ## [0.10.7] - 2020-06-19
 
 ### Fixed
