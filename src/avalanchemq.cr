@@ -92,7 +92,11 @@ lock.truncate
 lock.print System.hostname
 lock.fsync
 
-rate_limiter : AvalancheMQ::RateLimiter = config.auth_ratelimit == 0 ? AvalancheMQ::NoRateLimiter.new : AvalancheMQ::SecondsRateLimiter.new(config.auth_ratelimit)
+rate_limiter = if config.auth_ratelimit == 0
+                  AvalancheMQ::NoRateLimiter.new
+                else
+                  AvalancheMQ::SecondsRateLimiter.new(config.auth_ratelimit)
+                end
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
