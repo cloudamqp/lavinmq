@@ -16,7 +16,7 @@ jobs:
           shards_version: 0.11.1
 
       - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian
+        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian ruby
 
       - name: Checkout
         uses: actions/checkout@v2
@@ -24,18 +24,32 @@ jobs:
           fetch-depth: 0
 
       - name: Get Ubuntu release name
-        run: |
-          echo "::set-env name=CODENAME::$(lsb_release -cs)"
+        run: echo "::set-env name=CODENAME::$(lsb_release -cs)"
 
       - name: Get git tag
-        run: |
-          echo "::set-env name=TAG::$(git describe)"
+        run: echo "::set-env name=TAG::$(git describe)"
+
+      - name: Get git tag
+        run: echo "::set-env name=TAG::$(git describe)"
 
       - name: Build deb package
         run: build/deb 1
 
-      - name: Upload deb package
+      - name: Upload github artifact
         uses: actions/upload-artifact@v2
         with:
           path: builds/**/*.deb
           name: avalanchemq-${{ env.TAG }}-1-${{ env.CODENAME }}.deb
+
+      - name: Check if Git tag exists
+        run: echo "::set-env name=HEAD_TAG::$(git tag --points-at HEAD)"
+
+      - name: Install packagecloud cli
+        run: gem install package_cloud
+        if: env.HEAD_TAG != ''
+
+      - name: Upload to packagecloud
+        run: package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/**/*.deb
+        env:
+          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
+        if: env.HEAD_TAG != ''
