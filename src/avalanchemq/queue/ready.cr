@@ -77,11 +77,10 @@ module AvalancheMQ
       # returns SPs in the deque after the operation
       def insert(sp : SegmentPosition)
         @lock.synchronize do
-          i = @ready.bsearch_index { |rsp| rsp > sp }
-          if i.nil?
-            @ready.push(sp)
-          else
+          if i = @ready.bsearch_index { |rsp| rsp > sp }
             @ready.insert(i, sp)
+          else
+            @ready.push(sp)
           end
           @ready.size
         end

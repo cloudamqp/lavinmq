@@ -8,6 +8,7 @@ module AvalancheMQ
 
     def_equals_and_hash @segment, @position
 
+    # expiration_ts is set by Queue#publish if nil
     def initialize(@segment : UInt32, @position : UInt32)
     end
 
@@ -45,7 +46,6 @@ module AvalancheMQ
     def to_s(io : IO)
       io << @segment.to_s.rjust(10, '0')
       io << @position.to_s.rjust(10, '0')
-      io << @expiration_ts.to_s.rjust(20, '0')
     end
 
     def to_i64
@@ -56,8 +56,7 @@ module AvalancheMQ
       raise ArgumentError.new("A SegmentPosition string has to be 40 chars long") if s.bytesize != 40
       seg = s[0, 10].to_u32
       pos = s[10, 10].to_u32
-      ts = s[20, 20].to_i64
-      self.new seg, pos, ts
+      self.new seg, pos
     end
   end
 end

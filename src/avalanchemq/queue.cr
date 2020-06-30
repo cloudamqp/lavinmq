@@ -205,7 +205,6 @@ module AvalancheMQ
       end
     end
 
-
     private def deliver_loop
       i = 0
       loop do
@@ -447,15 +446,18 @@ module AvalancheMQ
     private def time_to_message_expiration : Time::Span?
       @log.debug { "Checking if next message has to be expired ready" }
       meta = nil
-      expire_at : Int64 = 0
+      expire_at = 0_i64
       loop do
         sp = @ready.first? || return
         expire_at = sp.expiration_ts
         break if expire_at > 0
-        return unless @message_ttl
-        if meta = metadata(sp)
-          expire_at = meta.timestamp + @message_ttl.not_nil!
-          break
+        if message_ttl = @message_ttl
+          if meta = metadata(sp)
+            expire_at = meta.timestamp + message_ttl
+            break
+          end
+        else
+          return
         end
       end
       expire_in = expire_at - RoughTime.utc.to_unix_ms
@@ -464,11 +466,6 @@ module AvalancheMQ
       else
         Time::Span.zero
       end
-    end
-
-    private def calculate_expire_at(sp : SegementPosition) : Int64
-
-
     end
 
     private def expire_messages : Nil
