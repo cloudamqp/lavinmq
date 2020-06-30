@@ -2,7 +2,6 @@ require "./spec_helper"
 require "../src/avalanchemq/rate_limiter"
 
 describe NoRateLimiter do
-  # TODO automagic?
   described_class = NoRateLimiter
 
   it "should never limit" do

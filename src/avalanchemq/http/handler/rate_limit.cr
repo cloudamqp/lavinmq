@@ -38,7 +38,6 @@ module AvalancheMQ
         when Socket::IPAddress
           remote_address.address
         else
-          # TODO: What will it be?
           remote_address.to_s
         end
       end

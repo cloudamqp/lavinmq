@@ -38,9 +38,6 @@ abstract class RateLimiter
   end
 end
 
-# TODO: Thread safety?
-# TODO: Allow multiple rates in same limiter (allow to initialize with multiple rates)
-# TODO: Use https://github.com/crystal-lang/crystal/pull/8506
 class SecondsRateLimiter < RateLimiter
   def initialize(@rate_seconds = 1000)
     raise ArgumentError.new("rate must be positive") if @rate_seconds <= 0
