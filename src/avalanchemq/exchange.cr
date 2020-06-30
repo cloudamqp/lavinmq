@@ -58,7 +58,7 @@ module AvalancheMQ
     end
 
     def handle_arguments
-      @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+      @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
       init_persistent_queue
     end
 

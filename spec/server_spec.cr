@@ -600,6 +600,23 @@ describe AvalancheMQ::Server do
   it "supports alternate-exchange" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
+      args["alternate-exchange"] = "ae"
+      x1 = ch.exchange("x1", "topic", args: args)
+      ae = ch.exchange("ae", "topic")
+      q = ch.queue
+      q.bind(ae.name, "*")
+      x1.publish("m1", "rk")
+      msg = q.get(no_ack: true)
+      msg.not_nil!.body_io.to_s.should eq("m1")
+    end
+  ensure
+    s.vhosts["/"].delete_exchange("x1")
+    s.vhosts["/"].delete_exchange("ae")
+  end
+
+  it "supports x-alternate-exchange" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
       args["x-alternate-exchange"] = "ae"
       x1 = ch.exchange("x1", "topic", args: args)
       ae = ch.exchange("ae", "topic")
