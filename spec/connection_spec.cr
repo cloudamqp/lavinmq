@@ -98,7 +98,7 @@ describe AvalancheMQ::Connection do
 
   it "should rate limit connection attempts" do
     close_servers
-    TestHelpers.create_servers(rate_limiter: SecondsRateLimiter.new(1))
+    TestHelpers.create_servers(rate_limiter: AvalancheMQ::SecondsRateLimiter.new(1))
 
     connections = [] of TestConnection
 

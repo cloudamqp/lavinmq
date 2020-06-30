@@ -79,7 +79,7 @@ module TestHelpers
     h.close
   end
 
-  def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL, rate_limiter : RateLimiter = NoRateLimiter.new)
+  def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL, rate_limiter : AvalancheMQ::RateLimiter = AvalancheMQ::NoRateLimiter.new)
     log = Logger.new(STDERR, level: level)
     AvalancheMQ::LogFormatter.use(log)
     AvalancheMQ::Config.instance.gc_segments_interval = 1

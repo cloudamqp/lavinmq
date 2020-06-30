@@ -1,18 +1,18 @@
 require "./spec_helper"
 require "../src/avalanchemq/rate_limiter"
 
-describe NoRateLimiter do
-  described_class = NoRateLimiter
+describe AvalancheMQ::NoRateLimiter do
+  described_class = AvalancheMQ::NoRateLimiter
 
   it "should never limit" do
     described_class.new.limited?("test")
   end
 end
 
-describe SecondsRateLimiter do
+describe AvalancheMQ::SecondsRateLimiter do
   rate = 10
   key = "test"
-  described_class = SecondsRateLimiter
+  described_class = AvalancheMQ::SecondsRateLimiter
 
   it "should rate limit" do
     limiter = described_class.new(rate)

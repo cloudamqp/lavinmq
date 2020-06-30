@@ -95,7 +95,7 @@ describe AvalancheMQ::HTTP::Server do
   describe "GET /api/" do
     it "should be rate limited" do
       close_servers
-      TestHelpers.create_servers(rate_limiter: SecondsRateLimiter.new(1))
+      TestHelpers.create_servers(rate_limiter: AvalancheMQ::SecondsRateLimiter.new(1))
 
       get("/api/").status_code.should_not eq 403
       get("/api/").status_code.should eq 403
