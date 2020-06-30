@@ -470,29 +470,28 @@ module AvalancheMQ
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
         @log.debug { "Checking if next message has to be expired" }
-        read(sp) do |env|
-          expire_at = sp.expiration_ts
-          if expire_at.zero?
-            if @message_ttl.nil?
-              @log.debug { "No more message to expire" }
-              next false
-            end
-            expire_at = env.message.timestamp + (@message_ttl || 0)
-          end
-
-          @log.debug { "Next message: #{env.message}" }
-          expire_in = expire_at - now
-          if expire_in <= 0
-            expire_msg(env, :expired)
-            if (i += 1) == 8192
-              Fiber.yield
-              i = 0
-            end
-            true
-          else
+        env = read(sp)
+        expire_at = sp.expiration_ts
+        if expire_at.zero?
+          if @message_ttl.nil?
             @log.debug { "No more message to expire" }
-            false
+            next false
           end
+          expire_at = env.message.timestamp + (@message_ttl || 0)
+        end
+
+        @log.debug { "Next message: #{env.message}" }
+        expire_in = expire_at - now
+        if expire_in <= 0
+          expire_msg(env, :expired)
+          if (i += 1) == 8192
+            Fiber.yield
+            i = 0
+          end
+          true
+        else
+          @log.debug { "No more message to expire" }
+          false
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
@@ -555,7 +554,7 @@ module AvalancheMQ
     private def dead_letter_msg(msg : BytesMessage, sp, props, dlx, dlrk)
       @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
       @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
-                                   props, msg.size, IO::Memory.new(msg.body))
+        props, msg.size, IO::Memory.new(msg.body))
     end
 
     private def expire_queue(now = Time.monotonic) : Bool

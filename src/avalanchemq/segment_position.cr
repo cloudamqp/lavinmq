@@ -49,7 +49,7 @@ module AvalancheMQ
     end
 
     def self.parse(s)
-      raise ArgumentError.new("A SegmentPosition string has to be 40 chars long") if s.bytesize != 40
+      raise ArgumentError.new("A SegmentPosition string has to be 20 chars long") if s.bytesize != 20
       seg = s[0, 10].to_u32
       pos = s[10, 10].to_u32
       self.new seg, pos
