@@ -10,10 +10,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
       - name: Crystal Ameba Linter
-        uses: crystal-ameba/github-action@v0.2.3
+        uses: crystal-ameba/github-action@v0.2.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   spec:
     name: Spec
     runs-on: ubuntu-latest
@@ -25,5 +27,6 @@ jobs:
 
       - name: Shards install
         run: shards install
+
       - name: Spec
         run: crystal spec --no-color --order random
