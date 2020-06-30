@@ -1,15 +1,15 @@
 require "logger"
 require "digest/sha1"
+require "./mfile"
 require "./segment_position"
 require "./policy"
 require "./observable"
 require "./stats"
 require "./sortable_json"
-require "./client/channel"
 require "./reference_counter"
 require "./queue/ready"
 require "./queue/unacked"
-require "./mfile"
+require "./client/channel"
 
 module AvalancheMQ
   class Queue
