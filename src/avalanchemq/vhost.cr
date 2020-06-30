@@ -120,7 +120,7 @@ module AvalancheMQ
       flush = msg.properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
-        if q.publish(sp, msg, flush)
+        if q.publish(sp, flush)
           ex.publish_out_count += 1
           if q.is_a?(DurableQueue) && flush
             @queues_to_fsync_lock.synchronize do
@@ -182,7 +182,12 @@ module AvalancheMQ
       wfile = @wfile
       @write_lock.synchronize do
         wfile.seek(0, IO::Seek::End)
-        sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32)
+        if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
+          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.timestamp + delay.to_i64)
+        elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
+          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.timestamp + exp_ms)
+        end
+        sp ||= SegmentPosition.new(@segments.last_key, wfile.pos.to_u32)
         if store_offset
           headers = msg.properties.headers || AMQP::Table.new
           headers["x-offset"] = sp.to_i64

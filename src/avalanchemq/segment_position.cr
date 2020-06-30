@@ -4,15 +4,11 @@ module AvalancheMQ
 
     getter segment : UInt32
     getter position : UInt32
-    getter expiration_ts = 0_i64
+    getter expiration_ts : Int64
 
     def_equals_and_hash @segment, @position
 
-    # expiration_ts is set by Queue#publish if nil
-    def initialize(@segment : UInt32, @position : UInt32)
-    end
-
-    def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64)
+    def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64 = 0_i64)
     end
 
     def to_io(io : IO, format)

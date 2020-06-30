@@ -191,7 +191,7 @@ module AvalancheMQ
         if ttl = time_to_message_expiration
           select
           when @refresh_ttl_timeout.receive
-            @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
+            @log.debug "Queue#expire_loop Refresh TTL timeout"
           when timeout ttl
             expire_messages
           end
@@ -379,26 +379,23 @@ module AvalancheMQ
 
     class RejectOverFlow < Exception; end
 
-    def publish(sp : SegmentPosition, message : Message? = nil, persistent = false) : Bool
+    def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow
       drop_overflow(1)
-      sp = calculate_message_expiration_ts(sp, message) if message
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
-      message_available if was_empty
+      if was_empty
+        message_available
+      else
+        refresh_ttl_timeout if sp.expiration_ts > 0
+      end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ex : RejectOverFlow
       @log.debug { "Overflow reject message sp=#{sp}" }
       raise ex
-    end
-
-    protected def calculate_message_expiration_ts(sp : SegmentPosition, message : Message) : SegmentPosition
-      exp_ms = message.properties.expiration.try(&.to_i64?)
-      sp = SegmentPosition.new(sp.segment, sp.position, message.timestamp + exp_ms) unless exp_ms.nil?
-      sp
     end
 
     private def reject_on_overflow
@@ -449,7 +446,7 @@ module AvalancheMQ
       expire_at = 0_i64
       loop do
         sp = @ready.first? || return
-        expire_at = sp.expiration_ts
+        expire_at = sp.expiration_ts || 0_i64
         break if expire_at > 0
         if message_ttl = @message_ttl
           if meta = metadata(sp)
