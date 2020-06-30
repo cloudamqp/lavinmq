@@ -35,6 +35,15 @@ jobs:
       - name: Build deb package
         run: build/deb 1
 
+      - name: Test start avalanchemq
+        run: bin/avalanchemq --version
+
+      - name: Test start avalanchemqctl
+        run: bin/avalanchemqctl --version
+
+      - name: Test start avalanchemqperf
+        run: bin/avalanchemqperf --version
+
       - name: Upload github artifact
         uses: actions/upload-artifact@v2
         with:
