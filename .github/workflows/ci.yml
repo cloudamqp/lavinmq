@@ -31,7 +31,7 @@ jobs:
       - name: Spec
         run: crystal spec --no-color --order random
 
-  spec:
+  test-binaries:
     name: Test binaries
     runs-on: ubuntu-latest
     container: crystallang/crystal:0.35.1
