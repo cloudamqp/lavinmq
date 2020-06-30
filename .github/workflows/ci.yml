@@ -30,3 +30,24 @@ jobs:
 
       - name: Spec
         run: crystal spec --no-color --order random
+
+  spec:
+    name: Test binaries
+    runs-on: ubuntu-latest
+    container: crystallang/crystal:0.35.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Shards install
+        run: shards install
+
+      - name: avalanchemq
+        run: crystal run src/avalanchemq.cr -- --version
+
+      - name: avalanchemqctl
+        run: crystal run src/avalanchemqctl.cr -- --version
+
+      - name: avalanchemqperf
+        run: crystal run src/avalanchemqperf.cr -- --version
