@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2020-07-01
+
 ### Changed
 - Using mmap to read/write to the segment files, almost doubling the performance
 - UI: format uptime, format numbers according to browser locale
