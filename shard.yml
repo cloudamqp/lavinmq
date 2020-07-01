@@ -35,6 +35,6 @@ development_dependencies:
   ameba:
     github: veelenga/ameba
 
-crystal: 0.34.0
+crystal: 0.35.1
 
 license: Apache-2.0
