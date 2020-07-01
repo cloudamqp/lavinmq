@@ -251,6 +251,10 @@ Fork, create feature branch, submit pull request.
 
 * [Carl Hörberg](carl@84codes.com)
 * [Anders Bälter](anders@84codes.com)
+* [Magnus Landerblom](mange@cloudamqp.com)
+* [Magnus Hörberg](magnus@cloudamqp.com)
+* [Johan Eckerström](johan.e@cloudamqp.com)
+* [Anton Dalgren](anton@cloudamqp.com)
 
 ## License
 

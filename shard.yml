@@ -4,6 +4,10 @@ version: 0.10.7
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
   - Anders Bälter <anders@cloudamqp.com>
+  - Magnus Landerblom <mange@cloudamqp.com>
+  - Magnus Hörberg <magnus@cloudamqp.com>
+  - Johan Eckerström <johan.e@cloudamqp.com>
+  - Anton Dalgren <anton@cloudamqp.com>
 
 targets:
   avalanchemq:
