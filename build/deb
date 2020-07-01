@@ -3,8 +3,8 @@ set -eu
 which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
 which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
 which help2man > /dev/null || (echo "help2man required"; exit 1)
-pkg_version=$(shards version)
-pkg_revision=${1:-1}
+pkg_version=$1
+pkg_revision=${2:-1}
 root=builds/debian/$(lsb_release -cs)/avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
 
 shards build --release --production
@@ -19,7 +19,7 @@ mkdir -p $root/usr/share/man/man1
 cp bin/avalanchemq $root/usr/bin
 cp bin/avalanchemqctl $root/usr/bin
 cp bin/avalanchemqperf $root/usr/bin
-#strip --strip-unneeded --remove-section=.comment --remove-section=.note $root/usr/bin/*
+strip --strip-unneeded --remove-section=.comment --remove-section=.note $root/usr/bin/*
 cp extras/avalanchemq.service $root/lib/systemd/system
 cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
 cp NOTICE $root/usr/share/doc/avalanchemq/
@@ -71,7 +71,7 @@ Installed-Size: $(du -ks $root/usr | cut -f 1)
 Maintainer: 84codes <contact@84codes.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
  Aims to be very fast, have low RAM requirements,
- handle extreamly long queues, many connections and
+ handle very long queues, many connections and
  require minimal configuration.
 
 EOF

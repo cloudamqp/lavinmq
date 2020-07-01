@@ -1,0 +1,39 @@
+#!/bin/bash -eux
+version=$(git describe | cut -c2-)
+revision=${1:-1}
+dists=${2:-bionic focal}
+
+provision="
+set -eux
+sudo apt-get update
+sudo flock /var/lib/dpkg/lock-frontend \
+  apt-get install -y gnupg2 apt-transport-https ca-certificates
+sudo apt-key adv --keyserver keys.gnupg.net --recv-keys 09617FD37CC06B54
+echo 'deb https://dist.crystal-lang.org/apt crystal main' | sudo tee /etc/apt/sources.list.d/crystal.list
+sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get install -y crystal help2man lintian lsb-release fakeroot libsystemd-dev
+rm -rf build
+"
+
+build="
+set -eux
+mkdir build
+tar xf git.tar -C build
+cd build
+build/deb $version $revision
+"
+
+arch=amd64
+for dist in $dists
+do
+  mkdir -p builds/debian/$dist
+  multipass launch --mem 3G --name avalanchemq-$dist $dist || true
+  multipass shell avalanchemq-$dist <<< "$provision"
+  git archive HEAD | multipass transfer - avalanchemq-$dist:git.tar
+  multipass shell avalanchemq-$dist <<< "$build"
+  multipass transfer \
+    avalanchemq-$dist:build/builds/debian/$dist/avalanchemq_${version}-${revision}_${arch}.deb \
+    builds/debian/$dist/
+  multipass stop --time 5 avalanchemq-$dist
+done
