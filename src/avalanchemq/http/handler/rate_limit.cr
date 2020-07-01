@@ -18,17 +18,14 @@ module AvalancheMQ
           return call_next(context)
         end
 
-        if allowed?(context)
+        ip = request_ip(context)
+        if @rate_limiter.allowed?(ip)
           return call_next(context)
         end
 
+        @log.info { "HTTP Request blocked due to rate limit ip=#{ip} path=#{context.request.path}" }
         context.response.status_code = 403
         context.response.print(RESPONSE_BODY)
-      end
-
-      private def allowed?(context : ::HTTP::Server::Context) : Bool
-        key = request_ip(context)
-        @rate_limiter.allowed?(key)
       end
 
       private def request_ip(context) : String
