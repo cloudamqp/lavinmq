@@ -44,13 +44,26 @@ module AvalancheMQ
       raise ArgumentError.new("rate must be positive") if @rate_seconds <= 0
       @mutex = Mutex.new
       @pool = Hash(String, RateItem).new { |h,k| h[k] = TokenRateItem.new(@rate_seconds) }
+
+      # One Fiber per RateLimiter
+      spawn(name: "#{self.class} cleanup loop") do
+        loop do
+          sleep 60
+          cleanup
+        end
+      end
     end
 
     def limited?(key : String)
       @mutex.synchronize do
         res = @pool[key].limited?
-        @pool.delete_if { |_k,item| item.pristine? }
         res
+      end
+    end
+
+    def cleanup
+      @mutex.synchronize do
+        @pool.delete_if { |_k,item| item.pristine? }
       end
     end
 
