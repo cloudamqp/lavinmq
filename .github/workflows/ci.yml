@@ -1,0 +1,32 @@
+name: CI
+on: [push]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    container: crystallang/crystal:0.35.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Crystal Ameba Linter
+        uses: crystal-ameba/github-action@v0.2.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  spec:
+    name: Spec
+    runs-on: ubuntu-latest
+    container: crystallang/crystal:0.35.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Shards install
+        run: shards install
+
+      - name: Spec
+        run: crystal spec --no-color --order random
