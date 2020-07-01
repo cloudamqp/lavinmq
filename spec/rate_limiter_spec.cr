@@ -14,6 +14,10 @@ describe AvalancheMQ::SecondsRateLimiter do
   key = "test"
   described_class = AvalancheMQ::SecondsRateLimiter
 
+  after_each do
+    MockRoughTime.restore
+  end
+
   describe "#limited?" do
     it "should rate limit" do
       limiter = described_class.new(rate)
@@ -30,11 +34,11 @@ describe AvalancheMQ::SecondsRateLimiter do
     end
 
     it "should rate limit, and then not rate limit" do
-      limiter = described_class.new(2)
+      limiter = described_class.new(2, MockRoughTime)
       limiter.limited?(key).should be_false
       limiter.limited?(key).should be_false
       limiter.limited?(key).should be_true
-      sleep 1.4
+      MockRoughTime.next_second
       limiter.limited?(key).should be_false
       limiter.limited?(key).should be_false
       limiter.limited?(key).should be_true
@@ -90,7 +94,7 @@ describe AvalancheMQ::SecondsRateLimiter do
 
   describe "#cleanup" do
     it "should purge pristine items" do
-      limiter = described_class.new(rate)
+      limiter = described_class.new(rate, MockRoughTime)
       keys = 5
 
       keys.times.each do |i|
@@ -98,7 +102,7 @@ describe AvalancheMQ::SecondsRateLimiter do
       end
 
       limiter.inspect.should contain("keys=#{keys}")
-      sleep 1
+      MockRoughTime.next_second
       limiter.limited?("another-key")
       limiter.cleanup
       limiter.inspect.should contain("keys=1")

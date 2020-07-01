@@ -7,14 +7,16 @@ module AvalancheMQ
   # Token bucket implementation
   # Fill up tokens to be used for operations, if no tokens are available, we're "limited"
   # 1 sec resolution
-  class TokenRateItem < RateItem
-    def initialize(@max_tokens : Int32)
+class TokenRateItem < RateItem
+    @last_used : Time
+
+    def initialize(@max_tokens : Int32, @time : TimeObject.class)
       @tokens = @max_tokens
-      @last_used = RoughTime.utc
+      @last_used = @time.utc
     end
 
     def limited?
-      now = RoughTime.utc
+      now = @time.utc
       @tokens += tokens_to_add(now)
       return true if @tokens == 0
       @last_used = now
@@ -23,7 +25,7 @@ module AvalancheMQ
     end
 
     def pristine?
-      (@tokens + tokens_to_add(RoughTime.utc)) == @max_tokens
+      (@tokens + tokens_to_add(@time.utc)) == @max_tokens
     end
 
     private def tokens_to_add(time)
@@ -40,10 +42,10 @@ module AvalancheMQ
   end
 
   class SecondsRateLimiter < RateLimiter
-    def initialize(@rate_seconds = 1000)
+    def initialize(@rate_seconds = 1000, time_class : TimeObject.class = RoughTime)
       raise ArgumentError.new("rate must be positive") if @rate_seconds <= 0
       @mutex = Mutex.new
-      @pool = Hash(String, RateItem).new { |h,k| h[k] = TokenRateItem.new(@rate_seconds) }
+      @pool = Hash(String, RateItem).new { |h,k| h[k] = TokenRateItem.new(@rate_seconds, time_class) }
 
       # One Fiber per RateLimiter
       spawn(name: "#{self.class} cleanup loop") do
