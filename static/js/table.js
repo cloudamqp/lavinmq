@@ -21,7 +21,7 @@
     const keyColumns = options.keyColumns
     const interval = options.interval
     let timer = null
-    let searchTerm = getQueryVariable('filter')
+    let searchTerm = getQueryVariable('name')
     const currentPage = getQueryVariable('page') || 1
     let pageSize = getQueryVariable('page_size') || 100
 
@@ -192,7 +192,7 @@
 
     function renderSearch () {
       const debouncedUpdate = debounce(() => {
-        updateQueryState({ filter: searchTerm })
+        updateQueryState({ name: searchTerm })
         fetchAndUpdate()
       })
       const str = `<form class="form" action="javascript:void(0);">
