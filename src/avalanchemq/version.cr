@@ -1,3 +1,3 @@
 module AvalancheMQ
-  VERSION = {{ `git describe 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
+  VERSION = {{ `git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
 end
