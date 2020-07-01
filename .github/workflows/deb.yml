@@ -10,13 +10,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Crystal
-        uses: MeilCli/setup-crystal-action@v3.0.0
-        with:
-          crystal_version: 0.35.1
-          shards_version: 0.11.1
+        run: sudo snap install crystal --classic
 
       - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian ruby
+        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian build-essential gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev
 
       - name: Checkout
         uses: actions/checkout@v2
@@ -26,14 +23,14 @@ jobs:
       - name: Get Ubuntu release name
         run: echo "::set-env name=CODENAME::$(lsb_release -cs)"
 
-      - name: Get git tag
-        run: echo "::set-env name=TAG::$(git describe)"
+      - name: Get version
+        run: echo "::set-env name=VERSION::$(git describe --tags | cut -c2-)"
 
-      - name: Get git tag
-        run: echo "::set-env name=TAG::$(git describe)"
+      - name: Get arch
+        run: echo "::set-env name=ARCH::$(dpkg --print-architecture)"
 
       - name: Build deb package
-        run: build/deb 1
+        run: build/deb ${{ env.VERSION }} 1
 
       - name: Test start avalanchemq
         run: bin/avalanchemq --version
@@ -47,18 +44,22 @@ jobs:
       - name: Upload github artifact
         uses: actions/upload-artifact@v2
         with:
-          path: builds/**/*.deb
-          name: avalanchemq-${{ env.TAG }}-1-${{ env.CODENAME }}.deb
+          path: builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
+          name: avalanchemq_${{ env.VERSION }}-1-${{ env.CODENAME }}_${{ env.ARCH }}.deb
 
       - name: Check if Git tag exists
         run: echo "::set-env name=HEAD_TAG::$(git tag --points-at HEAD)"
 
+      - name: Install Ruby
+        run: sudo snap install ruby --classic
+        if: env.HEAD_TAG != ''
+
       - name: Install packagecloud cli
-        run: gem install package_cloud
+        run: ruby.gem install package_cloud
         if: env.HEAD_TAG != ''
 
       - name: Upload to packagecloud
-        run: package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/**/*.deb
+        run: $HOME/.gem/bin/package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
         env:
           PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
         if: env.HEAD_TAG != ''
