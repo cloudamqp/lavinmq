@@ -87,6 +87,11 @@ module AvalancheMQ
         TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "headers"
         HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-delayed-message"
+        type = arguments.delete("x-delayed-type")
+        raise "Missing required argument 'x-delayed-type'" unless type
+        arguments["x-delayed-message"] = true
+        make(vhost, name, type, durable, auto_delete, internal, arguments)
       else raise "Cannot make exchange type #{type}"
       end
     end

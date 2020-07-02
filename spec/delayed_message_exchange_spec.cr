@@ -57,4 +57,22 @@ describe "Delayed Message Exchange" do
     s.vhosts["/"].delete_exchange(x_name)
     s.vhosts["/"].delete_queue(q_name)
   end
+
+  it "should support x-delayed-message as exchange type" do
+    with_channel do |ch|
+      xdm_args = AMQP::Client::Arguments.new({"x-delayed-type" => "topic"})
+      x = ch.exchange(x_name, "x-delayed-message", args: xdm_args)
+      q = ch.queue(q_name)
+      q.bind(x.name, "rk")
+      hdrs = AMQP::Client::Arguments.new({"x-delay" => 5})
+      x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+      queue = s.vhosts["/"].queues[q_name]
+      queue.message_count.should eq 0
+      wait_for(5.milliseconds) { queue.message_count == 1 }
+      queue.message_count.should eq 1
+    end
+  ensure
+    s.vhosts["/"].delete_exchange(x_name)
+    s.vhosts["/"].delete_queue(q_name)
+  end
 end
