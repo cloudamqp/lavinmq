@@ -48,9 +48,13 @@ module AvalancheMQ
       handle_arguments
       policy.not_nil!.definition.each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
+        # TODO: Support persitent exchange as policy
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
+        when "delayed-message"
+          @delayed = v.as?(Bool) == true
+          init_delayed_queue if @delayed
         else nil
         end
       end
@@ -65,7 +69,8 @@ module AvalancheMQ
     def handle_arguments
       @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
       init_persistent_queue
-      init_delayed_queue
+      @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
+      init_delayed_queue if @delayed
     end
 
     def details_tuple
@@ -163,7 +168,6 @@ module AvalancheMQ
 
     private def init_delayed_queue
       return if @delayed_queue
-      @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
       return unless @delayed
       raise "Exchange can't be persistent and delayed" if persistent?
       q_name = "amq.delayed.#{@name}"
