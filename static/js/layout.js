@@ -93,6 +93,6 @@
 
   document.getElementsByTagName('footer')[0].innerHTML = `
     AvalancheMQ is open source and developed by
-    <a href="http://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a>
+    <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a>
   `
 })()
