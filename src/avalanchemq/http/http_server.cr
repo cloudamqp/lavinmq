@@ -54,6 +54,11 @@ module AvalancheMQ
         @log.info { "Bound on #{addr}" }
       end
 
+      def bind_unix(path)
+        addr = @http.bind_unix path
+        @log.info { "Bound to #{addr}" }
+      end
+
       def listen
         @http.listen
       end

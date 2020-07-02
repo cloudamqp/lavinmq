@@ -13,6 +13,7 @@ module AvalancheMQ
     property http_bind = "0.0.0.0"
     property http_port = 15672
     property https_port = -1
+    property http_unix_path = ""
     property heartbeat = 0_u16                   # second
     property frame_max = 1048576_u32             # bytes
     property channel_max = 2048_u16              # number
@@ -84,6 +85,7 @@ module AvalancheMQ
       settings["tls_port"]?.try { |v| @https_port = v.to_i32 }
       settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
       settings["tls_key"]?.try { |v| @key_path = v }   # backward compatibility
+      settings["unix_path"]?.try { |v| @http_unix_path = v }
     end
 
     private def true?(str : String?)
