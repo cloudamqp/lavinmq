@@ -27,6 +27,9 @@ p = OptionParser.parse do |parser|
   parser.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
     config.unix_path = v
   end
+  parser.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
+    config.http_unix_path = v
+  end
   parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.cert_path = v }
   parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.key_path = v }
   parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
@@ -115,7 +118,7 @@ unless config.unix_path.empty?
   end
 end
 
-if config.http_port > 0 || config.https_port > 0
+if config.http_port > 0 || config.https_port > 0 || !config.http_unix_path.empty?
   http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
   if config.http_port > 0
     http_server.bind_tcp(config.http_bind, config.http_port)
@@ -124,6 +127,9 @@ if config.http_port > 0 || config.https_port > 0
     http_server.bind_tls(config.http_bind, config.https_port,
                          config.cert_path,
                          config.key_path || config.cert_path)
+  end
+  unless config.http_unix_path.empty?
+    http_server.bind_unix(config.http_unix_path)
   end
   spawn(name: "HTTP listener") do
     http_server.not_nil!.listen
