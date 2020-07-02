@@ -9,6 +9,7 @@ module AvalancheMQ
         if context.request.path.starts_with?("/api/")
           context.response.content_type = "application/json"
         end
+        context.response.headers.add("Referrer-Policy", "same-origin")
         call_next(context)
       end
     end
