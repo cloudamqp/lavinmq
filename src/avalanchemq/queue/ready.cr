@@ -219,5 +219,16 @@ module AvalancheMQ
         idx ? @ready.insert(idx, sp) : @ready.unshift(sp)
       end
     end
+
+    class PriorityReadyQueue < SortedReadyQueue
+      setter insert_position : Int32? = 0
+
+      private def insert_sorted(sp)
+        idx = @ready.bsearch_index do |rsp|
+          sp.priority > rsp.priority
+        end
+        idx ? @ready.insert(idx, sp) : @ready.push(sp)
+      end
+    end
   end
 end

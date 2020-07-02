@@ -14,6 +14,7 @@ require "./exchange"
 require "digest/sha1"
 require "./reference_counter"
 require "./mfile"
+require "./queue_factory"
 
 module AvalancheMQ
   class VHost
@@ -108,7 +109,8 @@ module AvalancheMQ
                 visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
-      find_all_queues(ex, msg.routing_key, msg.properties.headers, visited, found_queues)
+      properties = msg.properties
+      find_all_queues(ex, msg.routing_key, properties.headers, visited, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
         ex.unroutable_count += 1
@@ -116,7 +118,7 @@ module AvalancheMQ
       end
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
       sp = write_to_disk(msg, ex.persistent?)
-      flush = msg.properties.delivery_mode == 2_u8
+      flush = properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
         if q.publish(sp, flush)
@@ -178,12 +180,7 @@ module AvalancheMQ
       wfile = @wfile
       @write_lock.synchronize do
         wfile.seek(0, IO::Seek::End)
-        if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
-          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.bytesize.to_u32, msg.timestamp + delay.to_i64)
-        elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
-          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.bytesize.to_u32, msg.timestamp + exp_ms)
-        end
-        sp ||= SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.bytesize.to_u32)
+        sp = SegmentPosition.make(@segments.last_key, wfile.pos.to_u32, msg)
         if store_offset
           headers = msg.properties.headers || AMQP::Table.new
           headers["x-offset"] = sp.to_i64
@@ -316,12 +313,7 @@ module AvalancheMQ
         source.unbind(x, f.routing_key, f.arguments.to_h)
       when AMQP::Frame::Queue::Declare
         return false if @queues.has_key? f.queue_name
-        q = @queues[f.queue_name] =
-          if f.durable
-            DurableQueue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments.to_h)
-          else
-            Queue.new(self, f.queue_name, f.exclusive, f.auto_delete, f.arguments.to_h)
-          end
+        q = @queues[f.queue_name] = QueueFactory.make(self, f)
         apply_policies([q] of Queue) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)

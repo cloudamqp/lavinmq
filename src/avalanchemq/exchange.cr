@@ -208,8 +208,9 @@ module AvalancheMQ
         case type
         when "topic", "headers"
           if msg_metadata = queue.metadata(sp)
+            properties = msg_metadata.properties
             rk = msg_metadata.routing_key
-            headers = msg_metadata.properties.headers
+            headers = properties.headers
             queue_matches(rk, headers) do |mq|
               next unless mq == queue
               next unless queue.publish(sp)

@@ -54,7 +54,6 @@ module AvalancheMQ
         File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
         @enq = File.open(File.join(@index_dir, "enq"), "a")
         @enq.fsync(flush_metadata: true)
-
         @ack.truncate
         @acks = 0_u32
       end
@@ -131,7 +130,7 @@ module AvalancheMQ
 
     private def restore_index : Nil
       @log.info "Restoring index"
-      sp_size = sizeof(SegmentPosition)
+      sp_size = SegmentPosition::BYTESIZE
 
       File.open(File.join(@index_dir, "enq")) do |enq|
         File.open(File.join(@index_dir, "ack")) do |ack|
