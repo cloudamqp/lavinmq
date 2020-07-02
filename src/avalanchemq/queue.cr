@@ -388,8 +388,8 @@ module AvalancheMQ
       @publish_count += 1
       if was_empty
         message_available
-      else
-        refresh_ttl_timeout if sp.expiration_ts > 0
+      elsif sp.expiration_ts > 0
+        refresh_ttl_timeout
       end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
@@ -522,6 +522,7 @@ module AvalancheMQ
       headers = props.headers || AMQP::Table.new
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
+      headers.delete("x-delay")
 
       xdeaths = Array(AMQP::Table).new(1)
       if headers.has_key? "x-death"

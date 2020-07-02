@@ -141,9 +141,7 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
-      persistent_ex = ex.persistent?
       ex.queue_matches(routing_key, headers) do |q|
-        next if !persistent_ex && q.internal?
         queues << q
       end
 

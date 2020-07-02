@@ -157,6 +157,7 @@ module AvalancheMQ
     end
 
     private def init_delayed_queue
+      return if @delayed_queue
       @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
       return unless @delayed
       raise "Exchange can't be persistent and delayed" if persistent?
@@ -246,7 +247,7 @@ module AvalancheMQ
 
     def queue_matches(routing_key : String, headers = nil, &blk : Queue -> _)
       if should_delay_message?(headers)
-        yield @delayed_queue.as(Queue)
+        @delayed_queue.try { |q| yield q }
       else
         do_queue_matches(routing_key, headers, &blk)
         @persistent_queue.try { |q| yield q } if persistent?
@@ -260,9 +261,9 @@ module AvalancheMQ
       return false unless x_delay
       x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
       x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
-      @log.debug { "Exchange#should_delay_message? x_death=#{x_death}" }
-      return true unless x_death
-      x_death["queue"]? != "amq.delayed.#{@name}"
+      should_delay = x_death.nil? || (x_death["queue"]? != "amq.delayed.#{@name}")
+      @log.debug { "should_delay_message? #{should_delay}" }
+      should_delay
     end
 
     def exchange_matches(routing_key : String, headers = nil, &blk : Exchange -> _)
@@ -327,7 +328,7 @@ module AvalancheMQ
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
-      @queue_bindings[{routing_key, nil}].each { |q| yield q }
+      @queue_bindings[{routing_key, nil}].each { |q| yield q unless q.internal? }
     end
 
     def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -350,7 +351,7 @@ module AvalancheMQ
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
       if q = @vhost.queues[routing_key]?
-        yield q
+        yield q unless q.internal?
       end
     end
 
@@ -385,7 +386,7 @@ module AvalancheMQ
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
-      @queue_bindings.each_value { |s| s.each { |q| yield q } }
+      @queue_bindings.each_value { |s| s.each { |q| yield q unless q.internal? } }
     end
 
     def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -433,7 +434,11 @@ module AvalancheMQ
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
-      matches(@queue_binding_keys, routing_key, headers) { |q| yield q.as(Queue) }
+      matches(@queue_binding_keys, routing_key, headers) do |destination|
+        q = destination.as(Queue)
+        next if q.internal?
+        yield q
+      end
     end
 
     def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
@@ -534,11 +539,15 @@ module AvalancheMQ
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue ->)
-      matches(@queue_bindings, routing_key, headers) { |d| yield d.as(Queue) }
+      matches(@queue_bindings, routing_key, headers) do |destination|
+        q = destination.as(Queue)
+        next if q.internal?
+        yield q
+      end
     end
 
     def do_exchange_matches(routing_key, headers = nil, &blk : Exchange ->)
-      matches(@exchange_bindings, routing_key, headers) { |d| yield d.as(Exchange) }
+      matches(@exchange_bindings, routing_key, headers) { |e| yield e.as(Exchange) }
     end
 
     private def matches(bindings, routing_key, headers, &blk : Queue | Exchange ->)
