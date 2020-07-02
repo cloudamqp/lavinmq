@@ -55,6 +55,7 @@ module AvalancheMQ
             internal = body["internal"]?.try(&.as_bool?) || false
             arguments = parse_arguments(body)
             tbl = AMQP::Table.new arguments
+            tbl["x-delayed-exchange"] = body["delayed"]?.try(&.as_bool?) || false
             ae = arguments["x-alternate-exchange"]?.try &.as?(String)
             ae_ok = ae.nil? || (user.can_write?(vhost, ae) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && ae_ok

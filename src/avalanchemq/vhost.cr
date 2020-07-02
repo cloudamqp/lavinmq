@@ -141,9 +141,7 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
-      persistent_ex = ex.persistent?
       ex.queue_matches(routing_key, headers) do |q|
-        next if !persistent_ex && q.internal?
         queues << q
       end
 
@@ -182,7 +180,12 @@ module AvalancheMQ
       wfile = @wfile
       @write_lock.synchronize do
         wfile.seek(0, IO::Seek::End)
-        sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32)
+        if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
+          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.timestamp + delay.to_i64)
+        elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
+          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.timestamp + exp_ms)
+        end
+        sp ||= SegmentPosition.new(@segments.last_key, wfile.pos.to_u32)
         if store_offset
           headers = msg.properties.headers || AMQP::Table.new
           headers["x-offset"] = sp.to_i64
@@ -301,7 +304,7 @@ module AvalancheMQ
               ex.unbind(x, *binding_args) if destinations.includes?(x)
             end
           end
-          x.persistent_queue.try &.delete
+          x.delete
         else
           return false
         end

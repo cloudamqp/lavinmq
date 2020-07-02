@@ -39,6 +39,7 @@ module AvalancheMQ
     @consumers_lock = Mutex.new(:unchecked)
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
+    @refresh_ttl_timeout = Channel(Nil).new(1)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @sp_counter : SafeReferenceCounter(SegmentPosition)
     @ready = ReadyQueue.new
@@ -60,7 +61,9 @@ module AvalancheMQ
       @log.progname += " queue=#{@name}"
       @sp_counter = @vhost.sp_counter
       handle_arguments
-      unless @internal
+      if @internal
+        spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
+      else
         spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       end
     end
@@ -144,6 +147,13 @@ module AvalancheMQ
       end
     end
 
+    def refresh_ttl_timeout
+      select
+      when @refresh_ttl_timeout.send nil
+      else
+      end
+    end
+
     private def handle_arguments
       @message_ttl = @arguments["x-message-ttl"]?.try &.as?(ArgumentNumber)
       @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
@@ -174,6 +184,25 @@ module AvalancheMQ
 
     def consumer_count
       @consumers.size.to_u32
+    end
+
+    private def expire_loop
+      loop do
+        if ttl = time_to_message_expiration
+          select
+          when @refresh_ttl_timeout.receive
+            @log.debug "Queue#expire_loop Refresh TTL timeout"
+          when timeout ttl
+            expire_messages
+          end
+        else
+          @message_available.receive
+        end
+      rescue Channel::ClosedError
+        break
+      rescue ex
+        @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
+      end
     end
 
     private def deliver_loop
@@ -233,9 +262,12 @@ module AvalancheMQ
       m_ttl = time_to_message_expiration
       ttl = {q_ttl, m_ttl}.select(Time::Span).min?
       if ttl
+        @log.debug "Queue#consumer_or_expire TTL: #{ttl}"
         select
         when @consumer_available.receive
-          @log.debug "Consumer available"
+          @log.debug "Queue#consumer_or_expire Consumer available"
+        when @refresh_ttl_timeout.receive
+          @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
         when timeout ttl
           case ttl
           when q_ttl
@@ -354,7 +386,11 @@ module AvalancheMQ
       drop_overflow(1)
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
-      message_available if was_empty
+      if was_empty
+        message_available
+      elsif sp.expiration_ts > 0
+        refresh_ttl_timeout
+      end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ex : RejectOverFlow
@@ -405,22 +441,27 @@ module AvalancheMQ
     end
 
     private def time_to_message_expiration : Time::Span?
-      @log.debug { "Checking if next message has to be expired" }
+      @log.debug { "Checking if next message has to be expired ready" }
       meta = nil
-      until meta
+      expire_at = 0_i64
+      loop do
         sp = @ready.first? || return
-        meta = metadata(sp)
-      end
-      @log.debug { "Next message: #{meta}" }
-      exp_ms = meta.properties.expiration.try(&.to_i64?) || @message_ttl
-      if exp_ms
-        expire_at = meta.timestamp + exp_ms
-        expire_in = expire_at - RoughTime.utc.to_unix_ms
-        if expire_in > 0
-          expire_in.milliseconds
+        expire_at = sp.expiration_ts || 0_i64
+        break if expire_at > 0
+        if message_ttl = @message_ttl
+          if meta = metadata(sp)
+            expire_at = meta.timestamp + message_ttl
+            break
+          end
         else
-          Time::Span.zero
+          return
         end
+      end
+      expire_in = expire_at - RoughTime.utc.to_unix_ms
+      if expire_in > 0
+        expire_in.milliseconds
+      else
+        Time::Span.zero
       end
     end
 
@@ -429,23 +470,25 @@ module AvalancheMQ
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
         @log.debug { "Checking if next message has to be expired" }
-        env = read(sp)
-        @log.debug { "Next message: #{env.message}" }
-        exp_ms = env.message.properties.expiration.try(&.to_i64?) || @message_ttl
-        if exp_ms
-          expire_at = env.message.timestamp + exp_ms
-          expire_in = expire_at - now
-          if expire_in <= 0
-            expire_msg(env, :expired)
-            if (i += 1) == 8192
-              Fiber.yield
-              i = 0
-            end
-            true
-          else
+        expire_at = sp.expiration_ts
+        env = nil
+        if expire_at.zero?
+          if @message_ttl.nil?
             @log.debug { "No more message to expire" }
-            false
+            next false
           end
+          env = read(sp)
+          expire_at = env.message.timestamp + (@message_ttl || 0)
+        end
+        expire_in = expire_at - now
+        if expire_in <= 0
+          env ||= read(sp)
+          expire_msg(env, :expired)
+          if (i += 1) == 8192
+            Fiber.yield
+            i = 0
+          end
+          true
         else
           @log.debug { "No more message to expire" }
           false
@@ -479,6 +522,7 @@ module AvalancheMQ
       headers = props.headers || AMQP::Table.new
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
+      headers.delete("x-delay")
 
       xdeaths = Array(AMQP::Table).new(1)
       if headers.has_key? "x-death"
@@ -511,7 +555,7 @@ module AvalancheMQ
     private def dead_letter_msg(msg : BytesMessage, sp, props, dlx, dlrk)
       @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
       @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
-                                   props, msg.size, IO::Memory.new(msg.body))
+        props, msg.size, IO::Memory.new(msg.body))
     end
 
     private def expire_queue(now = Time.monotonic) : Bool

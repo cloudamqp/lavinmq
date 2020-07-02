@@ -193,7 +193,7 @@ describe "Persistent Exchange" do
         q.bind(x.name, "#", args: bind_args)
         q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
         q.unbind(x.name, "#", args: bind_args)
-        wait_for { s.vhosts["/"].exchanges[x_name].persistent_queue.try(&.empty?) }
+        sleep 0.1
         q.bind(x.name, "#", args: bind_args)
         q.get(no_ack: true).should be_nil
       end

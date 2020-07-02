@@ -2,17 +2,21 @@ module AvalancheMQ
   struct SegmentPosition
     include Comparable(self)
 
-    getter segment, position
+    getter segment : UInt32
+    getter position : UInt32
+    getter expiration_ts : Int64
+
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32)
+    def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64 = 0_i64)
     end
 
     def to_io(io : IO, format)
-      buf = uninitialized UInt8[8]
+      buf = uninitialized UInt8[sizeof(SegmentPosition)]
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])
+      format.encode(@expiration_ts, slice[8, 8])
       io.write(slice)
     end
 
@@ -25,7 +29,8 @@ module AvalancheMQ
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
       seg = UInt32.from_io(io, format)
       pos = UInt32.from_io(io, format)
-      self.new(seg, pos)
+      ts = Int64.from_io(io, format)
+      self.new(seg, pos, ts)
     end
 
     def self.from_i64(i : Int64)

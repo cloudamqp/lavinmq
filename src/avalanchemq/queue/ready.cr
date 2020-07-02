@@ -77,8 +77,11 @@ module AvalancheMQ
       # returns SPs in the deque after the operation
       def insert(sp : SegmentPosition)
         @lock.synchronize do
-          i = @ready.bsearch_index { |rsp| rsp > sp } || 0
-          @ready.insert(i, sp)
+          if i = @ready.bsearch_index { |rsp| rsp > sp }
+            @ready.insert(i, sp)
+          else
+            @ready.unshift(sp)
+          end
           @ready.size
         end
       end
@@ -87,8 +90,11 @@ module AvalancheMQ
       def insert(sps : Enumerable(SegmentPosition))
         @lock.synchronize do
           sps.reverse_each do |sp|
-            i = @ready.bsearch_index { |rsp| rsp > sp } || 0
-            @ready.insert(i, sp)
+            if i = @ready.bsearch_index { |rsp| rsp > sp }
+              @ready.insert(i, sp)
+            else
+              @ready.unshift(sp)
+            end
           end
           @ready.size
         end
@@ -168,6 +174,36 @@ module AvalancheMQ
             set << sp
           end
         end
+      end
+    end
+
+    class SortedReadyQueue < ReadyQueue
+      def push(sp : SegmentPosition) : Int32
+        insert(sp)
+      end
+
+      def insert(sp : SegmentPosition)
+        @lock.synchronize do
+          insert_sorted(sp)
+          @ready.size
+        end
+      end
+
+      # Insert SPs sorted, the array should ideally be sorted too
+      def insert(sps : Enumerable(SegmentPosition))
+        @lock.synchronize do
+          sps.reverse_each do |sp|
+            insert_sorted(sp)
+          end
+          @ready.size
+        end
+      end
+
+      private def insert_sorted(sp)
+        idx = @ready.bsearch_index do |rsp|
+          rsp.expiration_ts >= sp.expiration_ts || rsp >= sp
+        end
+        idx ? @ready.insert(idx, sp) : @ready.unshift(sp)
       end
     end
   end
