@@ -231,7 +231,7 @@ module AvalancheMQ
     protected def delete
       return if @deleted
       @deleted = true
-      @log.info { "Deleting exchange: #{@name}" }
+      @log.info "Deleting"
       @delayed_queue.try &.delete
       @persistent_queue.try &.delete
       @vhost.delete_exchange(@name)
