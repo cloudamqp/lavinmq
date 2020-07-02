@@ -27,16 +27,34 @@ describe "Delayed Message Exchange" do
       q.bind(x.name, "#")
       hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
       x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-      s.vhosts["/"].queues[q_name].message_count.should eq 0
-      sleep 2
-      s.vhosts["/"].queues[q_name].message_count.should eq 1
+      queue = s.vhosts["/"].queues[q_name]
+      queue.message_count.should eq 0
+      wait_for { queue.message_count == 1 }
+      queue.message_count.should eq 1
     end
   ensure
     s.vhosts["/"].delete_exchange(x_name)
     s.vhosts["/"].delete_queue(q_name)
   end
 
-  # TODO: specs that messages are delayed and that a message with short delay
-  # will be enqueued before message with a longer delay. Also that the current TTL
-  # of the internal queue is updated when a new message is published
+  it "should deliver in correct order" do
+    with_channel do |ch|
+      x = ch.exchange(x_name, "topic", args: x_args)
+      q = ch.queue(q_name)
+      q.bind(x.name, "#")
+      hdrs = AMQP::Client::Arguments.new({"x-delay" => 5})
+      x.publish "delay-long", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+      hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
+      x.publish "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+      queue = s.vhosts["/"].queues[q_name]
+      queue.message_count.should eq 0
+      wait_for(5.milliseconds) { queue.message_count == 1 }
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("delay-short")
+      wait_for { queue.message_count == 1 }
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("delay-long")
+    end
+  ensure
+    s.vhosts["/"].delete_exchange(x_name)
+    s.vhosts["/"].delete_queue(q_name)
+  end
 end
