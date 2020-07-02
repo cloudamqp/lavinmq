@@ -470,19 +470,19 @@ module AvalancheMQ
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
         @log.debug { "Checking if next message has to be expired" }
-        env = read(sp)
         expire_at = sp.expiration_ts
+        env = nil
         if expire_at.zero?
           if @message_ttl.nil?
             @log.debug { "No more message to expire" }
             next false
           end
+          env = read(sp)
           expire_at = env.message.timestamp + (@message_ttl || 0)
         end
-
-        @log.debug { "Next message: #{env.message}" }
         expire_in = expire_at - now
         if expire_in <= 0
+          env ||= read(sp)
           expire_msg(env, :expired)
           if (i += 1) == 8192
             Fiber.yield
