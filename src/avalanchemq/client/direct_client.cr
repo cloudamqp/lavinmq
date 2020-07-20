@@ -11,6 +11,13 @@ module AvalancheMQ
       super(name, vhost, user, log, client_properties)
     end
 
+    def self.start(vhost : VHost, user : User, client_properties = AMQP::Table.new, &block)
+      client = self.new(vhost, user, client_properties)
+      yield client
+    ensure
+      client.try { |c| c.close unless c.closed? }
+    end
+
     def details_tuple
       {
         channels:          @channels.size,
@@ -59,7 +66,7 @@ module AvalancheMQ
     def send(frame : AMQP::Frame)
       return false if closed?
       @send_oct_count += frame.bytesize + 8
-      #@log.debug { "Send #{frame.inspect}" }
+      # @log.debug { "Send #{frame.inspect}" }
       handle_frame(frame)
       case frame
       when AMQP::Frame::Connection::CloseOk

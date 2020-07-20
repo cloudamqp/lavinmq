@@ -5,6 +5,7 @@ require "./amqp"
 require "./queue"
 require "./persistent_exchange_queue"
 require "./sortable_json"
+require "./observable"
 require "./durable_queue"
 require "./delayed_exchange_queue"
 
@@ -16,6 +17,7 @@ module AvalancheMQ
     include PolicyTarget
     include Stats
     include SortableJSON
+    include Observable
 
     getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter policy : Policy?
@@ -184,7 +186,8 @@ module AvalancheMQ
 
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
-    private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
+    private def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+      notify_observers(:bind, binding_details({routing_key, headers}, destination))
       if (pq = @persistent_queue) && headers && headers.any?
         method = headers.select(REPUBLISH_HEADERS).first_key?
         return unless method
@@ -232,14 +235,13 @@ module AvalancheMQ
       end
     end
 
-    private def after_unbind
-      @queue_bindings.delete_if { |_k, v| v.empty? }
-      @exchange_bindings.delete_if { |_k, v| v.empty? }
+    private def after_unbind(destination, routing_key, headers)
       if @auto_delete &&
          @queue_bindings.each_value.all? &.empty? &&
          @exchange_bindings.each_value.all? &.empty?
         delete
       end
+      notify_observers(:unbind, binding_details({routing_key, headers}, destination))
     end
 
     protected def delete
@@ -249,6 +251,7 @@ module AvalancheMQ
       @delayed_queue.try &.delete
       @persistent_queue.try &.delete
       @vhost.delete_exchange(@name)
+      notify_observers(:delete)
     end
 
     abstract def type : String
@@ -294,14 +297,22 @@ module AvalancheMQ
                    @key : BindingKey, @destination : Queue | Exchange)
     end
 
+    def routing_key
+      @key[0]
+    end
+
+    def arguments
+      @key[1]
+    end
+
     def details_tuple
       {
         source:           @source,
         vhost:            @vhost,
         destination:      @destination.name,
         destination_type: @destination.is_a?(Queue) ? "queue" : "exchange",
-        routing_key:      @key[0],
-        arguments:        @key[1],
+        routing_key:      routing_key,
+        arguments:        arguments,
         properties_key:   BindingDetails.hash_key(@key),
       }
     end
@@ -323,22 +334,22 @@ module AvalancheMQ
 
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
@@ -381,22 +392,22 @@ module AvalancheMQ
 
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
@@ -426,25 +437,25 @@ module AvalancheMQ
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
       @queue_binding_keys[routing_key.split(".")] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}] << destination
       @exchange_binding_keys[routing_key.split(".")] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}].delete destination
       @queue_binding_keys[routing_key.split(".")].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
       @exchange_bindings[{routing_key, nil}].delete destination
       @exchange_binding_keys[routing_key.split(".")].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
@@ -531,25 +542,25 @@ module AvalancheMQ
     def bind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @queue_bindings[{routing_key, args}] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @exchange_bindings[{routing_key, args}] << destination
-      after_bind(destination, headers)
+      after_bind(destination, routing_key, headers)
     end
 
     def unbind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @queue_bindings[{routing_key, args}].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def unbind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
       @exchange_bindings[{routing_key, args}].delete destination
-      after_unbind
+      after_unbind(destination, routing_key, headers)
     end
 
     def do_queue_matches(routing_key, headers = nil, &blk : Queue ->)

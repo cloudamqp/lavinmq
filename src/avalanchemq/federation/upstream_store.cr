@@ -19,22 +19,17 @@ module AvalancheMQ
       def create_upstream(name, config)
         delete_upstream(name)
         uri = config["uri"].to_s
-        prefetch = config["prefetch-count"]?.try(&.as_i) || Upstream::DEFAULT_PREFETCH
-        reconnect_delay = config["reconnect-delay"]?.try(&.as_i) || Upstream::DEFUALT_RECONNECT_DELAY
+        prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || Upstream::DEFAULT_PREFETCH
+        reconnect_delay = config["reconnect-delay"]?.try(&.as_i) || Upstream::DEFAULT_RECONNECT_DELAY
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
         ack_mode = AckMode.parse?(ack_mode_str) || Upstream::DEFAULT_ACK_MODE
-        if config["exchange"]?
-          exchange = config["exchange"].as_s
-          max_hops = config["max-hops"]?.try(&.as_i) || Upstream::DEFAULT_MAX_HOPS
-          expires = config["expires"]?.try(&.as_s) || Upstream::DEFAULT_EXPIRES
-          msg_ttl = config["message-ttl"]?.try(&.as_s) || Upstream::DEFAULT_MSG_TTL
-          @upstreams[name] = ExchangeUpstream.new(@vhost, name, uri, exchange, max_hops, expires,
-            msg_ttl, prefetch, reconnect_delay, ack_mode)
-        else
-          queue = config["queue"]?.try(&.as_s)
-          @upstreams[name] = QueueUpstream.new(@vhost, name, uri, queue, prefetch, reconnect_delay,
-            ack_mode)
-        end
+        exchange = config["exchange"]?.try(&.as_s)
+        max_hops = config["max-hops"]?.try(&.as_i) || Upstream::DEFAULT_MAX_HOPS
+        expires = config["expires"]?.try(&.as_s) || Upstream::DEFAULT_EXPIRES
+        msg_ttl = config["message-ttl"]?.try(&.as_s) || Upstream::DEFAULT_MSG_TTL
+        queue = config["queue"]?.try(&.as_s)
+        @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
+          max_hops, msg_ttl, prefetch, reconnect_delay)
         @vhost.log.info { "Upstream '#{name}' created" }
         @upstreams[name]
       end
@@ -51,25 +46,13 @@ module AvalancheMQ
         @vhost.log.info { "Upstream '#{name}' deleted" }
       end
 
-      def link(name, resource : Queue)
-        @upstreams[name]?.try &.as(QueueUpstream).link(resource)
+      def link(name, resource : Queue | Exchange)
+        @upstreams[name]?.try &.link(resource)
       end
 
-      def link(name, resource : Exchange)
-        @upstreams[name]?.try &.as(ExchangeUpstream).link(resource)
-      end
-
-      def stop_link(resource : Queue)
+      def stop_link(resource : Queue | Exchange)
         each do |upstream|
-          next if upstream.is_a?(ExchangeUpstream)
-          upstream.as(QueueUpstream).stop_link(resource)
-        end
-      end
-
-      def stop_link(resource : Exchange)
-        each do |upstream|
-          next if upstream.is_a?(QueueUpstream)
-          upstream.as(ExchangeUpstream).stop_link(resource)
+          upstream.stop_link(resource)
         end
       end
 
@@ -85,14 +68,11 @@ module AvalancheMQ
             config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i }
             ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
             AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
-            if upstream.is_a?(ExchangeUpstream)
-              config["exchange"]?.try { |p| upstream.exchange = p.as_s }
-              config["max-hops"]?.try { |p| upstream.max_hops = p.as_i }
-              config["expires"]?.try { |p| upstream.expires = p.as_s }
-              config["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_s }
-            elsif upstream.is_a?(QueueUpstream)
-              config["queue"]?.try { |p| upstream.queue = p.as_s }
-            end
+            config["exchange"]?.try { |p| upstream.exchange = p.as_s }
+            config["max-hops"]?.try { |p| upstream.max_hops = p.as_i }
+            config["expires"]?.try { |p| upstream.expires = p.as_s }
+            config["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_s }
+            config["queue"]?.try { |p| upstream.queue = p.as_s }
           end
           upstreams << upstream
         end
@@ -104,17 +84,10 @@ module AvalancheMQ
         @vhost.log.info { "Upstream set '#{name}' deleted" }
       end
 
-      def link_set(name, resource : Queue)
+      def link_set(name, resource : Exchange | Queue)
         set = get_set(name)
         set.each do |upstream|
-          upstream.as(QueueUpstream).link(resource)
-        end
-      end
-
-      def link_set(name, resource : Exchange)
-        set = get_set(name)
-        set.each do |upstream|
-          upstream.as(ExchangeUpstream).link(resource)
+          upstream.link(resource)
         end
       end
 

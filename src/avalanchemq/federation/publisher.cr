@@ -7,7 +7,7 @@ module AvalancheMQ
       class Publisher < DirectClient
         @log : Logger
 
-        def initialize(@upstream : Upstream, @federated_q : Queue)
+        def initialize(@upstream : Upstream, @routing_key : String? = nil, @exchange_name : String = "")
           @log = @upstream.log.dup
           @log.progname += " publisher"
           client_properties = AMQP::Table.new({
@@ -19,6 +19,13 @@ module AvalancheMQ
           @last_message_size = 0_u64
           @last_message_pos = 0_u64
           super(@upstream.vhost, @upstream.vhost.default_user, client_properties)
+        end
+
+        def self.start(upstream : Upstream, routing_key : String? = nil, exchange_name : String = "")
+          client = self.new(upstream, routing_key, exchange_name)
+          yield client
+        ensure
+          client.try { |c| c.close unless c.closed? }
         end
 
         @on_frame : Proc(AMQP::Frame, Nil)?
@@ -59,7 +66,7 @@ module AvalancheMQ
         def forward(frame)
           case frame
           when AMQP::Frame::Basic::Deliver
-            send_basic_publish(frame, @federated_q.name)
+            send_basic_publish(frame)
           when AMQP::Frame::Header
             write(frame)
             @last_message_size = frame.body_size
@@ -78,12 +85,12 @@ module AvalancheMQ
           end
         end
 
-        def send_basic_publish(frame, routing_key = nil)
-          exchange = ""
+        def send_basic_publish(frame)
+          routing_key = @routing_key || frame.routing_key
           mandatory = @upstream.ack_mode == AckMode::OnConfirm
           pframe = AMQP::Frame::Basic::Publish.new(frame.channel, 0_u16,
-                                                   exchange, routing_key,
-                                                   mandatory, false)
+            @exchange_name, routing_key,
+            mandatory, false)
           write pframe
           if mandatory
             @delivery_tags[@message_count += 1] = frame.delivery_tag
