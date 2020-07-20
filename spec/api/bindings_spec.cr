@@ -65,6 +65,7 @@ describe AvalancheMQ::HTTP::BindingsController do
       response = post("/api/bindings/%2f/e/be1/q/bindings_q1", body: body)
       response.status_code.should eq 201
       response.headers["Location"].should match /api\/bindings\/%2f\/e\/be1\/q\/bindings_q1\/.*/
+      s.vhosts["/"].exchanges["be1"].queue_bindings.last_key.first.should eq "rk"
     ensure
       s.vhosts["/"].delete_exchange("be1")
       s.vhosts["/"].delete_queue("bindings_q1")
@@ -114,6 +115,7 @@ describe AvalancheMQ::HTTP::BindingsController do
       props = binding[0]["properties_key"].as_s
       response = delete("/api/bindings/%2f/e/be1/q/bindings_q1/#{props}")
       response.status_code.should eq 204
+      s.vhosts["/"].exchanges["be1"].queue_bindings.empty?.should be_true
     ensure
       s.vhosts["/"].delete_exchange("be1")
       s.vhosts["/"].delete_queue("bindings_q1")
