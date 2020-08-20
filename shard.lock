@@ -2,7 +2,7 @@ version: 2.0
 shards:
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 0.13.0
+    version: 0.13.1
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
@@ -18,7 +18,7 @@ shards:
 
   http-protection:
     git: https://github.com/rogeriozambon/http-protection.git
-    version: 0.2.0+git.commit.1817a4e60c58893cc25eb268aed4f444a681ac6b
+    version: 0.2.0+git.commit.e871c5de2d3d688c2a6e7de915587450c9e77550
 
   logger:
     git: https://github.com/84codes/logger.cr.git
