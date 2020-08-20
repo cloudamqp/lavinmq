@@ -137,8 +137,9 @@ and about 1000 bindings/second to durable queues.
 In Debian/Ubuntu:
 
 ```bash
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 379CE192D401AB61
-echo "deb https://dl.bintray.com/cloudamqp/debian $(lsb_release -cs) avalanchemq" | sudo tee /etc/apt/sources.list.d/avalanchemq.list
+curl -L https://packagecloud.io/cloudamqp/avalanchemq/gpgkey | sudo apt-key add -
+echo "deb https://packagecloud.io/cloudamqp/avalanchemq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/avalanchemq.list
+
 sudo apt update
 sudo apt install avalanchemq
 ```
