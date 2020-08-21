@@ -53,6 +53,15 @@ module AvalancheMQ
       end
     end
 
+    def rm_vhost_permissions_for_all(vhost)
+      @users.each_value do |user|
+        if user.permissions.delete(vhost)
+          user.invalidate_acl_caches
+        end
+      end
+      save!
+    end
+
     def delete(name, save = true) : User?
       if user = @users.delete name
         save! if save
