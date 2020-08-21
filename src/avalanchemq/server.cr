@@ -45,6 +45,10 @@ module AvalancheMQ
       arr
     end
 
+    def vhost_connections(vhost_name)
+      @vhosts[vhost_name].connections
+    end
+
     def listen(bind = "::", port = 5672)
       s = TCPServer.new(bind, port)
       @listeners << s
