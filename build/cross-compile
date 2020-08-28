@@ -1,8 +1,18 @@
 #!/bin/bash -eux
-lxc-start -n ubuntu_bionic
-lxc-attach -n ubuntu_bionic << EOF
-set -eux
-cd /mnt
-CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --release src/avalanchemq.cr
+
+# on a amd64 machine:
+target=$1
+export CFLAGS="-fPIC"
+buildcmd=$(crystal build --cross-compile --target=aarch64-unknown-linux-gnu --release src/avalanchemq.cr)
+scp avalanchemq.o "$target":.
+
+# on the arm64 machine:
+ssh "$target" << EOF
+sudo apt-get install -y clang libssl-dev libpcre3-dev libgc-dev libevent-dev zlib1g-dev libsystemd-dev
+wget https://raw.githubusercontent.com/crystal-lang/crystal/master/src/ext/sigfault.c
+cc -c -o sigfault.o sigfault.c
+ar -rcs libcrystal.a sigfault.o
+sudo mkdir -p /usr/share/crystal/src/ext
+sudo cp libcrystal.a /usr/share/crystal/src/ext/
+$buildcmd
 EOF
-lxc-stop -n ubuntu_bionic
