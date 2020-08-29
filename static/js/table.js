@@ -21,7 +21,7 @@
     const keyColumns = options.keyColumns
     const interval = options.interval
     let timer = null
-    let searchTerm = getQueryVariable('name')
+    let searchTerm = null
     const currentPage = getQueryVariable('page') || 1
     let pageSize = getQueryVariable('page_size') || 100
 
@@ -31,6 +31,7 @@
     }
 
     if (options.search) {
+      searchTerm = getQueryVariable('name')
       renderSearch(table)
     }
 
