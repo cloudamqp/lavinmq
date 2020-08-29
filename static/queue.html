@@ -359,6 +359,8 @@
         avalanchemq.http.request('POST', url, { body })
           .then(() => {
             bindingsTable.fetchAndUpdate()
+            evt.target.reset()
+            avalanchemq.dom.toast('Exchange ' + e + ' bound to queue')
           }).catch(avalanchemq.http.alertErrorHandler)
       })
 
