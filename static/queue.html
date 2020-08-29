@@ -267,7 +267,7 @@
         const conn = encodeURIComponent(item.channel_details.connection_name)
         const ch = encodeURIComponent(item.channel_details.number)
         const actionPath = `/api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
-        cancelForm.addEventListener('submit', function(evt) {
+        cancelForm.addEventListener('submit', function (evt) {
           evt.preventDefault()
           avalanchemq.http.request('DELETE', actionPath)
             .then(() => {

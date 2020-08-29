@@ -43,8 +43,8 @@ module AvalancheMQ
           if first_element = sorted_items.dig?(0, sort_by)
             {% begin %}
               case first_element
-                {% for k in { Int32, UInt32, UInt64, Float64 } %}
-                when {{k.id }}
+                {% for k in {Int32, UInt32, UInt64, Float64} %}
+                when {{k.id}}
                   sorted_items.sort_by! { |i| i.dig(sort_by).as({{k.id}}) }
                 {% end %}
               else
