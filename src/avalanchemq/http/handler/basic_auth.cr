@@ -28,7 +28,7 @@ module AvalancheMQ
           end
         end
         context.response.status_code = 401
-        # context.response.headers["WWW-Authenticate"] = %(Basic realm="Login Required")
+        context.response.headers["WWW-Authenticate"] = %(Basic realm="Login Required")
       end
     end
   end
