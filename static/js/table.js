@@ -45,8 +45,17 @@
     if (url) {
       const raw = window.sessionStorage.getItem(url)
       if (raw) {
-        const data = JSON.parse(raw)
-        updateTable(data.items || data)
+        try {
+          const data = JSON.parse(raw)
+          if (data) {
+            updateTable(data.items || data)
+          }
+        } catch (e) {
+          window.sessionStorage.removeItem(url)
+          console.log('Error parsing data from sessionStorage')
+          console.error(e)
+          // TODO: show some kind of "offline" notification
+        }
       }
       fetchAndUpdate()
       if (interval) {
