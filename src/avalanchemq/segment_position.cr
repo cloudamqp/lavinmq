@@ -1,5 +1,6 @@
 module AvalancheMQ
   struct SegmentPosition
+    VERSION = 1_u32
     include Comparable(self)
 
     getter segment : UInt32
