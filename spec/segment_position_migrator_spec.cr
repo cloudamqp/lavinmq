@@ -40,7 +40,6 @@ describe AvalancheMQ::SegmentPositionMigrator do
     File.write(version_file, 0)
     it "should update segment position version" do
       sp_migrator = subject.new(path, log)
-      sp_migrator.run(segment_file)
       sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
     ensure
       FileUtils.rm(version_file)
