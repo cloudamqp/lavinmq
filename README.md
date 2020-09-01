@@ -129,7 +129,7 @@ message has been routed to all queue bindings.
 When a new binding get applied to the exchange additional arguments
 can be applied which decided if these stored messages should be routed
 to the new queue or not. 
-For example, you can a publisher that has been writing messages to a 
+For example, you can have a publisher that has been writing messages to a 
 exchange for a while but you notice that no queue has been bound to 
 that exchange. But since the exchange is persistent you can bind a new
 queue saying that all existing message in the exchange should be routed
@@ -158,8 +158,10 @@ has different meaning which is illustrated below.
 If you bind a queue with the argument `x-head=3` messages
 0, 1 and 2 will be routed to your queue. 
 
-If you bind a queue with the argument `x-head=-3` messages
-0, 1, 2, 3, 4, 5, 6 will be routed to your queue. 
+If you bind a queue with the argument `x-head=-3` you will get
+all the messages except the last 3 messages.
+So for the example queue above you would get messages 0, 1, 2, 3, 4, 5, 6 
+routed to your queue. 
 
 ##### 2. x-tail
 
@@ -169,8 +171,9 @@ direction.
 If you bind a queue with the argument `x-tail=3` messages
 7, 8 and 9 will be routed to your queue. 
 
-If you bind a queue with the argument `x-tail=-3` messages
-3, 4, 5, 6, 7, 8 and 9 will be routed to your queue. 
+If you bind a queue with the argument `x-tail=-3` you would get
+all the messages except the first 3 messages. So looking at the example
+above you would get messages 3, 4, 5, 6, 7, 8 and 9 routed to your queue. 
 
 ##### 3. x-from
 
@@ -187,11 +190,11 @@ get all messages stored in the exchange.
 Example
 
 You consume messages from a queue that is bound to a persistent
-exchange, some message fails to be process but you missed to requeue the
-message. If you have logging on which logs `x-offset` for each message
-you can use that value, bind a new queue to the exchange and supply that
-value to `x-from` in the binding and that queue now has the same
-message.
+exchange, some message fails to be process but you missed to re-queue the
+message. If you have been logging `x-offset` for each message you can use 
+that value, bind a new queue to the exchange and supply that
+value as `x-from` for that binding and the new queue would get all
+messages from that offset. 
 
 ## Performance
 
