@@ -592,7 +592,6 @@ module AvalancheMQ
       ids.each_with_index do |seg, idx|
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
         path = File.join(@data_dir, filename)
-        # Run migrator before we create data dir so we can determine if this is the first start or not
         sp_migrator.run(path)
         if idx == last_idx
           segments[seg] = MFile.new(path, Config.instance.segment_size)
