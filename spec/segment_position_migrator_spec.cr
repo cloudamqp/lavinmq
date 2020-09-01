@@ -20,7 +20,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
       sp_migrator = subject.new(path, log).run(segment_file)
       sp_migrator.should be nil
     ensure
-      FileUtils.rm_rf(path)
+      FileUtils.rm_rf("/tmp/sp_spec")
     end
 
     it "should write current segment position version to disk" do
@@ -29,13 +29,12 @@ describe AvalancheMQ::SegmentPositionMigrator do
       sp_migrator.run(segment_file)
       sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
     ensure
-      FileUtils.rm_rf(path)
+      FileUtils.rm_rf("/tmp/sp_spec")
     end
   end
 
   describe "with existing folder" do
     path = "/tmp/spec"
-    Dir.mkdir_p path
     segment_file = File.join(path, "test_segments")
     version_file = File.join(path, segment_version_file_name)
     File.write(version_file, 0)
@@ -44,7 +43,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
       sp_migrator.run(segment_file)
       sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
     ensure
-      FileUtils.rm_rf(version_file)
+      FileUtils.rm(version_file)
     end
 
     describe "migrate" do
@@ -70,7 +69,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
         expected = [0_u32, 1_u32, 0_u64, 2_u32, 3_u32, 0_u64]
         assert_segment_file(segment_file, expected, format)
       ensure
-        FileUtils.rm_rf(segment_file)
+        FileUtils.rm(segment_file)
       end
 
       it "should downgrade from ver 2 to ver 0" do
@@ -81,7 +80,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
         expected = [0_u32, 1_u32, 3_u32, 4_u32]
         assert_segment_file(segment_file, expected, format)
       ensure
-        FileUtils.rm_rf(segment_file)
+        FileUtils.rm(segment_file)
       end
     end
   end

@@ -4,7 +4,7 @@ module AvalancheMQ
     @current_version : UInt32
     def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
                    version : UInt32? = nil)
-                   
+
       if !version.nil?
         @current_version = version
       elsif ver = read_version_from_disk
