@@ -60,29 +60,45 @@ describe AvalancheMQ::SegmentPositionMigrator do
           0_u32,
         ]
       }
-      version_to_migrate_to = 2
-      current_version = 0_u32
-      it "should migrate from ver #{current_version} to ver #{version_to_migrate_to}" do
-        File.open(segment_file, "w") do |io|
-          io.write_bytes(0_u32, format)
-          io.write_bytes(1_u32, format)
-          io.write_bytes(2_u32, format)
-          io.write_bytes(3_u32, format)
-          io.fsync
-        end
-        sp_migrator = subject.new(path, log, format, current_version)
-        sp_migrator.convert_sp(version_to_migrate_to, formats, segment_file)
-        File.open(segment_file) do |io|
-          UInt32.from_io(io, format).should eq 0_u32
-          UInt32.from_io(io, format).should eq 1_u32
-          UInt64.from_io(io, format).should eq 0_u64
-          UInt32.from_io(io, format).should eq 2_u32
-          UInt32.from_io(io, format).should eq 3_u32
-          UInt64.from_io(io, format).should eq 0_u64
-        end
+
+      it "should migrate from ver 0 to ver 2" do
+        data = [0_u32, 1_u32, 2_u32, 3_u32]
+        write_segment_file(segment_file, data, format)
+        sp_migrator = subject.new(path, log, format, 0_u32)
+        sp_migrator.convert_sp(2_u32, formats, segment_file)
+        expected = [0_u32, 1_u32, 0_u64, 2_u32, 3_u32, 0_u64]
+        assert_segment_file(segment_file, expected, format)
+      ensure
+        FileUtils.rm_rf(segment_file)
       end
-    ensure
-      FileUtils.rm_rf(segment_file)
+
+      it "should downgrade from ver 2 to ver 0" do
+        data = [0_u32, 1_u32, 2_u64, 3_u32, 4_u32, 5_u64]
+        write_segment_file(segment_file, data, format)
+        sp_migrator = subject.new(path, log, format, 2_u32)
+        sp_migrator.convert_sp(0_u32, formats, segment_file)
+        expected = [0_u32, 1_u32, 3_u32, 4_u32]
+        assert_segment_file(segment_file, expected, format)
+      ensure
+        FileUtils.rm_rf(segment_file)
+      end
+    end
+  end
+end
+
+def write_segment_file(segment_file, data, format)
+  File.open(segment_file, "w") do |io|
+    data.each do |d|
+      io.write_bytes(d, format)
+    end
+    io.fsync
+  end
+end
+
+def assert_segment_file(segment_file, expected, format)
+  File.open(segment_file) do |io|
+    expected.each do |d|
+      d.class.from_io(io, format).should eq d
     end
   end
 end

@@ -3,7 +3,8 @@ module AvalancheMQ
     @file_name = "segment_position_version.txt"
     @current_version : UInt32
     def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
-                   version : (Nil | UInt32) = nil)
+                   version : UInt32? = nil)
+                   
       if !version.nil?
         @current_version = version
       elsif ver = read_version_from_disk
@@ -35,7 +36,7 @@ module AvalancheMQ
     def run(sp_file_path)
       target_version = SegmentPosition::VERSION
       return if @current_version == target_version
-      convert_sp(target_version, SP_FORMATS, sp_file_path)
+      convert_sp(target_version, SegmentPosition::SP_FORMATS, sp_file_path)
       write_version_to_disk(target_version)
     end
 
@@ -49,14 +50,16 @@ module AvalancheMQ
             target_index = 0
             current_format.each_with_index do |data_type, i|
               sp_part = data_type.class.from_io(sp_io, @format)
-              if target_data_type = target_format[i]
+              if target_data_type = target_format.fetch(i, nil)
                 target_part = sp_part.as(typeof(target_data_type))
                 tmp_io.write_bytes(target_part, @format)
               end
               target_index = i
             end
-            target_format[(target_index + 1)...].each do |tf|
-              tmp_io.write_bytes(tf, @format)
+            if target_format.size > current_format.size
+              target_format[(target_index + 1)...].each do |tf|
+                tmp_io.write_bytes(tf, @format)
+              end
             end
           rescue e: IO::EOFError
             break
@@ -65,18 +68,5 @@ module AvalancheMQ
       end
       File.rename(tmp_file, sp_file_path)
     end
-
-    SP_FORMATS = {
-      1 => [
-        0_u32,
-        0_u32,
-        0_u64,
-      ],
-      0 =>
-      [
-        0_u32,
-        0_u32,
-      ]
-    }
   end
 end
