@@ -1,10 +1,10 @@
 module AvalancheMQ
   class SegmentPositionMigrator
-    @file_name = "segment_position_version.txt"
+    VERSION_FILE = "sp_version"
     @current_version : UInt32
+
     def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
                    version : UInt32? = nil)
-
       if !version.nil?
         @current_version = version
       elsif ver = read_version_from_disk
@@ -18,7 +18,7 @@ module AvalancheMQ
     end
 
     def read_version_from_disk
-      path = File.join(@data_dir, @file_name)
+      path = File.join(@data_dir, VERSION_FILE)
       if File.exists? path
         @log.debug "Reading SP version from disk."
         File.read(path).to_u32?
@@ -28,7 +28,7 @@ module AvalancheMQ
     end
 
     def write_version_to_disk(version)
-      path = File.join(@data_dir, @file_name)
+      path = File.join(@data_dir, VERSION_FILE)
       Dir.mkdir_p @data_dir
       File.write(path, version)
     end
@@ -61,7 +61,7 @@ module AvalancheMQ
                 tmp_io.write_bytes(tf, @format)
               end
             end
-          rescue e: IO::EOFError
+          rescue e : IO::EOFError
             break
           end
         end

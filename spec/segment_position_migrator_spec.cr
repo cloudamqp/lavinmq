@@ -3,7 +3,7 @@ require "../src/avalanchemq/segment_position_migrator"
 require "../src/avalanchemq/segment_position"
 
 describe AvalancheMQ::SegmentPositionMigrator do
-  segment_version_file_name = "segment_position_version.txt"
+  sp_version_file = AvalancheMQ::SegmentPositionMigrator::VERSION_FILE
   log = Logger.new(STDERR)
   path = "/tmp/spec"
   segment_file = File.join(path, "test_segments")
@@ -13,7 +13,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
     sp_migrator.should_not be nil
   end
 
-  describe "with non-existing folder" do
+  describe "without existing data folder" do
     segment_file = File.join(path, "test_segments")
     it "should not migrate anything" do
       path = "/tmp/sp_spec"
@@ -33,9 +33,9 @@ describe AvalancheMQ::SegmentPositionMigrator do
     end
   end
 
-  describe "with existing folder" do
+  describe "with existing data folder" do
     path = "/tmp/spec"
-    version_file = File.join(path, segment_version_file_name)
+    version_file = File.join(path, sp_version_file)
     it "should update segment position version" do
       sp_migrator = subject.new(path, log)
       sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
@@ -43,22 +43,14 @@ describe AvalancheMQ::SegmentPositionMigrator do
       FileUtils.rm(version_file)
     end
 
-    describe "migrate" do
+    describe "segment file migration" do
       format = IO::ByteFormat::SystemEndian
       formats = {
-        2 => [
-          0_u32,
-          0_u32,
-          0_u64,
-        ],
-        0 =>
-        [
-          0_u32,
-          0_u32,
-        ]
+        2 => [0_u32, 0_u32, 0_u64],
+        0 => [0_u32, 0_u32],
       }
 
-      it "should migrate from ver 0 to ver 2" do
+      it "should upgrade from version 0 to 2" do
         data = [0_u32, 1_u32, 2_u32, 3_u32]
         write_segment_file(segment_file, data, format)
         sp_migrator = subject.new(path, log, format, 0_u32)
@@ -69,7 +61,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
         FileUtils.rm(segment_file)
       end
 
-      it "should downgrade from ver 2 to ver 0" do
+      it "should downgrade from version 2 to 0" do
         data = [0_u32, 1_u32, 2_u64, 3_u32, 4_u32, 5_u64]
         write_segment_file(segment_file, data, format)
         sp_migrator = subject.new(path, log, format, 2_u32)
