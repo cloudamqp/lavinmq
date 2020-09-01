@@ -117,6 +117,85 @@ Wish list
 * Horizontal scaling
 * Built-in stream processor engine
 
+### Persistent Exchange
+
+A persistent exchange will store all messages coming into the exchange
+even though there are no queue bindings on that exchange, this differs
+from other exchanges where messages will be dropped if the exchange 
+doesn't have any bindings. 
+The exchange will also keep the message in the exchange after the 
+message has been routed to all queue bindings. 
+
+When a new binding get applied to the exchange additional arguments
+can be applied which decided if these stored messages should be routed
+to the new queue or not. 
+For example, you can have a publisher that has been writing messages to a 
+exchange for a while but you notice that no queue has been bound to 
+that exchange. But since the exchange is persistent you can bind a new
+queue saying that all existing message in the exchange should be routed
+the to newly bounded queue. 
+
+#### Message selection
+
+There are currently three arguments you can give to the exchange to tell
+it which messages should be published to the queue.
+
+If the exchange has 10 messages persisted, each box represent a 
+message where the first message published to the exchange is the one
+far to the right, message 0.
+
+```
+[9] [8] [7] [6] [5] [4] [3] [2] [1] [0]
+```
+
+##### 1. x-head
+
+By supplying `x-head` as argument to the binding you can select to 
+get X number of message start counting from the oldest message. 
+The value for `x-head` can be both positive and negative, and this
+has different meaning which is illustrated below.
+
+If you bind a queue with the argument `x-head=3` messages
+0, 1 and 2 will be routed to your queue. 
+
+If you bind a queue with the argument `x-head=-3` you will get
+all the messages except the last 3 messages.
+So for the example queue above you would get messages 0, 1, 2, 3, 4, 5, 6 
+routed to your queue. 
+
+##### 2. x-tail
+
+`x-tail` is very similar to `x-head` but it counts from the other
+direction. 
+
+If you bind a queue with the argument `x-tail=3` messages
+7, 8 and 9 will be routed to your queue. 
+
+If you bind a queue with the argument `x-tail=-3` you would get
+all the messages except the first 3 messages. So looking at the example
+above you would get messages 3, 4, 5, 6, 7, 8 and 9 routed to your queue. 
+
+##### 3. x-from
+
+`x-from` allows you to be very specific on which messages to get.
+Instead of saying give me the oldest or newest like `x-head` and
+`x-tail`, `x-from` allows you to say exactly which message to start from 
+to route to the queue. 
+Each message consumed from a persistent exchange will have an additional
+argument `x-offset` which you can use to request that message again. 
+
+If you specify a `x-offset=0` or an offset that doesn't exist you will
+get all messages stored in the exchange.
+
+Example
+
+You consume messages from a queue that is bound to a persistent
+exchange, some message fails to be process but you missed to re-queue the
+message. If you have been logging `x-offset` for each message you can use 
+that value, bind a new queue to the exchange and supply that
+value as `x-from` for that binding and the new queue would get all
+messages from that offset. 
+
 ## Performance
 
 A single c5.large EC2 instance, with a 2 TB ST1 EBS drive (XFS formatted),
