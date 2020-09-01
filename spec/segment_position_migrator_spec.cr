@@ -14,9 +14,9 @@ describe AvalancheMQ::SegmentPositionMigrator do
   end
 
   describe "with non-existing folder" do
-    path = "/tmp/sp_spec"
     segment_file = File.join(path, "test_segments")
     it "should not migrate anything" do
+      path = "/tmp/sp_spec"
       sp_migrator = subject.new(path, log).run(segment_file)
       sp_migrator.should be nil
     ensure
@@ -24,8 +24,9 @@ describe AvalancheMQ::SegmentPositionMigrator do
     end
 
     it "should write current segment position version to disk" do
+      path = "/tmp/sp_spec"
       sp_migrator = subject.new(path, log)
-      sp_migrator.run(path)
+      sp_migrator.run(segment_file)
       sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
     ensure
       FileUtils.rm_rf(path)
@@ -47,8 +48,21 @@ describe AvalancheMQ::SegmentPositionMigrator do
 
     describe "migrate" do
       format = IO::ByteFormat::SystemEndian
-      it "should migrate from ver 0 to ver 1" do
-        File.write(version_file, 0)
+      formats = {
+        2 => [
+          0_u32,
+          0_u32,
+          0_u64,
+        ],
+        0 =>
+        [
+          0_u32,
+          0_u32,
+        ]
+      }
+      version_to_migrate_to = 2
+      current_version = 0_u32
+      it "should migrate from ver #{current_version} to ver #{version_to_migrate_to}" do
         File.open(segment_file, "w") do |io|
           io.write_bytes(0_u32, format)
           io.write_bytes(1_u32, format)
@@ -56,12 +70,18 @@ describe AvalancheMQ::SegmentPositionMigrator do
           io.write_bytes(3_u32, format)
           io.fsync
         end
-        sp_migrator = subject.new(path, log, format)
-        sp_migrator.run(segment_file)
-        sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
+        sp_migrator = subject.new(path, log, format, current_version)
+        sp_migrator.convert_sp(version_to_migrate_to, formats, segment_file)
+        File.open(segment_file) do |io|
+          UInt32.from_io(io, format).should eq 0_u32
+          UInt32.from_io(io, format).should eq 1_u32
+          UInt64.from_io(io, format).should eq 0_u64
+          UInt32.from_io(io, format).should eq 2_u32
+          UInt32.from_io(io, format).should eq 3_u32
+          UInt64.from_io(io, format).should eq 0_u64
+        end
       end
     ensure
-      FileUtils.rm_rf(version_file)
       FileUtils.rm_rf(segment_file)
     end
   end

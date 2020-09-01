@@ -2,8 +2,11 @@ module AvalancheMQ
   class SegmentPositionMigrator
     @file_name = "segment_position_version.txt"
     @current_version : UInt32
-    def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian)
-      if ver = read_version_from_disk
+    def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
+                   version : (Nil | UInt32) = nil)
+      if !version.nil?
+        @current_version = version
+      elsif ver = read_version_from_disk
         @current_version = ver
       else
         write_version_to_disk(SegmentPosition::VERSION)
@@ -40,27 +43,23 @@ module AvalancheMQ
       tmp_file = sp_file_path + ".tmp"
       current_format = sp_formats[@current_version]
       target_format = sp_formats[target_version]
-      File.open(tmp_file) do |tmp_io|
+      File.open(tmp_file, "w") do |tmp_io|
         File.open(sp_file_path) do |sp_io|
           loop do
             target_index = 0
-            eof = false
             current_format.each_with_index do |data_type, i|
               sp_part = data_type.class.from_io(sp_io, @format)
-              unless sp_part
-                eof = true
-                break
-              end
               if target_data_type = target_format[i]
                 target_part = sp_part.as(typeof(target_data_type))
                 tmp_io.write_bytes(target_part, @format)
               end
               target_index = i
             end
-            break if eof
-            target_format[target_index..].each do |tf|
+            target_format[(target_index + 1)...].each do |tf|
               tmp_io.write_bytes(tf, @format)
             end
+          rescue e: IO::EOFError
+            break
           end
         end
       end
