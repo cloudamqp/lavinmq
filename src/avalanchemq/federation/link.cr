@@ -10,8 +10,6 @@ module AvalancheMQ
         include SortableJSON
         getter connected_at
 
-        @publisher : Publisher?
-        @consumer : Consumer?
         @state = 0_u8
         @consumer_available = Channel(Nil).new
         @done = Channel(Nil).new
@@ -54,8 +52,6 @@ module AvalancheMQ
           return if stopped?
           @log.info { "Stopping" }
           @state = State::Terminated
-          @consumer.try &.close("Federation link stopped")
-          @publisher.try &.close("Federation link stopped")
           done!
         end
 
@@ -79,6 +75,8 @@ module AvalancheMQ
       end
 
       class QueueLink < Link
+        EXCHANGE = ""
+
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String, @log : Logger)
           @log.progname += " link=#{@federated_q.name}"
           @federated_q.register_observer(self)
@@ -131,19 +129,17 @@ module AvalancheMQ
             ::AMQP::Client.start(@upstream.uri) do |c|
               ::AMQP::Client.start("/tmp/#{name}.sock") do |p|
                 cch, q = setup_queue(c)
-                cch.prefetch = @upstream.prefetch
+                cch.prefetch(count: @upstream.prefetch)
+                pch = p.channel
+                pch.confirm_select if @upstream.ack_mode == AckMode::OnConfirm
                 no_ack = @upstream.ack_mode == AckMode::NoAck
-                cch.basic_consume(q.name, no_ack: no_ack, tag: "Federation") do |msg|
-                  p.send_basic_publish(msg, pch, q[:message_count])
+                cch.basic_consume(q[:queue_name], no_ack: no_ack, tag: "Federation") do |msg|
+                  msg
+                  msgid = pch.basic_publish(msg.body_io, EXCHANGE, q[:queue_name])
+                  pch.basic_publish(msg.body_io, pch, q[:message_count])
                 end
               end
             end
-            p = @publisher.not_nil!
-            c = @consumer.not_nil!
-            c.on_frame { |f| p.forward f }
-            p.on_frame { |f| c.forward f }
-            p.run
-            c.run
             @state = State::Running
             @connected_at = Time.utc.to_unix_ms
             @done.receive
@@ -156,8 +152,6 @@ module AvalancheMQ
             else
               @log.warn { "Federation link: #{ex.inspect_with_backtrace}" }
             end
-            @consumer.try &.close("Federation link stopped")
-            @publisher.try &.close("SFederation link stopped")
             break if stopped?
             sleep @upstream.reconnect_delay.seconds
           end
