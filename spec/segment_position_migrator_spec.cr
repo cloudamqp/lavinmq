@@ -35,9 +35,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
 
   describe "with existing folder" do
     path = "/tmp/spec"
-    segment_file = File.join(path, "test_segments")
     version_file = File.join(path, segment_version_file_name)
-    File.write(version_file, 0)
     it "should update segment position version" do
       sp_migrator = subject.new(path, log)
       sp_migrator.read_version_from_disk.should eq AvalancheMQ::SegmentPosition::VERSION
