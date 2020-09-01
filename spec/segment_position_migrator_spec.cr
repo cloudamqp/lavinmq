@@ -35,6 +35,7 @@ describe AvalancheMQ::SegmentPositionMigrator do
 
   describe "with existing folder" do
     path = "/tmp/spec"
+    Dir.mkdir_p path
     segment_file = File.join(path, "test_segments")
     version_file = File.join(path, segment_version_file_name)
     File.write(version_file, 0)
