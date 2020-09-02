@@ -222,7 +222,7 @@ describe AvalancheMQ::Shovel do
       props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
       q1.publish_confirm "shovel me", props: props
     end
-    sleep 0.01
+    sleep 0.05
     close_servers
     TestHelpers.setup
     sleep 0.01
