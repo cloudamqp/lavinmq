@@ -294,6 +294,7 @@ sysctl -w net.ipv4.tcp_max_syn_backlog=2048 # default 512
 In Linux `perf` is the tool of choice when tracing and measuring performance.
 
 To see which syscalls that are made use:
+
 ```bash
 sudo perf trace -p $(pidof avalanchemq)
 ```
@@ -312,13 +313,16 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 
 ## Contributing
 
-Fork, create feature branch, submit pull request.
+1. Fork, create feature branch
+1. Build with `shards build --release --production`
+1. Performance test with `bin/avalanchemqperf throughput` and compare against `master`
+1. Submit pull request
 
 ### Develop
 
 1. Run specs with `crystal spec`
 1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
-1. Build with `shards build --release`
+1. Build with `shards build --release --production`
 
 ### Release
 
