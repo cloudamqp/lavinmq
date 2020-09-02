@@ -682,13 +682,16 @@ module AvalancheMQ
       end
     end
 
-    def rm_consumer(consumer : Client::Channel::Consumer)
+    def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        consumer_unacked = @unacked.delete(consumer)
-        requeue_many(consumer_unacked)
-        @log.debug { "Removing consumer with #{consumer_unacked.size} \
+        consumer_unacked_size = @unacked.size(consumer)
+        unless basic_cancel
+          requeue_many(@unacked.delete(consumer))
+        end
+
+        @log.debug { "Removing consumer with #{consumer_unacked_size} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)

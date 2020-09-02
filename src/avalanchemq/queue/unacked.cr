@@ -56,6 +56,12 @@ module AvalancheMQ
         @unacked.size
       end
 
+      def size(consumer : Client::Channel::Consumer)
+        @unacked.reduce(0) do |memo, unack|
+          memo + (unack.consumer == consumer ? 1 : 0)
+        end
+      end
+
       def capacity
         @unacked.capacity
       end
