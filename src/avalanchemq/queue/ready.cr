@@ -155,7 +155,7 @@ module AvalancheMQ
         @lock.synchronize do
           count = @ready.size
           @ready.each { |sp| yield sp }
-          @ready.clear
+          @ready = Deque(SegmentPosition).new
           count
         end
       end

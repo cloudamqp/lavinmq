@@ -610,7 +610,7 @@ module AvalancheMQ
       segments
     end
 
-    @zero_references = Array(SegmentPosition).new
+    @zero_references = Array(SegmentPosition).new(131_072)
 
     private def gc_segments_loop
       loop do
@@ -625,7 +625,7 @@ module AvalancheMQ
         end
         @zero_references.sort!
         hole_punch_segments
-        @zero_references.clear
+        @zero_references = Array(SegmentPosition).new(131_072)
         @referenced_segments.clear
       end
     end
