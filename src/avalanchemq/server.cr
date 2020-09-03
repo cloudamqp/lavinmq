@@ -229,12 +229,24 @@ module AvalancheMQ
           @{{m.id}} = {{m.id}}
         {% end %}
 
-        until @max_rss_log.size < log_size
-          @max_rss_log.shift
+        until @rss_log.size < log_size
+          @rss_log.shift
         end
-        max_rss = rusage.max_rss.to_i64
-        @max_rss_log.push max_rss
-        @max_rss = max_rss
+
+        rss = 0i64
+        {% if flag?(:linux) || flag?(:bsd) %}
+          statm = File.read("/proc/self/statm")
+          if idx = statm.index(' ')
+            idx += 1
+            if idx2 = statm[idx..].index(' ')
+              idx2 += idx - 1
+              rss = statm[idx..idx2].to_i64 * LibC.getpagesize
+            end
+          end
+        {% end %}
+
+        @rss_log.push rss
+        @rss = rss
 
         fs_stats = Filesystem.info(@data_dir)
         until @disk_free_log.size < log_size
@@ -261,8 +273,8 @@ module AvalancheMQ
       getter {{m.id}} = 0_i64
       getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
     {% end %}
-    getter max_rss = 0_i64
-    getter max_rss_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter rss = 0_i64
+    getter rss_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_total = 0_i64
     getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_free = 0_i64
