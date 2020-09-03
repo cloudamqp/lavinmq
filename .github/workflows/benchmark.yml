@@ -26,10 +26,11 @@ jobs:
           shards install --production
           shards build --production --release
       
-      - name: Benchmark
-        run: |
-          ./bin/avalanchemq -D data
-          ./bin/avalanchemqperf throughput -j -q -z 60
+      - name: Start AvalancheMQ
+        run: ./bin/avalanchemq -D data &
+      
+      - name: Run Benchmark
+        run: ./bin/avalanchemqperf throughput -j -q -z 60
 
   benchmark:
     name: Build & Benchmark
@@ -49,7 +50,8 @@ jobs:
           shards install --production
           shards build --production --release
       
-      - name: Benchmark
-        run: |
-          ./bin/avalanchemq -D data
-          ./bin/avalanchemqperf throughput -j -q -z 60
+      - name: Start AvalancheMQ
+        run: ./bin/avalanchemq -D data &
+        
+      - name: Run Benchmark
+        run: ./bin/avalanchemqperf throughput -j -q -z 60
