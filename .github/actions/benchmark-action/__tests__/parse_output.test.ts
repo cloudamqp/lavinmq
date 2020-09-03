@@ -8,3 +8,12 @@ it("should parse JSON string", async () => {
   }
   await expect(await parse_output(val)).toEqual(expected)
 })
+
+it("should parse JSON string containing other data", async () => {
+  const val = "test\n {\"name\": \"test\", \"number\": 1} \n test \n"
+  const expected = {
+    name: "test",
+    number: 1
+  }
+  await expect(await parse_output(val)).toEqual(expected)
+})

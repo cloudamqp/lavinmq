@@ -1,8 +1,6 @@
 name: Benchmark
 on:
-  push:
-    branches-ignore:
-      - 'master'
+  pull_request:
 
 jobs:
   benchmark-master:
@@ -30,7 +28,9 @@ jobs:
         run: ./bin/avalanchemq -D data &
       
       - name: Run Benchmark
-        run: ./bin/avalanchemqperf throughput -j -q -z 60
+        uses: ./.github/actions/benchmark-action
+        with:
+          command: ./bin/avalanchemqperf throughput -j -q -z 60
 
   benchmark:
     name: Build & Benchmark
@@ -54,4 +54,6 @@ jobs:
         run: ./bin/avalanchemq -D data &
         
       - name: Run Benchmark
-        run: ./bin/avalanchemqperf throughput -j -q -z 60
+        uses: ./.github/actions/benchmark-action
+        with:
+          command: ./bin/avalanchemqperf throughput -j -q -z 60

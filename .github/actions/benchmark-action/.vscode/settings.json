@@ -1,3 +1,7 @@
 {
-  "standard.enable": false
+  "standard.enable": false,
+  "activationEvents": [
+    "workspaceContains:node_modules/.bin/jest",
+    "onCommand:io.orta.jest.start"
+  ],
 }
