@@ -27,6 +27,7 @@ module AvalancheMQ
       end
       vhost = VHost.new(name, @data_dir, @log.dup, user)
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+      @users.add_permission("direct", name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
       vhost

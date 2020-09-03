@@ -99,6 +99,8 @@ module AvalancheMQ
         raise "Missing required argument 'x-delayed-type'" unless type
         arguments["x-delayed-message"] = true
         make(vhost, name, type, durable, auto_delete, internal, arguments)
+      when "x-federation-upstream"
+        FederationExchange.new(vhost, name, arguments)
       else raise "Cannot make exchange type #{type}"
       end
     end
@@ -595,6 +597,18 @@ module AvalancheMQ
           end
         end
       end
+    end
+  end
+
+  class FederationExchange < TopicExchange
+    def type
+      "x-federation-upstream"
+    end
+
+    def initialize(vhost, name, arguments)
+      arguments["x-internal-purpose"] = "federation"
+      arguments["x-max-hops"] ||= 1
+      super(vhost, name, true, true, true, arguments)
     end
   end
 end

@@ -27,9 +27,11 @@ module AvalancheMQ
         max_hops = config["max-hops"]?.try(&.as_i) || Upstream::DEFAULT_MAX_HOPS
         expires = config["expires"]?.try(&.as_s) || Upstream::DEFAULT_EXPIRES
         msg_ttl = config["message-ttl"]?.try(&.as_s) || Upstream::DEFAULT_MSG_TTL
+        consumer_tag = config["consumer-tag"]?.try(&.as_s) || "federation-link-#{name}"
+        # trust_user_id
         queue = config["queue"]?.try(&.as_s)
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
-          max_hops, msg_ttl, prefetch, reconnect_delay)
+          max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
         @vhost.log.info { "Upstream '#{name}' created" }
         @upstreams[name]
       end

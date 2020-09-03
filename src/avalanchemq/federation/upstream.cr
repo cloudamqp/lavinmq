@@ -23,7 +23,7 @@ module AvalancheMQ
       @ex_links = Hash(String, ExchangeLink).new
       @queue : String?
       @exchange : String?
-      getter name, log, vhost, type
+      getter name, log, vhost, type, consumer_tag
       property uri, prefetch, reconnect_delay, ack_mode, exchange,
         max_hops, expires, msg_ttl, queue
 
@@ -31,20 +31,22 @@ module AvalancheMQ
                      @exchange = nil, @queue = nil,
                      @ack_mode = DEFAULT_ACK_MODE, @expires = DEFAULT_EXPIRES,
                      @max_hops = DEFAULT_MAX_HOPS, @msg_ttl = DEFAULT_MSG_TTL,
-                     @prefetch = DEFAULT_PREFETCH, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
+                     @prefetch = DEFAULT_PREFETCH, @reconnect_delay = DEFAULT_RECONNECT_DELAY,
+                     consumer_tag = nil)
+        @consumer_tag = "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
         @log = @vhost.log.dup
         @log.progname += " upstream=#{@name}"
       end
 
+      # delete x-federation-upstream exchange on upstream
+      # delete queue on upstream
       def stop_link(federated_exchange : Exchange)
-        @ex_links.delete(federated_exchange.name).try(&.stop)
-        # delete x-federation-upstream exchange on upstream
-        # delete queue on upstream
+        @ex_links.delete(federated_exchange.name).try(&.terminate)
       end
 
       def stop_link(federated_q : Queue)
-        @q_links.delete(federated_q.name).try(&.stop)
+        @q_links.delete(federated_q.name).try(&.terminate)
       end
 
       def links : Array(Link)
@@ -86,8 +88,8 @@ module AvalancheMQ
       end
 
       def close
-        @ex_links.each_value(&.stop)
-        @q_links.each_value(&.stop)
+        @ex_links.each_value(&.terminate)
+        @q_links.each_value(&.terminate)
         @ex_links.clear
         @q_links.clear
       end

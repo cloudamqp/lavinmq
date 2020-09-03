@@ -9,8 +9,8 @@ module AvalancheMQ
     end
 
     def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize +
-        sizeof(UInt64) + @size
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
+        @properties.bytesize + sizeof(UInt64) + @size
     end
 
     def persistent?
@@ -19,7 +19,7 @@ module AvalancheMQ
 
     def self.skip(io, format) : UInt64
       skipped = 0_u64
-      skipped += io.skip(sizeof(UInt64)) # ts
+      skipped += io.skip(sizeof(UInt64))                             # ts
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
       skipped += AMQP::Properties.skip(io, format)
@@ -37,9 +37,16 @@ module AvalancheMQ
                    @size : UInt64, @body_io : IO)
     end
 
+    def initialize(@exchange_name : String, @routing_key : String,
+                   body : String, @properties = AMQP::Properties.new)
+      @timestamp = Time.utc.to_unix_ms
+      @size = body.bytesize.to_u64
+      @body_io = IO::Memory.new(body)
+    end
+
     def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize +
-        sizeof(UInt64) + @size
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
+        @properties.bytesize + sizeof(UInt64) + @size
     end
 
     def persistent?
@@ -48,7 +55,7 @@ module AvalancheMQ
 
     def self.skip(io, format) : UInt64
       skipped = 0_u64
-      skipped += io.skip(sizeof(UInt64)) # ts
+      skipped += io.skip(sizeof(UInt64))                             # ts
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
       skipped += AMQP::Properties.skip(io, format)
@@ -66,7 +73,8 @@ module AvalancheMQ
     end
 
     def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize + @properties.bytesize + sizeof(UInt64)
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
+        @properties.bytesize + sizeof(UInt64)
     end
 
     def persistent?
@@ -77,7 +85,8 @@ module AvalancheMQ
   struct Envelope
     getter segment_position, message, redelivered
 
-    def initialize(@segment_position : SegmentPosition, @message : BytesMessage, @redelivered = false)
+    def initialize(@segment_position : SegmentPosition, @message : BytesMessage,
+                   @redelivered = false)
     end
 
     def persistent?
