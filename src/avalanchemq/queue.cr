@@ -41,7 +41,6 @@ module AvalancheMQ
     @consumer_available = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
-    @sp_counter : SafeReferenceCounter(SegmentPosition)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 
@@ -59,7 +58,6 @@ module AvalancheMQ
       @last_get_time = Time.monotonic
       @log = @vhost.log.dup
       @log.progname += " queue=#{@name}"
-      @sp_counter = @vhost.sp_counter
       handle_arguments
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
@@ -352,8 +350,8 @@ module AvalancheMQ
       return false if @deleted
       @deleted = true
       close
-      @ready.each { |sp| @sp_counter.dec(sp) }
-      @unacked.each_sp { |sp| @sp_counter.dec(sp) }
+      @ready.each { |sp| @vhost.message_deleted(sp) }
+      @unacked.each_sp { |sp| @vhost.message_deleted(sp) }
       @vhost.delete_queue(@name)
       notify_observers(:delete)
       @log.debug { "Deleted" }
@@ -642,7 +640,7 @@ module AvalancheMQ
 
     protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       @deliveries.delete(sp) if @delivery_limit
-      @sp_counter.dec(sp)
+      @vhost.message_deleted(sp)
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
@@ -701,7 +699,7 @@ module AvalancheMQ
 
     def purge : UInt32
       count = @ready.purge do |sp|
-        @sp_counter.dec(sp)
+        @vhost.message_deleted(sp)
       end
       @log.debug { "Purged #{count} messages" }
       count.to_u32

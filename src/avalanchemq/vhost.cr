@@ -23,7 +23,7 @@ module AvalancheMQ
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
       log, shovels, direct_reply_channels, upstreams, default_user,
-      sp_counter, connections
+      connections
     property? flow = true
     getter? closed = false
 
@@ -76,6 +76,14 @@ module AvalancheMQ
           spawn(name: "VHost/#{@name}#fsync") { fsync }
         end
       end
+    end
+
+    def message_deleted(sp : SegmentPosition) : Nil
+      @sp_counter.dec(sp)
+    end
+
+    def message_referenced(sp : SegmentPosition) : Nil
+      @sp_counter.inc(sp)
     end
 
     @queues_to_fsync_lock = Mutex.new(:unchecked)
