@@ -1,0 +1,12 @@
+name: 'Benchmark'
+description: 'Output Benchmark'
+inputs:
+  command:
+    description: 'Benchmarking command'
+    required: true
+  github_token:
+    description: 'GITHUB_TOKEN'
+    default: '${{ github.token }}'
+runs:
+  using: 'node12'
+  main: 'lib/index.js'

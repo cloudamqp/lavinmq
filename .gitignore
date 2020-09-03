@@ -10,3 +10,4 @@
 *.log
 .icr_*
 *.swp
+node_modules
