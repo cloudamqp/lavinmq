@@ -314,7 +314,7 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 ## Contributing
 
 1. Fork, create feature branch
-1. Build with `shards build --release --production`
+1. Build with `shards build --release`
 1. Performance test with `bin/avalanchemqperf throughput` and compare against `master`
 1. Submit pull request
 
@@ -322,7 +322,7 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 
 1. Run specs with `crystal spec`
 1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
-1. Build with `shards build --release --production`
+1. Build with `shards build --release`
 
 ### Release
 
