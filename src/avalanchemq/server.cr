@@ -280,7 +280,7 @@ module AvalancheMQ
       statm.try &.close
     end
 
-    METRICS = { :user_time, :sys_time, :blocks_out, :blocks_in }
+    METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
       getter {{m.id}} = 0_i64
