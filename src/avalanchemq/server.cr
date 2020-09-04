@@ -15,7 +15,6 @@ require "./parameter"
 require "./chained_logger"
 require "./config"
 require "./proxy_protocol"
-require "./segment_position_migrator"
 
 module AvalancheMQ
   class Server

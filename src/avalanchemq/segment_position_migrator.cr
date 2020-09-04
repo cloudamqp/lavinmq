@@ -1,23 +1,26 @@
 module AvalancheMQ
   class SegmentPositionMigrator
     VERSION_FILE = "sp_version"
-    @current_version : UInt32
+    getter current_version : UInt32
 
-    def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
-                   version : UInt32? = nil)
-      if !version.nil?
-        @current_version = version
-      elsif ver = read_version_from_disk
+    def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian)
+      @log.progname = "sp_migrator"
+      if ver = read_version_from_disk
         @current_version = ver
       else
         write_version_to_disk(SegmentPosition::VERSION)
         @current_version = SegmentPosition::VERSION
       end
-
-      @log.progname = "sp_migrator"
     end
 
-    def read_version_from_disk
+    def run(sp_file_path, sp_formats = SegmentPosition::SP_FORMATS)
+      target_version = SegmentPosition::VERSION
+      return if @current_version == target_version
+      convert_sp(target_version, sp_file_path, sp_formats)
+      write_version_to_disk(target_version)
+    end
+
+    private def read_version_from_disk
       path = File.join(@data_dir, VERSION_FILE)
       if File.exists? path
         @log.debug "Reading SP version from disk."
@@ -27,20 +30,13 @@ module AvalancheMQ
       end
     end
 
-    def write_version_to_disk(version)
+    private def write_version_to_disk(version)
       path = File.join(@data_dir, VERSION_FILE)
       Dir.mkdir_p @data_dir
       File.write(path, version)
     end
 
-    def run(sp_file_path)
-      target_version = SegmentPosition::VERSION
-      return if @current_version == target_version
-      convert_sp(target_version, SegmentPosition::SP_FORMATS, sp_file_path)
-      write_version_to_disk(target_version)
-    end
-
-    def convert_sp(target_version, sp_formats, sp_file_path)
+    private def convert_sp(target_version, sp_file_path, sp_formats)
       tmp_file = sp_file_path + ".tmp"
       current_format = sp_formats[@current_version]
       target_format = sp_formats[target_version]
