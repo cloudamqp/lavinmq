@@ -2,8 +2,8 @@ module AvalancheMQ
   struct SegmentPosition
     VERSION    = 1_u32
     SP_FORMATS = {
-      1 => [0_u32, 0_u32, 0_u64],
-      0 => [0_u32, 0_u32],
+      1 => {UInt32, UInt32, UInt64},
+      0 => {UInt32, UInt32},
     }
     include Comparable(self)
 

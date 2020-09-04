@@ -46,16 +46,16 @@ module AvalancheMQ
           loop do
             target_index = 0
             current_format.each_with_index do |data_type, i|
-              sp_part = data_type.class.from_io(sp_io, @format)
+              sp_part = data_type.from_io(sp_io, @format)
               if target_data_type = target_format.fetch(i, nil)
-                target_part = sp_part.as(typeof(target_data_type))
+                target_part = sp_part.as(typeof(target_data_type.new(0)))
                 tmp_io.write_bytes(target_part, @format)
               end
               target_index = i
             end
             if target_format.size > current_format.size
-              target_format[(target_index + 1)...].each do |tf|
-                tmp_io.write_bytes(tf, @format)
+              target_format.each(within: (target_index + 1)...) do |tf|
+                tmp_io.write_bytes(tf.new(0), @format)
               end
             end
           rescue e : IO::EOFError

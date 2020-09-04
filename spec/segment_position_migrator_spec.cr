@@ -61,8 +61,8 @@ describe AvalancheMQ::SegmentPositionMigrator do
       it "should downgrade from version 2 to 1" do
         write_version(path, 2_u32)
         formats = {
-          2 => [0_u32, 0_u32, 0_u64],
-          1 => [0_u32, 0_u32],
+          2 => [UInt32, UInt32, UInt64],
+          1 => [UInt32, UInt32],
         }
         data = [0_u32, 1_u32, 2_u64, 3_u32, 4_u32, 5_u64]
         write_segment_file(segment_file, data, format)
