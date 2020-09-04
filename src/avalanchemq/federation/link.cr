@@ -93,6 +93,7 @@ module AvalancheMQ
 
         private def federate(msg, pch, exchange, routing_key)
           msgid = pch.basic_publish(msg.body_io, exchange, routing_key)
+          @log.debug { "Federating msgid=#{msgid} routing_key=#{routing_key}" }
           should_multi_ack = msgid % (@upstream.prefetch / 2).ceil.to_i == 0
           if should_multi_ack
             case @upstream.ack_mode
@@ -180,13 +181,14 @@ module AvalancheMQ
               no_ack = @upstream.ack_mode == AckMode::NoAck
               @state = State::Running
               @last_changed = Time.utc.to_unix_ms
+              @log.debug { "Running" }
               unless @federated_q.immediate_delivery?
                 @log.debug { "Waiting for consumers" }
                 @consumer_available.receive?
               end
               q_name = q[:queue_name]
               cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
-                federate(msg, pch, EXCHANGE, q_name)
+                federate(msg, pch, EXCHANGE, @federated_q.name)
               end
 
               if ex = @stop.receive?
@@ -244,7 +246,6 @@ module AvalancheMQ
         private def cleanup
           ::AMQP::Client.start(@upstream.uri) do |c|
             ch = c.channel
-            ch.exchange_delete(@upstream_q)
             ch.queue_delete(@upstream_q)
           end
         end
@@ -290,6 +291,7 @@ module AvalancheMQ
               no_ack = @upstream.ack_mode == AckMode::NoAck
               @state = State::Running
               @last_changed = Time.utc.to_unix_ms
+              @log.debug { "Running" }
 
               cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
                 federate(msg, pch, @federated_ex.name, msg.routing_key)
