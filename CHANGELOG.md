@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Memory usage monitoring is now showing current RSS, not max RSS
+- Consumer cancellation doesn't requeue unacked messages
+- UI: No more JSON parsing errors when the server is offline
+- UI: Fix name filter pagination bug
+- Support delayed exchange via policy and x-delayed-message exchange type
+- Clear all user permissions to a vhost when it's deleted
+
+### Added
+- UNIX socket support for HTTP server
+- UI: Show data rates and heartbeats in connections listing
+- Documented how persistent exchange works in the readme
+
+### Changed
+- Only listen on localhost by default
+- DEB packages are distributed via packagecloud.io
+
 ## [0.11.0] - 2020-07-01
 
 ### Changed
