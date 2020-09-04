@@ -4,7 +4,7 @@ module AvalancheMQ
     getter current_version : UInt32
 
     def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
-        @sp_formats = SegmentPosition::SP_FORMATS)
+                   @sp_formats = SegmentPosition::SP_FORMATS)
       @log.progname = "sp_migrator"
       if ver = read_version_from_disk
         @current_version = ver
