@@ -66,8 +66,8 @@ describe AvalancheMQ::SegmentPositionMigrator do
         }
         data = [0_u32, 1_u32, 2_u64, 3_u32, 4_u32, 5_u64]
         write_segment_file(segment_file, data, format)
-        sp_migrator = subject.new(path, log, format)
-        sp_migrator.run(segment_file, formats)
+        sp_migrator = subject.new(path, log, format, formats)
+        sp_migrator.run(segment_file)
         expected = [0_u32, 1_u32, 3_u32, 4_u32]
         assert_segment_file(segment_file, expected, format)
       ensure

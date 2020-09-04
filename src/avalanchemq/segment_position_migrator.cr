@@ -3,7 +3,8 @@ module AvalancheMQ
     VERSION_FILE = "sp_version"
     getter current_version : UInt32
 
-    def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian)
+    def initialize(@data_dir : String, @log : Logger, @format = IO::ByteFormat::SystemEndian,
+        @sp_formats = SegmentPosition::SP_FORMATS)
       @log.progname = "sp_migrator"
       if ver = read_version_from_disk
         @current_version = ver
@@ -13,10 +14,10 @@ module AvalancheMQ
       end
     end
 
-    def run(sp_file_path, sp_formats = SegmentPosition::SP_FORMATS)
+    def run(sp_file_path)
       target_version = SegmentPosition::VERSION
       return if @current_version == target_version
-      convert_sp(target_version, sp_file_path, sp_formats)
+      convert_sp(target_version, sp_file_path)
       write_version_to_disk(target_version)
     end
 
@@ -36,10 +37,10 @@ module AvalancheMQ
       File.write(path, version)
     end
 
-    private def convert_sp(target_version, sp_file_path, sp_formats)
+    private def convert_sp(target_version, sp_file_path)
       tmp_file = sp_file_path + ".tmp"
-      current_format = sp_formats[@current_version]
-      target_format = sp_formats[target_version]
+      current_format = @sp_formats[@current_version]
+      target_format = @sp_formats[target_version]
       File.open(tmp_file, "w") do |tmp_io|
         File.open(sp_file_path) do |sp_io|
           loop do
