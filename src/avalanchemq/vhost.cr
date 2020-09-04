@@ -40,7 +40,9 @@ module AvalancheMQ
     @fsync = false
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
-    EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream x-delayed-message)
+    EXCHANGE_TYPES = %w(direct fanout topic headers
+                        x-federation-upstream x-delayed-message
+                        x-consistent-hash)
 
     rate_stats(%w(connection_created connection_closed queue_declared queue_deleted))
 
