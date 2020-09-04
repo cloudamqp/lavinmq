@@ -2,8 +2,8 @@
 lib LibC
   {% if flag?(:linux) %}
     fun get_phys_pages : Int32
-    fun getpagesize : Int32
   {% end %}
+  fun getpagesize : Int32
 
   {% if flag?(:darwin) %}
     SC_PAGESIZE   =  29
