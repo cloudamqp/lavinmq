@@ -198,6 +198,7 @@ module AvalancheMQ
     end
 
     private def stats_loop
+      statm = File.open("/proc/self/statm") if File.exists?("/proc/self/statm")
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
@@ -234,16 +235,19 @@ module AvalancheMQ
         end
 
         rss = 0i64
-        {% if flag?(:linux) || flag?(:bsd) %}
-          statm = File.read("/proc/self/statm")
-          if idx = statm.index(' ')
+        if statm
+          statm.rewind
+          output = statm.gets_to_end
+          if idx = output.index(' ')
             idx += 1
-            if idx2 = statm[idx..].index(' ')
+            if idx2 = output[idx..].index(' ')
               idx2 += idx - 1
-              rss = statm[idx..idx2].to_i64 * LibC.getpagesize
+              rss = output[idx..idx2].to_i64 * LibC.getpagesize
             end
           end
-        {% end %}
+        else
+          rss = `ps -o rss= -p $PPID`.to_i64
+        end
 
         @rss_log.push rss
         @rss = rss
@@ -265,6 +269,8 @@ module AvalancheMQ
 
         control_flow!
       end
+    ensure
+      statm.try &.close
     end
 
     METRICS = { :user_time, :sys_time, :blocks_out, :blocks_in }
