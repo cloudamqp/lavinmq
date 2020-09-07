@@ -227,13 +227,10 @@ shutdown = ->(_s : Signal) do
     first_shutdown_attempt = false
     SystemD.notify("STOPPING=1\n")
     puts "Shutting down gracefully..."
-    puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-    puts System.resource_usage
-    puts GC.prof_stats
     amqp_server.close
     http_server.try &.close
-    Fiber.yield
     puts "Fibers: "
+    Fiber.yield
     Fiber.list { |f| puts f.inspect }
     lock.close
     exit 0
