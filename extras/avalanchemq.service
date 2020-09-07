@@ -6,6 +6,7 @@ After=network.target
 
 [Service]
 ExecStart=/usr/bin/avalanchemq -c /etc/avalanchemq/avalanchemq.ini
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 User=avalanchemq
 Group=avalanchemq
