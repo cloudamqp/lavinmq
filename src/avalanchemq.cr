@@ -210,6 +210,7 @@ Signal::USR2.trap do
 end
 
 Signal::HUP.trap do
+  SystemD.notify("RELOADING=1\n")
   if config_file.empty?
     puts "No configuration file to reload"
   else
@@ -217,12 +218,14 @@ Signal::HUP.trap do
     config.parse(config_file)
   end
   STDOUT.flush
+  SystemD.notify("READY=1\n")
 end
 
 first_shutdown_attempt = true
 shutdown = ->(_s : Signal) do
   if first_shutdown_attempt
     first_shutdown_attempt = false
+    SystemD.notify("STOPPING=1\n")
     puts "Shutting down gracefully..."
     puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
     puts System.resource_usage
@@ -242,9 +245,7 @@ shutdown = ->(_s : Signal) do
 end
 Signal::INT.trap &shutdown
 Signal::TERM.trap &shutdown
-if SystemD.notify_ready > 0
-  log.info "Ready (Notified SystemD)"
-end
+SystemD.notify("READY=1\n")
 GC.collect
 
 # write to the lock file to detect lost lock
