@@ -18,10 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UNIX socket support for HTTP server
 - UI: Show data rates and heartbeats in connections listing
 - Documented how persistent exchange works in the readme
+- Reload TLS certificates on HUP signal
+- systemctl reload avalanchemq now supported in systemd (by sending HUP to main pid)
 
 ### Changed
 - Only listen on localhost by default
 - DEB packages are distributed via packagecloud.io
+- Log less on shutdown
 
 ## [0.11.0] - 2020-07-01
 
