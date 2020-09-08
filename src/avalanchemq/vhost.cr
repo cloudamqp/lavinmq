@@ -48,7 +48,7 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
-      @sp_counter = SafeReferenceCounter(SegmentPosition).new
+      @sp_counter = ReferenceCounter(SegmentPosition).new
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
