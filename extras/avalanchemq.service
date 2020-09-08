@@ -16,6 +16,9 @@ LimitNOFILE=infinity
 Type=notify
 ProtectSystem=full
 FileDescriptorStoreMax=1048576
+NoNewPrivileges=true
+Nice=-1
+OOMScoreAdjust=-250
 
 [Install]
 WantedBy=multi-user.target
