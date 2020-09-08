@@ -74,8 +74,8 @@ module AvalancheMQ
 
       def copy_to(set)
         @lock.synchronize do
-          @unacked.each do |sp|
-            set << sp
+          @unacked.each do |unack|
+            set << unack.sp
           end
         end
       end

@@ -48,7 +48,6 @@ module AvalancheMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
-      @sp_counter = SafeReferenceCounter(SegmentPosition).new
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
@@ -79,11 +78,9 @@ module AvalancheMQ
     end
 
     def message_deleted(sp : SegmentPosition) : Nil
-      @sp_counter.dec(sp)
     end
 
     def message_referenced(sp : SegmentPosition) : Nil
-      @sp_counter.inc(sp)
     end
 
     @queues_to_fsync_lock = Mutex.new(:unchecked)
@@ -138,7 +135,6 @@ module AvalancheMQ
           ok += 1
         end
       end
-      @sp_counter[sp] = ok
       ok > 0
     ensure
       visited.clear
@@ -610,88 +606,34 @@ module AvalancheMQ
       segments
     end
 
-    @zero_references = Array(SegmentPosition).new
+    @referenced_sps = Array(SegmentPosition).new(1_000_000)
 
     private def gc_segments_loop
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
-        collect_used_segments
+        collect_sps
         delete_unused_segments
-        @sp_counter.empty_zero_referenced! do |sp|
-          if @referenced_segments.includes? sp.segment
-            @zero_references << sp
-          end
-        end
-        @zero_references.sort!
         hole_punch_segments
-        @zero_references.clear
-        @referenced_segments.clear
+        @referenced_sps.clear
       end
     end
 
-    private def hole_punch_segments
-      @log.debug { "Hole punching segments" }
-      @log.debug { "#{@zero_references.size} zero referenced SPs" }
-      return if @zero_references.empty?
-
-      punched = 0_u64
-      current_seg = segment = start_pos = end_pos = nil
-      @zero_references.each do |sp|
-        next unless @referenced_segments.includes? sp.segment
-
-        if sp.segment != current_seg || sp.position != end_pos
-          punched += punch_hole(segment, start_pos, end_pos)
-          start_pos = end_pos = nil
-        end
-
-        if sp.segment != current_seg
-          current_seg = sp.segment
-          segment.try &.close
-          start_pos = end_pos = nil
-          path = File.join(@data_dir, "msgs.#{current_seg.to_s.rjust(10, '0')}")
-          segment = File.open(path, "a+").tap do |f|
-            f.buffer_size = Config.instance.file_buffer_size
-          end
-        end
-
-        start_pos ||= sp.position
-        seg = segment.not_nil!
-        seg.pos = sp.position unless sp.position == end_pos
-        len = Message.skip(seg, BYTE_FORMAT)
-        end_pos = sp.position + len
-        @log.debug { "sp.position=#{sp.position} start_pos=#{start_pos} end_pos=#{end_pos}" }
+    private def collect_sps
+      @queues.each_value do |q|
+        q.ready.copy_to @referenced_sps
+        q.unacked.copy_to @referenced_sps
       end
-      punched += punch_hole(segment, start_pos, end_pos)
-      segment.try &.close
-      @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
-    end
-
-    private def punch_hole(segment : File?, start_pos : Int?, end_pos : Int?) : UInt32
-      if segment && start_pos && end_pos
-        hole_size = end_pos - start_pos
-        segment.punch_hole(hole_size, start_pos)
-        @log.debug { "Punched hole in #{segment.path}, from #{start_pos}, #{hole_size} bytes long" }
-        return hole_size
-      end
-      0_u32
-    end
-
-    @referenced_segments = Set(UInt32).new
-
-    private def collect_used_segments
-      @referenced_segments << @segments.last_key
-      @sp_counter.referenced_segments(@referenced_segments)
-      @log.debug { "#{@referenced_segments.size} segments in use" }
+      @referenced_sps.sort!
     end
 
     private def delete_unused_segments
       @log.debug "Garbage collecting segments"
-
       deleted_bytes = 0_u64
-      @log.debug { "segments on_disk=#{@segments.size} referenced=#{@referenced_segments}" }
       @segments.delete_if do |seg, mfile|
-        unless @referenced_segments.includes? seg
+        next if seg == @wfile
+        sp = @referenced_sps.bsearch { |x| x.segment >= seg }
+        if sp.try(&.segment) == seg
           @log.debug { "Deleting segment #{seg}" }
           deleted_bytes += mfile.size
           mfile.delete
@@ -701,6 +643,66 @@ module AvalancheMQ
       end
       @log.info { "Garbage collected #{deleted_bytes.humanize_bytes} of unused segments" } if deleted_bytes > 0
       @log.debug { "#{@segments.size} segments on disk" }
+    end
+
+    private def hole_punch_segments
+      @log.debug { "Hole punching segments" }
+
+      punched = 0_u64
+      file = nil
+      prev_sp = nil
+      prev_sp_end = 0_u32
+      @referenced_sps.each do |sp|
+        next if sp == prev_sp # ignore duplicates
+
+        # if the last segment was the same as this
+        if prev_sp.try(&.segment) == sp.segment
+          # if there's a hole between previous sp and this sp
+          # punch a hole
+          if prev_sp_end != sp.position
+            punched += punch_hole(file, prev_sp_end, sp.position - 1)
+          end
+        else # dealing with a new segment
+          # punch to the end of the last file
+          if seg = file
+            punched += punch_hole(seg, prev_sp_end, seg.size)
+            seg.close
+          end
+
+          # then open this segment
+          path = File.join(@data_dir, "msgs.#{sp.segment.to_s.rjust(10, '0')}")
+          file = File.open(path, "a+").tap do |f|
+            f.buffer_size = Config.instance.file_buffer_size
+          end
+          @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
+
+          # punch from start of the segment
+          punched += punch_hole(file, 0, sp.position - 1) unless sp.position.zero?
+        end
+        seg = file.not_nil!
+        seg.pos = sp.position
+        @log.debug { "GC seg, searching for msg end from: #{sp.position} in segment #{sp.segment}" }
+        len = Message.skip(seg, BYTE_FORMAT)
+        prev_sp_end = sp.position + len + 1
+        prev_sp = sp
+      end
+
+      if file && prev_sp_end && @segments.last_key != prev_sp.try(&.segment)
+        punched += punch_hole(file, prev_sp_end, file.size)
+        file.close
+      end
+
+      @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
+    end
+
+    private def punch_hole(segment : File?, start_pos : Int?, end_pos : Int?)
+      if segment && start_pos && end_pos
+        hole_size = end_pos - start_pos
+        segment.punch_hole(hole_size, start_pos)
+        @log.debug { "Punched hole in #{segment.path}, from #{start_pos}, #{hole_size} bytes long" }
+        return hole_size
+      end
+      0
     end
   end
 end

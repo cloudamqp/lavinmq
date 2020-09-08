@@ -89,8 +89,8 @@ module AvalancheMQ
   # A reference counter which performs an action
   # when the counter goes down to zero again
   class SafeReferenceCounter(T)
-    def initialize
-      @counter = Hash(T, UInt32).new
+    def initialize(initial_capacity = 131_072)
+      @counter = Hash(T, UInt32).new(initial_capacity: initial_capacity) { 0_u32 }
       @lock = Mutex.new(:unchecked)
     end
 
@@ -102,8 +102,7 @@ module AvalancheMQ
 
     def inc(k : T) : UInt32
       @lock.synchronize do
-        v = @counter.fetch(k, 0_u32)
-        @counter[k] = v + 1
+        @counter[k] += 1
       end
     end
 
@@ -118,7 +117,7 @@ module AvalancheMQ
     end
 
     # Yield and delete all zero referenced keys
-    def empty_zero_referenced!
+    def empty_zero_referenced! : Nil
       @lock.synchronize do
         @counter.delete_if do |sp, v|
           if v.zero?
@@ -129,7 +128,7 @@ module AvalancheMQ
       end
     end
 
-    def referenced_segments(set)
+    def referenced_segments(set) : Nil
       @lock.synchronize do
         prev = nil
         @counter.each do |sp, v|
