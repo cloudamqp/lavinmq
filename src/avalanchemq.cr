@@ -212,12 +212,13 @@ end
 Signal::HUP.trap do
   SystemD.notify("RELOADING=1\n")
   if config_file.empty?
-    puts "No configuration file to reload"
+    log.info { "No configuration file to reload" }
   else
-    puts "Reloading configuration file '#{config_file}'"
+    log.info { "Reloading configuration file '#{config_file}'" }
     config.parse(config_file)
+    amqp_server.reload_settings(config.cert_path, config.key_path)
+    http_server.try &.reload_settings(config.cert_path, config.key_path)
   end
-  STDOUT.flush
   SystemD.notify("READY=1\n")
 end
 

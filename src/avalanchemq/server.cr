@@ -66,14 +66,21 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
+    def reload_settings(cert_path : String, key_path : String)
+      if ctx = @context
+        @log.info { "Reloading TLS certificate" }
+        ctx.certificate_chain = cert_path
+        ctx.private_key = key_path
+      end
+    end
+
     def listen_tls(bind, port, cert_path : String, key_path : String, ca_path : String? = nil)
       s = TCPServer.new(bind, port)
       @listeners << s
-      context = OpenSSL::SSL::Context::Server.new
+      @context = context = OpenSSL::SSL::Context::Server.new
       context.certificate_chain = cert_path
       context.private_key = key_path
       context.ca_certificates = ca_path if ca_path
-      # context.ciphers = "ECDHE-RSA-AES128-SHA256"
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         begin
