@@ -610,7 +610,6 @@ module AvalancheMQ
       segments
     end
 
-    @zero_references = Array(SegmentPosition).new(131_072)
 
     private def gc_segments_loop
       loop do
@@ -618,26 +617,26 @@ module AvalancheMQ
         break if @closed
         collect_used_segments
         delete_unused_segments
+        zero_references = Array(SegmentPosition).new(131_072)
         @sp_counter.empty_zero_referenced! do |sp|
           if @referenced_segments.includes? sp.segment
-            @zero_references << sp
+            zero_references << sp
           end
         end
-        @zero_references.sort!
-        hole_punch_segments
-        @zero_references = Array(SegmentPosition).new(131_072)
+        zero_references.sort!
+        hole_punch_segments(zero_references)
         @referenced_segments.clear
       end
     end
 
-    private def hole_punch_segments
+    private def hole_punch_segments(zero_references)
       @log.debug { "Hole punching segments" }
-      @log.debug { "#{@zero_references.size} zero referenced SPs" }
-      return if @zero_references.empty?
+      @log.debug { "#{zero_references.size} zero referenced SPs" }
+      return if zero_references.empty?
 
       punched = 0_u64
       current_seg = segment = start_pos = end_pos = nil
-      @zero_references.each do |sp|
+      zero_references.each do |sp|
         next unless @referenced_segments.includes? sp.segment
 
         if sp.segment != current_seg || sp.position != end_pos

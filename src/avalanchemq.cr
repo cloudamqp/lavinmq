@@ -155,7 +155,6 @@ def report(s)
     puts_size_capacity vh.@awaiting_confirm, 4
     puts_size_capacity vh.@exchanges, 4
     puts_size_capacity vh.@queues, 4
-    puts_size_capacity vh.@zero_references, 4
     puts_size_capacity vh.@sp_counter, 4
     puts_size_capacity vh.@referenced_segments, 4
     vh.queues.each do |_, q|
