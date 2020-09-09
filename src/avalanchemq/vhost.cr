@@ -620,7 +620,9 @@ module AvalancheMQ
         @log.info { "GC segments, hole punching took #{elapsed.total_milliseconds} ms" }
         if @referenced_sps.capacity > @referenced_sps.size * 2
           # if less than half the capacity is used, recreate to reclaim RAM
-          @referenced_sps = Array(SegmentPosition).new(Math.max(1_000_000, @referenced_sps.size))
+          capacity = Math.max(1_000_000, @referenced_sps.size)
+          @referenced_sps = Array(SegmentPosition).new(capacity)
+          GC.collect
         else
           @referenced_sps.clear
         end
