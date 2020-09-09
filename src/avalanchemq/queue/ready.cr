@@ -7,7 +7,7 @@ module AvalancheMQ
       @lock = Mutex.new(:reentrant)
       @inital_capacity : Int32
 
-      def initialize(inital_capacity = 8)
+      def initialize(inital_capacity = 1024)
         @inital_capacity = inital_capacity.to_i32
         @ready = Deque(SegmentPosition).new(@inital_capacity)
       end
