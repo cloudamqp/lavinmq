@@ -97,7 +97,12 @@ module AvalancheMQ
         @ack.flush if persistent
         @acks += 1
       end
-      compact_index! if @acks >= Config.instance.queue_max_acks
+     if @acks > @ready.size && @acks >= Config.instance.queue_max_acks
+       time = Time.measure do
+         compact_index!
+       end
+       @log.info { "Compacting index took #{time.total_milliseconds} ms" }
+     end
     end
 
     def purge
