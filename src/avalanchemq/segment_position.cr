@@ -4,23 +4,25 @@ module AvalancheMQ
 
     getter segment : UInt32
     getter position : UInt32
+    getter bytesize : UInt32
     getter expiration_ts : Int64
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64 = 0_i64)
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @expiration_ts : Int64 = 0_i64)
     end
 
     def self.zero
-      self.new(0_u32, 0_u32)
+      self.new(0_u32, 0_u32, 0_u32)
     end
 
     def to_io(io : IO, format)
-      buf = uninitialized UInt8[sizeof(SegmentPosition)]
+      buf = uninitialized UInt8[20]
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])
-      format.encode(@expiration_ts, slice[8, 8])
+      format.encode(@bytesize, slice[8, 4])
+      format.encode(@expiration_ts, slice[12, 8])
       io.write(slice)
     end
 
@@ -33,14 +35,15 @@ module AvalancheMQ
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
       seg = UInt32.from_io(io, format)
       pos = UInt32.from_io(io, format)
+      bytesize = UInt32.from_io(io, format)
       ts = Int64.from_io(io, format)
-      self.new(seg, pos, ts)
+      self.new(seg, pos, bytesize, ts)
     end
 
     def self.from_i64(i : Int64)
       seg = i.bits(32..)
       pos = i.bits(0..31)
-      SegmentPosition.new(seg.to_u32, pos.to_u32)
+      SegmentPosition.new(seg.to_u32, pos.to_u32, 0_u32)
     end
 
     def to_s(io : IO)

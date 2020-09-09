@@ -185,11 +185,11 @@ module AvalancheMQ
       @write_lock.synchronize do
         wfile.seek(0, IO::Seek::End)
         if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
-          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.timestamp + delay.to_i64)
+          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.bytesize.to_u32, msg.timestamp + delay.to_i64)
         elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
-          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.timestamp + exp_ms)
+          sp = SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.bytesize.to_u32, msg.timestamp + exp_ms)
         end
-        sp ||= SegmentPosition.new(@segments.last_key, wfile.pos.to_u32)
+        sp ||= SegmentPosition.new(@segments.last_key, wfile.pos.to_u32, msg.bytesize.to_u32)
         if store_offset
           headers = msg.properties.headers || AMQP::Table.new
           headers["x-offset"] = sp.to_i64
@@ -676,16 +676,10 @@ module AvalancheMQ
           end
           @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
-          if sp.position > 0_u32
-            # punch from start of the segment
-            punched += punch_hole(file, 0, sp.position - 1)
-          end
+          # punch from start of the segment
+          punched += punch_hole(file, 0, sp.position)
         end
-        seg = file.not_nil!
-        seg.pos = sp.position
-        @log.debug { "GC seg, searching for msg end from: #{sp.position} in segment #{sp.segment}" }
-        len = Message.skip(seg, BYTE_FORMAT)
-        prev_sp_end = sp.position + len + 1
+        prev_sp_end = sp.position + sp.bytesize
         prev_sp = sp
       end
 
