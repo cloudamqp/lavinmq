@@ -9,11 +9,11 @@ module AvalancheMQ
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @expiration_ts : Int64 = 0_i64)
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32 = 0_u32, @expiration_ts : Int64 = 0_i64)
     end
 
     def self.zero
-      self.new(0_u32, 0_u32, 0_u32)
+      self.new(0_u32, 0_u32)
     end
 
     def to_io(io : IO, format)
@@ -43,7 +43,7 @@ module AvalancheMQ
     def self.from_i64(i : Int64)
       seg = i.bits(32..)
       pos = i.bits(0..31)
-      SegmentPosition.new(seg.to_u32, pos.to_u32, 0_u32)
+      SegmentPosition.new(seg.to_u32, pos.to_u32)
     end
 
     def to_s(io : IO)

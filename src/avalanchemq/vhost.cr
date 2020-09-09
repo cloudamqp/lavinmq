@@ -627,7 +627,10 @@ module AvalancheMQ
       end
     end
 
-    private def collect_sps
+    private def collect_sps : Nil
+      @exchanges.each_value do |ex|
+        ex.referenced_sps(@referenced_sps)
+      end
       @queues.each_value do |q|
         q.unacked.copy_to @referenced_sps
         q.ready.copy_to @referenced_sps
@@ -635,7 +638,7 @@ module AvalancheMQ
       @referenced_sps.sort!
     end
 
-    private def delete_unused_segments
+    private def delete_unused_segments : Nil
       @log.debug "Garbage collecting segments"
       deleted_bytes = 0_u64
       @segments.delete_if do |seg, mfile|
@@ -653,7 +656,7 @@ module AvalancheMQ
       @log.debug { "#{@segments.size} segments on disk" }
     end
 
-    private def hole_punch_segments
+    private def hole_punch_segments : Nil
       @log.debug { "Hole punching segments" }
 
       punched = 0_u64

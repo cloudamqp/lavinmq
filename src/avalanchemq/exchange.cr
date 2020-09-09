@@ -173,6 +173,15 @@ module AvalancheMQ
       @vhost.queues[q_name] = @delayed_queue.as(Queue)
     end
 
+    def referenced_sps(referenced_sps) : Nil
+      if pq = @persistent_queue
+        pq.ready.copy_to referenced_sps
+      end
+      if dq = @delayed_queue
+        dq.ready.copy_to referenced_sps
+      end
+    end
+
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
     private def after_bind(destination : Destination, headers : Hash(String, AMQP::Field)?)
