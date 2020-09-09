@@ -6,6 +6,7 @@ module AvalancheMQ
     getter position : UInt32
     getter bytesize : UInt32
     getter expiration_ts : Int64
+    BYTESIZE = 20
 
     def_equals_and_hash @segment, @position
 
@@ -17,7 +18,7 @@ module AvalancheMQ
     end
 
     def to_io(io : IO, format)
-      buf = uninitialized UInt8[20]
+      buf = uninitialized UInt8[BYTESIZE]
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])

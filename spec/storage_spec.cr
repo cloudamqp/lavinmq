@@ -2,7 +2,7 @@ require "./spec_helper"
 
 describe AvalancheMQ::DurableQueue do
   it "GC message index after MAX_ACKS" do
-    sp_size = sizeof(AvalancheMQ::SegmentPosition)
+    sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
     max_acks = AvalancheMQ::Config.instance.queue_max_acks
     with_channel do |ch|
       q = ch.queue("d", durable: true)
@@ -36,7 +36,7 @@ describe AvalancheMQ::DurableQueue do
   end
 
   it "GC message index when msgs are dead-lettered" do
-    sp_size = sizeof(AvalancheMQ::SegmentPosition)
+    sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
     max_acks = AvalancheMQ::Config.instance.queue_max_acks
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
