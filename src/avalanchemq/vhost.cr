@@ -635,8 +635,8 @@ module AvalancheMQ
 
     private def collect_sps
       @queues.each_value do |q|
-        q.ready.copy_to @referenced_sps
         q.unacked.copy_to @referenced_sps
+        q.ready.copy_to @referenced_sps
       end
       @referenced_sps.sort!
     end
@@ -645,9 +645,9 @@ module AvalancheMQ
       @log.debug "Garbage collecting segments"
       deleted_bytes = 0_u64
       @segments.delete_if do |seg, mfile|
-        next if seg == @wfile
+        next if seg == @segments.last_key
         sp = @referenced_sps.bsearch { |x| x.segment >= seg }
-        if sp.try(&.segment) == seg
+        if sp.try(&.segment) != seg
           @log.debug { "Deleting segment #{seg}" }
           deleted_bytes += mfile.size
           mfile.delete
@@ -673,8 +673,10 @@ module AvalancheMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          if prev_sp_end != sp.position
-            punched += punch_hole(file.not_nil!, prev_sp_end, sp.position - 1)
+          if file.nil?
+            @log.info { "prev_sp: #{prev_sp} sp: #{sp.inspect}, file nil" }
+          else
+            punched += punch_hole(file.not_nil!, prev_sp_end, sp.position)
           end
         else # dealing with a new segment
           # punch to the end of the last file
@@ -706,13 +708,14 @@ module AvalancheMQ
     end
 
     private def punch_hole(segment : File, start_pos : Int, end_pos : Int)
-      if segment && start_pos && end_pos
-        hole_size = end_pos - start_pos
+      @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
+      hole_size = end_pos - start_pos
+      if hole_size > 0
         segment.punch_hole(hole_size, start_pos)
-        @log.debug { "Punched hole in #{segment.path}, from #{start_pos}, #{hole_size} bytes long" }
-        return hole_size
+        hole_size
+      else
+        0
       end
-      0
     end
   end
 end
