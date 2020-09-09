@@ -650,17 +650,17 @@ module AvalancheMQ
 
       punched = 0_u64
       file = nil
-      prev_sp = nil
+      prev_sp = SegmentPosition.zero
       prev_sp_end = 0_u32
       @referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
         # if the last segment was the same as this
-        if prev_sp.try(&.segment) == sp.segment
+        if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
           if prev_sp_end != sp.position
-            punched += punch_hole(file, prev_sp_end, sp.position - 1)
+            punched += punch_hole(file.not_nil!, prev_sp_end, sp.position - 1)
           end
         else # dealing with a new segment
           # punch to the end of the last file
@@ -676,8 +676,10 @@ module AvalancheMQ
           end
           @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
-          # punch from start of the segment
-          punched += punch_hole(file, 0, sp.position - 1) unless sp.position.zero?
+          if sp.position > 0_u32
+            # punch from start of the segment
+            punched += punch_hole(file, 0, sp.position - 1)
+          end
         end
         seg = file.not_nil!
         seg.pos = sp.position
@@ -687,7 +689,7 @@ module AvalancheMQ
         prev_sp = sp
       end
 
-      if file && prev_sp_end && @segments.last_key != prev_sp.try(&.segment)
+      if file && prev_sp.segment != @segments.last_key
         punched += punch_hole(file, prev_sp_end, file.size)
         file.close
       end
@@ -695,7 +697,7 @@ module AvalancheMQ
       @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
     end
 
-    private def punch_hole(segment : File?, start_pos : Int?, end_pos : Int?)
+    private def punch_hole(segment : File, start_pos : Int, end_pos : Int)
       if segment && start_pos && end_pos
         hole_size = end_pos - start_pos
         segment.punch_hole(hole_size, start_pos)

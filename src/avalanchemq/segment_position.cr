@@ -11,6 +11,10 @@ module AvalancheMQ
     def initialize(@segment : UInt32, @position : UInt32, @expiration_ts : Int64 = 0_i64)
     end
 
+    def self.zero
+      self.new(0_u32, 0_u32)
+    end
+
     def to_io(io : IO, format)
       buf = uninitialized UInt8[sizeof(SegmentPosition)]
       slice = buf.to_slice
