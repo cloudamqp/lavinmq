@@ -77,12 +77,6 @@ module AvalancheMQ
       end
     end
 
-    def message_deleted(sp : SegmentPosition) : Nil
-    end
-
-    def message_referenced(sp : SegmentPosition) : Nil
-    end
-
     @queues_to_fsync_lock = Mutex.new(:unchecked)
     @queues_to_fsync = Set(DurableQueue).new
 

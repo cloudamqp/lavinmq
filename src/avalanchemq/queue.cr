@@ -350,8 +350,6 @@ module AvalancheMQ
       return false if @deleted
       @deleted = true
       close
-      @ready.each { |sp| @vhost.message_deleted(sp) }
-      @unacked.each_sp { |sp| @vhost.message_deleted(sp) }
       @vhost.delete_queue(@name)
       notify_observers(:delete)
       @log.debug { "Deleted" }
@@ -698,9 +696,7 @@ module AvalancheMQ
     end
 
     def purge : UInt32
-      count = @ready.purge do |sp|
-        @vhost.message_deleted(sp)
-      end
+      count = @ready.purge
       @log.debug { "Purged #{count} messages" }
       count.to_u32
     end

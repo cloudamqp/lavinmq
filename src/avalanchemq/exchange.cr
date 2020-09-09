@@ -205,13 +205,11 @@ module AvalancheMQ
               next unless mq == queue
               next unless queue.publish(sp)
               @publish_out_count += 1
-              @vhost.message_referenced(sp)
             end
           end
         else
           return unless queue.publish(sp)
           @publish_out_count += 1
-          @vhost.message_referenced(sp)
         end
       end
       case method
