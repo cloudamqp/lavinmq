@@ -66,7 +66,6 @@ module AvalancheMQ
     def close : Bool
       super.tap do |closed|
         next unless closed
-        compact_index! unless @deleted
         @log.debug { "Closing index files" }
         @ack.close
         @enq.close
