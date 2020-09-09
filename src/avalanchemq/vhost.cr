@@ -612,10 +612,24 @@ module AvalancheMQ
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
-        collect_sps
-        delete_unused_segments
-        hole_punch_segments
-        @referenced_sps.clear
+        elapsed = Time.measure do
+          collect_sps
+        end
+        @log.info { "GC segments, collecting sps took #{elapsed.total_milliseconds} ms" }
+        elapsed = Time.measure do
+          delete_unused_segments
+        end
+        @log.info { "GC segments, delete unused segs took #{elapsed.total_milliseconds} ms" }
+        elapsed = Time.measure do
+          hole_punch_segments
+        end
+        @log.info { "GC segments, hole punching took #{elapsed.total_milliseconds} ms" }
+        if @referenced_sps.size < @referenced_sps.capacity // 2
+          # if less than half the capacity is used, recreate to reclaim RAM
+          @referenced_sps = Array(SegmentPosition).new(Math.max(1_000_000, @referenced_sps.size))
+        else
+          @referenced_sps.clear
+        end
       end
     end
 
