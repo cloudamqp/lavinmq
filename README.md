@@ -82,10 +82,10 @@ consumers and deliver a message to each.
 
 * AMQP 0-9-1 compatible
 * AMQPS (TLS)
+* HTTP API
 * Publisher confirm
 * Policies
 * Shovels
-* HTTP API
 * Queue federation
 * Dead-lettering
 * TTL support on queue, message, and policy level
@@ -98,24 +98,19 @@ consumers and deliver a message to each.
 * Consumer cancellation
 * Queue max-length
 * Importing/export definitions
-
-Currently missing features
-
-* WebSockets
-* Exchange federation
-* Clustering
-* Plugins
 * Priority queues
 * Delayed exchanges
-* Transactions (probably won't implement)
-
-Wish list
-
 * Rewindable queues (all messages that are published to an exchange
   are stored and can be dumped into a queue when a certain binding is
   made, even if they have already been consumed before)
-* Horizontal scaling
-* Built-in stream processor engine
+
+Currently missing features
+
+* Exchange federation
+* WebSockets
+* Clustering
+* Plugins
+* Transactions (probably won't implement)
 
 ### Persistent Exchange
 

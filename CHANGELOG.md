@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clear all user permissions to a vhost when it's deleted
 
 ### Added
+- Support for priority queues
 - UNIX socket support for HTTP server
 - UI: Show data rates and heartbeats in connections listing
 - Documented how persistent exchange works in the readme
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - systemctl reload avalanchemq now supported in systemd (by sending HUP to main pid)
 
 ### Changed
+- Decreased memory usage and increased performance by reimplemented segment GC
 - Only listen on localhost by default
 - DEB packages are distributed via packagecloud.io
 - Log less on shutdown
