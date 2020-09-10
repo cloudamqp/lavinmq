@@ -83,6 +83,7 @@ module AvalancheMQ
       @exclusive_consumer
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def apply_policy(policy : Policy)
       clear_policy
       policy.definition.each do |k, v|
