@@ -129,6 +129,13 @@ module AvalancheMQ
         end
       end
 
+      def limit_byte_size(bytesize, &blk : SegmentPosition -> Nil)
+        while @ready.sum {|sp| sp.bytesize } > bytesize
+          sp = @ready.shift? || break
+          yield sp
+        end
+      end
+
       # Pushes a SP to the end of the deque
       # Returns number of SPs in the deque
       def push(sp : SegmentPosition) : Int32
@@ -172,6 +179,10 @@ module AvalancheMQ
 
       def capacity
         @ready.capacity
+      end
+
+      def sum(&blk : SegmentPosition -> UInt32)
+        @ready.sum(&blk)
       end
 
       def compact
