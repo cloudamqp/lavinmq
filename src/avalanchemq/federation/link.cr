@@ -188,6 +188,12 @@ module AvalancheMQ
               end
               q_name = q[:queue_name]
               cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
+                {"x-received-from" => {
+                  "cluster-name" => System.hostname,
+                  "exchange"     => "federated-exchange",
+                  "redelivered"  => "false",
+                  "uri"          => "amqp://localhost/upstream",
+                }}
                 federate(msg, pch, EXCHANGE, @federated_q.name)
               end
 
@@ -269,9 +275,15 @@ module AvalancheMQ
             uch.exchange(@upstream_q, type: "x-federation-upstream",
               args: args, passive: passive)
           end
-          args = ::AMQP::Client::Arguments.new({"x-internal-purpose" => "federation"})
+          q_args = {"x-internal-purpose" => "federation"}
+          if expires = @upstream.expires
+            q_args["x-expires"] = expires
+          end
+          if msg_ttl = @upstream.msg_ttl
+            q_args["x-message-ttl"] = msg_ttl
+          end
           ch, q = try_passive(upstream_client, ch) do |uch, passive|
-            uch.queue(@upstream_q, args: args, passive: passive)
+            uch.queue(@upstream_q, args: ::AMQP::Client::Arguments.new(q_args), passive: passive)
           end
           @federated_ex.bindings_details.each do |binding|
             args = ::AMQP::Client::Arguments.new(binding.arguments)

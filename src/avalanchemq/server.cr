@@ -109,8 +109,6 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
-    # Annonymous socket
-
     def listen_unix(path : String, proxy_protocol_version = 1)
       File.delete(path) if File.exists?(path)
       s = UNIXServer.new(path)

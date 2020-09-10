@@ -15,14 +15,16 @@ module AvalancheMQ
       DEFAULT_RECONNECT_DELAY =        1
       DEFAULT_ACK_MODE        = AckMode::OnConfirm
       DEFAULT_MAX_HOPS        = 1
-      DEFAULT_EXPIRES         = "none"
-      DEFAULT_MSG_TTL         = "none"
+      DEFAULT_EXPIRES         = nil
+      DEFAULT_MSG_TTL         = nil
 
       @log : Logger
       @q_links = Hash(String, QueueLink).new
       @ex_links = Hash(String, ExchangeLink).new
       @queue : String?
       @exchange : String?
+      @expires : String?
+      @msg_ttl : String?
       getter name, log, vhost, type, consumer_tag
       property uri, prefetch, reconnect_delay, ack_mode, exchange,
         max_hops, expires, msg_ttl, queue
