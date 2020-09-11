@@ -368,7 +368,7 @@ module AvalancheMQ
         consumers: @consumers.size, vhost: @vhost.name,
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
-        ready_bytes: @ready.sum { |r| r.bytesize },
+        ready_bytes: @ready.sum &.bytesize,
         unacked: @unacked.size,
         unacked_bytes: @unacked.sum { |u| u.sp.bytesize },
         policy: @policy.try &.name,
@@ -709,7 +709,7 @@ module AvalancheMQ
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1_u32 : 0_u32 }
+        consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
         unless basic_cancel
           requeue_many(@unacked.delete(consumer))
         end

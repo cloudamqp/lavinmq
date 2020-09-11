@@ -181,7 +181,7 @@ module AvalancheMQ
         @ready.capacity
       end
 
-      def sum(&blk : SegmentPosition -> UInt32)
+      def sum(&blk : SegmentPosition -> _)
         @ready.sum(&blk)
       end
 

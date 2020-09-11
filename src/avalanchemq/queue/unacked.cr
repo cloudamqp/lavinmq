@@ -56,7 +56,7 @@ module AvalancheMQ
         @unacked.size
       end
 
-      def sum(&blk : Unack -> UInt32)
+      def sum(&blk : Unack -> _)
         @unacked.sum(&blk)
       end
 
