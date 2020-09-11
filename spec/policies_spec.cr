@@ -129,6 +129,7 @@ describe AvalancheMQ::VHost do
       q.publish_confirm "long"
       sleep 0.5
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 3
+      sleep 0.02
       s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
       sleep 0.01
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
