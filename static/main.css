@@ -377,7 +377,6 @@ aside li.active a {
 .details-table th {
   text-align: left;
   border-top: 1px solid #e0e1e2;
-  border-right: 1px dashed #e0e1e2;
   vertical-align: middle;
   padding: .75rem;
   padding-left: 1rem;
@@ -390,8 +389,16 @@ aside li.active a {
   padding: .75rem;
 }
 
+.details-table td, .details-table th {
+  border-right: 1px dashed #e0e1e2;
+}
+
 .details-table tr:first-child > * {
   border-top: #fff;
+}
+
+.details-table tr > td:last-child, .details-table tr > th:last-child {
+  border-right: 0
 }
 
 .small-table {

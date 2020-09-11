@@ -119,4 +119,65 @@ describe AvalancheMQ::VHost do
     s.vhosts["/"].delete_policy("qttl")
     vhost.delete_queue("qttl")
   end
+
+  it "should apply max-length-bytes on existing queue" do
+    definitions = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
+    with_channel do |ch|
+      q = ch.queue("max-length-bytes")
+      q.publish_confirm "short1"
+      q.publish_confirm "short2"
+      q.publish_confirm "long"
+      sleep 0.5
+      ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 3
+      sleep 0.02
+      s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+      sleep 0.01
+      ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short2")
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("long")
+      s.vhosts["/"].delete_policy("max-length-bytes")
+    end
+  ensure
+    s.vhosts["/"].delete_policy("max-length-bytes")
+    vhost.delete_queue("max-length-bytes")
+  end
+
+  it "should remove head if queue to large" do
+    definitions = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
+    with_channel do |ch|
+      q = ch.queue("max-length-bytes")
+      s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+      sleep 0.01
+      q.publish_confirm "short1"
+      q.publish_confirm "short2"
+      q.publish_confirm "long"
+      ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short2")
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("long")
+      s.vhosts["/"].delete_policy("max-length-bytes")
+    end
+  ensure
+    s.vhosts["/"].delete_policy("max-length-bytes")
+    vhost.delete_queue("max-length-bytes")
+  end
+
+  it "should not enqueue messages that make the queue to large" do
+    definitions = { "max-length-bytes" => JSON::Any.new(100_i64),
+                    "overflow": JSON::Any.new("reject-publish") } of String => JSON::Any
+    with_channel do |ch|
+      q = ch.queue("max-length-bytes")
+      s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+      sleep 0.01
+      q.publish_confirm "short1"
+      q.publish_confirm "short2"
+      q.publish_confirm "long"
+      ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short1")
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short2")
+      s.vhosts["/"].delete_policy("max-length-bytes")
+    end
+  ensure
+    s.vhosts["/"].delete_policy("max-length-bytes")
+    vhost.delete_queue("max-length-bytes")
+  end
 end

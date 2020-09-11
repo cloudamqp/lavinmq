@@ -46,16 +46,24 @@
         <h3>Messages</h3>
         <table class="details-table">
           <tr>
+            <th></th>
+            <th>Count</th>
+            <th>Bytesize</th>
+          </tr>
+          <tr>
             <th>Total</th>
             <td id="q-total"></td>
+            <td id="q-total-bytes"></td>
           </tr>
           <tr>
             <th>Ready</th>
             <td id="q-ready"></td>
+            <td id="q-ready-bytes"></td>
           </tr>
           <tr>
             <th>Unacked</th>
             <td id="q-unacked"></td>
+            <td id="q-unacked-bytes"></td>
           </tr>
         </table>
       </section>
@@ -290,8 +298,11 @@
           avalanchemq.chart.update(chart, item.message_stats)
           document.getElementById('q-state').textContent = item.state
           document.getElementById('q-unacked').textContent = item.unacked
+          document.getElementById('q-unacked-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes) + "B"
           document.getElementById('q-total').textContent = avalanchemq.helpers.formatNumber(item.messages)
+          document.getElementById('q-total-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + "B"
           document.getElementById('q-ready').textContent = avalanchemq.helpers.formatNumber(item.ready)
+          document.getElementById('q-ready-bytes').textContent = avalanchemq.helpers.nFormatter(item.ready_bytes) + "B"
           document.getElementById('q-consumers').textContent = avalanchemq.helpers.formatNumber(item.consumers)
           consumersTable.updateTable(item.consumer_details)
           if (all) {

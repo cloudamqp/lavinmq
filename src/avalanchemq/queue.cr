@@ -24,6 +24,7 @@ module AvalancheMQ
     @log : Logger
     @message_ttl : ArgumentNumber?
     @max_length : ArgumentNumber?
+    @max_length_bytes: ArgumentNumber?
     @expires : ArgumentNumber?
     @delivery_limit : ArgumentNumber?
     @dlx : String?
@@ -82,6 +83,7 @@ module AvalancheMQ
       @exclusive_consumer
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def apply_policy(policy : Policy)
       clear_policy
       policy.definition.each do |k, v|
@@ -89,6 +91,9 @@ module AvalancheMQ
         case k
         when "max-length"
           @max_length = v.as_i64
+          drop_overflow
+        when "max-length-bytes"
+          @max_length_bytes = v.as_i64
           drop_overflow
         when "message-ttl"
           @message_ttl = v.as_i64
@@ -363,7 +368,9 @@ module AvalancheMQ
         consumers: @consumers.size, vhost: @vhost.name,
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
+        ready_bytes: @ready.sum &.bytesize,
         unacked: @unacked.size,
+        unacked_bytes: @unacked.sum { |u| u.sp.bytesize },
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @closed ? :closed : :running,
@@ -378,8 +385,8 @@ module AvalancheMQ
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
-      reject_on_overflow
-      drop_overflow(1)
+      reject_on_overflow(sp)
+      drop_overflow(sp)
       was_empty = @ready.push(sp) == 1
       @publish_count += 1
       if was_empty
@@ -394,19 +401,34 @@ module AvalancheMQ
       raise ex
     end
 
-    private def reject_on_overflow
+    private def reject_on_overflow(sp : SegmentPosition)
       if ml = @max_length
         if @reject_on_overflow && @ready.size >= ml
           raise RejectOverFlow.new
         end
       end
+
+      if mlb = @max_length_bytes
+        if @reject_on_overflow && (@ready.sum {|r| r.bytesize} + sp.bytesize) >= mlb
+          raise RejectOverFlow.new
+        end
+      end
     end
 
-    private def drop_overflow(extra = 0)
+    private def drop_overflow(extra : SegmentPosition? = nil)
       if ml = @max_length
-        @ready.limit_size(ml - extra) do |sp|
+        extra_size = extra.nil? ? 0 : 1
+        @ready.limit_size(ml - extra_size) do |sp|
           @log.debug { "Overflow drop head sp=#{sp}" }
           expire_msg(sp, :maxlen)
+        end
+      end
+
+      if mlb = @max_length_bytes
+        extra_size = extra.nil? ? 0 : extra.bytesize
+        @ready.limit_byte_size(mlb - extra_size) do |sp|
+          @log.debug { "Overflow drop head sp=#{sp}" }
+          expire_msg(sp, :maxlenbytes)
         end
       end
     end
@@ -687,7 +709,7 @@ module AvalancheMQ
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        consumer_unacked_size = @unacked.size(consumer)
+        consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
         unless basic_cancel
           requeue_many(@unacked.delete(consumer))
         end
