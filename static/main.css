@@ -546,6 +546,7 @@ fieldset {
   border-style: solid;
   border-color: var(--separator-color);
   color: var(--font-color-dark);
+  margin-bottom: 15px;
 }
 
 main h3 {
