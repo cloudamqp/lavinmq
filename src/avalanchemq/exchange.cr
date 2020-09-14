@@ -238,6 +238,8 @@ module AvalancheMQ
     end
 
     private def after_unbind(destination, routing_key, headers)
+      @queue_bindings.delete_if { |_k, v| v.empty? }
+      @exchange_bindings.delete_if { |_k, v| v.empty? }
       if @auto_delete &&
          @queue_bindings.each_value.all? &.empty? &&
          @exchange_bindings.each_value.all? &.empty?

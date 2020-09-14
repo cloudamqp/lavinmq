@@ -107,13 +107,6 @@ module AvalancheMQ
       @socket.flush
     end
 
-    def read_frame(&block : AMQP::Frame -> AMQP::Frame?)
-      return if @socket.closed?
-      AMQP::Frame.from_io(@socket) do |f|
-        yield(f) || raise UnexpectedFrame.new(f)
-      end
-    end
-
     def closed?
       @socket.closed?
     end
