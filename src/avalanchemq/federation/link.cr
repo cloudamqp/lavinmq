@@ -21,8 +21,10 @@ module AvalancheMQ
         def initialize(@upstream : Upstream, @log : Logger)
           user = UserStore.instance.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
-          credentials = "#{user.name}:#{user.plain_text_password}"
-          @local_uri = URI.parse("amqp://#{credentials}@localhost/#{vhost}")
+          port = Config.instance.amqp_port
+          host = Config.instance.amqp_bind
+          url = "amqp://#{user.name}:#{user.plain_text_password}@#{host}:#{port}/#{vhost}"
+          @local_uri = URI.parse(url)
           uri = @upstream.uri
           ui = uri.userinfo
           @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub(ui, "")
