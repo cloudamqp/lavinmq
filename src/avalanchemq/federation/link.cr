@@ -118,6 +118,13 @@ module AvalancheMQ
           {ch, yield(ch, false)}
         end
 
+        private def received_from_header(msg)
+          headers = msg.properties.headers || ::AMQP::Client::Arguments.new
+          received_from = headers["x-received-from"]?.try(&.as?(Array(::AMQP::Client::Arguments)))
+          received_from ||= Array(::AMQP::Client::Arguments).new(1)
+          {headers, received_from}
+        end
+
         abstract def name : String
         abstract def on(event : Symbol, data : Object)
         private abstract def start_link
@@ -188,12 +195,14 @@ module AvalancheMQ
               end
               q_name = q[:queue_name]
               cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
-                {"x-received-from" => {
-                  "cluster-name" => System.hostname,
-                  "exchange"     => "federated-exchange",
-                  "redelivered"  => "false",
-                  "uri"          => "amqp://localhost/upstream",
-                }}
+                headers, received_from = received_from_header(msg)
+                received_from << ::AMQP::Client::Arguments.new({
+                  "uri"         => @scrubbed_uri,
+                  "queue"       => q_name,
+                  "redelivered" => msg.redelivered,
+                })
+                headers["x-received-from"] = received_from
+                msg.properties.headers = headers
                 federate(msg, pch, EXCHANGE, @federated_q.name)
               end
 
@@ -306,6 +315,14 @@ module AvalancheMQ
               @log.debug { "Running" }
 
               cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
+                headers, received_from = received_from_header(msg)
+                received_from << ::AMQP::Client::Arguments.new({
+                  "uri"         => @scrubbed_uri,
+                  "exchange"    => @upstream_exchange,
+                  "redelivered" => msg.redelivered,
+                })
+                headers["x-received-from"] = received_from
+                msg.properties.headers = headers
                 federate(msg, pch, @federated_ex.name, msg.routing_key)
               end
 
