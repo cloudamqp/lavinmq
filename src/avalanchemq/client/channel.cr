@@ -114,6 +114,10 @@ module AvalancheMQ
           msg = "No exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}'"
           @client.send_not_found(frame, msg)
         end
+        if ex && ex.internal
+          msg = "Exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}' is internal"
+          @client.send_access_refused(frame, msg)
+        end
       end
 
       MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
