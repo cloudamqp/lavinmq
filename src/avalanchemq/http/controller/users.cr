@@ -17,7 +17,7 @@ module AvalancheMQ
       private def user(context, params, key = "name")
         name = URI.decode_www_form(params[key])
         u = @amqp_server.users[name]?
-        not_found(context, "User #{name} does not exist") unless u
+        not_found(context, "User #{name} does not exist") if u.nil? || u.hidden?
         u
       end
     end
@@ -28,12 +28,13 @@ module AvalancheMQ
       private def register_routes
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.users.each_value.map { |u| UserView.new(u) })
+          page(context, @amqp_server.users.each_value.reject(&.hidden?)
+            .map { |u| UserView.new(u) })
         end
 
         get "/api/users/without-permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          itr = @amqp_server.users.each_value
+          itr = @amqp_server.users.each_value.reject(&.hidden?)
             .select { |u| u.permissions.empty? }
             .map { |u| UserView.new(u) }
           page(context, itr)
