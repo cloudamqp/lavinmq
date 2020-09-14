@@ -16,17 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support for priority queues
-- UNIX socket support for HTTP server
+- max-length-bytes supported as queue argument and policy
+- UI: Shows bytes of messages a queue hold
 - UI: Show data rates and heartbeats in connections listing
-- Documented how persistent exchange works in the readme
 - Reload TLS certificates on HUP signal
 - systemctl reload avalanchemq now supported in systemd (by sending HUP to main pid)
+- UNIX socket support for HTTP server
+- Documented how persistent exchange works in the readme
 
 ### Changed
 - Decreased memory usage and increased performance by reimplemented segment GC
 - Only listen on localhost by default
 - DEB packages are distributed via packagecloud.io
 - Log less on shutdown
+- Higher throughput due to revamped segment GC algorithm
 
 ## [0.11.0] - 2020-07-01
 
