@@ -4,7 +4,11 @@ require "./user"
 module AvalancheMQ
   class UserStore
     include Enumerable({String, User})
-    DIRECT_USER = "direct"
+    DIRECT_USER = "__direct"
+
+    def self.hidden?(name)
+      DIRECT_USER == name
+    end
 
     def self.init(data_dir : String, log : Logger)
       @@instance ||= UserStore.new(data_dir, log)
@@ -72,6 +76,7 @@ module AvalancheMQ
     end
 
     def delete(name, save = true) : User?
+      return if name == DIRECT_USER
       if user = @users.delete name
         save! if save
         user

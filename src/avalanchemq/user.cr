@@ -83,7 +83,7 @@ module AvalancheMQ
     end
 
     def hidden?
-      @name == "direct"
+      UserStore.hidden?(@name)
     end
 
     def update_password_hash(password_hash, hash_algorithm)

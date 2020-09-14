@@ -66,6 +66,7 @@ module AvalancheMQ
         put "/api/users/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           name = params["name"]
+          bad_request(context, "Illegal user name") if UserStore.hidden?(name)
           u = @amqp_server.users[name]?
           body = parse_body(context)
           password_hash = body["password_hash"]?.try &.as_s?
