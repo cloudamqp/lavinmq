@@ -13,8 +13,6 @@ require "./client/channel"
 
 module AvalancheMQ
   class Queue
-    BYTE_FORMAT = Config.instance.byte_format
-
     include PolicyTarget
     include Observable
     include Stats
@@ -445,11 +443,11 @@ module AvalancheMQ
     def metadata(sp) : MessageMetadata?
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
-      ts = Int64.from_io seg, BYTE_FORMAT
-      ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      pr = AMQP::Properties.from_io seg, BYTE_FORMAT
-      sz = UInt64.from_io seg, BYTE_FORMAT
+      ts = Int64.from_io seg, IO::ByteFormat::LittleEndian
+      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::LittleEndian
+      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::LittleEndian
+      pr = AMQP::Properties.from_io seg, IO::ByteFormat::LittleEndian
+      sz = UInt64.from_io seg, IO::ByteFormat::LittleEndian
       MessageMetadata.new(ts, ex, rk, pr, sz)
     rescue ex : IO::Error
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
@@ -628,11 +626,11 @@ module AvalancheMQ
     def read(sp : SegmentPosition)
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
-      ts = Int64.from_io seg, BYTE_FORMAT
-      ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      pr = AMQP::Properties.from_io seg, BYTE_FORMAT
-      sz = UInt64.from_io seg, BYTE_FORMAT
+      ts = Int64.from_io seg, IO::ByteFormat::LittleEndian
+      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::LittleEndian
+      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::LittleEndian
+      pr = AMQP::Properties.from_io seg, IO::ByteFormat::LittleEndian
+      sz = UInt64.from_io seg, IO::ByteFormat::LittleEndian
       body = seg.to_slice[seg.pos, sz]
       msg = BytesMessage.new(ts, ex, rk, pr, sz, body)
       redelivered = @requeued.includes?(sp)

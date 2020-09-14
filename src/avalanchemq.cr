@@ -147,7 +147,6 @@ macro puts_size_capacity(obj, indent = 0)
 end
 
 def report(s)
-  puts "Flow=#{s.flow?}"
   puts_size_capacity s.@users
   puts_size_capacity s.@vhosts
   s.vhosts.each do |_, vh|
