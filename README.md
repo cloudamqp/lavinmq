@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/84codes/avalanchemq/workflows/CI/badge.svg)](https://github.com/84codes/avalanchemq/actions)
+[![Build Status](https://github.com/84codes/avalanchemq/workflows/CI/badge.svg?branch=master)](https://github.com/84codes/avalanchemq/actions)
 [![Download](https://api.bintray.com/packages/cloudamqp/debian/avalanchemq/images/download.svg)](https://bintray.com/cloudamqp/debian/avalanchemq/_latestVersion)
 
 # ![AvalancheMQ](static/img/logo-avalanche-mq-black.png)
