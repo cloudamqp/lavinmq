@@ -34,7 +34,7 @@
                 <td>Reconnect delay</td>
                 <td>Ack mode</td>
                 <td>Exchange</td>
-                <td>Max hops</td>
+                <!-- <td>Max hops</td> -->
                 <td>Expiry</td>
                 <td>Message TTL</td>
                 <td>Queue</td>
@@ -106,10 +106,10 @@
             <span>Exchange</span>
             <input type="text" name="queue">
           </label>
-          <label>
+          <!-- <label>
             <span>Max hops</span>
             <input type="number" name="max-hops">
-          </label>
+          </label> -->
           <label>
             <span>Expires</span>
             <input type="number" name="expires">
@@ -164,7 +164,7 @@
         avalanchemq.table.renderCell(tr, 4, item.value['reconnect-delay'])
         avalanchemq.table.renderCell(tr, 5, item.value['ack-mode'])
         avalanchemq.table.renderCell(tr, 6, item.value.exchange)
-        avalanchemq.table.renderCell(tr, 7, item.value['max-hops'])
+        // avalanchemq.table.renderCell(tr, 7, item.value['max-hops'])
         avalanchemq.table.renderCell(tr, 8, item.value.expires)
         avalanchemq.table.renderCell(tr, 9, item.value['message-ttl'])
         avalanchemq.table.renderCell(tr, 10, item.value.queue)
@@ -207,7 +207,7 @@
             'reconnect-delay': parseInt(data.get('reconnect-delay')),
             'ack-mode': data.get('ack-mode'),
             exchange: data.get('exchange'),
-            'max-hops': data.get('max-hops'),
+            // 'max-hops': data.get('max-hops'),
             expires: data.get('expires'),
             'message-ttl': data.get('message-ttl'),
             queue: data.get('queue'),
