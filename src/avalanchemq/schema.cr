@@ -19,5 +19,11 @@ module AvalancheMQ
     def self.prefix(file)
       file.write_bytes SCHEMA_VERSION
     end
+
+    def self.verify_or_prefix(file)
+      verify(file)
+    rescue IO::EOFError
+      prefix(file)
+    end
   end
 end

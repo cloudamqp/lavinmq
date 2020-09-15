@@ -21,10 +21,12 @@ module AvalancheMQ
         Dir.mkdir @index_dir
       end
       File.write(File.join(@index_dir, ".queue"), @name)
-      @enq = File.open(File.join(@index_dir, "enq"), "a")
+      @enq = File.open(File.join(@index_dir, "enq"), "a+")
       @enq.buffer_size = Config.instance.file_buffer_size
-      @ack = File.open(File.join(@index_dir, "ack"), "a")
+      SchemaVersion.verify_or_prefix(@enq)
+      @ack = File.open(File.join(@index_dir, "ack"), "a+")
       @ack.buffer_size = Config.instance.file_buffer_size
+      SchemaVersion.verify_or_prefix(@ack)
     end
 
     private def compact_index! : Nil
@@ -148,7 +150,7 @@ module AvalancheMQ
           SchemaVersion.verify(enq)
           SchemaVersion.verify(ack)
 
-          ack_count = ack.size - sizeof(Int32) // SP_SIZE
+          ack_count = (ack.size - sizeof(Int32)) // SP_SIZE
           acked = Array(SegmentPosition).new(ack_count)
           loop do
             acked << SegmentPosition.from_io ack
