@@ -662,7 +662,7 @@ module AvalancheMQ
       punched = 0_u64
       file = nil
       prev_sp = SegmentPosition.zero
-      prev_sp_end = 0_u32
+      prev_sp_end = sizeof(Int32).to_u32 # start after schema version prefix
       @referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
@@ -689,8 +689,8 @@ module AvalancheMQ
           end
           @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
-          # punch from start of the segment
-          punched += punch_hole(file, 0, sp.position)
+          # punch from start of the segment (but not the version prefix)
+          punched += punch_hole(file, sizeof(Int32), sp.position)
         end
         prev_sp_end = sp.position + sp.bytesize
         prev_sp = sp
@@ -705,9 +705,9 @@ module AvalancheMQ
     end
 
     private def punch_hole(segment : File, start_pos : Int, end_pos : Int)
-      @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
       hole_size = end_pos - start_pos
       if hole_size > 0
+        @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
         segment.punch_hole(hole_size, start_pos)
         hole_size
       else
