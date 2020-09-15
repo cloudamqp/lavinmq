@@ -39,7 +39,6 @@ module AvalancheMQ
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
-    @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 
