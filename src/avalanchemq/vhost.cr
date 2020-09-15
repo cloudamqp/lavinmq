@@ -575,18 +575,24 @@ module AvalancheMQ
         end
       end
       ids.sort!
-      ids << 1_u32 if ids.empty?
-      segments = Hash(UInt32, MFile).new(initial_capacity: Math.pw2ceil(ids.size))
+      was_empty = ids.empty?
+      ids << 1_u32 if was_empty
+      segments = Hash(UInt32, MFile).new(initial_capacity: Math.pw2ceil(Math.max(ids.size, 16)))
       last_idx = ids.size - 1
       ids.each_with_index do |seg, idx|
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
         path = File.join(@data_dir, filename)
         file = if idx == last_idx
+                 # expand the last segment
                  MFile.new(path, Config.instance.segment_size)
                else
                  MFile.new(path)
                end
-        SchemaVersion.verify(file)
+        if was_empty
+          SchemaVersion.prefix(file)
+        else
+          SchemaVersion.verify(file)
+        end
         segments[seg] = file
       end
       segments
