@@ -10,8 +10,9 @@ module AvalancheMQ
       DIRECT_USER == name
     end
 
-    def self.init(data_dir : String, log : Logger)
-      @@instance ||= UserStore.new(data_dir, log)
+    def self.instance(data_dir : String, log : Logger)
+      @@instance = UserStore.new(data_dir, log)
+      load!
     end
 
     def self.instance
@@ -20,7 +21,6 @@ module AvalancheMQ
 
     def initialize(@data_dir : String, @log : Logger)
       @users = Hash(String, User).new
-      load!
     end
 
     forward_missing_to @users
