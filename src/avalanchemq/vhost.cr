@@ -187,11 +187,11 @@ module AvalancheMQ
         end
         @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                       size=#{msg.bytesize} sp=#{sp}" }
-        wfile.write_bytes msg.timestamp, IO::ByteFormat::LittleEndian
-        wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), IO::ByteFormat::LittleEndian
-        wfile.write_bytes AMQP::ShortString.new(msg.routing_key), IO::ByteFormat::LittleEndian
-        wfile.write_bytes msg.properties, IO::ByteFormat::LittleEndian
-        wfile.write_bytes msg.size, IO::ByteFormat::LittleEndian
+        wfile.write_bytes msg.timestamp
+        wfile.write_bytes AMQP::ShortString.new(msg.exchange_name)
+        wfile.write_bytes AMQP::ShortString.new(msg.routing_key)
+        wfile.write_bytes msg.properties
+        wfile.write_bytes msg.size
         copied = IO.copy(msg.body_io, wfile, msg.size)
         if copied != msg.size
           raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
@@ -498,19 +498,19 @@ module AvalancheMQ
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
         io.buffer_size = Config.instance.file_buffer_size
-        io.write_bytes SCHEMA_VERSION, IO::ByteFormat::LittleEndian
+        SchemaVersion.prefix io
         @exchanges.each do |_name, e|
           next unless e.durable
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
-          io.write_bytes f, IO::ByteFormat::LittleEndian
+          io.write_bytes f
         end
         @queues.each do |_name, q|
           next unless q.durable
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
-          io.write_bytes f, IO::ByteFormat::LittleEndian
+          io.write_bytes f
         end
         @exchanges.each do |_name, e|
           next unless e.durable
@@ -518,14 +518,14 @@ module AvalancheMQ
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
               f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, bt[0], false, args)
-              io.write_bytes f, IO::ByteFormat::LittleEndian
+              io.write_bytes f
             end
           end
           e.exchange_bindings.each do |bt, exchanges|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             exchanges.each do |ex|
               f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, bt[0], false, args)
-              io.write_bytes f, IO::ByteFormat::LittleEndian
+              io.write_bytes f
             end
           end
         end
@@ -558,7 +558,7 @@ module AvalancheMQ
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
-          f.write_bytes frame, IO::ByteFormat::LittleEndian
+          f.write_bytes frame
           f.fsync
         end
       end
