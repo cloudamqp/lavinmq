@@ -45,7 +45,7 @@ module TestHelpers
   end
 
   def with_channel(**args)
-    conn = AMQP::Client.new(**args.merge(port: AMQP_PORT)).connect
+    conn = AMQP::Client.new(**args.merge(port: AvalancheMQ::Config.instance.amqp_port)).connect
     ch = conn.channel
     yield ch
   ensure
@@ -82,17 +82,23 @@ module TestHelpers
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     log = Logger.new(STDERR, level: level)
     AvalancheMQ::LogFormatter.use(log)
-    AvalancheMQ::Config.instance.gc_segments_interval = 1
-    AvalancheMQ::Config.instance.queue_max_acks = 10
-    AvalancheMQ::Config.instance.segment_size = 512 * 1024
+    cfg = AvalancheMQ::Config.instance
+    cfg.gc_segments_interval = 1
+    cfg.queue_max_acks = 10
+    cfg.segment_size = 512 * 1024
+    cfg.amqp_bind = "localhost"
+    cfg.amqp_port = AMQP_PORT
+    cfg.amqps_port = AMQPS_PORT
+    cfg.http_bind = "localhost"
+    cfg.http_port = HTTP_PORT
     @@s = AvalancheMQ::Server.new(dir, log.dup)
     @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, log.dup)
-    @@h.not_nil!.bind_tcp("localhost", HTTP_PORT)
-    spawn { @@s.try &.listen("localhost", AMQP_PORT) }
+    @@h.not_nil!.bind_tcp(cfg.http_bind, cfg.http_port)
+    spawn { @@s.try &.listen(cfg.amqp_bind, cfg.amqp_port) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
     ca = Dir.current + "/spec/resources/ca_certificate.pem"
-    spawn { @@s.try &.listen_tls("localhost", AMQPS_PORT, cert, key, ca) }
+    spawn { @@s.try &.listen_tls(cfg.amqp_bind, cfg.amqps_port, cert, key, ca) }
     spawn { @@h.try &.listen }
     Fiber.yield
   end

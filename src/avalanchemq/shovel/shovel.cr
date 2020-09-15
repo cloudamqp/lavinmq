@@ -163,7 +163,7 @@ module AvalancheMQ
                      @delete_after = DEFUALT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH)
         @uri = URI.parse(raw_uri)
         cfg = Config.instance
-        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.port}"
+        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
           direct_user = UserStore.instance.direct_user
           @uri.user = direct_user.name
@@ -182,7 +182,7 @@ module AvalancheMQ
                      @exchange : String? = nil, @exchange_key : String? = nil)
         @uri = URI.parse(raw_uri)
         cfg = Config.instance
-        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.port}"
+        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
           direct_user = UserStore.instance.direct_user
           @uri.user = direct_user.name

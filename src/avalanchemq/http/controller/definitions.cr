@@ -88,7 +88,7 @@ module AvalancheMQ
         JSON.build(response) do |json|
           json.object do
             json.field("avalanchemq_version", AvalancheMQ::VERSION)
-            json.field("users", @amqp_server.users.reject { |_, u| u.hidden? })
+            json.field("users", @amqp_server.users.values.reject(&.hidden?))
             json.field("vhosts", @amqp_server.vhosts)
             json.field("queues") { export_queues(json, @amqp_server.vhosts) }
             json.field("exchanges") { export_exchanges(json, @amqp_server.vhosts) }
