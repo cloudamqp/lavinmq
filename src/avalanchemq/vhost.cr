@@ -467,7 +467,7 @@ module AvalancheMQ
         SchemaVersion.verify(io)
         loop do
           begin
-            AMQP::Frame.from_io(io, IO::ByteFormat::LittleEndian) do |frame|
+            AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |frame|
               apply frame, loading: true
             end
           rescue ex : IO::EOFError
