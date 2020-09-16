@@ -118,6 +118,7 @@ module AvalancheMQ
         @log.debug "Loading default users"
         create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
+        create_direct_user
         save!
       end
       create_direct_user
