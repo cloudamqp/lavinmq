@@ -22,7 +22,7 @@ module AvalancheMQ
     @log : Logger
     @message_ttl : ArgumentNumber?
     @max_length : ArgumentNumber?
-    @max_length_bytes: ArgumentNumber?
+    @max_length_bytes : ArgumentNumber?
     @expires : ArgumentNumber?
     @delivery_limit : ArgumentNumber?
     @dlx : String?
@@ -406,7 +406,7 @@ module AvalancheMQ
       end
 
       if mlb = @max_length_bytes
-        if @reject_on_overflow && (@ready.sum {|r| r.bytesize} + sp.bytesize) >= mlb
+        if @reject_on_overflow && (@ready.sum { |r| r.bytesize } + sp.bytesize) >= mlb
           raise RejectOverFlow.new
         end
       end
