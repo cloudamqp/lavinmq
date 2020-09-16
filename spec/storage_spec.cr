@@ -7,14 +7,14 @@ describe AvalancheMQ::DurableQueue do
     with_channel do |ch|
       q = ch.queue("d", durable: true)
       queue = s.vhosts["/"].queues["d"].as(AvalancheMQ::DurableQueue)
-      queue.enq_file_size.should eq 0
+      queue.enq_file_size.should eq sizeof(Int32)
       max_acks.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
       end
       2.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
       end
-      queue.enq_file_size.should eq((max_acks + 2) * sp_size)
+      queue.enq_file_size.should eq((max_acks + 2) * sp_size + sizeof(Int32))
       acks = 0
       q.subscribe(tag: "tag", no_ack: false, block: true) do |msg|
         msg.ack
@@ -22,11 +22,11 @@ describe AvalancheMQ::DurableQueue do
         case acks
         when max_acks - 1
           sleep 0.1
-          queue.ack_file_size.should eq (max_acks - 1) * sp_size
+          queue.ack_file_size.should eq (max_acks - 1) * sp_size + sizeof(Int32)
         when max_acks
-          sleep 0.1
-          queue.ack_file_size.should eq 0 * sp_size
-          queue.enq_file_size.should eq 2 * sp_size
+          sleep 0.2
+          queue.enq_file_size.should eq 2 * sp_size + sizeof(Int32)
+          queue.ack_file_size.should eq 0 * sp_size + sizeof(Int32)
           q.unsubscribe("tag")
         end
       end
@@ -43,19 +43,19 @@ describe AvalancheMQ::DurableQueue do
       args["x-max-length"] = 1_i64
       q = ch.queue("ml", durable: true, args: args)
       queue = s.vhosts["/"].queues["ml"].as(AvalancheMQ::DurableQueue)
-      queue.enq_file_size.should eq 0
+      queue.enq_file_size.should eq sizeof(Int32)
       max_acks.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
       end
       1.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
       end
-      queue.enq_file_size.should eq(1 * sp_size)
+      queue.enq_file_size.should eq(1 * sp_size + sizeof(Int32))
       q.subscribe(tag: "tag", no_ack: false, block: true) do |msg|
         msg.ack
         sleep 0.2
-        queue.ack_file_size.should eq 1 * sp_size
-        queue.enq_file_size.should eq 1 * sp_size
+        queue.ack_file_size.should eq 1 * sp_size + sizeof(Int32)
+        queue.enq_file_size.should eq 1 * sp_size + sizeof(Int32)
         q.unsubscribe("tag")
       end
     end

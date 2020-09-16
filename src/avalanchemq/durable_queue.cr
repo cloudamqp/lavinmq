@@ -31,41 +31,39 @@ module AvalancheMQ
 
     private def compact_index! : Nil
       @log.info { "Compacting index" }
+      @enq_lock.lock
+      @ack_lock.lock
+      i = 0
+      @enq.close
+      @enq = File.new(File.join(@index_dir, "enq.tmp"), "w")
+      @enq.buffer_size = Config.instance.file_buffer_size
+      SchemaVersion.prefix(@enq)
       @ready.locked_each do |all_ready|
-        @enq_lock.lock
-        @ack_lock.lock
-        @enq.close
-        i = 0
-        File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
-          f.buffer_size = Config.instance.file_buffer_size
-          SchemaVersion.prefix(f)
-          unacked = @unacked.all_segment_positions.sort!.each
-          next_unacked = unacked.next.as?(SegmentPosition)
-          while sp = all_ready.next.as?(SegmentPosition)
-            while next_unacked && next_unacked < sp
-              f.write_bytes next_unacked
-              i += 1
-              next_unacked = unacked.next.as?(SegmentPosition)
-            end
-            f.write_bytes sp
-            i += 1
-          end
-          while next_unacked
-            f.write_bytes next_unacked
+        unacked = @unacked.all_segment_positions.sort!.each
+        next_unacked = unacked.next.as?(SegmentPosition)
+        while sp = all_ready.next.as?(SegmentPosition)
+          while next_unacked && next_unacked < sp
+            @enq.write_bytes next_unacked
             i += 1
             next_unacked = unacked.next.as?(SegmentPosition)
           end
+          @enq.write_bytes sp
+          i += 1
         end
-
-        @log.info { "Wrote #{i} SPs to new enq file" }
-        File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-        @enq = File.open(File.join(@index_dir, "enq"), "a")
-        @enq.buffer_size = Config.instance.file_buffer_size
-        @enq.fsync(flush_metadata: true)
-        @ack.truncate
-        SchemaVersion.prefix(@ack)
-        @acks = 0_u32
+        while next_unacked
+          @enq.write_bytes next_unacked
+          i += 1
+          next_unacked = unacked.next.as?(SegmentPosition)
+        end
       end
+
+      @log.info { "Wrote #{i} SPs to new enq file" }
+      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
+      @enq.fsync(flush_metadata: true)
+
+      @ack.truncate
+      SchemaVersion.prefix(@ack)
+      @acks = 0_u32
     ensure
       @ack_lock.unlock
       @enq_lock.unlock
@@ -117,9 +115,11 @@ module AvalancheMQ
       @log.info "Purging"
       @enq_lock.synchronize do
         @enq.truncate
+        SchemaVersion.prefix(@enq)
       end
       @ack_lock.synchronize do
         @ack.truncate
+        SchemaVersion.prefix(@ack)
         @acks = 0_u32
       end
       super
