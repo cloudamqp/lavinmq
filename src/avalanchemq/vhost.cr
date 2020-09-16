@@ -605,15 +605,15 @@ module AvalancheMQ
         elapsed = Time.measure do
           collect_sps
         end
-        @log.info { "GC segments, collecting sps took #{elapsed.total_milliseconds} ms" }
+        @log.info { "GC segments, collecting sps took #{elapsed.total_milliseconds} ms" } if elapsed.total_milliseconds > 10 
         elapsed = Time.measure do
           delete_unused_segments
         end
-        @log.info { "GC segments, delete unused segs took #{elapsed.total_milliseconds} ms" }
+        @log.info { "GC segments, delete unused segs took #{elapsed.total_milliseconds} ms" } if elapsed.total_milliseconds > 10 
         elapsed = Time.measure do
           hole_punch_segments
         end
-        @log.info { "GC segments, hole punching took #{elapsed.total_milliseconds} ms" }
+        @log.info { "GC segments, hole punching took #{elapsed.total_milliseconds} ms" } if elapsed.total_milliseconds > 10 
         if @referenced_sps.capacity > @referenced_sps.size * 2
           # if less than half the capacity is used, recreate to reclaim RAM
           capacity = Math.max(1_000_000, @referenced_sps.size)
