@@ -165,10 +165,10 @@
         avalanchemq.table.renderCell(tr, 5, item.value['ack-mode'])
         avalanchemq.table.renderCell(tr, 6, item.value.exchange)
         // avalanchemq.table.renderCell(tr, 7, item.value['max-hops'])
-        avalanchemq.table.renderCell(tr, 8, item.value.expires)
-        avalanchemq.table.renderCell(tr, 9, item.value['message-ttl'])
-        avalanchemq.table.renderCell(tr, 10, item.value.queue)
-        avalanchemq.table.renderCell(tr, 11, item.value['consumer-tag'])
+        avalanchemq.table.renderCell(tr, 7, item.value.expires)
+        avalanchemq.table.renderCell(tr, 8, item.value['message-ttl'])
+        avalanchemq.table.renderCell(tr, 9, item.value.queue)
+        avalanchemq.table.renderCell(tr, 10, item.value['consumer-tag'])
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
@@ -182,14 +182,14 @@
               avalanchemq.dom.removeNodes(tr)
             }).catch(avalanchemq.http.standardErrorHandler)
         }
-        avalanchemq.table.renderCell(tr, 7, btn, 'right')
+        avalanchemq.table.renderCell(tr, 11, btn, 'right')
       })
 
       const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }
       avalanchemq.table.renderTable('linksTable', linksOpts, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri.replace(/:([^:]+)@/, ':***@')))
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri))
         avalanchemq.table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
         avalanchemq.table.renderCell(tr, 4, item.timestamp)
       })

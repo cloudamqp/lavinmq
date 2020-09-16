@@ -27,7 +27,7 @@ module AvalancheMQ
           @local_uri = URI.parse(url)
           uri = @upstream.uri
           ui = uri.userinfo
-          @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub(ui, "")
+          @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub("#{ui}@", "")
         end
 
         def state
