@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clear all user permissions to a vhost when it's deleted
 
 ### Added
+- Support for exchange federation
 - Support for priority queues
 - max-length-bytes supported as queue argument and policy
 - UI: Shows bytes of messages a queue hold
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented how persistent exchange works in the readme
 
 ### Changed
+- On-disk file formats has changed so previous data directories are incompatible with this version
 - Decreased memory usage and increased performance by reimplemented segment GC
 - Only listen on localhost by default
 - DEB packages are distributed via packagecloud.io
