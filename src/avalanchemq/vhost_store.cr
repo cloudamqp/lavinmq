@@ -33,12 +33,11 @@ module AvalancheMQ
       vhost
     end
 
-    def delete(name) : VHost?
+    def delete(name) : Nil
       if vhost = @vhosts.delete name
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
         save!
-        vhost
       end
     ensure
       GC.collect
