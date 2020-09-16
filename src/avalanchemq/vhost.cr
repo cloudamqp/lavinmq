@@ -15,11 +15,10 @@ require "digest/sha1"
 require "./reference_counter"
 require "./mfile"
 require "./queue_factory"
+require "./schema"
 
 module AvalancheMQ
   class VHost
-    BYTE_FORMAT = Config.instance.byte_format
-
     include SortableJSON
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
@@ -38,7 +37,7 @@ module AvalancheMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @fsync = false
-    @connections = Array(Client).new
+    @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream x-delayed-message)
 
@@ -188,11 +187,11 @@ module AvalancheMQ
         end
         @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                       size=#{msg.bytesize} sp=#{sp}" }
-        wfile.write_bytes msg.timestamp, BYTE_FORMAT
-        wfile.write_bytes AMQP::ShortString.new(msg.exchange_name), BYTE_FORMAT
-        wfile.write_bytes AMQP::ShortString.new(msg.routing_key), BYTE_FORMAT
-        wfile.write_bytes msg.properties, BYTE_FORMAT
-        wfile.write_bytes msg.size, BYTE_FORMAT
+        wfile.write_bytes msg.timestamp
+        wfile.write_bytes AMQP::ShortString.new(msg.exchange_name)
+        wfile.write_bytes AMQP::ShortString.new(msg.routing_key)
+        wfile.write_bytes msg.properties
+        wfile.write_bytes msg.size
         copied = IO.copy(msg.body_io, wfile, msg.size)
         if copied != msg.size
           raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
@@ -202,18 +201,16 @@ module AvalancheMQ
       end
     end
 
-    private def open_new_segment(next_msg_size = 0)
+    private def open_new_segment(next_msg_size = 0) : MFile
       fsync
-      @wfile = open_wfile(next_msg_size)
-    end
-
-    private def open_wfile(next_msg_size = 0) : MFile
       next_id = @segments.empty? ? 1_u32 : @segments.last_key + 1
       @log.debug { "Opening message store segment #{next_id}" }
       filename = "msgs.#{next_id.to_s.rjust(10, '0')}"
       path = File.join(@data_dir, filename)
       capacity = Config.instance.segment_size + next_msg_size
-      @segments[next_id] = MFile.new(path, capacity)
+      wfile = MFile.new(path, capacity)
+      SchemaVersion.prefix(wfile)
+      @wfile = @segments[next_id] = wfile
     end
 
     def segment_file(id : UInt32) : MFile
@@ -467,9 +464,10 @@ module AvalancheMQ
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         io.buffer_size = Config.instance.file_buffer_size
         io.advise(File::Advice::Sequential)
+        SchemaVersion.verify(io)
         loop do
           begin
-            AMQP::Frame.from_io(io, BYTE_FORMAT) do |frame|
+            AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |frame|
               apply frame, loading: true
             end
           rescue ex : IO::EOFError
@@ -500,18 +498,19 @@ module AvalancheMQ
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
         io.buffer_size = Config.instance.file_buffer_size
+        SchemaVersion.prefix io
         @exchanges.each do |_name, e|
           next unless e.durable
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
-          io.write_bytes f, BYTE_FORMAT
+          io.write_bytes f
         end
         @queues.each do |_name, q|
           next unless q.durable
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
-          io.write_bytes f, BYTE_FORMAT
+          io.write_bytes f
         end
         @exchanges.each do |_name, e|
           next unless e.durable
@@ -519,19 +518,18 @@ module AvalancheMQ
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
               f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, bt[0], false, args)
-              io.write_bytes f, BYTE_FORMAT
+              io.write_bytes f
             end
           end
           e.exchange_bindings.each do |bt, exchanges|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             exchanges.each do |ex|
               f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, bt[0], false, args)
-              io.write_bytes f, BYTE_FORMAT
+              io.write_bytes f
             end
           end
         end
         io.fsync
-        io.advise(File::Advice::DontNeed)
       end
       File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
     end
@@ -560,7 +558,7 @@ module AvalancheMQ
           else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
           end
           @log.debug { "Storing definition: #{frame.inspect}" }
-          f.write_bytes frame, BYTE_FORMAT
+          f.write_bytes frame
           f.fsync
         end
       end
@@ -577,17 +575,25 @@ module AvalancheMQ
         end
       end
       ids.sort!
-      ids << 1_u32 if ids.empty?
-      segments = Hash(UInt32, MFile).new(initial_capacity: Math.pw2ceil(ids.size))
+      was_empty = ids.empty?
+      ids << 1_u32 if was_empty
+      segments = Hash(UInt32, MFile).new(initial_capacity: Math.pw2ceil(Math.max(ids.size, 16)))
       last_idx = ids.size - 1
       ids.each_with_index do |seg, idx|
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
         path = File.join(@data_dir, filename)
-        if idx == last_idx
-          segments[seg] = MFile.new(path, Config.instance.segment_size)
+        file = if idx == last_idx
+                 # expand the last segment
+                 MFile.new(path, Config.instance.segment_size)
+               else
+                 MFile.new(path)
+               end
+        if was_empty
+          SchemaVersion.prefix(file)
         else
-          segments[seg] = MFile.new(path)
+          SchemaVersion.verify(file)
         end
+        segments[seg] = file
       end
       segments
     end
@@ -656,7 +662,7 @@ module AvalancheMQ
       punched = 0_u64
       file = nil
       prev_sp = SegmentPosition.zero
-      prev_sp_end = 0_u32
+      prev_sp_end = sizeof(Int32).to_u32 # start after schema version prefix
       @referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
@@ -683,8 +689,8 @@ module AvalancheMQ
           end
           @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
-          # punch from start of the segment
-          punched += punch_hole(file, 0, sp.position)
+          # punch from start of the segment (but not the version prefix)
+          punched += punch_hole(file, sizeof(Int32), sp.position)
         end
         prev_sp_end = sp.position + sp.bytesize
         prev_sp = sp
@@ -699,9 +705,9 @@ module AvalancheMQ
     end
 
     private def punch_hole(segment : File, start_pos : Int, end_pos : Int)
-      @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
       hole_size = end_pos - start_pos
       if hole_size > 0
+        @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
         segment.punch_hole(hole_size, start_pos)
         hole_size
       else

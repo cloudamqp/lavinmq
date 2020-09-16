@@ -1,5 +1,6 @@
 require "file_utils"
 require "./queue"
+require "./schema"
 
 module AvalancheMQ
   class DurableQueue < Queue
@@ -20,8 +21,12 @@ module AvalancheMQ
         Dir.mkdir @index_dir
       end
       File.write(File.join(@index_dir, ".queue"), @name)
-      @enq = File.open(File.join(@index_dir, "enq"), "a")
-      @ack = File.open(File.join(@index_dir, "ack"), "a")
+      @enq = File.open(File.join(@index_dir, "enq"), "a+")
+      @enq.buffer_size = Config.instance.file_buffer_size
+      SchemaVersion.verify_or_prefix(@enq)
+      @ack = File.open(File.join(@index_dir, "ack"), "a+")
+      @ack.buffer_size = Config.instance.file_buffer_size
+      SchemaVersion.verify_or_prefix(@ack)
     end
 
     private def compact_index! : Nil
@@ -32,6 +37,8 @@ module AvalancheMQ
         @enq.close
         i = 0
         File.open(File.join(@index_dir, "enq.tmp"), "w") do |f|
+          f.buffer_size = Config.instance.file_buffer_size
+          SchemaVersion.prefix(f)
           unacked = @unacked.all_segment_positions.sort!.each
           next_unacked = unacked.next.as?(SegmentPosition)
           while sp = all_ready.next.as?(SegmentPosition)
@@ -53,8 +60,10 @@ module AvalancheMQ
         @log.info { "Wrote #{i} SPs to new enq file" }
         File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
         @enq = File.open(File.join(@index_dir, "enq"), "a")
+        @enq.buffer_size = Config.instance.file_buffer_size
         @enq.fsync(flush_metadata: true)
         @ack.truncate
+        SchemaVersion.prefix(@ack)
         @acks = 0_u32
       end
     ensure
@@ -128,16 +137,21 @@ module AvalancheMQ
       @ack.fsync(flush_metadata: false)
     end
 
+    SP_SIZE = SegmentPosition::BYTESIZE
+
     private def restore_index : Nil
       @log.info "Restoring index"
-      sp_size = SegmentPosition::BYTESIZE
-
       File.open(File.join(@index_dir, "enq")) do |enq|
         File.open(File.join(@index_dir, "ack")) do |ack|
           enq.buffer_size = Config.instance.file_buffer_size
           ack.buffer_size = Config.instance.file_buffer_size
+          enq.advise(File::Advice::Sequential)
+          ack.advise(File::Advice::Sequential)
+          SchemaVersion.verify(enq)
+          SchemaVersion.verify(ack)
 
-          acked = Array(SegmentPosition).new(ack.size // sp_size)
+          ack_count = (ack.size - sizeof(Int32)) // SP_SIZE
+          acked = Array(SegmentPosition).new(ack_count)
           loop do
             acked << SegmentPosition.from_io ack
             @acks += 1
@@ -147,7 +161,8 @@ module AvalancheMQ
           acked.sort!
           # to avoid repetetive allocations in Dequeue#increase_capacity
           # we redeclare the ready queue with a larger initial capacity
-          capacity = Math.max(enq.size.to_i64 - ack.size, 1024 * sp_size) // sp_size
+          enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
+          capacity = Math.max(enq_count, 1024)
           @ready = ReadyQueue.new Math.pw2ceil(capacity)
           loop do
             sp = SegmentPosition.from_io enq

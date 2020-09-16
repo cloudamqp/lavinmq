@@ -26,7 +26,6 @@ module AvalancheMQ
     property file_buffer_size = 16384            # byte
     property socket_buffer_size = 16384          # byte
     property tcp_nodelay = false                 # bool
-    property byte_format : IO::ByteFormat = IO::ByteFormat::NetworkEndian
 
     @@instance : Config = self.new
 
@@ -46,60 +45,69 @@ module AvalancheMQ
           parse_amqp(settings)
         when "mgmt", "http"
           parse_mgmt(settings)
+        else
+          raise "Unrecognized config section: #{section}"
         end
       end
     end
 
     private def parse_main(settings)
-      settings["data_dir"]?.try { |v| @data_dir = v }
-      settings["byte_format"]?.try { |v| @byte_format = parse_byte_format(v) }
-      settings["log_level"]?.try { |v| @log_level = Logger::Severity.parse(v) }
-      settings["stats_interval"]?.try { |v| @stats_interval = v.to_i32 }
-      settings["stats_log_size"]?.try { |v| @stats_log_size = v.to_i32 }
-      settings["gc_segments_interval"]?.try { |v| @gc_segments_interval = v.to_i32 }
-      settings["segment_size"]?.try { |v| @segment_size = v.to_i32 }
-      settings["queue_max_acks"]?.try { |v| @queue_max_acks = v.to_i32 }
-      settings["set_timestamp"]?.try { |v| @set_timestamp = true?(v) }
-      settings["file_buffer_size"]?.try { |v| @file_buffer_size = v.to_i32 }
-      settings["socket_buffer_size"]?.try { |v| @socket_buffer_size = v.to_i32 }
-      settings["tcp_nodelay"]?.try { |v| @tcp_nodelay = true?(v) }
-      settings["tls_cert"]?.try { |v| @cert_path = v }
-      settings["tls_key"]?.try { |v| @key_path = v }
+      settings.each do |config, v|
+        case config
+        when "data_dir" then @data_dir = v
+        when "log_level" then @log_level = Logger::Severity.parse(v)
+        when "stats_interval" then @stats_interval = v.to_i32
+        when "stats_log_size" then @stats_log_size = v.to_i32
+        when "gc_segments_interval" then @gc_segments_interval = v.to_i32
+        when "segment_size" then @segment_size = v.to_i32
+        when "queue_max_acks" then @queue_max_acks = v.to_i32
+        when "set_timestamp" then @set_timestamp = true?(v)
+        when "file_buffer_size" then @file_buffer_size = v.to_i32
+        when "socket_buffer_size" then @socket_buffer_size = v.to_i32
+        when "tcp_nodelay" then @tcp_nodelay = true?(v)
+        when "tls_cert" then @cert_path = v
+        when "tls_key" then @key_path = v
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
+        end
+      end
     end
 
     private def parse_amqp(settings)
-      settings["bind"]?.try { |v| @amqp_bind = v }
-      settings["port"]?.try { |v| @amqp_port = v.to_i32 }
-      settings["tls_port"]?.try { |v| @amqps_port = v.to_i32 }
-      settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
-      settings["tls_key"]?.try { |v| @key_path = v }   # backward compatibility
-      settings["unix_path"]?.try { |v| @unix_path = v }
-      settings["heartbeat"]?.try { |v| @heartbeat = v.to_u16 }
-      settings["channel_max"]?.try { |v| @channel_max = v.to_u16 }
-      settings["frame_max"]?.try { |v| @frame_max = v.to_u32 }
+      settings.each do |config, v|
+        case config
+        when "bind" then @amqp_bind = v
+        when "port" then @amqp_port = v.to_i32
+        when "tls_port" then @amqps_port = v.to_i32
+        when "tls_cert" then @cert_path = v # backward compatibility
+        when "tls_key" then @key_path = v   # backward compatibility
+        when "unix_path" then @unix_path = v
+        when "heartbeat" then @heartbeat = v.to_u16
+        when "channel_max" then @channel_max = v.to_u16
+        when "frame_max" then @frame_max = v.to_u32
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
+        end
+      end
     end
 
     private def parse_mgmt(settings)
-      settings["bind"]?.try { |v| @http_bind = v }
-      settings["port"]?.try { |v| @http_port = v.to_i32 }
-      settings["tls_port"]?.try { |v| @https_port = v.to_i32 }
-      settings["tls_cert"]?.try { |v| @cert_path = v } # backward compatibility
-      settings["tls_key"]?.try { |v| @key_path = v }   # backward compatibility
-      settings["unix_path"]?.try { |v| @http_unix_path = v }
+      settings.each do |config, v|
+        case config
+        when "bind" then @http_bind = v
+        when "port" then @http_port = v.to_i32
+        when "tls_port" then @https_port = v.to_i32
+        when "tls_cert" then @cert_path = v # backward compatibility
+        when "tls_key" then @key_path = v   # backward compatibility
+        when "unix_path" then @http_unix_path = v
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
+        end
+      end
     end
 
     private def true?(str : String?)
       {"true", "yes", "y", "1"}.includes? str
-    end
-
-    private def parse_byte_format(str : String?)
-      case str
-      when /little/i  then IO::ByteFormat::LittleEndian
-      when /big/i     then IO::ByteFormat::BigEndian
-      when /network/i then IO::ByteFormat::NetworkEndian
-      when /system/i  then IO::ByteFormat::SystemEndian
-      else                 raise "Failed to parse byte format: #{str}"
-      end
     end
   end
 end

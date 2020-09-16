@@ -13,8 +13,6 @@ require "./client/channel"
 
 module AvalancheMQ
   class Queue
-    BYTE_FORMAT = Config.instance.byte_format
-
     include PolicyTarget
     include Observable
     include Stats
@@ -41,7 +39,6 @@ module AvalancheMQ
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
-    @segment_pos = Hash(UInt32, UInt32).new { 0_u32 }
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 
@@ -445,11 +442,11 @@ module AvalancheMQ
     def metadata(sp) : MessageMetadata?
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
-      ts = Int64.from_io seg, BYTE_FORMAT
-      ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      pr = AMQP::Properties.from_io seg, BYTE_FORMAT
-      sz = UInt64.from_io seg, BYTE_FORMAT
+      ts = Int64.from_io seg, IO::ByteFormat::SystemEndian
+      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
+      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
+      pr = AMQP::Properties.from_io seg, IO::ByteFormat::SystemEndian
+      sz = UInt64.from_io seg, IO::ByteFormat::SystemEndian
       MessageMetadata.new(ts, ex, rk, pr, sz)
     rescue ex : IO::Error
       @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
@@ -628,11 +625,11 @@ module AvalancheMQ
     def read(sp : SegmentPosition)
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
-      ts = Int64.from_io seg, BYTE_FORMAT
-      ex = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      rk = AMQP::ShortString.from_io seg, BYTE_FORMAT
-      pr = AMQP::Properties.from_io seg, BYTE_FORMAT
-      sz = UInt64.from_io seg, BYTE_FORMAT
+      ts = Int64.from_io seg, IO::ByteFormat::SystemEndian
+      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
+      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
+      pr = AMQP::Properties.from_io seg, IO::ByteFormat::SystemEndian
+      sz = UInt64.from_io seg, IO::ByteFormat::SystemEndian
       body = seg.to_slice[seg.pos, sz]
       msg = BytesMessage.new(ts, ex, rk, pr, sz, body)
       redelivered = @requeued.includes?(sp)
