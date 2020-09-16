@@ -88,7 +88,7 @@ module AvalancheMQ
         JSON.build(response) do |json|
           json.object do
             json.field("avalanchemq_version", AvalancheMQ::VERSION)
-            json.field("users", @amqp_server.users)
+            json.field("users", @amqp_server.users.values.reject(&.hidden?))
             json.field("vhosts", @amqp_server.vhosts)
             json.field("queues") { export_queues(json, @amqp_server.vhosts) }
             json.field("exchanges") { export_exchanges(json, @amqp_server.vhosts) }
@@ -300,7 +300,7 @@ module AvalancheMQ
 
       private def export_permissions(json)
         json.array do
-          @amqp_server.users.each_value do |u|
+          @amqp_server.users.each_value.reject(&.hidden?).each do |u|
             u.permissions_details.each do |p|
               p.to_json(json)
             end

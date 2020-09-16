@@ -21,8 +21,8 @@ module AvalancheMQ
       private def register_routes
         get "/api/permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          itr = @amqp_server.users
-            .flat_map { |_, u| u.permissions.map { |vhost, p| PermissionsView.new(u, vhost, p) } }
+          itr = @amqp_server.users.each_value.reject(&.hidden?)
+            .flat_map { |u| u.permissions.map { |vhost, p| PermissionsView.new(u, vhost, p) } }
             .each
           page(context, itr)
         end

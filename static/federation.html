@@ -33,7 +33,12 @@
                 <td>Prefetch</td>
                 <td>Reconnect delay</td>
                 <td>Ack mode</td>
+                <td>Exchange</td>
+                <!-- <td>Max hops</td> -->
+                <td>Expiry</td>
+                <td>Message TTL</td>
                 <td>Queue</td>
+                <td>Consumer Tag</td>
                 <td></td>
               </tr>
             </thead>
@@ -64,38 +69,67 @@
       </section>
       <form method="put" id="createUpstream" class="form card">
         <h3>Add a new upstream</h3>
-        <label>
-          <span>Virtual host</span>
-          <select name="vhost" required></select>
-        </label>
-        <label>
-          <span>Name</span>
-          <input type="text" name="name" required>
-        </label>
-        <label>
-          <span>URI</span>
-          <input type="text" name="uri" required value="amqp://">
-        </label>
-        <label>
-          <span>Prefetch</span>
-          <input type="number" name="prefetch-count" value="1000">
-        </label>
-        <label>
-          <span>Reconnect delay</span>
-          <input type="number" name="reconnect-delay" value="5">
-        </label>
-        <label>
-          <span>Ack mode</span>
-          <select name="ack-mode" required>
-            <option value="on-confirm" selected>On confirm</option>
-            <option value="on-publish">On publish</option>
-            <option value="no-ack">No ack</option>
-          </select>
-        </label>
-        <label>
-          <span>Queue</span>
-          <input type="text" name="queue">
-        </label>
+        <fieldset>
+          <legend>General paramenters</legend>
+          <label>
+            <span>Virtual host</span>
+            <select name="vhost" required></select>
+          </label>
+          <label>
+            <span>Name</span>
+            <input type="text" name="name" required>
+          </label>
+          <label>
+            <span>URI</span>
+            <input type="text" name="uri" required value="amqp://">
+          </label>
+          <label>
+            <span>Prefetch</span>
+            <input type="number" name="prefetch-count" value="1000">
+          </label>
+          <label>
+            <span>Reconnect delay</span>
+            <input type="number" name="reconnect-delay" value="5">
+          </label>
+          <label>
+            <span>Ack mode</span>
+            <select name="ack-mode" required>
+              <option value="on-confirm" selected>On confirm</option>
+              <option value="on-publish">On publish</option>
+              <option value="no-ack">No ack</option>
+            </select>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Federated exchange parameters</legend>
+          <label>
+            <span>Exchange</span>
+            <input type="text" name="queue">
+          </label>
+          <!-- <label>
+            <span>Max hops</span>
+            <input type="number" name="max-hops">
+          </label> -->
+          <label>
+            <span>Expires</span>
+            <input type="number" name="expires">
+          </label>
+          <label>
+            <span>Message TTL</span>
+            <input type="number" name="message-ttl">
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Federated queue parameters</legend>
+          <label>
+            <span>Queue</span>
+            <input type="text" name="queue">
+          </label>
+          <label>
+            <span>Consumer tag</span>
+            <input type="text" name="consumer-tag">
+          </label>
+        </fieldset>
         <button type="submit" class="btn-primary">Add upstream</button>
       </form>
     </main>
@@ -129,7 +163,12 @@
         avalanchemq.table.renderCell(tr, 3, item.value['prefetch-count'])
         avalanchemq.table.renderCell(tr, 4, item.value['reconnect-delay'])
         avalanchemq.table.renderCell(tr, 5, item.value['ack-mode'])
-        avalanchemq.table.renderCell(tr, 6, item.value.queue)
+        avalanchemq.table.renderCell(tr, 6, item.value.exchange)
+        // avalanchemq.table.renderCell(tr, 7, item.value['max-hops'])
+        avalanchemq.table.renderCell(tr, 7, item.value.expires)
+        avalanchemq.table.renderCell(tr, 8, item.value['message-ttl'])
+        avalanchemq.table.renderCell(tr, 9, item.value.queue)
+        avalanchemq.table.renderCell(tr, 10, item.value['consumer-tag'])
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
@@ -143,14 +182,14 @@
               avalanchemq.dom.removeNodes(tr)
             }).catch(avalanchemq.http.standardErrorHandler)
         }
-        avalanchemq.table.renderCell(tr, 7, btn, 'right')
+        avalanchemq.table.renderCell(tr, 11, btn, 'right')
       })
 
       const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }
       avalanchemq.table.renderTable('linksTable', linksOpts, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri.replace(/:([^:]+)@/, ':***@')))
+        avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri))
         avalanchemq.table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
         avalanchemq.table.renderCell(tr, 4, item.timestamp)
       })
@@ -167,7 +206,12 @@
             'prefetch-count': parseInt(data.get('prefetch-count')),
             'reconnect-delay': parseInt(data.get('reconnect-delay')),
             'ack-mode': data.get('ack-mode'),
-            queue: data.get('queue')
+            exchange: data.get('exchange'),
+            // 'max-hops': data.get('max-hops'),
+            expires: data.get('expires'),
+            'message-ttl': data.get('message-ttl'),
+            queue: data.get('queue'),
+            'consumer-tag': data.get('consumer-tag')
           }
         }
         avalanchemq.http.request('PUT', url, { body })

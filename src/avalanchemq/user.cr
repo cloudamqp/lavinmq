@@ -17,14 +17,15 @@ module AvalancheMQ
 
   class User
     include SortableJSON
-    getter name, password, permissions, hash_algorithm, tags
-    setter tags
+    getter name, password, permissions, hash_algorithm
+    property tags, plain_text_password
     alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
 
     @name : String
     @hash_algorithm : String
     @permissions = Hash(String, Permissions).new
     @password = nil
+    @plain_text_password : String?
     @tags = Array(Tag).new
 
     def initialize(pull : JSON::PullParser)
@@ -65,12 +66,24 @@ module AvalancheMQ
       end
     end
 
+    def self.create_hidden_user(name)
+      password = Random.new.urlsafe_base64(32)
+      password_hash = hash_password(password, "Bcrypt")
+      user = self.new(name, password_hash, [Tag::Administrator])
+      user.plain_text_password = password
+      user
+    end
+
     def initialize(@name, password_hash, @hash_algorithm, @tags)
       update_password_hash(password_hash, @hash_algorithm)
     end
 
     def initialize(@name, @password, @tags)
       @hash_algorithm = hash_algorithm(@password.to_s)
+    end
+
+    def hidden?
+      UserStore.hidden?(@name)
     end
 
     def update_password_hash(password_hash, hash_algorithm)
@@ -178,7 +191,7 @@ module AvalancheMQ
           when "config" then config = Regex.from_json(pull)
           when "read"   then read = Regex.from_json(pull)
           when "write"  then write = Regex.from_json(pull)
-          else nil
+          else               nil
           end
         end
         @permissions[vhost] = {config: config, read: read, write: write}

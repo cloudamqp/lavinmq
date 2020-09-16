@@ -1,41 +1,163 @@
 require "../observable"
-require "./publisher"
-require "./consumer"
-require "./queue_upstream"
-require "./exchange_upstream"
+require "amqp-client"
 require "../sortable_json"
 
 module AvalancheMQ
   module Federation
     class Upstream
-      class Link
+      abstract class Link
         include Observer
         include SortableJSON
-        getter connected_at
+        getter last_changed, error
 
-        @publisher : Publisher?
-        @consumer : Consumer?
         @state = 0_u8
         @consumer_available = Channel(Nil).new
-        @done = Channel(Nil).new
-        @connected_at : Int64?
+        @last_changed : Int64?
+        @state = State::Terminated
+        @stop = ::Channel(Exception).new
+        @error : String?
+        @scrubbed_uri : String
 
-        def initialize(@upstream : QueueUpstream, @federated_q : Queue, @log : Logger)
-          @log.progname += " link=#{@federated_q.name}"
-          @federated_q.register_observer(self)
-          @consumer_available.send(nil) if @federated_q.immediate_delivery?
+        def initialize(@upstream : Upstream, @log : Logger)
+          user = UserStore.instance.direct_user
+          vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
+          port = Config.instance.amqp_port
+          host = Config.instance.amqp_bind
+          url = "amqp://#{user.name}:#{user.plain_text_password}@#{host}:#{port}/#{vhost}"
+          @local_uri = URI.parse(url)
+          uri = @upstream.uri
+          ui = uri.userinfo
+          @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub("#{ui}@", "")
         end
 
         def state
           @state.to_s
         end
 
-        def name
+        def running?
+          @state == State::Running
+        end
+
+        def details_tuple
+          {
+            upstream:       @upstream.name,
+            vhost:          @upstream.vhost.name,
+            timestamp:      @last_changed ? Time.unix_ms(@last_changed.not_nil!) : nil,
+            type:           self.is_a?(QueueLink) ? "queue" : "exchange",
+            uri:            @scrubbed_uri,
+            resource:       name,
+            error:          @error,
+            status:         @state.to_s.downcase,
+            "consumer-tag": @upstream.consumer_tag,
+          }
+        end
+
+        def run
+          @log.info { "Starting" }
+          @state = State::Starting
+          spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
+          Fiber.yield
+        end
+
+        def terminated?
+          @state == State::Terminated
+        end
+
+        # Does not trigger reconnect, but a graceful close
+        def terminate
+          return if terminated?
+          @stop.close
+          @log.info { "Terminated" }
+        end
+
+        private def run_loop
+          loop do
+            @state = State::Starting
+            start_link
+            break
+          rescue ex
+            @state = State::Stopped
+            @last_changed = nil
+            @error = ex.message
+            @log.error { "Federation link error: #{ex.message}" }
+            select
+            when @stop.receive?
+              break
+            when timeout @upstream.reconnect_delay.seconds
+              @log.info { "Federation try reconnect" }
+            end
+          end
+          @log.info { "Federation link stopped" }
+        ensure
+          @last_changed = nil
+          @state = State::Terminated
+        end
+
+        private def federate(msg, pch, exchange, routing_key)
+          msgid = pch.basic_publish(msg.body_io, exchange, routing_key)
+          @log.debug { "Federating msgid=#{msgid} routing_key=#{routing_key}" }
+          should_multi_ack = msgid % (@upstream.prefetch / 2).ceil.to_i == 0
+          if should_multi_ack
+            case @upstream.ack_mode
+            when AckMode::OnConfirm
+              pch.wait_for_confirm(msgid)
+              msg.ack(multiple: true)
+            when AckMode::OnPublish
+              msg.ack(multiple: true)
+            when AckMode::NoAck
+              nil
+            end
+          end
+        rescue ex
+          @stop.send ex unless @stop.closed?
+        end
+
+        private def try_passive(client, ch = nil)
+          ch ||= client.channel
+          {ch, yield(ch, true)}
+        rescue ::AMQP::Client::Channel::ClosedException
+          ch = client.channel
+          {ch, yield(ch, false)}
+        end
+
+        private def received_from_header(msg)
+          headers = msg.properties.headers || ::AMQP::Client::Arguments.new
+          received_from = headers["x-received-from"]?.try(&.as?(Array(::AMQP::Client::Arguments)))
+          received_from ||= Array(::AMQP::Client::Arguments).new(1)
+          {headers, received_from}
+        end
+
+        abstract def name : String
+        abstract def on(event : Symbol, data : Object)
+        private abstract def start_link
+        private abstract def unregister_observer
+
+        enum State
+          Starting
+          Running
+          Stopped
+          Terminated
+          Error
+        end
+      end
+
+      class QueueLink < Link
+        EXCHANGE = ""
+
+        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String, @log : Logger)
+          @log.progname += " link=#{@federated_q.name}"
+          @federated_q.register_observer(self)
+          @consumer_available.send(nil) if @federated_q.immediate_delivery?
+          super(@upstream, @log)
+        end
+
+        def name : String
           @federated_q.name
         end
 
         def on(event, data)
           @log.debug { "event=#{event} data=#{data}" }
+          return if terminated?
           case event
           when :delete, :close
             @upstream.stop_link(@federated_q)
@@ -47,87 +169,171 @@ module AvalancheMQ
           end
         end
 
-        def details_tuple
-          {
-            upstream:  @upstream.name,
-            vhost:     @upstream.vhost.name,
-            timestamp: @connected_at ? Time.unix_ms(@connected_at.not_nil!) : nil,
-            type:      @upstream.is_a?(QueueUpstream) ? "queue" : "exchange",
-            uri:       @upstream.uri.to_s,
-            resource:  @federated_q.name,
-          }
-        end
-
-        def run
-          @log.info { "Starting" }
-          spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{@federated_q.name}")
-          Fiber.yield
-        end
-
-        private def run_loop
-          loop do
-            break if stopped?
-            @state = State::Starting
-            if !@federated_q.immediate_delivery?
-              @log.debug { "Waiting for consumers" }
-              @consumer_available.receive?
-              break if stopped?
-            end
-            @publisher = Publisher.new(@upstream, @federated_q)
-            @consumer = Consumer.new(@upstream)
-            p = @publisher.not_nil!
-            c = @consumer.not_nil!
-            c.on_frame { |f| p.forward f }
-            p.on_frame { |f| c.forward f }
-            p.run
-            c.run
-            @state = State::Running
-            @connected_at = Time.utc.to_unix_ms
-            @done.receive
-            break
-          rescue ex
-            @connected_at = nil
-            case ex
-            when AMQP::Error::FrameDecode, Connection::UnexpectedFrame
-              @log.warn { "Federation link failure: #{ex.cause.inspect}" }
-            else
-              @log.warn { "Federation link: #{ex.inspect_with_backtrace}" }
-            end
-            @consumer.try &.close("Federation link stopped")
-            @publisher.try &.close("SFederation link stopped")
-            break if stopped?
-            sleep @upstream.reconnect_delay.seconds
-          end
-          @log.info { "Federation link stopped" }
-        ensure
-          @connected_at = nil
-        end
-
-        # Does not trigger reconnect, but a graceful close
-        def stop
-          @log.info { "Stopping" }
-          @state = State::Terminated
+        private def unregister_observer
           @federated_q.unregister_observer(self)
-          @consumer.try &.close("Federation link stopped")
-          @publisher.try &.close("Federation link stopped")
-          done!
         end
 
-        def stopped?
-          @state == State::Terminated
-        end
-
-        private def done!
-          select
-          when @done.send(nil)
-          else
+        private def setup_queue(upstream_client)
+          try_passive(upstream_client) do |ch, passive|
+            ch.queue_declare(@upstream_q, passive: passive)
           end
         end
 
-        enum State
-          Starting
-          Running
-          Terminated
+        private def start_link
+          return if terminated?
+          ::AMQP::Client.start(@upstream.uri) do |c|
+            ::AMQP::Client.start(@local_uri) do |p|
+              cch, q = setup_queue(c)
+              cch.prefetch(count: @upstream.prefetch)
+              pch = p.channel
+              pch.confirm_select if @upstream.ack_mode == AckMode::OnConfirm
+              no_ack = @upstream.ack_mode == AckMode::NoAck
+              @state = State::Running
+              @last_changed = Time.utc.to_unix_ms
+              @log.debug { "Running" }
+              unless @federated_q.immediate_delivery?
+                @log.debug { "Waiting for consumers" }
+                @consumer_available.receive?
+              end
+              q_name = q[:queue_name]
+              cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
+                headers, received_from = received_from_header(msg)
+                received_from << ::AMQP::Client::Arguments.new({
+                  "uri"         => @scrubbed_uri,
+                  "queue"       => q_name,
+                  "redelivered" => msg.redelivered,
+                })
+                headers["x-received-from"] = received_from
+                msg.properties.headers = headers
+                federate(msg, pch, EXCHANGE, @federated_q.name)
+              end
+
+              if ex = @stop.receive?
+                raise ex
+              end
+              return
+            end
+          end
+        end
+      end
+
+      class ExchangeLink < Link
+        @consumer_q : ::AMQP::Client::Queue?
+
+        def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
+                       @upstream_exchange : String, @log : Logger)
+          @log.progname += " link=#{@federated_ex.name}"
+          @federated_ex.register_observer(self)
+          super(@upstream, @log)
+        end
+
+        def name : String
+          @federated_ex.name
+        end
+
+        def on(event, data)
+          @log.debug { "event=#{event} data=#{data}" }
+          return if terminated?
+          case event
+          when :delete
+            @upstream.stop_link(@federated_ex)
+          when :bind
+            if q = @consumer_q
+              if b = data.as?(BindingDetails)
+                args = ::AMQP::Client::Arguments.new(b.arguments)
+                q.bind(@upstream_exchange, b.routing_key, args: args)
+              end
+            end
+          when :unbind
+            if q = @consumer_q
+              if b = data.as?(BindingDetails)
+                args = ::AMQP::Client::Arguments.new(b.arguments)
+                q.unbind(@upstream_exchange, b.routing_key, args: args)
+              end
+            end
+          else raise "Unexpected event '#{event}'"
+          end
+        end
+
+        def terminate
+          super
+          cleanup
+        end
+
+        private def cleanup
+          ::AMQP::Client.start(@upstream.uri) do |c|
+            ch = c.channel
+            ch.queue_delete(@upstream_q)
+          end
+        end
+
+        private def unregister_observer
+          @federated_ex.unregister_observer(self)
+        end
+
+        private def setup(upstream_client)
+          args = ::AMQP::Client::Arguments.new(@federated_ex.arguments)
+          ch, _ = try_passive(upstream_client) do |uch, passive|
+            uch.exchange(@upstream_exchange, type: @federated_ex.type,
+              args: args, passive: passive)
+          end
+          args = ::AMQP::Client::Arguments.new({
+            "x-downstream-name"  => System.hostname,
+            "x-internal-purpose" => "federation",
+            "x-max-hops"         => @upstream.max_hops,
+          })
+          ch, _ = try_passive(upstream_client, ch) do |uch, passive|
+            uch.exchange(@upstream_q, type: "x-federation-upstream",
+              args: args, passive: passive)
+          end
+          q_args = {"x-internal-purpose" => "federation"}
+          if expires = @upstream.expires
+            q_args["x-expires"] = expires
+          end
+          if msg_ttl = @upstream.msg_ttl
+            q_args["x-message-ttl"] = msg_ttl
+          end
+          ch, q = try_passive(upstream_client, ch) do |uch, passive|
+            uch.queue(@upstream_q, args: ::AMQP::Client::Arguments.new(q_args), passive: passive)
+          end
+          @federated_ex.bindings_details.each do |binding|
+            args = ::AMQP::Client::Arguments.new(binding.arguments)
+            q.bind(@upstream_exchange, binding.routing_key, args: args)
+          end
+          {ch, q}
+        end
+
+        private def start_link
+          return if terminated?
+          ::AMQP::Client.start(@upstream.uri) do |c|
+            ::AMQP::Client.start(@local_uri) do |p|
+              cch, @consumer_q = setup(c)
+              cch.prefetch(count: @upstream.prefetch)
+              pch = p.channel
+              pch.confirm_select if @upstream.ack_mode == AckMode::OnConfirm
+              no_ack = @upstream.ack_mode == AckMode::NoAck
+              @state = State::Running
+              @last_changed = Time.utc.to_unix_ms
+              @log.debug { "Running" }
+
+              cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
+                headers, received_from = received_from_header(msg)
+                received_from << ::AMQP::Client::Arguments.new({
+                  "uri"         => @scrubbed_uri,
+                  "exchange"    => @upstream_exchange,
+                  "redelivered" => msg.redelivered,
+                })
+                headers["x-received-from"] = received_from
+                msg.properties.headers = headers
+                federate(msg, pch, @federated_ex.name, msg.routing_key)
+              end
+
+              if ex = @stop.receive?
+                raise ex
+              end
+              return
+            end
+          end
         end
       end
     end

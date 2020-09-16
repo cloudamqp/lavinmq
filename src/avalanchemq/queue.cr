@@ -123,8 +123,8 @@ module AvalancheMQ
     end
 
     def clear_policy
-      @log.debug { "Clearing policy" }
       handle_arguments
+      return if @policy.nil?
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
     end

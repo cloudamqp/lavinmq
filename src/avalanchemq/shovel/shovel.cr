@@ -83,15 +83,15 @@ module AvalancheMQ
       cch = c.channel
       name = @source.queue || ""
       q = begin
-            cch.queue_declare(name, passive: true)
-          rescue ::AMQP::Client::Channel::ClosedException
-            cch = c.channel
-            cch.queue_declare(name, passive: false)
-          end
+        cch.queue_declare(name, passive: true)
+      rescue ::AMQP::Client::Channel::ClosedException
+        cch = c.channel
+        cch.queue_declare(name, passive: false)
+      end
       if @source.exchange || @source.exchange_key
         cch.queue_bind(q[:queue_name], @source.exchange || "", @source.exchange_key || "")
       end
-      return { cch, q }
+      return {cch, q}
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -101,7 +101,7 @@ module AvalancheMQ
       msgid = pch.basic_publish(msg.body_io, ex, rk)
       delete_after_this =
         @source.delete_after == DeleteAfter::QueueLength &&
-        msg.delivery_tag == queue_length
+          msg.delivery_tag == queue_length
       should_multi_ack = msgid % (@source.prefetch / 2).ceil.to_i == 0
       if delete_after_this || should_multi_ack
         case @ack_mode
@@ -162,6 +162,13 @@ module AvalancheMQ
                      @exchange_key : String? = nil,
                      @delete_after = DEFUALT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH)
         @uri = URI.parse(raw_uri)
+        cfg = Config.instance
+        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
+        unless @uri.user
+          direct_user = UserStore.instance.direct_user
+          @uri.user = direct_user.name
+          @uri.password = direct_user.plain_text_password
+        end
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
         end
@@ -174,6 +181,13 @@ module AvalancheMQ
       def initialize(raw_uri : String, queue : String?,
                      @exchange : String? = nil, @exchange_key : String? = nil)
         @uri = URI.parse(raw_uri)
+        cfg = Config.instance
+        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
+        unless @uri.user
+          direct_user = UserStore.instance.direct_user
+          @uri.user = direct_user.name
+          @uri.password = direct_user.plain_text_password
+        end
         if queue
           @exchange = ""
           @exchange_key = queue

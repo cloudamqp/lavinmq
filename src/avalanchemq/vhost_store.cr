@@ -27,6 +27,7 @@ module AvalancheMQ
       end
       vhost = VHost.new(name, @data_dir, @log.dup, user)
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+      @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
       vhost
@@ -64,6 +65,7 @@ module AvalancheMQ
             next unless vhost.as_h?
             name = vhost["name"].as_s
             @vhosts[name] = VHost.new(name, @data_dir, @log.dup, @default_user)
+            @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
         rescue JSON::ParseException
           @log.warn("#{path} is not vaild json")

@@ -4,6 +4,19 @@ require "./user"
 module AvalancheMQ
   class UserStore
     include Enumerable({String, User})
+    DIRECT_USER = "__direct"
+
+    def self.hidden?(name)
+      DIRECT_USER == name
+    end
+
+    def self.instance(data_dir : String, log : Logger)
+      @@instance = UserStore.new(data_dir, log)
+    end
+
+    def self.instance
+      @@instance.not_nil!
+    end
 
     def initialize(@data_dir : String, @log : Logger)
       @users = Hash(String, User).new
@@ -63,6 +76,7 @@ module AvalancheMQ
     end
 
     def delete(name, save = true) : User?
+      return if name == DIRECT_USER
       if user = @users.delete name
         save! if save
         user
@@ -78,9 +92,14 @@ module AvalancheMQ
     def to_json(json : JSON::Builder)
       json.array do
         each_value do |user|
+          next if user.hidden?
           user.to_json(json)
         end
       end
+    end
+
+    def direct_user
+      @users[DIRECT_USER]
     end
 
     private def load!
@@ -99,9 +118,17 @@ module AvalancheMQ
         @log.debug "Loading default users"
         create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
+        create_direct_user
         save!
       end
+      create_direct_user
       @log.debug("#{size} users loaded")
+    end
+
+    private def create_direct_user
+      @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
+      perm = {config: /.*/, read: /.*/, write: /.*/}
+      @users[DIRECT_USER].permissions["/"] = perm
     end
 
     def save!

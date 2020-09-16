@@ -7,7 +7,6 @@ require "./parameter_store"
 require "./parameter"
 require "./shovel/shovel_store"
 require "./federation/upstream_store"
-require "./client/direct_client"
 require "./sortable_json"
 require "./durable_queue"
 require "./exchange"
@@ -237,8 +236,7 @@ module AvalancheMQ
       }
     end
 
-    def declare_queue(name, durable, auto_delete,
-                      arguments = AMQP::Table.new)
+    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
         auto_delete, false, arguments)
     end

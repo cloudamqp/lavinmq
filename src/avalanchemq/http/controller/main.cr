@@ -71,7 +71,7 @@ module AvalancheMQ
 
           {
             avalanchemq_version: AvalancheMQ::VERSION,
-            uptime: @amqp_server.uptime.to_i,
+            uptime:              @amqp_server.uptime.to_i,
             object_totals:       {
               channels:    channels,
               connections: connections,
@@ -147,7 +147,7 @@ module AvalancheMQ
         get "/api/federation-links" do |context, _params|
           itrs = vhosts(user(context)).flat_map do |vhost|
             vhost.upstreams.not_nil!.flat_map do |upstream|
-              upstream.links.each_value
+              upstream.links.each
             end
           end
           page(context, itrs)
@@ -156,7 +156,7 @@ module AvalancheMQ
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             itrs = @amqp_server.vhosts[vhost].upstreams.not_nil!.map do |upstream|
-              upstream.links.each_value
+              upstream.links.each
             end
             page(context, Iterator(Federation::Upstream::Link).chain(itrs))
           end

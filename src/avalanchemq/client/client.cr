@@ -279,8 +279,8 @@ module AvalancheMQ
     private def delete_queue(frame)
       q = @vhost.queues.fetch(frame.queue_name, nil)
       unless q
-       send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
-       return
+        send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+        return
       end
       if q.exclusive && !exclusive_queues.includes? q
         send_resource_locked(frame, "Queue '#{q.name}' is exclusive")

@@ -49,6 +49,7 @@ module AvalancheMQ
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             @amqp_server.users.map do |_, u|
+              next if u.hidden?
               u.permissions[vhost]?.try { |p| u.permissions_details(vhost, p) }
             end.compact.to_json(context.response)
           end

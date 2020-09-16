@@ -31,7 +31,7 @@ module AvalancheMQ
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket).new(3)
-      @users = UserStore.new(@data_dir, @log)
+      @users = UserStore.instance(@data_dir, @log)
       @vhosts = VHostStore.new(@data_dir, @log, @users)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
@@ -280,7 +280,7 @@ module AvalancheMQ
       statm.try &.close
     end
 
-    METRICS = { :user_time, :sys_time, :blocks_out, :blocks_in }
+    METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
       getter {{m.id}} = 0_i64

@@ -30,7 +30,7 @@ describe AvalancheMQ::HTTP::Server do
       s.users.select("sha256", "sha512", "bcrypt", "md5").all? do |_, u|
         u.should be_a(AvalancheMQ::User)
         ok = u.not_nil!.password.not_nil!.verify "hej"
-        {u.name, ok}.should(eq({ u.name, true }))
+        {u.name, ok}.should(eq({u.name, true}))
       end
     end
 
@@ -62,7 +62,7 @@ describe AvalancheMQ::HTTP::Server do
     end
 
     it "imports bindings" do
-      s.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
+      s.vhosts["/"].declare_exchange("import_x1", "topic", false, true)
       s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
       s.vhosts["/"].declare_queue("import_q1", false, true)
       body = %({ "bindings": [
@@ -85,10 +85,13 @@ describe AvalancheMQ::HTTP::Server do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges["import_x1"].matches("r.k2", nil).map(&.name)
-        .includes?("import_x2").should be_true
-      s.vhosts["/"].exchanges["import_x1"].matches("rk", nil).map(&.name)
-        .includes?("import_q1").should be_true
+      matches = [] of String
+      ex = s.vhosts["/"].exchanges["import_x1"]
+      ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
+      matches.includes?("import_x2").should be_true
+      matches.clear
+      ex.do_queue_matches("rk", nil) { |e| matches << e.name }
+      matches.includes?("import_q1").should be_true
     ensure
       s.vhosts["/"].delete_queue("import_q1")
       s.vhosts["/"].delete_exchange("import_x1")
@@ -378,10 +381,13 @@ describe AvalancheMQ::HTTP::Server do
       ]})
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges["import_x1"].matches("r.k2", nil).map(&.name).includes?("import_x2")
-        .should be_true
-      s.vhosts["/"].exchanges["import_x1"].matches("rk", nil).map(&.name).includes?("import_q1")
-        .should be_true
+      matches = [] of String
+      ex = s.vhosts["/"].exchanges["import_x1"]
+      ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
+      matches.includes?("import_x2").should be_true
+      matches.clear
+      ex.do_queue_matches("rk", nil) { |e| matches << e.name }
+      matches.includes?("import_q1").should be_true
     ensure
       s.vhosts["/"].delete_queue("import_q1")
       s.vhosts["/"].delete_exchange("import_x1")
