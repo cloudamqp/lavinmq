@@ -326,17 +326,14 @@ module AvalancheMQ
 
       private def delete_unacked(delivery_tag) : Unack?
         @unack_lock.synchronize do
+          # @unacked is always sorted so can do a binary search
           # optimization for acking first unacked
           if @unacked[0]?.try(&.tag) == delivery_tag
-            @log.debug { "Unacked found tag at front" }
+            @log.debug { "Unacked found tag:#{delivery_tag} at front" }
             @unacked.shift
-          else
-            # @unacked is always sorted so can do a binary search
-            idx = @unacked.bsearch_index { |ua, _| ua.tag >= delivery_tag }
-            @log.debug { "Bsearch of unacked found tag at idx #{idx}" }
-            if idx
-              @unacked.delete_at idx
-            end
+          elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
+            @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
+            @unacked.delete_at idx
           end
         end
       end
@@ -353,13 +350,11 @@ module AvalancheMQ
 
       private def delete_multiple_unacked(delivery_tag)
         @unack_lock.synchronize do
-          while unack = @unacked.shift?
-            if unack.tag <= delivery_tag
-              yield unack
-            else
-              @unacked.unshift unack
-              break
-            end
+          idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
+          return nil unless idx
+          @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
+          (idx + 1).times do
+            yield @unacked.shift
           end
         end
       end
@@ -376,8 +371,7 @@ module AvalancheMQ
           do_ack(unack)
         end
         unless found
-          reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
-          @client.send_precondition_failed(frame, reply_text)
+          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
       end
 
@@ -394,8 +388,7 @@ module AvalancheMQ
         if unack = delete_unacked(frame.delivery_tag)
           do_reject(frame.requeue, unack)
         else
-          reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
-          @client.send_precondition_failed(frame, reply_text)
+          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
         @log.debug { "done rejecting" }
       end
@@ -412,9 +405,13 @@ module AvalancheMQ
           do_reject(frame.requeue, unack)
         end
         unless found
-          reply_text = "Unknown delivery tag '#{frame.delivery_tag}'"
-          @client.send_precondition_failed(frame, reply_text)
+          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
+      end
+
+      private def unknown_tag(delivery_tag)
+        # Lower case u important for bunny on_error callback
+        "unknown delivery tag '#{delivery_tag}'"
       end
 
       private def do_reject(requeue, unack)
