@@ -189,7 +189,11 @@ module AvalancheMQ
 
     private def handle_connection(socket, remote_address, local_address)
       client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
-      socket.close if client.nil?
+      if client.nil?
+        socket.close
+      else
+        @log.info { "Accepting AMQP connection (#{client.name})" }
+      end
     rescue ex : IO::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
     end
