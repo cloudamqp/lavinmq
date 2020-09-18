@@ -99,13 +99,14 @@ module AvalancheMQ
 
     def self.open(socket, vhosts, user, log)
       open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
-      if vhost = vhosts[open.vhost]? || nil
-        if user.permissions[open.vhost]? || nil
+      vhost_name = open.vhost.empty? ? "/" : open.vhost
+      if vhost = vhosts[vhost_name]? || nil
+        if user.permissions[vhost_name]? || nil
           socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
           socket.flush
           return vhost
         else
-          log.warn "Access denied for user \"#{user.name}\" to vhost \"#{open.vhost}\""
+          log.warn "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\""
           reply_text = "NOT_ALLOWED - '#{user.name}' doesn't have access to '#{vhost.name}'"
           socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
@@ -113,7 +114,7 @@ module AvalancheMQ
           close_on_ok(socket, log)
         end
       else
-        log.warn "VHost \"#{open.vhost}\" not found"
+        log.warn "VHost \"#{vhost_name}\" not found"
         socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
