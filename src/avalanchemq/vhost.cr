@@ -599,30 +599,40 @@ module AvalancheMQ
     @referenced_sps = Array(SegmentPosition).new(1_000_000)
 
     private def gc_segments_loop
+      # Don't gc all vhosts at the same time
+      sleep Random.rand(Config.instance.gc_segments_interval)
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         elapsed = Time.measure do
           collect_sps
         end
-        @log.info { "GC segments, collecting sps took #{elapsed.total_milliseconds} ms" } if elapsed.total_milliseconds > 10 
+        gc_log("collecting sps", elapsed)
         elapsed = Time.measure do
           delete_unused_segments
         end
-        @log.info { "GC segments, delete unused segs took #{elapsed.total_milliseconds} ms" } if elapsed.total_milliseconds > 10 
+        gc_log("delete unused segs", elapsed)
         elapsed = Time.measure do
           hole_punch_segments
         end
-        @log.info { "GC segments, hole punching took #{elapsed.total_milliseconds} ms" } if elapsed.total_milliseconds > 10 
-        if @referenced_sps.capacity > @referenced_sps.size * 2
-          # if less than half the capacity is used, recreate to reclaim RAM
-          capacity = Math.max(1_000_000, @referenced_sps.size)
-          @referenced_sps = Array(SegmentPosition).new(capacity)
+        gc_log("hole punching", elapsed)
+
+        # If less than half the capacity is used, recreate to reclaim RAM
+        current_capacity = @referenced_sps.capacity
+        new_capacity = Math.max(1_000_000, @referenced_sps.size)
+        if (new_capacity < current_capacity) && (current_capacity > @referenced_sps.size * 2)
+          @log.debug { "Reclaim sp reference memory from #{current_capacity} to #{new_capacity}" }
+          @referenced_sps = Array(SegmentPosition).new(new_capacity)
           GC.collect
         else
           @referenced_sps.clear
         end
       end
+    end
+
+    private def gc_log(task, elapsed)
+      return if elapsed.total_milliseconds <= 10
+      @log.info { "GC segments, #{task} took #{elapsed.total_milliseconds} ms" }
     end
 
     private def collect_sps : Nil
