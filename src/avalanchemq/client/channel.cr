@@ -411,7 +411,7 @@ module AvalancheMQ
 
       private def unknown_tag(delivery_tag)
         # Lower case u important for bunny on_error callback
-        "unknown delivery tag '#{delivery_tag}'"
+        "unknown delivery tag #{delivery_tag}"
       end
 
       private def do_reject(requeue, unack)
