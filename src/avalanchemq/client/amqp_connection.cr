@@ -44,8 +44,25 @@ module AvalancheMQ
       true
     end
 
+    SERVER_PROPERTIES = AMQP::Table.new({
+      "product"      => "AvalancheMQ",
+      "platform"     => "Crystal #{Crystal::VERSION}",
+      "version"      => AvalancheMQ::VERSION,
+      "capabilities" => AMQP::Table.new({
+        "publisher_confirms"           => true,
+        "exchange_exchange_bindings"   => true,
+        "basic.nack"                   => true,
+        "consumer_cancel_notify"       => true,
+        "connection.blocked"           => true,
+        "consumer_priorities"          => false,
+        "authentication_failure_close" => true,
+        "per_consumer_qos"             => true,
+        "direct_reply_to"              => true,
+      }),
+    })
+
     def self.start(socket)
-      start = AMQP::Frame::Connection::Start.new
+      start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
       socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
       socket.flush
       AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
