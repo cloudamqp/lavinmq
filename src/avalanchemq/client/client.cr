@@ -240,7 +240,7 @@ module AvalancheMQ
             send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
           end
         else
-          send_precondition_failed(frame, "Existing exchange '#{name}' declared with other arguments")
+          send_resource_locked(frame, "Existing exchange '#{name}' declared with other arguments")
         end
       elsif frame.passive
         send_not_found(frame, "Exchange '#{name}' doesn't exists")
@@ -329,7 +329,7 @@ module AvalancheMQ
             q.message_count, q.consumer_count)
         end
       else
-        send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
+        send_resource_locked(frame, "Existing queue '#{q.name}' declared with other arguments")
       end
     end
 
