@@ -265,8 +265,6 @@ module AvalancheMQ
           return
         elsif !@user.can_config?(@vhost.name, frame.exchange_name)
           send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
-        elsif e.internal
-          send_access_refused(frame, "Not allowed to delete internal exchange")
         else
           @vhost.apply(frame)
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
