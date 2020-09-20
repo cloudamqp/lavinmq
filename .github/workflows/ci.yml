@@ -49,7 +49,7 @@ jobs:
         run: sudo snap install crystal --classic
 
       - name: Build avalanchemq
-        run: shards build --production avalanchemq
+        run: shards build avalanchemq
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
