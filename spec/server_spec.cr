@@ -317,7 +317,7 @@ describe AvalancheMQ::Server do
       msgs = [] of AMQP::Client::Message
       tag = q.subscribe { |msg| msgs << msg }
       q.unsubscribe(tag)
-      Fiber.yield
+      sleep 0.1
       ch.has_subscriber?(tag).should eq false
     end
   end
