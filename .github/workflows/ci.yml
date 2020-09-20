@@ -39,20 +39,20 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get install -y libsystemd-dev openjdk-11-jre-headless
 
-      - name: Clone java client
-        run: git clone https://github.com/rabbitmq/rabbitmq-java-client.git
+      - name: Install Crystal
+        run: sudo snap install crystal --classic
 
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Install Crystal
-        run: sudo snap install crystal --classic
-
       - name: Build avalanchemq
-        run: shards build avalanchemq
+        run: shards build --production avalanchemq
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Clone java client
+        run: git clone --depth 1 https://github.com/rabbitmq/rabbitmq-java-client.git
 
       - name: Run java tests
         run: cd rabbitmq-java-client && ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
