@@ -45,8 +45,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
+      - name: Install Crystal
+        run: sudo snap install crystal --classic
+
       - name: Build avalanchemq
-        run: shards build avalanchemq
+        run: shards build --production avalanchemq
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
