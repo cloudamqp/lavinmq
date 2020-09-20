@@ -33,22 +33,17 @@ jobs:
 
   java-client-test:
     name: RabbitMQ java client test
-    runs-on: ubuntu-latest
-    container: crystallang/crystal:0.35.1
+    runs-on: ubuntu-20.04
 
     steps:
-      - uses: actions/checkout@v2
-
-      - uses: actions/setup-java@v1
-        with:
-          java-version: 11
-          java-package: jre
+      - name: Install dependencies
+        run: sudo apt-get install -y libsystemd-dev openjdk-11-jre-headless
 
       - name: Clone java client
         run: git clone https://github.com/rabbitmq/rabbitmq-java-client.git
 
-      - name: Install dependencies
-        run: apt-get install -y libsystemd-dev
+      - name: Checkout
+        uses: actions/checkout@v2
 
       - name: Build avalanchemq
         run: shards build avalanchemq
