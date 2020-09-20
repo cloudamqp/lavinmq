@@ -30,3 +30,28 @@ jobs:
 
       - name: Spec
         run: crystal spec --no-color --order random
+
+  java-client-test:
+    name: RabbitMQ java client test
+    runs-on: ubuntu-latest
+    container: crystallang/crystal:0.35.1
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-java@v1
+        with:
+          java-version: 11
+          java-package: jre
+
+      - name: Clone java client
+        run: git clone https://github.com/rabbitmq/rabbitmq-java-client.git
+
+      - name: Build avalanchemq
+        run: shards build avalanchemq
+
+      - name: Run avalanchemq in background
+        run: bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Run java tests
+        run: cd rabbitmq-java-client && ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
