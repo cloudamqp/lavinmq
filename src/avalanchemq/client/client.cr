@@ -7,6 +7,7 @@ require "../user"
 require "../stats"
 require "../sortable_json"
 require "../rough_time"
+require "../error"
 
 module AvalancheMQ
   abstract class Client
@@ -142,13 +143,17 @@ module AvalancheMQ
         raise AMQP::Error::NotImplemented.new(frame)
       end
       true
+    rescue frame : AMQP::Error::FrameDecode
+      @log.error { frame.inspect }
+      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
+      false
+    rescue frame : Error::UnexpectedFrame
+      @log.error { "#{frame.inspect}, unexpected frame" }
+      close_channel(frame, 505_u16, "UNEXPECTED_FRAME")
+      true
     rescue ex : AMQP::Error::NotImplemented
       @log.error { "#{frame.inspect}, not implemented" }
-      if ex.channel.zero?
-        close_connection(ex, 540_u16, "NOT_IMPLEMENTED")
-      else
-        close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
-      end
+      close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
       true
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::Frame::Method
@@ -182,6 +187,7 @@ module AvalancheMQ
     end
 
     def close_channel(frame, code, text)
+      return close_connection(frame, code, text) if frame.channel.zero?
       case frame
       when AMQP::Frame::Header, AMQP::Frame::Body
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)

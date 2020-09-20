@@ -62,6 +62,7 @@ module AvalancheMQ
       i = 0
       loop do
         AMQP::Frame.from_io(@socket) do |frame|
+          @log.debug { "Received #{frame.inspect}" }
           if (i += 1) == 8192
             i = 0
             Fiber.yield
@@ -105,7 +106,7 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame)
       return false if closed?
-      #@log.debug { "Send #{frame.inspect}" }
+      @log.debug { "Send #{frame.inspect}" }
       @write_lock.synchronize do
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
         @socket.flush

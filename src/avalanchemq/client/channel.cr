@@ -5,6 +5,7 @@ require "../queue"
 require "../amqp"
 require "../stats"
 require "../sortable_json"
+require "../error"
 
 module AvalancheMQ
   abstract class Client
@@ -123,6 +124,8 @@ module AvalancheMQ
       MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
 
       def next_msg_headers(frame)
+        raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
+        raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         if direct_reply_request?(frame.properties.reply_to)
           if @client.direct_reply_channel
             frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
@@ -142,6 +145,10 @@ module AvalancheMQ
       end
 
       def add_content(frame)
+        if @next_publish_exchange_name.nil? || @next_msg_props.nil?
+          frame.body.skip(frame.body_size)
+          raise Error::UnexpectedFrame.new(frame)
+        end
         if frame.body_size == @next_msg_size
           finish_publish(frame.body)
         else
