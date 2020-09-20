@@ -46,7 +46,9 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Build avalanchemq
-        run: shards build --production avalanchemq
+        run: |
+          shards install --production
+          shards build --production
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
