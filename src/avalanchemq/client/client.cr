@@ -265,17 +265,13 @@ module AvalancheMQ
     end
 
     private def delete_exchange(frame)
-      if e = @vhost.exchanges.fetch(frame.exchange_name, nil)
-        if frame.exchange_name.starts_with? "amq."
-          send_access_refused(frame, "Not allowed to use the amq. prefix")
-          return
-        elsif !@user.can_config?(@vhost.name, frame.exchange_name)
-          send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
-        else
-          @vhost.apply(frame)
-          send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
-        end
+      if frame.exchange_name.starts_with? "amq."
+        send_access_refused(frame, "Not allowed to use the amq. prefix")
+        return
+      elsif !@user.can_config?(@vhost.name, frame.exchange_name)
+        send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
       else
+        @vhost.apply(frame)
         send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
       end
     end
