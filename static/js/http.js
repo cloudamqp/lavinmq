@@ -28,8 +28,8 @@
   function request (method, path, options = {}) {
     const body = options.body
     const headers = options.headers || new window.Headers()
-    if (!avalanchemq.auth) {
-      redirect('/login')
+    if (avalanchemq.auth == null || avalanchemq.auth.getUsername() == null) {
+      return redirect('/login')
     }
     const hdr = avalanchemq.auth.header()
     headers.append('Authorization', hdr)
