@@ -2,7 +2,7 @@ require "logger"
 require "../../sortable_json"
 
 module AvalancheMQ
-  abstract class Client
+  class Client
     class Channel
       class Consumer
         include SortableJSON

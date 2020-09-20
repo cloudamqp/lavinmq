@@ -1,6 +1,5 @@
 require "logger"
 require "./channel/consumer"
-require "../exchange"
 require "../queue"
 require "../amqp"
 require "../stats"
@@ -8,7 +7,7 @@ require "../sortable_json"
 require "../error"
 
 module AvalancheMQ
-  abstract class Client
+  class Client
     class Channel
       include Stats
       include SortableJSON

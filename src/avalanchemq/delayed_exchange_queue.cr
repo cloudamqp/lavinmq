@@ -1,5 +1,4 @@
 require "./queue"
-require "./durable_queue"
 
 module AvalancheMQ
   module DelayedExchangeQueueMixin

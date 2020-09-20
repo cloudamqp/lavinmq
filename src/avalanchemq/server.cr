@@ -5,7 +5,6 @@ require "systemd"
 require "./amqp"
 require "./rough_time"
 require "../stdlib/*"
-require "./client/network_client"
 require "./vhost_store"
 require "./user_store"
 require "./exchange"
@@ -15,6 +14,7 @@ require "./parameter"
 require "./chained_logger"
 require "./config"
 require "./proxy_protocol"
+require "./client/client"
 
 module AvalancheMQ
   class Server
@@ -188,7 +188,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket, remote_address, local_address)
-      client = NetworkClient.start(socket, remote_address, local_address, @vhosts, @users, @log)
+      client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log)
       if client.nil?
         socket.close
       else

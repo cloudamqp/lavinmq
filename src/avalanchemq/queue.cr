@@ -10,6 +10,7 @@ require "./reference_counter"
 require "./queue/ready"
 require "./queue/unacked"
 require "./client/channel"
+require "./message"
 
 module AvalancheMQ
   class Queue

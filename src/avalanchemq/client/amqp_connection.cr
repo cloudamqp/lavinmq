@@ -9,7 +9,7 @@ module AvalancheMQ
       user = authenticate(socket, users, creds[:username], creds[:password], start_ok, log) || return
       tune_ok = tune(socket)
       if vhost = open(socket, vhosts, user, log)
-        NetworkClient.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
+        Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
       else
         nil
       end

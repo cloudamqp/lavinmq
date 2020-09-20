@@ -2,11 +2,11 @@ require "logger"
 require "./policy"
 require "./stats"
 require "./amqp"
-require "./queue"
-require "./persistent_exchange_queue"
 require "./sortable_json"
 require "./observable"
+require "./queue"
 require "./durable_queue"
+require "./persistent_exchange_queue"
 require "./delayed_exchange_queue"
 
 module AvalancheMQ
