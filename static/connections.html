@@ -97,12 +97,12 @@
           avalanchemq.table.renderCell(tr, 8, item.timeout, 'right')
           // avalanchemq.table.renderCell(tr, 8, item.auth_mechanism)
           avalanchemq.table.renderHtmlCell(tr, 9, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
-          avalanchemq.table.renderCell(tr, 10, new Date(item.connected_at).toLocaleString(), "center")
+          avalanchemq.table.renderCell(tr, 10, new Date(item.connected_at).toLocaleString(), 'center')
         }
         avalanchemq.table.renderCell(tr, 3, null, `center state-${item.state}`)
         avalanchemq.table.renderCell(tr, 6, item.channels, 'right')
-        avalanchemq.table.renderCell(tr, 11, numFormatter.format(item.recv_oct), "right")
-        avalanchemq.table.renderCell(tr, 12, numFormatter.format(item.send_oct), "right")
+        avalanchemq.table.renderCell(tr, 11, numFormatter.format(item.recv_oct), 'right')
+        avalanchemq.table.renderCell(tr, 12, numFormatter.format(item.send_oct), 'right')
       })
     </script>
   </body>

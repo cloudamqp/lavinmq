@@ -298,11 +298,11 @@
           avalanchemq.chart.update(chart, item.message_stats)
           document.getElementById('q-state').textContent = item.state
           document.getElementById('q-unacked').textContent = item.unacked
-          document.getElementById('q-unacked-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes) + "B"
+          document.getElementById('q-unacked-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes) + 'B'
           document.getElementById('q-total').textContent = avalanchemq.helpers.formatNumber(item.messages)
-          document.getElementById('q-total-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + "B"
+          document.getElementById('q-total-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
           document.getElementById('q-ready').textContent = avalanchemq.helpers.formatNumber(item.ready)
-          document.getElementById('q-ready-bytes').textContent = avalanchemq.helpers.nFormatter(item.ready_bytes) + "B"
+          document.getElementById('q-ready-bytes').textContent = avalanchemq.helpers.nFormatter(item.ready_bytes) + 'B'
           document.getElementById('q-consumers').textContent = avalanchemq.helpers.formatNumber(item.consumers)
           consumersTable.updateTable(item.consumer_details)
           if (all) {
