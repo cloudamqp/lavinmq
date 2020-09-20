@@ -48,7 +48,7 @@ jobs:
         run: git clone https://github.com/rabbitmq/rabbitmq-java-client.git
 
       - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev
+        run: apt-get install -y libsystemd-dev
 
       - name: Build avalanchemq
         run: shards build avalanchemq
