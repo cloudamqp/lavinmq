@@ -59,4 +59,4 @@ jobs:
         run: git clone --depth 1 https://github.com/rabbitmq/rabbitmq-java-client.git
 
       - name: Run java tests
-        run: cd rabbitmq-java-client && ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
+        run: cd rabbitmq-java-client && make deps && ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
