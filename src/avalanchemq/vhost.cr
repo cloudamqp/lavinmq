@@ -143,9 +143,10 @@ module AvalancheMQ
       if xdeaths = headers["x-death"].as?(Array(AMQ::Protocol::Table))
         xdeaths.each do |xd|
           break if xd["reason"]? == "rejected"
-          queue = found_queues.find { |q| q.name == xd["queue"]? }
-          @log.debug { "publish dead_letter_loop #{queue.name}" }
-          found_queues.delete(queue)
+          if queue = found_queues.find { |q| q.name == xd["queue"]? }
+            @log.debug { "publish dead_letter_loop #{queue.name}" }
+            found_queues.delete(queue)
+          end
         end
       end
     end
