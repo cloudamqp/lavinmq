@@ -15,10 +15,12 @@ require "./reference_counter"
 require "./mfile"
 require "./queue_factory"
 require "./schema"
+require "./stats"
 
 module AvalancheMQ
   class VHost
     include SortableJSON
+    include Stats
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
       log, shovels, direct_reply_channels, upstreams, default_user,
@@ -39,6 +41,8 @@ module AvalancheMQ
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
     EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream x-delayed-message)
+
+    rate_stats(%w(connection_created connection_closed queue_declared queue_deleted))
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User)
@@ -329,6 +333,7 @@ module AvalancheMQ
       when AMQP::Frame::Queue::Declare
         return false if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] = QueueFactory.make(self, f)
+        @queue_declared_count += 1
         apply_policies([q] of Queue) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
@@ -337,6 +342,7 @@ module AvalancheMQ
               ex.unbind(q, *binding_args) if destinations.includes?(q)
             end
           end
+          @queue_deleted_count += 1
           q.delete
         else
           return false
@@ -373,8 +379,10 @@ module AvalancheMQ
 
     def add_connection(client : Client)
       @connections << client
+      @connection_created_count += 1
       client.on_close do |c|
         @connections.delete c
+        @connection_closed_count += 1
       end
     end
 
