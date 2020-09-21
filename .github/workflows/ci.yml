@@ -56,7 +56,10 @@ jobs:
         run: bin/avalanchemq --data-dir /tmp/amqp &
 
       - name: Clone java client
-        run: git clone --depth 1 https://github.com/rabbitmq/rabbitmq-java-client.git
+        run: git clone --depth 1 https://github.com/84codes/rabbitmq-java-client.git
 
       - name: Run java tests
-        run: cd rabbitmq-java-client && make deps && ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
+        run: |
+          cd rabbitmq-java-client
+          make deps
+          ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
