@@ -110,18 +110,13 @@ module AvalancheMQ
       properties = msg.properties
       headers = properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
+      prevent_dead_letter_loop(headers, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
       end
       return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
-      if headers && headers.has_key? "x-death"
-        headers["x-death"].as?(Array(AMQP::Field)).try &.each do |xd|
-          queue = found_queues.find { |q| q.name == xd.as(AMQ::Protocol::Table)["queue"]? }
-          found_queues.delete(queue)
-        end
-      end
       sp = write_to_disk(msg, ex.persistent?)
       flush = properties.delivery_mode == 2_u8
       ok = 0
@@ -140,6 +135,19 @@ module AvalancheMQ
     ensure
       visited.clear
       found_queues.clear
+    end
+
+    # drop msgs that aren't rejected and end up in the same queue
+    private def prevent_dead_letter_loop(headers, found_queues)
+      return if headers.nil? || found_queues.empty?
+      if xdeaths = headers["x-death"].as?(Array(AMQ::Protocol::Table))
+        xdeaths.each do |xd|
+          break if xd["reason"]? == "rejected"
+          queue = found_queues.find { |q| q.name == xd["queue"]? }
+          @log.debug { "publish dead_letter_loop #{queue.name}" }
+          found_queues.delete(queue)
+        end
+      end
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
