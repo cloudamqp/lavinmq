@@ -10,7 +10,7 @@ module AvalancheMQ
         getter no_ack, queue, unacked, tag, exclusive, channel
 
         @log : Logger
-        @unacked = 0
+        @unacked = 0_u32
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool)
@@ -68,6 +68,7 @@ module AvalancheMQ
         def recover(requeue)
           @channel.recover(self) do |sp|
             if requeue
+              reject(sp)
               @queue.reject(sp, requeue: true)
             else
               # redeliver to the original recipient

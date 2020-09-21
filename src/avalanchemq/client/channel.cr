@@ -439,12 +439,19 @@ module AvalancheMQ
         @consumers.each { |c| c.queue.consumer_available } if notify_queues
       end
 
-      def basic_recover(frame)
+      def basic_recover(frame) : Nil
         @consumers.each { |c| c.recover(frame.requeue) }
         delete_all_unacked do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+        if frame.requeue
+          @consumers.each do |c|
+            q = c.queue
+            q.consumer_available
+            q.message_available
+          end
+        end
       end
 
       def close
