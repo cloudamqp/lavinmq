@@ -47,7 +47,9 @@ jobs:
 
       - name: Build avalanchemq
         run: |
-          shards install --production
+          crystal --version
+          shards --version
+          shards install --production --ignore-crystal-version
           shards build --production
 
       - name: Run avalanchemq in background
