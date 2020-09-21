@@ -333,8 +333,7 @@ module AvalancheMQ
       close_channel(frame, 505_u16, "UNEXPECTED_FRAME")
       true
     rescue ex : AMQP::Error::NotImplemented
-      @log.error { "#{frame.inspect}, not implemented" }
-      close_channel(ex, 540_u16, "NOT_IMPLEMENTED")
+      send_not_implemented(ex)
       true
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::Frame::Method
@@ -417,6 +416,11 @@ module AvalancheMQ
     def send_precondition_failed(frame, text)
       @log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
+    end
+
+    def send_not_implemented(frame)
+      @log.error { "#{frame.inspect}, not implemented" }
+      close_channel(frame, 540_u16, "NOT_IMPLEMENTED")
     end
 
     private def declare_exchange(frame)
