@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev openjdk-11-jre-headless
+        run: sudo apt-get install -y libsystemd-dev openjdk-11-jre-headless gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev
 
       - name: Install Crystal
         run: sudo snap install crystal --classic
