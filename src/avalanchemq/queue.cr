@@ -555,7 +555,7 @@ module AvalancheMQ
         "routing-keys" => [meta.routing_key.as(AMQP::Field)],
         "reason"       => reason.to_s,
         "count"        => count + 1,
-        "time"         => Time.utc,
+        "time"         => RoughTime.utc,
       }
       if props.expiration
         death["original-expiration"] = props.expiration

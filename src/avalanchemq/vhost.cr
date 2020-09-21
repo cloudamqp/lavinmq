@@ -108,7 +108,9 @@ module AvalancheMQ
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       properties = msg.properties
-      find_all_queues(ex, msg.routing_key, properties.headers, visited, found_queues)
+      headers = properties.headers
+      find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
+      prevent_dead_letter_loop(headers, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
         ex.unroutable_count += 1
@@ -133,6 +135,24 @@ module AvalancheMQ
     ensure
       visited.clear
       found_queues.clear
+    end
+
+    # drop msgs that aren't rejected and end up in the same queue
+    private def prevent_dead_letter_loop(headers, found_queues)
+      return if headers.nil? || found_queues.empty?
+      if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
+        xdeaths.each do |xd|
+          if xd = xd.as?(AMQ::Protocol::Table)
+            break if xd["reason"]? == "rejected"
+            if xd_queue_name = xd["queue"]?
+              if queue = found_queues.find { |q| q.name == xd_queue_name }
+                @log.debug { "publish preventing dead_letter_loop with '#{queue.name}'" }
+                found_queues.delete(queue)
+              end
+            end
+          end
+        end
+      end
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
