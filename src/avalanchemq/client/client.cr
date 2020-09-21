@@ -110,7 +110,11 @@ module AvalancheMQ
       rescue IO::TimeoutError
         send_heartbeat || break
       end
-    rescue ex : IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode | ::Channel::ClosedError
+    rescue frame : AMQP::Error::FrameDecode
+      @log.error { frame.inspect }
+      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
+      false
+    rescue ex : IO::Error | OpenSSL::SSL::Error | ::Channel::ClosedError
       @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
       cleanup
     rescue ex : Exception
