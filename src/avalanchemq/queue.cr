@@ -382,7 +382,7 @@ module AvalancheMQ
         unacked_bytes: @unacked.sum { |u| u.sp.bytesize },
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
-        state: @closed ? :closed : :running,
+        state: @closed ? :closed : flow? ? :flow : :running,
         effective_policy_definition: @policy,
         message_stats: stats_details,
         internal: @internal,
