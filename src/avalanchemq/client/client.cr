@@ -110,10 +110,13 @@ module AvalancheMQ
       rescue IO::TimeoutError
         send_heartbeat || break
       end
-    rescue frame : AMQP::Error::FrameDecode
-      @log.error { frame.inspect }
+    rescue ex : AMQP::Error::FrameDecode
+      @log.error { ex.inspect }
       send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
-      false
+      cleanup
+    rescue ex : AMQP::Error::NotImplemented
+      @log.error { ex.inspect }
+      send_not_implemented(ex)
     rescue ex : IO::Error | OpenSSL::SSL::Error | ::Channel::ClosedError
       @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
       cleanup
@@ -321,19 +324,13 @@ module AvalancheMQ
         @last_heartbeat = RoughTime.utc
         send frame
       else
-        raise AMQP::Error::NotImplemented.new(frame)
+        @log.error { "#{frame.inspect}, not implemented" }
+        send_not_implemented(frame)
       end
       true
-    rescue frame : AMQP::Error::FrameDecode
-      @log.error { frame.inspect }
-      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
-      false
     rescue frame : Error::UnexpectedFrame
       @log.error { "#{frame.inspect}, unexpected frame" }
       close_channel(frame, 505_u16, "UNEXPECTED_FRAME")
-      true
-    rescue ex : AMQP::Error::NotImplemented
-      send_not_implemented(ex)
       true
     rescue ex : Exception
       raise ex unless frame.is_a? AMQP::Frame::Method
@@ -369,10 +366,10 @@ module AvalancheMQ
     def close_channel(frame, code, text)
       return close_connection(frame, code, text) if frame.channel.zero?
       case frame
-      when AMQP::Frame::Header, AMQP::Frame::Body
-        send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
-      else
+      when AMQ::Protocol::Frame::Method
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, frame.class_id, frame.method_id)
+      else
+        send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       end
       @channels[frame.channel].running = false
     end
@@ -420,7 +417,7 @@ module AvalancheMQ
 
     def send_not_implemented(frame)
       @log.error { "#{frame.inspect}, not implemented" }
-      close_channel(frame, 540_u16, "NOT_IMPLEMENTED")
+      close_connection(frame, 540_u16, "NOT_IMPLEMENTED")
     end
 
     private def declare_exchange(frame)
