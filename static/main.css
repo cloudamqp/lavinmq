@@ -677,7 +677,6 @@ fieldset.inline {
 .chart-container .legend .legend-item {
   display: grid;
   grid-template-columns: 15px 20px auto;
-  height: 30px;
   margin-bottom: 5px;
   transition: all .2s ease-in-out;
 }

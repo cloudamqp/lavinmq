@@ -81,11 +81,11 @@
       content: [
         {
           heading: 'Created',
-          key: 'connections_created'
+          key: 'connection_created'
         },
         {
           heading: 'Closed',
-          key: 'connections_closed'
+          key: 'connection_closed'
         }
       ]
     },
@@ -94,11 +94,11 @@
       content: [
         {
           heading: 'Created',
-          key: 'channels_created'
+          key: 'channel_created'
         },
         {
           heading: 'Closed',
-          key: 'channels_closed'
+          key: 'channel_closed'
         }
       ]
     },
@@ -107,11 +107,11 @@
       content: [
         {
           heading: 'Declared',
-          key: 'queues_declared'
+          key: 'queue_declared'
         },
         {
           heading: 'Deleted',
-          key: 'queues_deleted'
+          key: 'queue_deleted'
         }
       ]
     },

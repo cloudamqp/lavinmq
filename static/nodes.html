@@ -69,6 +69,18 @@
         <h3>CPU usage</h3>
         <div class="chart-container" id="cpuChart"></div>
       </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Connection churn</h3>
+        <div class="chart-container" id="connectionChurnChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Channel churn</h3>
+        <div class="chart-container" id="channelChurnChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Queue churn</h3>
+        <div class="chart-container" id="queueChurnChart"></div>
+      </section>
     </main>
     <footer></footer>
     </body>
@@ -86,6 +98,9 @@
       const memoryChart = avalanchemq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
       const ioChart = avalanchemq.chart.render('ioChart', 'ops', { aspectRatio: 2 })
       const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 })
+      const connectionChurnChart = avalanchemq.chart.render('connectionChurnChart', '/s', { aspectRatio: 2 })
+      const channelChurnChart = avalanchemq.chart.render('channelChurnChart', '/s', { aspectRatio: 2 })
+      const queueChurnChart = avalanchemq.chart.render('queueChurnChart', '/s', { aspectRatio: 2 })
 
       const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10 ** 6).toFixed(2)
 
@@ -111,6 +126,25 @@
           system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
         }
         avalanchemq.chart.update(cpuChart, cpuStats)
+
+        const connectionChurnStats = {
+          connection_created_details: response[0].connection_created_details.rate,
+          connection_closed_details: response[0].connection_closed_details.rate,
+        }
+        avalanchemq.chart.update(connectionChurnChart, connectionChurnStats)
+
+        const channelChurnStats = {
+          channel_created_details: response[0].channel_created_details.rate,
+          channel_closed_details: response[0].channel_closed_details.rate,
+        }
+        avalanchemq.chart.update(channelChurnChart, channelChurnStats)
+
+        const queueChurnStats = {
+          queue_declared_details: response[0].queue_declared_details.rate,
+          queue_deleted_details: response[0].queue_deleted_details.rate,
+        }
+        avalanchemq.chart.update(queueChurnChart, queueChurnStats)
+
       }
       avalanchemq.nodes.start(updateCharts)
     </script>
