@@ -140,7 +140,7 @@ module AvalancheMQ
     # drop msgs that aren't rejected and end up in the same queue
     private def prevent_dead_letter_loop(headers, found_queues)
       return if headers.nil? || found_queues.empty?
-      if xdeaths = headers["x-death"].as(Array(AMQ::Protocol::Field))
+      if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
         xdeaths.each do |xd|
           if xd = xd.as?(AMQ::Protocol::Table)
             break if xd["reason"]? == "rejected"
