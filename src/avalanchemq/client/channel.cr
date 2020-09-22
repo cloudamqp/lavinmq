@@ -363,6 +363,12 @@ module AvalancheMQ
 
       private def delete_multiple_unacked(delivery_tag)
         @unack_lock.synchronize do
+          if delivery_tag.zero?
+            until @unacked.empty?
+              yield @unacked.shift
+            end
+            return
+          end
           idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
           return nil unless idx
           @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
