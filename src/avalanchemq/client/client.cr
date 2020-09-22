@@ -577,6 +577,11 @@ module AvalancheMQ
     private def bind_queue(frame)
       if frame.queue_name.empty? && @last_queue_name
         frame.queue_name = @last_queue_name.not_nil!
+        # according to spec if both queue name and routing key is empty,
+        # then substitute them with the name of the last declared queue
+        if frame.routing_key.empty?
+          frame.routing_key = @last_queue_name.not_nil!
+        end
       end
       if !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
