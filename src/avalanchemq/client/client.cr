@@ -496,7 +496,7 @@ module AvalancheMQ
     end
 
     private def valid_entity_name(name)
-      name.matches?(/\A[a-zA-Z0-9-_.:]{1,127}\z/)
+      name.matches?(/\A[a-zA-Z0-9-_.:]+\z/)
     end
 
     private def declare_queue(frame)
