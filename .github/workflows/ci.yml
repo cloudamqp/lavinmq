@@ -63,3 +63,47 @@ jobs:
           cd rabbitmq-java-client
           make deps
           ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
+
+  bunny-test:
+    name: Bunny client test
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Setup bundler cache
+        uses: actions/cache@v1
+        with:
+          path: vendor/bundle
+          key: ${{ runner.os }}-gems-test${{ hashFiles('**/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gems-test
+
+      - name: Setup ruby
+        uses: ruby/setup-ruby@v1
+
+      - name: Installing bundler
+        env:
+          BUNDLE_GITHUB__COM: x-access-token:${{ secrets.token }}
+        run: |
+          gem install bundler
+          bundle config path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Build avalanchemq
+        run: |
+          crystal --version
+          shards --version
+          shards install --production
+          shards build --production avalanchemq
+
+      - name: Run avalanchemq in background
+        run: bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Clone Bunny
+        run: git clone --depth 1 git@github.com:ruby-amqp/bunny.git
+
+      - name: Run specs
+        run: cd bunny
+          CI=true bundle exec rspec spec/higher_level_api/integration spec/lower_level_api/integration spec/issues --exclude-pattern "**/(tx_|tls_)*spec.rb"
