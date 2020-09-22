@@ -91,40 +91,47 @@ module AvalancheMQ
             i = 0
             Fiber.yield
           end
+          case frame
+          when AMQP::Frame::Connection::Close
+            send AMQP::Frame::Connection::CloseOk.new
+            return
+          when AMQP::Frame::Connection::CloseOk
+            @log.debug "Confirmed disconnect"
+            return
+          end
           if @running
             process_frame(frame)
           else
             case frame
-            when AMQP::Frame::Connection::Close, AMQP::Frame::Connection::CloseOk
-              process_frame(frame)
             when AMQP::Frame::Body
-              @log.debug { "Skipping body, waiting for Close(Ok)" }
+              @log.debug { "Skipping body, waiting for CloseOk" }
               frame.body.skip(frame.body_size)
-              true
             else
-              @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-              true
+              @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
             end
           end
-        end || break
+        end
       rescue IO::TimeoutError
         send_heartbeat || break
+      rescue ex : AMQP::Error::NotImplemented
+        @log.error { ex.inspect }
+        send_not_implemented(ex)
+      rescue ex : AMQP::Error::FrameDecode
+        @log.error { ex.inspect }
+        send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
+        return
+      rescue ex : IO::Error | OpenSSL::SSL::Error
+        @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+        return
+      rescue ex : Exception
+        @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
+        send_internal_error(ex.message)
+        return
       end
-    rescue ex : AMQP::Error::FrameDecode
-      @log.error { ex.inspect }
-      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
-      cleanup
-    rescue ex : AMQP::Error::NotImplemented
-      @log.error { ex.inspect }
-      send_not_implemented(ex)
-    rescue ex : IO::Error | OpenSSL::SSL::Error | ::Channel::ClosedError
-      @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
-      cleanup
-    rescue ex : Exception
-      @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
-      send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
     ensure
-      @running = false
+      cleanup
+      close_socket
+      @log.debug { "read_loop exited" }
     end
 
     private def send_heartbeat
@@ -135,7 +142,7 @@ module AvalancheMQ
       end
     end
 
-    def send(frame : AMQP::Frame)
+    def send(frame : AMQP::Frame) : Bool
       return false if closed?
       @log.debug { "Send #{frame.inspect}" }
       @write_lock.synchronize do
@@ -147,10 +154,12 @@ module AvalancheMQ
       when AMQP::Frame::Connection::CloseOk
         @log.debug "Disconnected"
         cleanup
-        false
-      else
-        true
+        close_socket
+        return false
+      when AMQP::Frame::Connection::Close
+        cleanup
       end
+      true
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       cleanup
@@ -161,7 +170,7 @@ module AvalancheMQ
       false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
-      send AMQP::Frame::Connection::Close.new(541_u16, "Internal error", 0_u16, 0_u16)
+      send_internal_error(ex.message)
     end
 
     def connection_details
@@ -214,14 +223,6 @@ module AvalancheMQ
       raise ex
     end
 
-    protected def cleanup
-      super
-      begin
-        @socket.close unless @socket.closed?
-      rescue ex
-        @log.debug { "error when closing socket: #{ex.inspect_with_backtrace}" }
-      end
-    end
     def state
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
@@ -257,16 +258,9 @@ module AvalancheMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def process_frame(frame)
+    private def process_frame(frame) : Nil
       @recv_oct_count += 8_u64 + frame.bytesize
       case frame
-      when AMQP::Frame::Connection::Close
-        send AMQP::Frame::Connection::CloseOk.new
-        return false
-      when AMQP::Frame::Connection::CloseOk
-        @log.debug "Disconnected"
-        cleanup
-        return false
       when AMQP::Frame::Channel::Open
         open_channel(frame)
       when AMQP::Frame::Channel::Close
@@ -327,20 +321,12 @@ module AvalancheMQ
         @log.error { "#{frame.inspect}, not implemented" }
         send_not_implemented(frame)
       end
-      true
     rescue frame : Error::UnexpectedFrame
       @log.error { "#{frame.inspect}, unexpected frame" }
       close_channel(frame, 505_u16, "UNEXPECTED_FRAME")
-      true
-    rescue ex : Exception
-      raise ex unless frame.is_a? AMQP::Frame::Method
-      @log.error { "#{ex.inspect}, when processing frame" }
-      @log.debug { ex.inspect_with_backtrace }
-      close_channel(frame, 541_u16, "INTERNAL_ERROR")
-      true
     end
 
-    protected def cleanup
+    private def cleanup
       @running = false
       @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)
@@ -349,6 +335,14 @@ module AvalancheMQ
       @channels.clear
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
+    end
+
+    private def close_socket
+      @log.debug { "Closing socket" }
+      @socket.close
+      @log.debug { "Socket closed" }
+    rescue ex
+      @log.debug { "#{ex.inspect} when closing socket" }
     end
 
     def close(reason = nil)
@@ -418,6 +412,10 @@ module AvalancheMQ
     def send_not_implemented(frame)
       @log.error { "#{frame.inspect}, not implemented" }
       close_connection(frame, 540_u16, "NOT_IMPLEMENTED")
+    end
+
+    def send_internal_error(message)
+      send AMQP::Frame::Connection::Close.new(541_u16, "INTERNAL_ERROR - #{message}", 0_u16, 0_u16)
     end
 
     private def declare_exchange(frame)
