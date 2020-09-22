@@ -225,17 +225,42 @@ describe AvalancheMQ::HTTP::QueuesController do
     end
   end
 
-  describe "PUT /api/queues/vhost/name/config" do
-    it "should pause the queue if ?flow=false" do
+  describe "PUT /api/queues/vhost/name/pause" do
+    it "should pause the queue" do
       with_channel do |ch|
         ch.queue("confqueue")
-        body = %({"flow": false})
-        response = put("/api/queues/%2f/confqueue/config", body: body)
+        response = put("/api/queues/%2f/confqueue/pause")
         response.status_code.should eq 204
-        response = get("/api/queues/%2f/confqueue/config")
+        response = get("/api/queues/%2f/confqueue")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        body["flow"].should eq false
+        body["state"].should eq "paused"
+      ensure
+        s.vhosts["/"].delete_queue("confqueue")
+      end
+    end
+  end
+
+  describe "PUT /api/queues/vhost/name/resume" do
+    it "should resume the queue" do
+      with_channel do |ch|
+        ch.queue("confqueue")
+
+        q = s.vhosts["/"].queues["confqueue"]
+        q.pause!
+
+        response = get("/api/queues/%2f/confqueue")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["state"].should eq "paused"
+
+        response = put("/api/queues/%2f/confqueue/resume")
+        response.status_code.should eq 204
+
+        response = get("/api/queues/%2f/confqueue")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["state"].should eq "running"
       ensure
         s.vhosts["/"].delete_queue("confqueue")
       end

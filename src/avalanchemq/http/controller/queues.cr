@@ -75,28 +75,20 @@ module AvalancheMQ
           end
         end
 
-        get "/api/queues/:vhost/:name/config" do |context, params|
+        put "/api/queues/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             q = queue(context, params, vhost)
-            JSON.build(context.response) do |j|
-              j.object do
-                j.field("flow", q.flow?)
-              end
-            end
+            q.pause!
+            context.response.status_code = 204
           end
         end
 
-
-        put "/api/queues/:vhost/:name/config" do |context, params|
+        put "/api/queues/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             q = queue(context, params, vhost)
-            body = parse_body(context)
-            case
-            when v = body["flow"]?
-              q.flow = v.as_bool
-            end
+            q.resume!
             context.response.status_code = 204
           end
         end
