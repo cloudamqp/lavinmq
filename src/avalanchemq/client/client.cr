@@ -500,7 +500,7 @@ module AvalancheMQ
     end
 
     private def declare_queue(frame)
-      if !valid_entity_name(frame.queue_name)
+      if !frame.queue_name.empty? && !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif q = @vhost.queues.fetch(frame.queue_name, nil)
         redeclare_queue(frame, q)
