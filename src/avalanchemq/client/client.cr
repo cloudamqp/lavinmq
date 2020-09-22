@@ -86,7 +86,9 @@ module AvalancheMQ
       i = 0
       loop do
         AMQP::Frame.from_io(@socket) do |frame|
-          @log.debug { "Received #{frame.inspect}" }
+          {% unless flag?(:release) %}
+            @log.debug { "Received #{frame.inspect}" }
+          {% end %}
           if (i += 1) == 8192
             i = 0
             Fiber.yield
@@ -144,7 +146,9 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame) : Bool
       return false if closed?
-      @log.debug { "Send #{frame.inspect}" }
+      {% unless flag?(:release) %}
+        @log.debug { "Send #{frame.inspect}" }
+      {% end %}
       @write_lock.synchronize do
         @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
         @socket.flush
@@ -185,17 +189,23 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       @write_lock.synchronize do
-        #@log.debug { "Send #{frame.inspect}" }
+        {% unless flag?(:release) %}
+          @log.debug { "Send #{frame.inspect}" }
+        {% end %}
         @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
-        #@log.debug { "Send #{header.inspect}" }
+        {% unless flag?(:release) %}
+          @log.debug { "Send #{header.inspect}" }
+        {% end %}
         @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += 8_u64 + header.bytesize
         pos = 0
         while pos < msg.size
           length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
-          #@log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
+          {% unless flag?(:release) %}
+            @log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
+          {% end %}
           body = case msg
                  in BytesMessage
                    AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
