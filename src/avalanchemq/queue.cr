@@ -19,19 +19,9 @@ module AvalancheMQ
     Flow
     Closed
     Deleted
+
     def to_s
-      case self
-      when QueueState::Running
-        :running
-      when QueueState::Paused
-        :paused
-      when QueueState::Flow
-        :flow
-      when QueueState::Closed
-        :closed
-      when QueueState::Deleted
-        :deleted
-      end
+      super.downcase
     end
   end
 
