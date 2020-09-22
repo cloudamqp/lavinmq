@@ -589,7 +589,7 @@ module AvalancheMQ
         else
           case args["x-match"]?
           when "any"
-            if args.any? { |k, v| !k.starts_with?("x-") && headers[k]? == v }
+            if args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
               dst.each { |d| yield d }
             end
           else
