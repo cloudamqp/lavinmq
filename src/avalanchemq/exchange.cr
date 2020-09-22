@@ -593,7 +593,7 @@ module AvalancheMQ
               dst.each { |d| yield d }
             end
           else
-            if args.all? { |k, v| k.starts_with?("x-") || headers[k]? == v }
+            if args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
               dst.each { |d| yield d }
             end
           end
