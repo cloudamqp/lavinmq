@@ -668,7 +668,7 @@ module AvalancheMQ
 
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
-      @log.debug { "Rejecting #{sp}" }
+      @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue
         was_empty = @ready.insert(sp) == 1
