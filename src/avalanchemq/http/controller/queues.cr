@@ -61,7 +61,7 @@ module AvalancheMQ
             end
             q = @amqp_server.vhosts[vhost].queues[name]?
             if q
-              unless q.match?(durable, auto_delete, tbl)
+              unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
               end
               context.response.status_code = 200

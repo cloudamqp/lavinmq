@@ -733,8 +733,9 @@ module AvalancheMQ
         @arguments == frame.arguments.to_h
     end
 
-    def match?(durable, auto_delete, arguments)
+    def match?(durable, exclusive, auto_delete, arguments)
       @durable == durable &&
+        @exclusive == exclusive &&
         @auto_delete == auto_delete &&
         @arguments == arguments.to_h
     end

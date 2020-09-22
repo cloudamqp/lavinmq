@@ -419,6 +419,10 @@ module AvalancheMQ
     end
 
     private def declare_exchange(frame)
+      if !valid_entity_name(frame.exchange_name)
+        send_precondition_failed(frame, "Exchange name isn't valid")
+        return
+      end
       name = frame.exchange_name
       if e = @vhost.exchanges.fetch(name, nil)
         if frame.passive || e.match?(frame)
@@ -445,6 +449,10 @@ module AvalancheMQ
     end
 
     private def delete_exchange(frame)
+      if !valid_entity_name(frame.exchange_name)
+        send_precondition_failed(frame, "Exchange name isn't valid")
+        return
+      end
       if frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
         return
@@ -457,12 +465,19 @@ module AvalancheMQ
     end
 
     private def delete_queue(frame)
+      if frame.queue_name.empty? && @last_queue_name
+        frame.queue_name = @last_queue_name.not_nil!
+      end
+      if !valid_entity_name(frame.queue_name)
+        send_precondition_failed(frame, "Queue name isn't valid")
+        return
+      end
       q = @vhost.queues.fetch(frame.queue_name, nil)
       unless q
         send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
         return
       end
-      if q.exclusive && !exclusive_queues.includes? q
+      if q.exclusive && !@exclusive_queues.includes? q
         send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
       elsif frame.if_unused && !q.consumer_count.zero?
         send_precondition_failed(frame, "Queue '#{q.name}' in use")
@@ -480,8 +495,14 @@ module AvalancheMQ
       end
     end
 
+    private def valid_entity_name(name)
+      name.matches?(/\A[a-zA-Z0-9-_.:]{1,127}\z/)
+    end
+
     private def declare_queue(frame)
-      if q = @vhost.queues.fetch(frame.queue_name, nil)
+      if !valid_entity_name(frame.queue_name)
+        send_precondition_failed(frame, "Queue name isn't valid")
+      elsif q = @vhost.queues.fetch(frame.queue_name, nil)
         redeclare_queue(frame, q)
       elsif frame.passive
         send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
@@ -498,7 +519,7 @@ module AvalancheMQ
     end
 
     private def redeclare_queue(frame, q)
-      if q.exclusive && !exclusive_queues.includes? q
+      if q.exclusive && !@exclusive_queues.includes? q
         send_resource_locked(frame, "Exclusive queue")
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
@@ -508,16 +529,17 @@ module AvalancheMQ
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
             q.message_count, q.consumer_count)
         end
+        @last_queue_name = frame.queue_name
       else
-        send_resource_locked(frame, "Existing queue '#{q.name}' declared with other arguments")
+        send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
       end
     end
 
-    @last_tmp_queue_name : String?
+    @last_queue_name : String?
 
     private def declare_new_queue(frame)
       if frame.queue_name.empty?
-        @last_tmp_queue_name = frame.queue_name = Queue.generate_name
+        frame.queue_name = Queue.generate_name
       end
       dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
       dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
@@ -526,6 +548,7 @@ module AvalancheMQ
         return
       end
       @vhost.apply(frame)
+      @last_queue_name = frame.queue_name
       if frame.exclusive
         @exclusive_queues << @vhost.queues[frame.queue_name]
       end
@@ -535,10 +558,14 @@ module AvalancheMQ
     end
 
     private def bind_queue(frame)
-      if frame.queue_name.empty? && @last_tmp_queue_name
-        frame.queue_name = @last_tmp_queue_name.not_nil!
+      if frame.queue_name.empty? && @last_queue_name
+        frame.queue_name = @last_queue_name.not_nil!
       end
-      if !@vhost.queues.has_key? frame.queue_name
+      if !valid_entity_name(frame.queue_name)
+        send_precondition_failed(frame, "Queue name isn't valid")
+      elsif !valid_entity_name(frame.exchange_name)
+        send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif !@vhost.queues.has_key? frame.queue_name
         send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
@@ -557,7 +584,14 @@ module AvalancheMQ
     end
 
     private def unbind_queue(frame)
-      if !@vhost.queues.has_key? frame.queue_name
+      if frame.queue_name.empty? && @last_queue_name
+        frame.queue_name = @last_queue_name.not_nil!
+      end
+      if !valid_entity_name(frame.queue_name)
+        send_precondition_failed(frame, "Queue name isn't valid")
+      elsif !valid_entity_name(frame.exchange_name)
+        send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif !@vhost.queues.has_key? frame.queue_name
         send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
@@ -620,12 +654,17 @@ module AvalancheMQ
     end
 
     private def purge_queue(frame)
+      if frame.queue_name.empty? && @last_queue_name
+        frame.queue_name = @last_queue_name.not_nil!
+      end
       unless @user.can_read?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
         return
       end
-      if q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !exclusive_queues.includes? q
+      if !valid_entity_name(frame.queue_name)
+        send_precondition_failed(frame, "Queue name isn't valid")
+      elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+        if q.exclusive && !@exclusive_queues.includes? q
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         else
           messages_purged = q.purge
@@ -645,6 +684,13 @@ module AvalancheMQ
     end
 
     private def consume(frame)
+      if frame.queue.empty? && @last_queue_name
+        frame.queue = @last_queue_name.not_nil!
+      end
+      if !valid_entity_name(frame.queue)
+        send_precondition_failed(frame, "Queue name isn't valid")
+        return
+      end
       unless @user.can_read?(@vhost.name, frame.queue)
         send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
         return
@@ -653,6 +699,13 @@ module AvalancheMQ
     end
 
     private def basic_get(frame)
+      if frame.queue.empty? && @last_queue_name
+        frame.queue = @last_queue_name.not_nil!
+      end
+      if !valid_entity_name(frame.queue)
+        send_precondition_failed(frame, "Queue name isn't valid")
+        return
+      end
       unless @user.can_read?(@vhost.name, frame.queue)
         send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
         return
