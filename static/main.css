@@ -590,6 +590,15 @@ a, a:visited {
   color: #fff;
 }
 
+.btn-warn {
+  font-weight: 100;
+  padding: 0 40px;
+  border: none;
+  text-transform: uppercase;
+  background-color: #e2b149;
+  color: #fff;
+}
+
 .state-running:after {
   content: '●';
   color: green;
