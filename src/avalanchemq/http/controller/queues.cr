@@ -145,6 +145,9 @@ module AvalancheMQ
             if q.internal?
               bad_request(context, "Not allowed to get from internal queue")
             end
+            if q.state != QueueState::Running
+              forbidden(context, "Can't get from queue that is not in running state")
+            end
             body = parse_body(context)
             get_count = body["count"]?.try(&.as_i) || 1
             ack_mode = body["ack_mode"]?.try(&.as_s) || "ack_requeue_true"

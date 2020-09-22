@@ -123,6 +123,10 @@ module AvalancheMQ
         halt(context, 401, {error: "access_refused", reason: message})
       end
 
+      private def forbidden(context, message = "Forbidden")
+        halt(context, 403, {error: "forbidden", reason: message})
+      end
+
       private def halt(context, status_code, body = nil)
         context.response.status_code = status_code
         body.try &.to_json(context.response)
