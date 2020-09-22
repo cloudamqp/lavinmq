@@ -213,13 +213,29 @@ module AvalancheMQ
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
+        {% for sm in SERVER_METRICS %}
+          @{{sm.id}}_count = 0_u64
+          @{{sm.id}}_rate = 0_f64
+        {% end %}
+
         @vhosts.each_value do |vhost|
           vhost.queues.each_value(&.update_rates)
           vhost.exchanges.each_value(&.update_rates)
           vhost.connections.each do |connection|
             connection.update_rates
             connection.channels.each_value(&.update_rates)
+            stats = connection.stats_details
+            @channel_created_count += stats["channel_created"]
+            @channel_created_rate += stats.["channel_created_details"]["rate"]
+            @channel_closed_count += stats.["channel_closed"]
+            @channel_closed_rate += stats.["channel_closed_details"]["rate"]
           end
+          vhost.update_rates
+          stats = vhost.stats_details
+          {% for item in %w(connection_created connection_closed queue_declared queue_deleted) %}
+            @{{item.id}}_count += stats["{{item.id}}"]
+            @{{item.id}}_rate += stats["{{item.id}}_details"]["rate"]
+          {% end %}
         end
 
         interval = Config.instance.stats_interval.milliseconds.to_i
@@ -296,6 +312,13 @@ module AvalancheMQ
     getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_free = 0_i64
     getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
+
+    SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
+                      :queue_declared, :queue_deleted}
+    {% for sm in SERVER_METRICS %}
+      getter {{sm.id}}_count = 0_u64
+      getter {{sm.id}}_rate = 0_f64
+    {% end %}
 
     private def control_flow!
       if @disk_free < Config.instance.segment_size * 2
