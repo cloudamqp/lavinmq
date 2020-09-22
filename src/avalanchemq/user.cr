@@ -166,6 +166,10 @@ module AvalancheMQ
       @acl_config_cache[cache_key]
     end
 
+    def can_impersonate?
+      @tags.includes? "impersonator"
+    end
+
     def invalidate_acl_caches
       @acl_config_cache.clear
       @acl_read_cache.clear

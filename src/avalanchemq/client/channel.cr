@@ -203,6 +203,13 @@ module AvalancheMQ
 
       private def publish_and_return(msg)
         return true if direct_reply?(msg)
+        if user_id = msg.properties.user_id
+          if user_id != @client.user.name && !@client.user.can_impersonate?
+            text = "Message's user_id property '#{user_id}' doesn't match actual user '#{@client.user.name}'"
+            @log.error { text }
+            send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 60_u16, 40_u16)
+          end
+        end
         @confirm_total += 1 if @confirm
         ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
         if ok
