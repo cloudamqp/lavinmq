@@ -13,6 +13,8 @@ end
 
 module AvalancheMQ
   module HTTP
+    INTERNAL_UNIX_SOCKET = "/tmp/avalanchemq/http.sock"
+
     class Server
       def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
         @log.progname = "httpserver"
@@ -57,6 +59,12 @@ module AvalancheMQ
       def bind_unix(path)
         addr = @http.bind_unix path
         @log.info { "Bound to #{addr}" }
+      end
+
+      def bind_internal_unix
+        FileUtils.mkdir_p(File.dirname(INTERNAL_UNIX_SOCKET))
+        @http.bind_unix INTERNAL_UNIX_SOCKET
+        File.chmod(INTERNAL_UNIX_SOCKET, 0o770)
       end
 
       def reload_settings(cert_path, key_path)
