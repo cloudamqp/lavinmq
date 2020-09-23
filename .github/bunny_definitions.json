@@ -1,0 +1,71 @@
+{
+  "rabbit_version": "3.8.8",
+  "rabbitmq_version": "3.8.8",
+  "product_name": "RabbitMQ",
+  "product_version": "3.8.8",
+  "users": [
+    {
+      "name": "bunny_reader",
+      "password_hash": "0KnVCpxiayhRFpJHCiOCseeBXEVRvxefTTLCJbhnXXLK1oqR",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ""
+    },
+    {
+      "name": "bunny_gem",
+      "password_hash": "YeTOnve4Xn1plcFT9u+DDIJgztFp4DTXS5A69hF5RBosK+0v",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ""
+    },
+    {
+      "name": "guest",
+      "password_hash": "7fnAj9EgdV6/07ENPgKnLKZggRBqFwke5yz6dPuJrML1Fqz6",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "bunny_testbed"
+    },
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "bunny_reader",
+      "vhost": "bunny_testbed",
+      "configure": "^---$",
+      "write": "^---$",
+      "read": ".*"
+    },
+    {
+      "user": "bunny_gem",
+      "vhost": "bunny_testbed",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "guest",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "guest",
+      "vhost": "bunny_testbed",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "topic_permissions": [],
+  "parameters": [],
+  "global_parameters": [],
+  "policies": [],
+  "queues": [],
+  "exchanges": [],
+  "bindings": []
+}
