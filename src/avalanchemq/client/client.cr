@@ -472,9 +472,10 @@ module AvalancheMQ
     private def delete_exchange(frame)
       if !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
-        return
-      end
-      if frame.exchange_name.starts_with? "amq."
+      elsif !@vhost.exchanges.has_key? frame.exchange_name
+        # should return not_found according to spec but we make it idempotent
+        send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
+      elsif frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
         return
       elsif !@user.can_config?(@vhost.name, frame.exchange_name)
@@ -494,11 +495,9 @@ module AvalancheMQ
         return
       end
       q = @vhost.queues.fetch(frame.queue_name, nil)
-      unless q
+      if q.nil?
         send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
-        return
-      end
-      if q.exclusive && !@exclusive_queues.includes? q
+      elsif q.exclusive && !@exclusive_queues.includes? q
         send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
       elsif frame.if_unused && !q.consumer_count.zero?
         send_precondition_failed(frame, "Queue '#{q.name}' in use")
@@ -619,9 +618,11 @@ module AvalancheMQ
       elsif !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
       elsif !@vhost.queues.has_key? frame.queue_name
-        send_not_found frame, "Queue '#{frame.queue_name}' not found"
+        # should return not_found according to spec but we make it idempotent
+        send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
       elsif !@vhost.exchanges.has_key? frame.exchange_name
-        send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
+        # should return not_found according to spec but we make it idempotent
+        send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
       elsif !@user.can_read?(@vhost.name, frame.exchange_name)
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
@@ -663,9 +664,11 @@ module AvalancheMQ
       source = @vhost.exchanges.fetch(frame.source, nil)
       destination = @vhost.exchanges.fetch(frame.destination, nil)
       if destination.nil?
-        send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
+        # should return not_found according to spec but we make it idempotent
+        send AMQP::Frame::Exchange::UnbindOk.new(frame.channel)
       elsif source.nil?
-        send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
+        # should return not_found according to spec but we make it idempotent
+        send AMQP::Frame::Exchange::UnbindOk.new(frame.channel)
       elsif !@user.can_read?(@vhost.name, frame.source)
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
       elsif !@user.can_write?(@vhost.name, frame.destination)
