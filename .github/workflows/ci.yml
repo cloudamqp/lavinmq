@@ -79,6 +79,8 @@ jobs:
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 2.7.1
 
       - name: Installing bundler
         env:
