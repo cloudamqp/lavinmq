@@ -54,19 +54,19 @@ module AvalancheMQ
     private def parse_main(settings)
       settings.each do |config, v|
         case config
-        when "data_dir" then @data_dir = v
-        when "log_level" then @log_level = Logger::Severity.parse(v)
-        when "stats_interval" then @stats_interval = v.to_i32
-        when "stats_log_size" then @stats_log_size = v.to_i32
+        when "data_dir"             then @data_dir = v
+        when "log_level"            then @log_level = Logger::Severity.parse(v)
+        when "stats_interval"       then @stats_interval = v.to_i32
+        when "stats_log_size"       then @stats_log_size = v.to_i32
         when "gc_segments_interval" then @gc_segments_interval = v.to_i32
-        when "segment_size" then @segment_size = v.to_i32
-        when "queue_max_acks" then @queue_max_acks = v.to_i32
-        when "set_timestamp" then @set_timestamp = true?(v)
-        when "file_buffer_size" then @file_buffer_size = v.to_i32
-        when "socket_buffer_size" then @socket_buffer_size = v.to_i32
-        when "tcp_nodelay" then @tcp_nodelay = true?(v)
-        when "tls_cert" then @cert_path = v
-        when "tls_key" then @key_path = v
+        when "segment_size"         then @segment_size = v.to_i32
+        when "queue_max_acks"       then @queue_max_acks = v.to_i32
+        when "set_timestamp"        then @set_timestamp = true?(v)
+        when "file_buffer_size"     then @file_buffer_size = v.to_i32
+        when "socket_buffer_size"   then @socket_buffer_size = v.to_i32
+        when "tcp_nodelay"          then @tcp_nodelay = true?(v)
+        when "tls_cert"             then @cert_path = v
+        when "tls_key"              then @key_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
@@ -76,15 +76,15 @@ module AvalancheMQ
     private def parse_amqp(settings)
       settings.each do |config, v|
         case config
-        when "bind" then @amqp_bind = v
-        when "port" then @amqp_port = v.to_i32
-        when "tls_port" then @amqps_port = v.to_i32
-        when "tls_cert" then @cert_path = v # backward compatibility
-        when "tls_key" then @key_path = v   # backward compatibility
-        when "unix_path" then @unix_path = v
-        when "heartbeat" then @heartbeat = v.to_u16
+        when "bind"        then @amqp_bind = v
+        when "port"        then @amqp_port = v.to_i32
+        when "tls_port"    then @amqps_port = v.to_i32
+        when "tls_cert"    then @cert_path = v # backward compatibility
+        when "tls_key"     then @key_path = v  # backward compatibility
+        when "unix_path"   then @unix_path = v
+        when "heartbeat"   then @heartbeat = v.to_u16
         when "channel_max" then @channel_max = v.to_u16
-        when "frame_max" then @frame_max = v.to_u32
+        when "frame_max"   then @frame_max = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end
@@ -94,11 +94,11 @@ module AvalancheMQ
     private def parse_mgmt(settings)
       settings.each do |config, v|
         case config
-        when "bind" then @http_bind = v
-        when "port" then @http_port = v.to_i32
-        when "tls_port" then @https_port = v.to_i32
-        when "tls_cert" then @cert_path = v # backward compatibility
-        when "tls_key" then @key_path = v   # backward compatibility
+        when "bind"      then @http_bind = v
+        when "port"      then @http_port = v.to_i32
+        when "tls_port"  then @https_port = v.to_i32
+        when "tls_cert"  then @cert_path = v # backward compatibility
+        when "tls_key"   then @key_path = v  # backward compatibility
         when "unix_path" then @http_unix_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
