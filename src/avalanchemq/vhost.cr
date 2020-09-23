@@ -9,7 +9,9 @@ require "./shovel/shovel_store"
 require "./federation/upstream_store"
 require "./sortable_json"
 require "./durable_queue"
-require "./exchange"
+require "./exchange/exchanges"
+require "./exchange/direct"
+require "./exchange/default"
 require "digest/sha1"
 require "./reference_counter"
 require "./mfile"
@@ -310,7 +312,7 @@ module AvalancheMQ
       when AMQP::Frame::Exchange::Declare
         return false if @exchanges.has_key? f.exchange_name
         e = @exchanges[f.exchange_name] =
-          Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
+          Exchanges.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Frame::Exchange::Delete
         if x = @exchanges.delete f.exchange_name
