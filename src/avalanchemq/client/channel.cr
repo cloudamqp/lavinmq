@@ -207,7 +207,7 @@ module AvalancheMQ
           if user_id != @client.user.name && !@client.user.can_impersonate?
             text = "Message's user_id property '#{user_id}' doesn't match actual user '#{@client.user.name}'"
             @log.error { text }
-            send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{text}", 60_u16, 40_u16)
+            raise Error::PreconditionFailed.new(text)
           end
         end
         @confirm_total += 1 if @confirm
@@ -217,6 +217,9 @@ module AvalancheMQ
         else
           basic_return(msg)
         end
+      rescue e : Error::PreconditionFailed
+        msg.body_io.skip(msg.size)
+        send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
       rescue Queue::RejectOverFlow
         confirm_nack
       end
