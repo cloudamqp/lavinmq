@@ -313,7 +313,6 @@ module AvalancheMQ
           Exchange.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Frame::Exchange::Delete
-        return false unless @exchanges.has_key? f.exchange_name
         if x = @exchanges.delete f.exchange_name
           @exchanges.each_value do |ex|
             ex.exchange_bindings.each do |binding_args, destinations|

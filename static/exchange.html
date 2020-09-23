@@ -178,7 +178,8 @@
             const s = encodeURIComponent(item.source)
             const d = encodeURIComponent(item.destination)
             const p = encodeURIComponent(item.properties_key)
-            const url = '/api/bindings/' + urlEncodedVhost + '/e/' + s + '/e/' + d + '/' + p
+            const t = item.destination_type == "exchange" ? "e" : "q"
+            const url = '/api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
             avalanchemq.http.request('DELETE', url)
               .then(() => {
                 avalanchemq.dom.removeNodes(tr)
