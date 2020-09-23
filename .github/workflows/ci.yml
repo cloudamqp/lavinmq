@@ -96,10 +96,13 @@ jobs:
           crystal --version
           shards --version
           shards install --production
-          shards build --production avalanchemq
+          shards build --production avalanchemq avalanchemqctl
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Import definitions
+        run: bin/avalanchemqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
         run: git clone --depth 1 git@github.com:ruby-amqp/bunny.git
