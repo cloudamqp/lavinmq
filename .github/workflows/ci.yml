@@ -106,4 +106,4 @@ jobs:
 
       - name: Run specs
         run: cd bunny
-          CI=true bundle exec rspec spec/higher_level_api/integration spec/lower_level_api/integration spec/issues --exclude-pattern "**/(tx_|tls_)*spec.rb"
+          CI=true bundle exec rspec --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
