@@ -29,7 +29,7 @@ module AvalancheMQ
 
     @@instance : Config = self.new
 
-    def self.instance
+    def self.instance : AvalancheMQ::Config
       @@instance
     end
 

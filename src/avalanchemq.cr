@@ -131,6 +131,7 @@ if config.http_port > 0 || config.https_port > 0 || !config.http_unix_path.empty
   unless config.http_unix_path.empty?
     http_server.bind_unix(config.http_unix_path)
   end
+  http_server.bind_internal_unix
   spawn(name: "HTTP listener") do
     http_server.not_nil!.listen
   end
