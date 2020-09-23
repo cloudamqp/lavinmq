@@ -75,6 +75,24 @@ module AvalancheMQ
           end
         end
 
+        put "/api/queues/:vhost/:name/pause" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            q = queue(context, params, vhost)
+            q.pause!
+            context.response.status_code = 204
+          end
+        end
+
+        put "/api/queues/:vhost/:name/resume" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            q = queue(context, params, vhost)
+            q.resume!
+            context.response.status_code = 204
+          end
+        end
+
         delete "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
@@ -126,6 +144,9 @@ module AvalancheMQ
             end
             if q.internal?
               bad_request(context, "Not allowed to get from internal queue")
+            end
+            if q.state != QueueState::Running
+              forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
             get_count = body["count"]?.try(&.as_i) || 1

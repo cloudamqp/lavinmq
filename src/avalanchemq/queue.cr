@@ -13,6 +13,18 @@ require "./client/channel"
 require "./message"
 
 module AvalancheMQ
+  enum QueueState
+    Running
+    Paused
+    Flow
+    Closed
+    Deleted
+
+    def to_s
+      super.downcase
+    end
+  end
+
   class Queue
     include PolicyTarget
     include Observable
@@ -29,8 +41,6 @@ module AvalancheMQ
     @dlx : String?
     @dlrk : String?
     @reject_on_overflow = false
-    @closed = false
-    @deleted = false
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
@@ -42,6 +52,7 @@ module AvalancheMQ
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
+    @paused = Channel(Nil).new(1)
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
@@ -50,6 +61,7 @@ module AvalancheMQ
     getter policy : Policy?
     getter? closed
     property? internal = false
+    getter state = QueueState::Running
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
@@ -206,20 +218,40 @@ module AvalancheMQ
       end
     end
 
+    def pause!
+      return unless @state == QueueState::Running
+      @state = QueueState::Paused
+    end
+
+    def resume!
+      return unless @state == QueueState::Paused
+      @state = QueueState::Running
+      @paused.send nil
+    end
+
+    def flow=(flow : Bool)
+      if flow
+        @state = QueueState::Running
+        @paused.send nil
+      else
+        @state = QueueState::Flow
+      end
+    end
+
     private def deliver_loop
       i = 0
       loop do
-        break if @closed
+        break if @state == QueueState::Closed
         if @ready.empty?
           i = 0
           receive_or_expire || break
         end
-        if c = find_consumer(i)
+        if @state == QueueState::Running && (c = find_consumer(i))
           deliver_to_consumer(c)
           # deliver 4096 msgs to a consumer then change consumer
           i = 0 if (i += 1) == 4096
         else
-          break if @closed
+          break if @state == QueueState::Closed
           i = 0
           consumer_or_expire || break
         end
@@ -265,6 +297,8 @@ module AvalancheMQ
       if ttl
         @log.debug "Queue#consumer_or_expire TTL: #{ttl}"
         select
+        when @paused.receive
+          @log.debug { "Queue unpaused" }
         when @consumer_available.receive
           @log.debug "Queue#consumer_or_expire Consumer available"
         when @refresh_ttl_timeout.receive
@@ -278,6 +312,8 @@ module AvalancheMQ
           else raise "Unknown TTL"
           end
         end
+      elsif @state == QueueState::Flow || @state == QueueState::Paused
+        @paused.receive
       else
         @consumer_available.receive
       end
@@ -371,7 +407,7 @@ module AvalancheMQ
         unacked_bytes: @unacked.sum { |u| u.sp.bytesize },
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
-        state: @closed ? :closed : :running,
+        state: @state.to_s,
         effective_policy_definition: @policy,
         message_stats: stats_details,
         internal: @internal,
@@ -381,7 +417,7 @@ module AvalancheMQ
     class RejectOverFlow < Exception; end
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
-      return false if @closed
+      return false if @state == QueueState::Closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
       drop_overflow(sp)
@@ -582,6 +618,7 @@ module AvalancheMQ
     end
 
     def basic_get(no_ack) : Envelope?
+      return nil unless @state == QueueState::Running
       @last_get_time = Time.monotonic
       @get_count += 1
       if env = get(no_ack)
@@ -596,7 +633,7 @@ module AvalancheMQ
 
     # return the next message in the ready queue
     private def get(no_ack : Bool)
-      return nil if @closed
+      return nil if @state == QueueState::Closed
       if sp = @ready.shift?
         env = read(sp)
         if @delivery_limit && !no_ack

@@ -227,7 +227,21 @@
         </table>
       </div>
       <div id="messages" class="cols-12"></div>
-      <section class="card cols-4">
+      <section class="card cols-3">
+        <h3>Pause Queue</h3>
+        <form method="put" id="pauseQueue" class="form">
+          <label>
+            <button type="submit" class="btn-warn">Pause queue</button>
+          </label>
+        </form>
+        <form method="put" id="resumeQueue" class="form hide">
+          <label>
+            <button type="submit" class="btn-warn">Resume queue</button>
+          </label>
+        </form>
+        <p> Pausing a queue will stop deliveries to all consumers. </p>
+      </section>
+      <section class="card cols-3">
         <h3>Danger zone</h3>
         <form method="delete" id="purgeQueue" class="form">
           <label>
@@ -257,6 +271,8 @@
       const urlEncodedQueue = encodeURIComponent(queue)
       const urlEncodedVhost = encodeURIComponent(vhost)
       const escapeHTML = avalanchemq.dom.escapeHTML
+      const pauseQueueForm = document.querySelector('#pauseQueue')
+      const resumeQueueForm = document.querySelector('#resumeQueue')
       document.title = queue + ' | AvalancheMQ'
 
       const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item) {
@@ -291,12 +307,29 @@
         avalanchemq.table.renderCell(tr, 5, cancelForm, 'center')
       })
 
+      function handleQueueState (state) {
+        document.getElementById('q-state').textContent = state
+        switch (state) {
+          case 'paused':
+            pauseQueueForm.classList.add('hide')
+            resumeQueueForm.classList.remove('hide')
+            break
+          case 'running':
+            pauseQueueForm.classList.remove('hide')
+            resumeQueueForm.classList.add('hide')
+            break
+          default:
+            pauseQueueForm.disabled = true
+            resumeQueueForm.disabled = true
+        }
+      }
+
       const chart = avalanchemq.chart.render('chart', 'msgs/s')
       const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
       function updateQueue (all) {
         avalanchemq.http.request('GET', queueUrl).then(item => {
           avalanchemq.chart.update(chart, item.message_stats)
-          document.getElementById('q-state').textContent = item.state
+          handleQueueState(item.state)
           document.getElementById('q-unacked').textContent = item.unacked
           document.getElementById('q-unacked-bytes').textContent = avalanchemq.helpers.nFormatter(item.unacked_bytes) + 'B'
           document.getElementById('q-total').textContent = avalanchemq.helpers.formatNumber(item.messages)
@@ -486,6 +519,32 @@
         if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/queues' })
+            .catch(avalanchemq.http.standardErrorHandler)
+        }
+      })
+
+      pauseQueueForm.addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/pause'
+        if (window.confirm('Are you sure? This will suspend deliveries to all consumers.')) {
+          avalanchemq.http.request('PUT', url)
+            .then(() => {
+              avalanchemq.dom.toast('Queue paused!')
+              handleQueueState('paused')
+            })
+            .catch(avalanchemq.http.standardErrorHandler)
+        }
+      })
+
+      resumeQueueForm.addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/resume'
+        if (window.confirm('Are you sure? This will resume deliveries to all consumers.')) {
+          avalanchemq.http.request('PUT', url)
+            .then(() => {
+              avalanchemq.dom.toast('Queue resumed!')
+              handleQueueState('running')
+            })
             .catch(avalanchemq.http.standardErrorHandler)
         }
       })
