@@ -5,13 +5,13 @@ module AvalancheMQ
       socket.read_timeout = 15
       confirm_header(socket, log) || return
       start_ok = start(socket)
-      creds = credentials(start_ok)
-      user = authenticate(socket, users, creds[:username], creds[:password], start_ok, log) || return
-      tune_ok = tune(socket)
-      if vhost = open(socket, vhosts, user, log)
-        Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
-      else
-        nil
+      username, password = credentials(start_ok)
+      if user = authenticate(socket, users, username, password, start_ok, log)
+        if tune_ok = tune(socket, log)
+          if vhost = open(socket, vhosts, user, log)
+            Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
+          end
+        end
       end
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
@@ -38,7 +38,7 @@ module AvalancheMQ
         socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
         socket.close
-        log.debug { "Unknown protocol #{proto}, closing socket" }
+        log.debug { "Unknown protocol '#{String.new(proto.to_slice)}', closing socket" }
         return false
       end
       true
@@ -73,11 +73,11 @@ module AvalancheMQ
       when "PLAIN"
         resp = start_ok.response
         i = resp.index('\u0000', 1).not_nil!
-        {username: resp[1...i], password: resp[(i + 1)..-1]}
+        { resp[1...i], resp[(i + 1)..-1] }
       when "AMQPLAIN"
         io = ::IO::Memory.new(start_ok.response)
         tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
-        {username: tbl["LOGIN"].as(String), password: tbl["PASSWORD"].as(String)}
+        { tbl["LOGIN"].as(String), tbl["PASSWORD"].as(String) }
       else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
       end
     end
