@@ -364,6 +364,14 @@ module AvalancheMQ
         end
       end
 
+      private def delete_consumers_unacked(consumer)
+        @unack_lock.synchronize do
+          @unacked.delete_if do |unack|
+            unack.consumer == consumer
+          end
+        end
+      end
+
       private def delete_multiple_unacked(delivery_tag)
         @unack_lock.synchronize do
           if delivery_tag.zero?
@@ -472,9 +480,14 @@ module AvalancheMQ
 
       def close
         @running = false
-        @consumers.each { |c| c.queue.rm_consumer(c) }
+        @consumers.each do |c|
+          delete_consumers_unacked(c)
+          c.queue.rm_consumer(c)
+        end
+        @consumers.clear
         delete_all_unacked do |unack|
-          unack.queue.reject(unack.sp, true) if unack.consumer.nil?
+          @log.debug { "Requeing unacked msg #{unack.sp}" }
+          unack.queue.reject(unack.sp, true)
         end
         @next_msg_body.close
         @log.debug { "Closed" }
@@ -503,15 +516,12 @@ module AvalancheMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if c = @consumers.find { |cons| cons.tag == frame.consumer_tag }
+        if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
+          c = @consumers.delete_at idx
           c.queue.rm_consumer(c, basic_cancel: true)
-          unless frame.no_wait
-            send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
-          end
-        else
-          unless frame.no_wait
-            send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
-          end
+        end
+        unless frame.no_wait
+          send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
         end
       end
 

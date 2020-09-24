@@ -742,13 +742,12 @@ module AvalancheMQ
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
+      consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
+      unless basic_cancel
+        requeue_many(@unacked.delete(consumer))
+      end
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
-        unless basic_cancel
-          requeue_many(@unacked.delete(consumer))
-        end
-
         @log.debug { "Removing consumer with #{consumer_unacked_size} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
