@@ -37,6 +37,9 @@ jobs:
     container: crystallang/crystal:0.35.1
 
     steps:
+      - name: Install dependencies
+        run: sudo apt-get install -y libsystemd-dev
+
       - name: Checkout
         uses: actions/checkout@v2
 
