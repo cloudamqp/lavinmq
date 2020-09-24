@@ -499,7 +499,7 @@ module AvalancheMQ
       q = @vhost.queues.fetch(frame.queue_name, nil)
       if q.nil?
         send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
-      elsif q.exclusive && !@exclusive_queues.includes? q
+      elsif queue_exclusive_to_other_client?(q)
         send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
       elsif frame.if_unused && !q.consumer_count.zero?
         send_precondition_failed(frame, "Queue '#{q.name}' in use")
@@ -522,6 +522,10 @@ module AvalancheMQ
       name.matches?(/\A[a-zA-Z0-9-_.:<> \/#]*\z/)
     end
 
+    def queue_exclusive_to_other_client?(q)
+      q.exclusive && !@exclusive_queues.includes?(q)
+    end
+
     private def declare_queue(frame)
       if !frame.queue_name.empty? && !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
@@ -542,7 +546,7 @@ module AvalancheMQ
     end
 
     private def redeclare_queue(frame, q)
-      if q.exclusive && !@exclusive_queues.includes? q
+      if queue_exclusive_to_other_client?(q) || (q.exclusive && !frame.exclusive)
         send_resource_locked(frame, "Exclusive queue")
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
@@ -696,7 +700,7 @@ module AvalancheMQ
       if !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !@exclusive_queues.includes? q
+        if queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         else
           messages_purged = q.purge

@@ -288,12 +288,16 @@ module AvalancheMQ
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
         elsif q = @client.vhost.queues[frame.queue]? || nil
-          if q.internal?
-            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
+          if @client.queue_exclusive_to_other_client?(q)
+            @client.send_resource_locked(frame, "Exclusive queue")
             return
           end
           if q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+            return
+          end
+          if q.internal?
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
             return
           end
           unless frame.no_wait
@@ -310,7 +314,9 @@ module AvalancheMQ
 
       def basic_get(frame)
         if q = @client.vhost.queues.fetch(frame.queue, nil)
-          if q.has_exclusive_consumer?
+          if @client.queue_exclusive_to_other_client?(q)
+            @client.send_resource_locked(frame, "Exclusive queue")
+          elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           elsif q.internal?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
