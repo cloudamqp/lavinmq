@@ -9,8 +9,13 @@ module AvalancheMQ
       def initialize(@user_store : UserStore, @log : Logger)
       end
 
+      def validate(context)
+        context.request.path.starts_with?("/api/") ||
+        context.request.path = "/metrics"
+      end
+
       def call(context)
-        unless context.request.path.starts_with?("/api/")
+        unless validate(context)
           return call_next(context)
         end
         auth = context.request.headers.fetch("Authorization", nil)
