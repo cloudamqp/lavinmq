@@ -17,7 +17,7 @@ module AvalancheMQ
     include SortableJSON
 
     property direct_reply_consumer_tag
-    getter vhost, channels, log, exclusive_queues, name
+    getter vhost, channels, log, name
     getter user
     getter remote_address
     getter max_frame_size : UInt32
@@ -216,7 +216,7 @@ module AvalancheMQ
           @send_oct_count += 8_u64 + body.bytesize
           pos += length
         end
-        #@log.debug { "Flushing" }
+        # @log.debug { "Flushing" }
         @socket.flush
       end
       true
@@ -519,7 +519,7 @@ module AvalancheMQ
 
     private def valid_entity_name(name)
       return true if name.empty?
-      name.matches?(/\A[a-zA-Z0-9-_.:<> \/]*\z/)
+      name.matches?(/\A[a-zA-Z0-9-_.:<> \/#]*\z/)
     end
 
     private def declare_queue(frame)
