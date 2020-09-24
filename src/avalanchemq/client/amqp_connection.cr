@@ -94,7 +94,7 @@ module AvalancheMQ
       props = start_ok.client_properties
       capabilities = props["capabilities"]?.try &.as(AMQP::Table)
       if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
-        socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED",
+        socket.write_bytes AMQP::Frame::Connection::Close.new(403_u16, "ACCESS_REFUSED",
           start_ok.class_id,
           start_ok.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
