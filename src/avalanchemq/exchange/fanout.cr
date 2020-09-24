@@ -1,3 +1,5 @@
+require "../exchange"
+
 module AvalancheMQ
   class FanoutExchange < Exchange
     def type : String

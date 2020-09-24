@@ -1,3 +1,5 @@
+require "../exchange"
+
 module AvalancheMQ
   class TopicExchange < Exchange
     def initialize(*args)

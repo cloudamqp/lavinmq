@@ -1,13 +1,13 @@
-require "./direct"
-require "./fanout"
-require "./topic"
-require "./headers"
-require "./federation"
-require "./consistent_hash"
+require "./exchange/direct"
+require "./exchange/fanout"
+require "./exchange/topic"
+require "./exchange/headers"
+require "./exchange/federation"
+require "./exchange/consistent_hash"
 
 module AvalancheMQ
   module Exchanges
-  def self.make(vhost, name, type, durable, auto_delete, internal, arguments)
+    def self.make(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"
         DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)

@@ -1,3 +1,5 @@
+require "../exchange"
+
 module AvalancheMQ
   class DefaultExchange < Exchange
     def type : String

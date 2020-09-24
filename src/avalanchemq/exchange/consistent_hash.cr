@@ -1,3 +1,4 @@
+require "../exchange"
 require "../consistent_hasher.cr"
 
 module AvalancheMQ

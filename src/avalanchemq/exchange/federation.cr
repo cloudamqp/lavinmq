@@ -1,3 +1,5 @@
+require "../exchange"
+
 module AvalancheMQ
   class FederationExchange < TopicExchange
     def type
