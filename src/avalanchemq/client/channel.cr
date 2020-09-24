@@ -292,10 +292,6 @@ module AvalancheMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
             return
           end
-          if q.exclusive && !@client.exclusive_queues.includes? q
-            @client.send_resource_locked(frame, "Exclusive queue")
-            return
-          end
           if q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
@@ -314,10 +310,10 @@ module AvalancheMQ
 
       def basic_get(frame)
         if q = @client.vhost.queues.fetch(frame.queue, nil)
-          if q.exclusive && !@client.exclusive_queues.includes? q
-            @client.send_resource_locked(frame, "Exclusive queue")
-          elsif q.internal?
+          if q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          elsif q.internal?
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
           else
             if env = q.basic_get(frame.no_ack)
               persistent = env.message.properties.delivery_mode == 2_u8
