@@ -127,7 +127,7 @@
   }
 
   function formatLabel (key) {
-    const label = key.replace(/_/g, ' ').replace(/(rate|details|unroutable|messages)/ig, '').trim()
+    const label = key.replace(/_/g, ' ').replace(/(rate|details|messages)/ig, '').trim()
       .replace(/^\w/, c => c.toUpperCase())
     return label || 'Total'
   }
