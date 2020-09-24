@@ -28,4 +28,4 @@ COPY --from=builder /tmp/bin/avalanchemq /usr/sbin/
 VOLUME ["/data"]
 EXPOSE 15672 5672
 USER daemon:daemon
-ENTRYPOINT ["/usr/sbin/avalanchemq", "-D", "/data"]
+ENTRYPOINT ["/usr/sbin/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]
