@@ -31,32 +31,45 @@ jobs:
       - name: Spec
         run: crystal spec --no-color --order random
 
-  java-client-test:
-    name: RabbitMQ java client test
-    runs-on: ubuntu-20.04
+  compile:
+    name: Compile AvalancheMQ
+    runs-on: ubuntu-latest
+    container: crystallang/crystal:0.35.1
 
     steps:
-      - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev openjdk-11-jre-headless gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev python-is-python3 python3
-
-      - name: Install Crystal
-        run: sudo snap install crystal --classic
-
       - name: Checkout
         uses: actions/checkout@v2
 
       - name: Build avalanchemq
         run: |
-          crystal --version
-          shards --version
           shards install --production
-          shards build --production avalanchemq
+          shards build --production avalanchemq avalanchemqctl
+
+      - name: Upload bin/
+        uses: actions/upload-artifact@v2
+        with:
+          name: bin
+          path: bin/
+
+  java-client-test:
+    name: RabbitMQ java client test
+    runs-on: ubuntu-latest
+    needs: compile
+    container: maven:3.6.3-jdk-11
+
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
 
       - name: Clone java client
-        run: git clone --depth 1 https://github.com/84codes/rabbitmq-java-client.git
+        uses: actions/checkout@v2
+        with:
+          repository: 84codes/rabbitmq-java-client
+          path: rabbitmq-java-client
 
       - name: Run java tests
         run: |
@@ -66,39 +79,16 @@ jobs:
 
   bunny-test:
     name: Bunny client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    needs: compile
 
     steps:
-      - name: Setup bundler cache
-        uses: actions/cache@v1
-        with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-test${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-gems-test
-
-      - name: Setup ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: 2.7.1
-
-      - name: Installing bundler
-        env:
-          BUNDLE_GITHUB__COM: x-access-token:${{ secrets.token }}
-        run: |
-          gem install bundler
-          bundle config path vendor/bundle
-          bundle install --jobs 4 --retry 3
-
-      - name: Checkout Code
+      - name: Checkout AvalancheMQ for bunny_definitions.json
         uses: actions/checkout@v2
 
-      - name: Build avalanchemq
-        run: |
-          crystal --version
-          shards --version
-          shards install --production
-          shards build --production avalanchemq avalanchemqctl
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
@@ -107,7 +97,17 @@ jobs:
         run: bin/avalanchemqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
-        run: git clone --depth 1 git@github.com:ruby-amqp/bunny.git
+        uses: actions/checkout@v2
+        with:
+          repository: ruby-amqp/bunny
+          path: bunny
+
+      - name: Setup ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: bunny
+          ruby-version: 2.7.1
+          bundler-cache: true
 
       - name: Run specs
         run: cd bunny
