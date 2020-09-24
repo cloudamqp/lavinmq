@@ -85,7 +85,7 @@ jobs:
         run: |
           cd rabbitmq-java-client
           make deps
-          ./mvnw verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
+          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
 
   bunny-test:
     name: Bunny client test
