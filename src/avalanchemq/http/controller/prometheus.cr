@@ -14,12 +14,19 @@ module AvalancheMQ
         def initialize(@name : String, @value : MetricValue)
         end
         def to_s(io : IO)
-          l = @labels.try { |l| l.map { |k,v| "#{k}=#{v}" }.join(",") }
-          if l
-            io.write("avalanchemq_#{@name}{#{l}} #{@value}\n".to_slice)
-          else
-            io.write("avalanchemq_#{@name} #{@value}\n".to_slice)
+          io << "avalanchemq_"
+          io << @name
+          if l = @labels
+            first = true
+            io << "{"
+            l.each do |k, v|
+              io << "," unless first
+              io << k << "=" << v
+              first = false
+            end
+            io << "}"
           end
+          io << " " << @value << "\n"
         end
       end
 
