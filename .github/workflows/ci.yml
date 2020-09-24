@@ -61,9 +61,13 @@ jobs:
     container: maven:3.6.3-jdk-11
 
     steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y make
+
       - uses: actions/download-artifact@v2
         with:
           name: bin
+          path: bin
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
@@ -92,6 +96,7 @@ jobs:
       - uses: actions/download-artifact@v2
         with:
           name: bin
+          path: bin
 
       - name: Run avalanchemq in background
         run: bin/avalanchemq --data-dir /tmp/amqp &
