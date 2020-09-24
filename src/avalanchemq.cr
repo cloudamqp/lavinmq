@@ -10,6 +10,10 @@ config = AvalancheMQ::Config.instance
 
 p = OptionParser.parse do |parser|
   parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
+  parser.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+    config.amqp_bind = v
+    config.http_bind = v
+  end
   parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config_file = v }
   parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
   parser.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
@@ -18,11 +22,17 @@ p = OptionParser.parse do |parser|
   parser.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
     config.amqps_port = v.to_i
   end
+  parser.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
+    config.amqp_bind = v
+  end
   parser.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
     config.http_port = v.to_i
   end
   parser.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
     config.https_port = v.to_i
+  end
+  parser.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
+    config.http_bind = v
   end
   parser.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
     config.unix_path = v
