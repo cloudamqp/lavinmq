@@ -70,7 +70,9 @@ jobs:
           path: bin
 
       - name: Run avalanchemq in background
-        run: bin/avalanchemq --data-dir /tmp/amqp &
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
 
       - name: Clone java client
         uses: actions/checkout@v2
@@ -99,10 +101,14 @@ jobs:
           path: bin
 
       - name: Run avalanchemq in background
-        run: bin/avalanchemq --data-dir /tmp/amqp &
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
 
       - name: Import definitions
-        run: bin/avalanchemqctl import_definitions .github/bunny_definitions.json
+        run: |
+          chmod +x bin/avalanchemqctl
+          bin/avalanchemqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
         uses: actions/checkout@v2
