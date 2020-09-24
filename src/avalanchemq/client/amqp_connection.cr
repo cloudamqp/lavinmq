@@ -105,13 +105,19 @@ module AvalancheMQ
       nil
     end
 
-    def self.tune(socket)
+    def self.tune(socket, log)
       socket.write_bytes AMQP::Frame::Connection::Tune.new(
         channel_max: Config.instance.channel_max,
         frame_max: Config.instance.frame_max,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
-      AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
+      tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
+      if tune_ok.frame_max < 4096
+        log.warn { "Frame max too low, closing connection" }
+        socket.close
+        return
+      end
+      tune_ok
     end
 
     def self.open(socket, vhosts, user, log)
