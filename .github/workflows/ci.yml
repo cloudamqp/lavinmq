@@ -60,6 +60,7 @@ jobs:
     name: RabbitMQ java client test
     runs-on: ubuntu-20.04
     needs: compile
+    continue-on-error: true
 
     steps:
       - name: Install dependencies
