@@ -56,13 +56,12 @@ jobs:
 
   java-client-test:
     name: RabbitMQ java client test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     needs: compile
-    container: maven:3.6.3-jdk-11
 
     steps:
       - name: Install dependencies
-        run: apt-get update && apt-get install -y make libevent-dev
+        run: sudo apt-get update && sudo apt-get install -y make libevent-dev openjdk-11-jre-headless
 
       - uses: actions/download-artifact@v2
         with:
@@ -93,7 +92,7 @@ jobs:
 
     steps:
       - name: Install dependencies
-        run: apt-get update && apt-get install -y libevent-dev
+        run: sudo apt-get update && sudo apt-get install -y libevent-dev
 
       - name: Checkout AvalancheMQ for bunny_definitions.json
         uses: actions/checkout@v2
