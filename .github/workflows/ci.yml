@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Install dependencies
-        run: apt-get update && apt-get install -y make
+        run: apt-get update && apt-get install -y make libevent-dev
 
       - uses: actions/download-artifact@v2
         with:
@@ -92,6 +92,9 @@ jobs:
     needs: compile
 
     steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y libevent-dev
+
       - name: Checkout AvalancheMQ for bunny_definitions.json
         uses: actions/checkout@v2
 
@@ -124,5 +127,6 @@ jobs:
           bundler-cache: true
 
       - name: Run specs
-        run: cd bunny
+        run: |
+          cd bunny
           CI=true bundle exec rspec --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
