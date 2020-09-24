@@ -526,6 +526,10 @@ module AvalancheMQ
       q.exclusive && !@exclusive_queues.includes?(q)
     end
 
+    private def invalid_exclusive_redeclare?(frame, q)
+      !(frame.passive || frame.exclusive || !q.exclusive)
+    end
+
     private def declare_queue(frame)
       if !frame.queue_name.empty? && !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
@@ -546,7 +550,7 @@ module AvalancheMQ
     end
 
     private def redeclare_queue(frame, q)
-      if queue_exclusive_to_other_client?(q) || (q.exclusive && !frame.exclusive)
+      if queue_exclusive_to_other_client?(q) || invalid_exclusive_redeclare?(frame, q)
         send_resource_locked(frame, "Exclusive queue")
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
