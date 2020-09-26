@@ -137,10 +137,11 @@ module AvalancheMQ
     end
 
     private def send_heartbeat
-      if @last_heartbeat + @heartbeat.seconds < RoughTime.utc
-        send(AMQP::Frame::Heartbeat.new)
+      if @last_heartbeat + @heartbeat.seconds + 1.seconds < RoughTime.utc
+        @log.debug { "Closing due to missed heartbeat" }
+        false
       else
-        true
+        send(AMQP::Frame::Heartbeat.new)
       end
     end
 
