@@ -580,11 +580,18 @@ module AvalancheMQ
     end
 
     private def handle_dlx_header(meta, reason)
+      routing_keys = [meta.routing_key.as(AMQP::Field)]
       props = meta.properties.clone
       headers = props.headers || AMQP::Table.new
+      headers.delete("x-delay")
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
-      headers.delete("x-delay")
+      if cc = headers.delete("CC")
+        # should route to all the CC RKs but then delete them,
+        # so we (ab)use the BCC header for that
+        headers["BCC"] = cc
+        routing_keys.concat cc.as(Array(AMQP::Field))
+      end
 
       xdeaths = Array(AMQP::Table).new(1)
       if headers.has_key? "x-death"
@@ -598,7 +605,7 @@ module AvalancheMQ
       death = Hash(String, AMQP::Field){
         "exchange"     => meta.exchange_name,
         "queue"        => @name,
-        "routing-keys" => [meta.routing_key.as(AMQP::Field)],
+        "routing-keys" => routing_keys,
         "reason"       => reason.to_s,
         "count"        => count + 1,
         "time"         => RoughTime.utc,
