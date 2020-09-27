@@ -62,7 +62,11 @@ module AvalancheMQ
       end
 
       def bind_internal_unix
-        FileUtils.mkdir_p(File.dirname(INTERNAL_UNIX_SOCKET))
+        if File.exists? INTERNAL_UNIX_SOCKET
+          File.delete INTERNAL_UNIX_SOCKET
+        else
+          FileUtils.mkdir_p(File.dirname(INTERNAL_UNIX_SOCKET))
+        end
         @http.bind_unix INTERNAL_UNIX_SOCKET
         File.chmod(INTERNAL_UNIX_SOCKET, 0o770)
       end
