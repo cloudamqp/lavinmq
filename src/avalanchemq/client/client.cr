@@ -571,8 +571,8 @@ module AvalancheMQ
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
       elsif frame.passive || q.match?(frame)
+        q.redeclare
         unless frame.no_wait
-          q.redeclare
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
             q.message_count, q.consumer_count)
         end

@@ -88,6 +88,7 @@ module AvalancheMQ
 
     def redeclare
       @last_get_time = Time.monotonic
+      step_loop # necessary to recalculate ttl
     end
 
     def has_exclusive_consumer?
