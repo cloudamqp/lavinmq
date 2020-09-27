@@ -116,7 +116,7 @@ module AvalancheMQ
       properties = msg.properties
       headers = properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
-      msg.properties.headers.try(&.delete("BCC"))
+      headers.try(&.delete("BCC"))
       prevent_dead_letter_loop(headers, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
