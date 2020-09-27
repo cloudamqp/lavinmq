@@ -169,20 +169,19 @@ module AvalancheMQ
     end
 
     private def handle_arguments
-      @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
-      if mttl = @message_ttl
-        if mttl < 0
-          raise AvalancheMQ::Error::PreconditionFailed.new("x-message-ttl has to be positive")
-        end
-      end
-      @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
       @dlx = parse_header("x-dead-letter-exchange", String)
       @dlrk = parse_header("x-dead-letter-routing-key", String)
-      if @dlx.nil? && @dlrk
+      if @dlrk && @dlx.nil?
         raise AvalancheMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
+      @expires = parse_header("x-expires", ArgumentNumber)
+      validate_gt_zero("x-expires", @expires)
       @max_length = parse_header("x-max-length", ArgumentNumber)
+      validate_positive("x-max-length", @max_length)
+      @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
+      validate_positive("x-message-ttl", @message_ttl)
       @delivery_limit = parse_header("x-delivery-limit", ArgumentNumber)
+      validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
     end
 
@@ -190,6 +189,18 @@ module AvalancheMQ
       if value = @arguments["{{ header.id }}"]?
         value.as?({{ type }}) || raise AvalancheMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
+    end
+
+    private def validate_positive(header, value) : Nil
+      return if value.nil?
+      return if value >= 0
+      raise AvalancheMQ::Error::PreconditionFailed.new("#{header} has to be positive")
+    end
+
+    private def validate_gt_zero(header, value) : Nil
+      return if value.nil?
+      return if value > 0
+      raise AvalancheMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
     end
 
     def immediate_delivery?
