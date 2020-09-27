@@ -197,6 +197,7 @@ module AvalancheMQ
       if bcc = headers.try(&.fetch("BCC", nil))
         if bcc = bcc.as?(Array(AMQP::Field))
           hdrs = headers.not_nil!.clone
+          hdrs.delete "CC"
           hdrs.delete "BCC"
           bcc.each do |rk|
             if rk = rk.as?(String)
