@@ -617,6 +617,8 @@ module AvalancheMQ
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to bind to the default exchange")
       elsif !@vhost.queues.has_key? frame.queue_name
         send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
@@ -625,8 +627,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      elsif frame.exchange_name.empty?
-        send_access_refused(frame, "Not allowed to bind to the default exchange")
       elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
         send_access_refused(frame, "Not allowed to bind to internal queue")
       else
@@ -643,6 +643,8 @@ module AvalancheMQ
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to unbind from the default exchange")
       elsif !@vhost.queues.has_key? frame.queue_name
         # should return not_found according to spec but we make it idempotent
         send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -653,8 +655,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      elsif frame.exchange_name.empty?
-        send_access_refused(frame, "Not allowed to unbind from the default exchange")
       elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
         send_access_refused(frame, "Not allowed to unbind from the internal queue")
       else
@@ -676,8 +676,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       elsif frame.source.empty? || frame.destination.empty?
         send_access_refused(frame, "Not allowed to bind to the default exchange")
-      elsif source.try(&.internal) || destination.try(&.internal)
-        send_access_refused(frame, "Not allowed to bind to internal exchange")
       elsif source.try(&.persistent?)
         send_access_refused(frame, "Not allowed to bind persistent exchange to exchange")
       else
@@ -701,8 +699,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       elsif frame.source.empty? || frame.destination.empty?
         send_access_refused(frame, "Not allowed to unbind from the default exchange")
-      elsif source.try(&.internal) || destination.try(&.internal)
-        send_access_refused(frame, "Not allowed to unbind from internal exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
