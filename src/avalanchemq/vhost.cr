@@ -166,14 +166,12 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
-      visited.add?(ex)
-
       ex.queue_matches(routing_key, headers) do |q|
         queues.add? q
       end
 
       ex.exchange_matches(routing_key, headers) do |e2e|
-        unless visited.includes? e2e
+        if visited.add?(ex)
           find_all_queues(e2e, routing_key, headers, visited, queues)
         end
       end
@@ -213,7 +211,7 @@ module AvalancheMQ
 
       if queues.empty? && ex.alternate_exchange
         if ae = @exchanges[ex.alternate_exchange]?
-          unless visited.includes? ae
+          if visited.add?(ae)
             find_all_queues(ae, routing_key, headers, visited, queues)
           end
         end
