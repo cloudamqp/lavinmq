@@ -177,14 +177,30 @@ module AvalancheMQ
       end
 
       if cc = headers.try(&.fetch("CC", nil))
-        cc.as(Array(AMQP::Field)).each do |rk|
-          find_all_queues(ex, rk.as(String), nil, visited, queues)
+        if cc = cc.as?(Array(AMQP::Field))
+          cc.each do |rk|
+            if rk = rk.as?(String)
+              find_all_queues(ex, rk, nil, visited, queues)
+            else
+              raise Error::PreconditionFailed.new("CC header not a string array")
+            end
+          end
+        else
+          raise Error::PreconditionFailed.new("CC header not a string array")
         end
       end
 
       if bcc = headers.try(&.delete("BCC"))
-        bcc.as(Array(AMQP::Field)).each do |rk|
-          find_all_queues(ex, rk.as(String), nil, visited, queues)
+        if bcc = bcc.as?(Array(AMQP::Field))
+          bcc.each do |rk|
+            if rk = rk.as?(String)
+              find_all_queues(ex, rk, nil, visited, queues)
+            else
+              raise Error::PreconditionFailed.new("BCC header not a string array")
+            end
+          end
+        else
+          raise Error::PreconditionFailed.new("BCC header not a string array")
         end
       end
 
