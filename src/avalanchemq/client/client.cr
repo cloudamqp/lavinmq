@@ -93,7 +93,7 @@ module AvalancheMQ
             i = 0
             Fiber.yield
           end
-          frame_size_ok? || return
+          frame_size_ok?(frame) || return
           case frame
           when AMQP::Frame::Connection::Close
             send AMQP::Frame::Connection::CloseOk.new
