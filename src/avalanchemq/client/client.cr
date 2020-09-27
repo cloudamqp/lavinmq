@@ -762,6 +762,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
         return
       end
+      # yield so that msg expiration, consumer delivery etc gets priority
+      Fiber.yield
       with_channel frame, &.basic_get(frame)
     end
   end
