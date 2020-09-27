@@ -170,6 +170,11 @@ module AvalancheMQ
 
     private def handle_arguments
       @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
+      if mttl = @message_ttl
+        if mttl < 0
+          raise AvalancheMQ::Error::PreconditionFailed.new("x-message-ttl has to be positive")
+        end
+      end
       @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
       @dlx = parse_header("x-dead-letter-exchange", String)
       @dlrk = parse_header("x-dead-letter-routing-key", String)
