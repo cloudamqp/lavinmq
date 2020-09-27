@@ -11,6 +11,7 @@ require "./queue/ready"
 require "./queue/unacked"
 require "./client/channel"
 require "./message"
+require "./error"
 
 module AvalancheMQ
   enum QueueState
@@ -168,13 +169,22 @@ module AvalancheMQ
     end
 
     private def handle_arguments
-      @message_ttl = @arguments["x-message-ttl"]?.try &.as?(ArgumentNumber)
+      @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
       @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
-      @dlx = @arguments["x-dead-letter-exchange"]?.try &.to_s
-      @dlrk = @arguments["x-dead-letter-routing-key"]?.try &.to_s
-      @max_length = @arguments["x-max-length"]?.try &.as?(ArgumentNumber)
-      @delivery_limit = @arguments["x-delivery-limit"]?.try &.as?(ArgumentNumber)
-      @reject_on_overflow = @arguments.fetch("x-overflow", "").to_s == "reject-publish"
+      @dlx = parse_header("x-dead-letter-exchange", String)
+      @dlrk = parse_header("x-dead-letter-routing-key", String)
+      if @dlx.nil? && @dlrk
+        raise AvalancheMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
+      end
+      @max_length = parse_header("x-max-length", ArgumentNumber)
+      @delivery_limit = parse_header("x-delivery-limit", ArgumentNumber)
+      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+    end
+
+    private macro parse_header(header, type)
+      if value = @arguments["{{ header.id }}"]?
+        value.as?({{ type }}) || raise AvalancheMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
+      end
     end
 
     def immediate_delivery?

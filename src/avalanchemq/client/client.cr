@@ -113,6 +113,8 @@ module AvalancheMQ
               @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
             end
           end
+        rescue e : Error::PreconditionFailed
+          send_precondition_failed(frame, e.message)
         end
       rescue IO::TimeoutError
         send_heartbeat || break
