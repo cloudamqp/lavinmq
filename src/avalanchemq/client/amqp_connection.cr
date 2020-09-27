@@ -3,12 +3,14 @@ module AvalancheMQ
     def self.start(socket, remote_address, local_address, vhosts, users, log)
       log.progname += " client=#{remote_address}"
       socket.read_timeout = 15
-      confirm_header(socket, log) || return
-      start_ok = start(socket)
-      if user = authenticate(socket, users, start_ok, log)
-        if tune_ok = tune(socket, log)
-          if vhost = open(socket, vhosts, user, log)
-            Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
+      if confirm_header(socket, log)
+        if start_ok = start(socket, log)
+          if user = authenticate(socket, users, start_ok, log)
+            if tune_ok = tune(socket, log)
+              if vhost = open(socket, vhosts, user, log)
+                Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
+              end
+            end
           end
         end
       end
@@ -16,7 +18,7 @@ module AvalancheMQ
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
       socket.try &.close unless socket.try &.closed?
       nil
-    rescue ex : Exception
+    rescue ex
       log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
       socket.try &.close unless socket.try &.closed?
       nil
@@ -37,7 +39,7 @@ module AvalancheMQ
         socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
         socket.close
-        log.debug { "Unknown protocol '#{String.new(proto.to_slice)}', closing socket" }
+        log.warn { "Unexpected protocol '#{String.new(proto.to_slice)}', closing socket" }
         return false
       end
       true
@@ -60,7 +62,7 @@ module AvalancheMQ
       }),
     })
 
-    def self.start(socket)
+    def self.start(socket, log)
       start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
       socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
       socket.flush
@@ -68,6 +70,7 @@ module AvalancheMQ
       if start_ok.bytesize > 4096
         log.warn { "StartOk frame was #{start_ok.bytesize} bytes, max allowed is 4096 bytes" }
         socket.close
+        return
       end
       start_ok
     end
@@ -118,7 +121,7 @@ module AvalancheMQ
       socket.flush
       tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
       if tune_ok.frame_max < 4096
-        log.warn { "Frame max too low, closing connection" }
+        log.warn { "Suggested Frame max (#{tune_ok.frame_max}) too low, closing connection" }
         socket.close
         return
       end

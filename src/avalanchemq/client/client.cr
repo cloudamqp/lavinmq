@@ -93,6 +93,7 @@ module AvalancheMQ
             i = 0
             Fiber.yield
           end
+          frame_size_ok? || return
           case frame
           when AMQP::Frame::Connection::Close
             send AMQP::Frame::Connection::CloseOk.new
@@ -120,7 +121,7 @@ module AvalancheMQ
         send_not_implemented(ex)
       rescue ex : AMQP::Error::FrameDecode
         @log.error { ex.inspect }
-        send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
+        send_frame_error
         return
       rescue ex : IO::Error | OpenSSL::SSL::Error
         @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
@@ -134,6 +135,14 @@ module AvalancheMQ
       cleanup
       close_socket
       @log.debug { "read_loop exited" }
+    end
+
+    private def frame_size_ok?(frame) : Bool
+      if frame.bytesize > @max_frame_size
+        send_frame_error("frame size #{frame.bytesize} exceeded max #{@max_frame_size} bytes")
+        return false
+      end
+      true
     end
 
     private def send_heartbeat
@@ -438,6 +447,10 @@ module AvalancheMQ
 
     def send_internal_error(message)
       send AMQP::Frame::Connection::Close.new(541_u16, "INTERNAL_ERROR - #{message}", 0_u16, 0_u16)
+    end
+
+    def send_frame_error(message = nil)
+      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR - #{message}", 0_u16, 0_u16)
     end
 
     private def declare_exchange(frame)
