@@ -116,6 +116,7 @@ module AvalancheMQ
       properties = msg.properties
       headers = properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
+      msg.properties.headers.try(&.delete("BCC"))
       prevent_dead_letter_loop(headers, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
@@ -165,11 +166,12 @@ module AvalancheMQ
                                 headers : AMQP::Table?,
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
+      visited.add?(ex)
+
       ex.queue_matches(routing_key, headers) do |q|
-        queues << q
+        queues.add? q
       end
 
-      visited.add(ex)
       ex.exchange_matches(routing_key, headers) do |e2e|
         unless visited.includes? e2e
           find_all_queues(e2e, routing_key, headers, visited, queues)
@@ -178,9 +180,11 @@ module AvalancheMQ
 
       if cc = headers.try(&.fetch("CC", nil))
         if cc = cc.as?(Array(AMQP::Field))
+          hdrs = headers.not_nil!.clone
+          hdrs.delete "CC"
           cc.each do |rk|
             if rk = rk.as?(String)
-              find_all_queues(ex, rk, nil, visited, queues)
+              find_all_queues(ex, rk, hdrs, visited, queues)
             else
               raise Error::PreconditionFailed.new("CC header not a string array")
             end
@@ -190,11 +194,13 @@ module AvalancheMQ
         end
       end
 
-      if bcc = headers.try(&.delete("BCC"))
+      if bcc = headers.try(&.fetch("BCC", nil))
         if bcc = bcc.as?(Array(AMQP::Field))
+          hdrs = headers.not_nil!.clone
+          hdrs.delete "BCC"
           bcc.each do |rk|
             if rk = rk.as?(String)
-              find_all_queues(ex, rk, nil, visited, queues)
+              find_all_queues(ex, rk, hdrs, visited, queues)
             else
               raise Error::PreconditionFailed.new("BCC header not a string array")
             end
@@ -206,7 +212,7 @@ module AvalancheMQ
 
       if queues.empty? && ex.alternate_exchange
         if ae = @exchanges[ex.alternate_exchange]?
-          unless visited.includes?(ae)
+          unless visited.includes? ae
             find_all_queues(ae, routing_key, headers, visited, queues)
           end
         end
