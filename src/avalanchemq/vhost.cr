@@ -153,7 +153,7 @@ module AvalancheMQ
             break if xd["reason"]? == "rejected"
             if xd_queue_name = xd["queue"]?
               if queue = found_queues.find { |q| q.name == xd_queue_name }
-                @log.debug { "publish preventing dead_letter_loop with '#{queue.name}'" }
+                @log.debug { "preventing dead letter loop on queue '#{queue.name}'" }
                 found_queues.delete(queue)
               end
             end
