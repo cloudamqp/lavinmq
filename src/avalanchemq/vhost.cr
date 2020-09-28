@@ -9,9 +9,13 @@ require "./shovel/shovel_store"
 require "./federation/upstream_store"
 require "./sortable_json"
 require "./durable_queue"
-require "./exchanges"
 require "./exchange/direct"
 require "./exchange/default"
+require "./exchange/topic"
+require "./exchange/fanout"
+require "./exchange/federation"
+require "./exchange/consistent_hash"
+require "./exchange/headers"
 require "digest/sha1"
 require "./reference_counter"
 require "./mfile"
@@ -312,7 +316,7 @@ module AvalancheMQ
       when AMQP::Frame::Exchange::Declare
         return false if @exchanges.has_key? f.exchange_name
         e = @exchanges[f.exchange_name] =
-          Exchanges.make(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
+          make_exchange(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Frame::Exchange::Delete
         if x = @exchanges.delete f.exchange_name
@@ -751,6 +755,29 @@ module AvalancheMQ
         hole_size
       else
         0
+      end
+    end
+
+    private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
+      case type
+      when "direct"
+        DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "fanout"
+        FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "topic"
+        TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "headers"
+        HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-delayed-message"
+        type = arguments.delete("x-delayed-type")
+        raise "Missing required argument 'x-delayed-type'" unless type
+        arguments["x-delayed-message"] = true
+        make(vhost, name, type, durable, auto_delete, internal, arguments)
+      when "x-federation-upstream"
+        FederationExchange.new(vhost, name, arguments)
+      when "x-consistent-hash"
+        ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      else raise "Cannot make exchange type #{type}"
       end
     end
   end
