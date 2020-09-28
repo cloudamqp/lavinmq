@@ -8,6 +8,7 @@ module AvalancheMQ
         @{{name.id}}_count_prev = 0_u64
         @{{name.id}}_rate = 0_f64
         @{{name.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
+        getter {{name.id}}_count
       {% end %}
       {% for name in log_keys %}
         @{{name.id}}_log = Deque(UInt32).new(Config.instance.stats_log_size)

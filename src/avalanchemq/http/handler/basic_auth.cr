@@ -10,6 +10,11 @@ module AvalancheMQ
       def initialize(@user_store : UserStore, @log : Logger)
       end
 
+      def require_auth(context)
+        context.request.path.starts_with?("/api/") ||
+        context.request.path = "/metrics"
+      end
+
       def internal_unix_socket?(context)
         context.request.remote_address.to_s == HTTP::INTERNAL_UNIX_SOCKET
       end
@@ -27,7 +32,7 @@ module AvalancheMQ
       end
 
       def call(context)
-        if !context.request.path.starts_with?("/api/")
+        unless require_auth(context)
           return call_next(context)
         end
         auth = context.request.headers.fetch("Authorization", nil)

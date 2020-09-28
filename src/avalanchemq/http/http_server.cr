@@ -38,6 +38,7 @@ module AvalancheMQ
           PermissionsController.new(@amqp_server, @log.dup).route_handler,
           ParametersController.new(@amqp_server, @log.dup).route_handler,
           NodesController.new(@amqp_server, @log.dup).route_handler,
+          PrometheusController.new(@amqp_server, @log.dup).route_handler,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new) if @log.level == Logger::DEBUG
         @http = ::HTTP::Server.new(handlers)
