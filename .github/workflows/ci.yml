@@ -132,3 +132,38 @@ jobs:
         run: |
           cd bunny
           CI=true bundle exec rspec --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
+
+  http-api-test:
+    name: RabbitMQ HTTP API client test
+    runs-on: ubuntu-20.04
+    needs: compile
+    continue-on-error: true
+
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
+          path: bin
+
+      - name: Run avalanchemq in background
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Clone HTTP API client
+        uses: actions/checkout@v2
+        with:
+          repository: dentarg/rabbitmq_http_api_client
+          path: rabbitmq_http_api_client
+
+      - name: Setup ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: rabbitmq_http_api_client
+          ruby-version: 2.7.1
+          bundler-cache: true
+
+      - name: Run specs
+        run: |
+          cd rabbitmq_http_api_client
+          bundle exec rspec
