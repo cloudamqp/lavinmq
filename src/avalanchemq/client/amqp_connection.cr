@@ -3,21 +3,22 @@ module AvalancheMQ
     def self.start(socket, remote_address, local_address, vhosts, users, log)
       log.progname += " client=#{remote_address}"
       socket.read_timeout = 15
-      confirm_header(socket, log) || return
-      start_ok = start(socket)
-      creds = credentials(start_ok)
-      user = authenticate(socket, users, creds[:username], creds[:password], start_ok, log) || return
-      tune_ok = tune(socket)
-      if vhost = open(socket, vhosts, user, log)
-        Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
-      else
-        nil
+      if confirm_header(socket, log)
+        if start_ok = start(socket, log)
+          if user = authenticate(socket, users, start_ok, log)
+            if tune_ok = tune(socket, log)
+              if vhost = open(socket, vhosts, user, log)
+                Client.new(socket, remote_address, local_address, vhost, user, tune_ok, start_ok)
+              end
+            end
+          end
+        end
       end
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
       socket.try &.close unless socket.try &.closed?
       nil
-    rescue ex : Exception
+    rescue ex
       log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
       socket.try &.close unless socket.try &.closed?
       nil
@@ -38,7 +39,7 @@ module AvalancheMQ
         socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
         socket.close
-        log.debug { "Unknown protocol #{proto}, closing socket" }
+        log.warn { "Unexpected protocol '#{String.new(proto.to_slice)}', closing socket" }
         return false
       end
       true
@@ -61,11 +62,17 @@ module AvalancheMQ
       }),
     })
 
-    def self.start(socket)
+    def self.start(socket, log)
       start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
       socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
       socket.flush
-      AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
+      start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
+      if start_ok.bytesize > 4096
+        log.warn { "StartOk frame was #{start_ok.bytesize} bytes, max allowed is 4096 bytes" }
+        socket.close
+        return
+      end
+      start_ok
     end
 
     def self.credentials(start_ok)
@@ -73,16 +80,17 @@ module AvalancheMQ
       when "PLAIN"
         resp = start_ok.response
         i = resp.index('\u0000', 1).not_nil!
-        {username: resp[1...i], password: resp[(i + 1)..-1]}
+        { resp[1...i], resp[(i + 1)..-1] }
       when "AMQPLAIN"
         io = ::IO::Memory.new(start_ok.response)
         tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
-        {username: tbl["LOGIN"].as(String), password: tbl["PASSWORD"].as(String)}
+        { tbl["LOGIN"].as(String), tbl["PASSWORD"].as(String) }
       else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
       end
     end
 
-    def self.authenticate(socket, users, username, password, start_ok, log)
+    def self.authenticate(socket, users, start_ok, log)
+      username, password = credentials(start_ok)
       user = users[username]?
       return user if user && user.password && user.password.not_nil!.verify(password)
 
@@ -94,7 +102,7 @@ module AvalancheMQ
       props = start_ok.client_properties
       capabilities = props["capabilities"]?.try &.as(AMQP::Table)
       if capabilities && capabilities["authentication_failure_close"]?.try &.as(Bool)
-        socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED",
+        socket.write_bytes AMQP::Frame::Connection::Close.new(403_u16, "ACCESS_REFUSED",
           start_ok.class_id,
           start_ok.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
@@ -105,13 +113,19 @@ module AvalancheMQ
       nil
     end
 
-    def self.tune(socket)
+    def self.tune(socket, log)
       socket.write_bytes AMQP::Frame::Connection::Tune.new(
         channel_max: Config.instance.channel_max,
         frame_max: Config.instance.frame_max,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
-      AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
+      tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
+      if tune_ok.frame_max < 4096
+        log.warn { "Suggested Frame max (#{tune_ok.frame_max}) too low, closing connection" }
+        socket.close
+        return
+      end
+      tune_ok
     end
 
     def self.open(socket, vhosts, user, log)
@@ -157,8 +171,8 @@ module AvalancheMQ
       end
     rescue IO::EOFError
       log.debug { "Client closed socket without sending CloseOk" }
-    rescue ex : IO::Error | AMQP::Error::FrameDecode
-      log.warn { "#{ex.inspect} when waiting for CloseOk" }
+    rescue ex
+      log.warn { "#{ex.inspect} while waiting for CloseOk" }
     ensure
       socket.close
     end

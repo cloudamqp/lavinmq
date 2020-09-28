@@ -17,7 +17,7 @@ module AvalancheMQ
     include SortableJSON
 
     property direct_reply_consumer_tag
-    getter vhost, channels, log, exclusive_queues, name
+    getter vhost, channels, log, name
     getter user
     getter remote_address
     getter max_frame_size : UInt32
@@ -93,6 +93,7 @@ module AvalancheMQ
             i = 0
             Fiber.yield
           end
+          frame_size_ok?(frame) || return
           case frame
           when AMQP::Frame::Connection::Close
             send AMQP::Frame::Connection::CloseOk.new
@@ -112,6 +113,8 @@ module AvalancheMQ
               @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
             end
           end
+        rescue e : Error::PreconditionFailed
+          send_precondition_failed(frame, e.message)
         end
       rescue IO::TimeoutError
         send_heartbeat || break
@@ -120,7 +123,7 @@ module AvalancheMQ
         send_not_implemented(ex)
       rescue ex : AMQP::Error::FrameDecode
         @log.error { ex.inspect }
-        send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR", 0_u16, 0_u16)
+        send_frame_error
         return
       rescue ex : IO::Error | OpenSSL::SSL::Error
         @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
@@ -136,11 +139,20 @@ module AvalancheMQ
       @log.debug { "read_loop exited" }
     end
 
+    private def frame_size_ok?(frame) : Bool
+      if frame.bytesize > @max_frame_size
+        send_frame_error("frame size #{frame.bytesize} exceeded max #{@max_frame_size} bytes")
+        return false
+      end
+      true
+    end
+
     private def send_heartbeat
-      if @last_heartbeat + @heartbeat.seconds < RoughTime.utc
-        send(AMQP::Frame::Heartbeat.new)
+      if @last_heartbeat + @heartbeat.seconds + 1.seconds < RoughTime.utc
+        @log.debug { "Closing due to missed heartbeat" }
+        false
       else
-        true
+        send(AMQP::Frame::Heartbeat.new)
       end
     end
 
@@ -216,7 +228,7 @@ module AvalancheMQ
           @send_oct_count += 8_u64 + body.bytesize
           pos += length
         end
-        #@log.debug { "Flushing" }
+        # @log.debug { "Flushing" }
         @socket.flush
       end
       true
@@ -439,29 +451,32 @@ module AvalancheMQ
       send AMQP::Frame::Connection::Close.new(541_u16, "INTERNAL_ERROR - #{message}", 0_u16, 0_u16)
     end
 
+    def send_frame_error(message = nil)
+      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR - #{message}", 0_u16, 0_u16)
+    end
+
     private def declare_exchange(frame)
       if !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
-        return
-      end
-      name = frame.exchange_name
-      if e = @vhost.exchanges.fetch(name, nil)
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to declare the default exchange")
+      elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
         if frame.passive || e.match?(frame)
           unless frame.no_wait
             send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
           end
         else
-          send_precondition_failed(frame, "Existing exchange '#{name}' declared with other arguments")
+          send_precondition_failed(frame, "Existing exchange '#{frame.exchange_name}' declared with other arguments")
         end
       elsif frame.passive
-        send_not_found(frame, "Exchange '#{name}' doesn't exists")
-      elsif name.starts_with? "amq."
+        send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
+      elsif frame.exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
         ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
-        ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, name) && ae_ok
-          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{name}'")
+        ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
+        unless @user.can_config?(@vhost.name, frame.exchange_name) && ae_ok
+          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
           return
         end
         @vhost.apply(frame)
@@ -472,12 +487,13 @@ module AvalancheMQ
     private def delete_exchange(frame)
       if !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to delete the default exchange")
+      elsif frame.exchange_name.starts_with? "amq."
+        send_access_refused(frame, "Not allowed to use the amq. prefix")
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         # should return not_found according to spec but we make it idempotent
         send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
-      elsif frame.exchange_name.starts_with? "amq."
-        send_access_refused(frame, "Not allowed to use the amq. prefix")
-        return
       elsif !@user.can_config?(@vhost.name, frame.exchange_name)
         send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
       elsif frame.if_unused && @vhost.exchanges[frame.exchange_name].in_use?
@@ -499,7 +515,7 @@ module AvalancheMQ
       q = @vhost.queues.fetch(frame.queue_name, nil)
       if q.nil?
         send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
-      elsif q.exclusive && !@exclusive_queues.includes? q
+      elsif queue_exclusive_to_other_client?(q)
         send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
       elsif frame.if_unused && !q.consumer_count.zero?
         send_precondition_failed(frame, "Queue '#{q.name}' in use")
@@ -519,7 +535,15 @@ module AvalancheMQ
 
     private def valid_entity_name(name)
       return true if name.empty?
-      name.matches?(/\A[a-zA-Z0-9-_.:<> \/]*\z/)
+      name.matches?(/\A[a-zA-Z0-9-_.:<> \/#]*\z/)
+    end
+
+    def queue_exclusive_to_other_client?(q)
+      q.exclusive && !@exclusive_queues.includes?(q)
+    end
+
+    private def invalid_exclusive_redeclare?(frame, q)
+      !(frame.passive || frame.exclusive || !q.exclusive)
     end
 
     private def declare_queue(frame)
@@ -542,13 +566,13 @@ module AvalancheMQ
     end
 
     private def redeclare_queue(frame, q)
-      if q.exclusive && !@exclusive_queues.includes? q
+      if queue_exclusive_to_other_client?(q) || invalid_exclusive_redeclare?(frame, q)
         send_resource_locked(frame, "Exclusive queue")
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
       elsif frame.passive || q.match?(frame)
+        q.redeclare
         unless frame.no_wait
-          q.redeclare
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, q.name,
             q.message_count, q.consumer_count)
         end
@@ -593,6 +617,8 @@ module AvalancheMQ
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to bind to the default exchange")
       elsif !@vhost.queues.has_key? frame.queue_name
         send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
@@ -601,8 +627,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      elsif frame.exchange_name.empty?
-        send_access_refused(frame, "Not allowed to bind to the default exchange")
       elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
         send_access_refused(frame, "Not allowed to bind to internal queue")
       else
@@ -619,6 +643,8 @@ module AvalancheMQ
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif !valid_entity_name(frame.exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
+      elsif frame.exchange_name.empty?
+        send_access_refused(frame, "Not allowed to unbind from the default exchange")
       elsif !@vhost.queues.has_key? frame.queue_name
         # should return not_found according to spec but we make it idempotent
         send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -629,8 +655,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      elsif frame.exchange_name.empty?
-        send_access_refused(frame, "Not allowed to unbind from the default exchange")
       elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
         send_access_refused(frame, "Not allowed to unbind from the internal queue")
       else
@@ -652,8 +676,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       elsif frame.source.empty? || frame.destination.empty?
         send_access_refused(frame, "Not allowed to bind to the default exchange")
-      elsif source.try(&.internal) || destination.try(&.internal)
-        send_access_refused(frame, "Not allowed to bind to internal exchange")
       elsif source.try(&.persistent?)
         send_access_refused(frame, "Not allowed to bind persistent exchange to exchange")
       else
@@ -677,8 +699,6 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       elsif frame.source.empty? || frame.destination.empty?
         send_access_refused(frame, "Not allowed to unbind from the default exchange")
-      elsif source.try(&.internal) || destination.try(&.internal)
-        send_access_refused(frame, "Not allowed to unbind from internal exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
@@ -696,7 +716,7 @@ module AvalancheMQ
       if !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.exclusive && !@exclusive_queues.includes? q
+        if queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         else
           messages_purged = q.purge
@@ -742,6 +762,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
         return
       end
+      # yield so that msg expiration, consumer delivery etc gets priority
+      Fiber.yield
       with_channel frame, &.basic_get(frame)
     end
   end

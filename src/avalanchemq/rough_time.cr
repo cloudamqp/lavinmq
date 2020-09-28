@@ -3,7 +3,7 @@ class RoughTime
 
   spawn(name: "RoughTime") do
     loop do
-      sleep 1
+      sleep 0.1
       @@t = Time.utc
     end
   end

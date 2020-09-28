@@ -116,6 +116,7 @@ module AvalancheMQ
       properties = msg.properties
       headers = properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
+      headers.try(&.delete("BCC"))
       prevent_dead_letter_loop(headers, found_queues)
       @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
@@ -152,7 +153,7 @@ module AvalancheMQ
             break if xd["reason"]? == "rejected"
             if xd_queue_name = xd["queue"]?
               if queue = found_queues.find { |q| q.name == xd_queue_name }
-                @log.debug { "publish preventing dead_letter_loop with '#{queue.name}'" }
+                @log.debug { "preventing dead letter loop on queue '#{queue.name}'" }
                 found_queues.delete(queue)
               end
             end
@@ -166,31 +167,51 @@ module AvalancheMQ
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
       ex.queue_matches(routing_key, headers) do |q|
-        queues << q
+        queues.add? q
       end
 
-      visited.add(ex)
       ex.exchange_matches(routing_key, headers) do |e2e|
-        unless visited.includes? e2e
+        if visited.add?(ex)
           find_all_queues(e2e, routing_key, headers, visited, queues)
         end
       end
 
       if cc = headers.try(&.fetch("CC", nil))
-        cc.as(Array(AMQP::Field)).each do |rk|
-          find_all_queues(ex, rk.as(String), nil, visited, queues)
+        if cc = cc.as?(Array(AMQP::Field))
+          hdrs = headers.not_nil!.clone
+          hdrs.delete "CC"
+          cc.each do |rk|
+            if rk = rk.as?(String)
+              find_all_queues(ex, rk, hdrs, visited, queues)
+            else
+              raise Error::PreconditionFailed.new("CC header not a string array")
+            end
+          end
+        else
+          raise Error::PreconditionFailed.new("CC header not a string array")
         end
       end
 
-      if bcc = headers.try(&.delete("BCC"))
-        bcc.as(Array(AMQP::Field)).each do |rk|
-          find_all_queues(ex, rk.as(String), nil, visited, queues)
+      if bcc = headers.try(&.fetch("BCC", nil))
+        if bcc = bcc.as?(Array(AMQP::Field))
+          hdrs = headers.not_nil!.clone
+          hdrs.delete "CC"
+          hdrs.delete "BCC"
+          bcc.each do |rk|
+            if rk = rk.as?(String)
+              find_all_queues(ex, rk, hdrs, visited, queues)
+            else
+              raise Error::PreconditionFailed.new("BCC header not a string array")
+            end
+          end
+        else
+          raise Error::PreconditionFailed.new("BCC header not a string array")
         end
       end
 
       if queues.empty? && ex.alternate_exchange
         if ae = @exchanges[ex.alternate_exchange]?
-          unless visited.includes?(ae)
+          if visited.add?(ae)
             find_all_queues(ae, routing_key, headers, visited, queues)
           end
         end

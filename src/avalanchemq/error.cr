@@ -21,6 +21,7 @@ module AvalancheMQ
         super("Unexpected frame #{frame.class.name}")
       end
     end
+
     class PreconditionFailed < Error
     end
   end

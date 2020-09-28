@@ -11,6 +11,7 @@ require "./queue/ready"
 require "./queue/unacked"
 require "./client/channel"
 require "./message"
+require "./error"
 
 module AvalancheMQ
   enum QueueState
@@ -87,6 +88,7 @@ module AvalancheMQ
 
     def redeclare
       @last_get_time = Time.monotonic
+      step_loop # necessary to recalculate ttl
     end
 
     def has_exclusive_consumer?
@@ -168,13 +170,38 @@ module AvalancheMQ
     end
 
     private def handle_arguments
-      @message_ttl = @arguments["x-message-ttl"]?.try &.as?(ArgumentNumber)
-      @expires = @arguments["x-expires"]?.try &.as?(ArgumentNumber)
-      @dlx = @arguments["x-dead-letter-exchange"]?.try &.to_s
-      @dlrk = @arguments["x-dead-letter-routing-key"]?.try &.to_s
-      @max_length = @arguments["x-max-length"]?.try &.as?(ArgumentNumber)
-      @delivery_limit = @arguments["x-delivery-limit"]?.try &.as?(ArgumentNumber)
-      @reject_on_overflow = @arguments.fetch("x-overflow", "").to_s == "reject-publish"
+      @dlx = parse_header("x-dead-letter-exchange", String)
+      @dlrk = parse_header("x-dead-letter-routing-key", String)
+      if @dlrk && @dlx.nil?
+        raise AvalancheMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
+      end
+      @expires = parse_header("x-expires", ArgumentNumber)
+      validate_gt_zero("x-expires", @expires)
+      @max_length = parse_header("x-max-length", ArgumentNumber)
+      validate_positive("x-max-length", @max_length)
+      @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
+      validate_positive("x-message-ttl", @message_ttl)
+      @delivery_limit = parse_header("x-delivery-limit", ArgumentNumber)
+      validate_positive("x-delivery-limit", @delivery_limit)
+      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+    end
+
+    private macro parse_header(header, type)
+      if value = @arguments["{{ header.id }}"]?
+        value.as?({{ type }}) || raise AvalancheMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
+      end
+    end
+
+    private def validate_positive(header, value) : Nil
+      return if value.nil?
+      return if value >= 0
+      raise AvalancheMQ::Error::PreconditionFailed.new("#{header} has to be positive")
+    end
+
+    private def validate_gt_zero(header, value) : Nil
+      return if value.nil?
+      return if value > 0
+      raise AvalancheMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
     end
 
     def immediate_delivery?
@@ -570,11 +597,18 @@ module AvalancheMQ
     end
 
     private def handle_dlx_header(meta, reason)
+      routing_keys = [meta.routing_key.as(AMQP::Field)]
       props = meta.properties.clone
       headers = props.headers || AMQP::Table.new
+      headers.delete("x-delay")
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
-      headers.delete("x-delay")
+      if cc = headers.delete("CC")
+        # should route to all the CC RKs but then delete them,
+        # so we (ab)use the BCC header for that
+        headers["BCC"] = cc
+        routing_keys.concat cc.as(Array(AMQP::Field))
+      end
 
       xdeaths = Array(AMQP::Table).new(1)
       if headers.has_key? "x-death"
@@ -588,7 +622,7 @@ module AvalancheMQ
       death = Hash(String, AMQP::Field){
         "exchange"     => meta.exchange_name,
         "queue"        => @name,
-        "routing-keys" => [meta.routing_key.as(AMQP::Field)],
+        "routing-keys" => routing_keys,
         "reason"       => reason.to_s,
         "count"        => count + 1,
         "time"         => RoughTime.utc,
@@ -742,13 +776,12 @@ module AvalancheMQ
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       deleted = @consumers_lock.synchronize { @consumers.delete consumer }
+      consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
+      unless basic_cancel
+        requeue_many(@unacked.delete(consumer))
+      end
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
-        unless basic_cancel
-          requeue_many(@unacked.delete(consumer))
-        end
-
         @log.debug { "Removing consumer with #{consumer_unacked_size} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
