@@ -164,11 +164,13 @@ module AvalancheMQ
           addr = l.local_address
           {
             "path": addr.path,
+            "protocol": "amqp"
           }
         when TCPServer
           addr = l.local_address
           {
             "ip_address": addr.address,
+            "protocol": "amqp",
             "port":       addr.port,
           }
         else raise "Unexpected listener '#{l.class}'"

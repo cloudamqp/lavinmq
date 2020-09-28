@@ -9,9 +9,14 @@ module AvalancheMQ
     Monitoring
     Management
     PolicyMaker
+    Http
 
     def to_json(json : JSON::Builder)
       to_s.downcase.to_json(json)
+    end
+
+    def self.parse_list(list : String) : Array(Tag)
+      list.split(",").map { |t| Tag.parse?(t.strip) }.compact
     end
   end
 
@@ -40,7 +45,7 @@ module AvalancheMQ
         when "permissions"
           parse_permissions(pull)
         when "tags"
-          @tags = pull.read_string.split(",").map { |t| Tag.parse?(t) }.compact
+          @tags = Tag.parse_list(pull.read_string)
         else nil
         end
       end

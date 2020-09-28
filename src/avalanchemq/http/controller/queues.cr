@@ -9,7 +9,7 @@ module AvalancheMQ
       private def queue(context, params, vhost, key = "name")
         name = URI.decode_www_form(params[key])
         q = @amqp_server.vhosts[vhost].queues[name]?
-        not_found(context, "Queue #{name} does not exist") unless q
+        not_found(context, "Not Found") unless q
         q
       end
     end
@@ -117,7 +117,8 @@ module AvalancheMQ
             refuse_unless_management(context, user(context), vhost)
             queue = queue(context, params, vhost)
             itr = bindings(queue.vhost).select { |b| b.destination.name == queue.name }
-            page(context, itr)
+            default_binding = BindingDetails.new("", queue.vhost.name, {queue.name, nil}, queue)
+            page(context, {default_binding}.each.chain(itr))
           end
         end
 

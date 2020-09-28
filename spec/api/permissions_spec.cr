@@ -26,7 +26,7 @@ describe AvalancheMQ::HTTP::PermissionsController do
       response = get("/api/permissions/%2f/guest")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
-      body.as_a.empty?.should be_false
+      body.as_h.empty?.should be_false
     end
   end
 

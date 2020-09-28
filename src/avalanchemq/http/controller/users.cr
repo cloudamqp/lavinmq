@@ -17,7 +17,7 @@ module AvalancheMQ
       private def user(context, params, key = "name")
         name = URI.decode_www_form(params[key])
         u = @amqp_server.users[name]?
-        not_found(context, "User #{name} does not exist") if u.nil? || u.hidden?
+        not_found(context, "Not Found") if u.nil? || u.hidden?
         u
       end
     end
@@ -71,7 +71,7 @@ module AvalancheMQ
           body = parse_body(context)
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
-          tags = body["tags"]?.try(&.as_s).to_s.split(",").map { |t| Tag.parse?(t) }.compact
+          tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s)
           hashing_alogrithm = body["hashing_alogrithm"]?.try &.as_s? || "SHA256"
           if u
             if password_hash
@@ -94,6 +94,8 @@ module AvalancheMQ
           end
           context.response.status_code = 204
           context
+        rescue ex : Base64::Error
+          bad_request(context, ex.message)
         rescue ex : User::InvalidPasswordHash
           bad_request(context, ex.message)
         end

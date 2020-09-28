@@ -141,7 +141,7 @@ jobs:
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
             --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
 
-  http-api-test:
+  ruby-http-api-test:
     name: RabbitMQ HTTP API client test
     runs-on: ubuntu-20.04
     needs: compile
@@ -161,7 +161,8 @@ jobs:
       - name: Clone HTTP API client
         uses: actions/checkout@v2
         with:
-          repository: dentarg/rabbitmq_http_api_client
+          repository: 84codes/rabbitmq_http_api_client
+          token: ${{ secrets.PRIVATE_REPO_ACCESS }}
           path: rabbitmq_http_api_client
 
       - name: Setup ruby
@@ -175,3 +176,37 @@ jobs:
         run: |
           cd rabbitmq_http_api_client
           bundle exec rspec
+
+  go-http-api-test:
+    name: RabbitMQ HTTP API client in Go client tests
+    runs-on: ubuntu-20.04
+    needs: compile
+    continue-on-error: true
+
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
+          path: bin
+
+      - name: Run avalanchemq in background
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15.2
+
+      - name: Clone http client 
+        uses: actions/checkout@v2
+        with:
+          repository: 84codes/rabbit-hole
+          token: ${{ secrets.PRIVATE_REPO_ACCESS }}
+          path: rabbit-hole
+
+      - name: Run specs
+        run: |
+          cd rabbit-hole
+          go test -v ./...

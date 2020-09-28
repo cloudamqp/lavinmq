@@ -254,6 +254,8 @@ module AvalancheMQ
       {
         name: @name,
         dir:  @dir,
+        tracing: false,
+        cluster_state: NamedTuple.new
       }
     end
 

@@ -304,7 +304,7 @@ module AvalancheMQ
 
     def self.hash_key(key : BindingKey)
       if key[1].nil? || key[1].try &.empty?
-        key[0]
+        key[0].empty? ? "~" : key[0]
       else
         hsh = Base64.urlsafe_encode(key[1].to_s)
         "#{key[0]}~#{hsh}"

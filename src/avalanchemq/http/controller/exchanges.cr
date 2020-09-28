@@ -10,7 +10,7 @@ module AvalancheMQ
         name = URI.decode_www_form(params[key])
         name = "" if name == "amq.default"
         e = @amqp_server.vhosts[vhost].exchanges[name]?
-        not_found(context, "Exchange #{name} does not exist") unless e
+        not_found(context) unless e
         e
       end
     end
@@ -55,7 +55,9 @@ module AvalancheMQ
             internal = body["internal"]?.try(&.as_bool?) || false
             arguments = parse_arguments(body)
             tbl = AMQP::Table.new arguments
-            tbl["x-delayed-exchange"] = body["delayed"]?.try(&.as_bool?) || false
+            if delayed = body["delayed"]?
+              tbl["x-delayed-exchange"] = delayed.try(&.as_bool?)
+            end
             ae = arguments["x-alternate-exchange"]?.try &.as?(String)
             ae_ok = ae.nil? || (user.can_write?(vhost, ae) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && ae_ok

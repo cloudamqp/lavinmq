@@ -267,3 +267,34 @@ describe AvalancheMQ::Server do
     s.vhosts.delete("v1")
   end
 end
+
+describe AvalancheMQ::Tag do
+  it "parse comma separated list" do
+    # Management
+    # PolicyMaker
+    AvalancheMQ::Tag
+      .parse_list("administrator")
+      .should eq [AvalancheMQ::Tag::Administrator]
+
+    AvalancheMQ::Tag
+      .parse_list("administrator,monitoring")
+      .should eq [AvalancheMQ::Tag::Administrator, AvalancheMQ::Tag::Monitoring]
+
+    AvalancheMQ::Tag
+      .parse_list("administrator, monitoring")
+      .should eq [AvalancheMQ::Tag::Administrator, AvalancheMQ::Tag::Monitoring]
+
+    AvalancheMQ::Tag
+      .parse_list("administrator, other")
+      .should eq [AvalancheMQ::Tag::Administrator]
+
+    AvalancheMQ::Tag
+      .parse_list("policymaker")
+      .should eq [AvalancheMQ::Tag::PolicyMaker]
+
+    AvalancheMQ::Tag
+      .parse_list("administrator, monitoring, Management, PolicyMaker")
+      .should eq [AvalancheMQ::Tag::Administrator, AvalancheMQ::Tag::Monitoring,
+                  AvalancheMQ::Tag::Management, AvalancheMQ::Tag::PolicyMaker]
+  end
+end

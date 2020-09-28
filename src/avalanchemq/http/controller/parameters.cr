@@ -185,17 +185,13 @@ module AvalancheMQ
 
       private def param(context, parameters, id)
         param = parameters[id]?
-        unless param
-          not_found(context, "Parameter '#{id[1]}' does not exist")
-        end
+        not_found(context) unless param
         param
       end
 
       private def policy(context, name, vhost)
         p = @amqp_server.vhosts[vhost].policies[name]?
-        unless p
-          not_found(context, "Policy '#{name}' on vhost '#{vhost}' does not exist")
-        end
+        not_found(context) unless p
         p
       end
     end
