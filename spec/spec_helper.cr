@@ -25,7 +25,9 @@ AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
 HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
 
-Spec.override_default_formatter(Spec::VerboseFormatter.new)
+unless ENV["CI"]?
+  Spec.override_default_formatter(Spec::VerboseFormatter.new)
+end
 
 module TestHelpers
   class_property s, h
