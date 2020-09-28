@@ -1,0 +1,146 @@
+name: External CI
+on: [push]
+
+jobs:
+  compile:
+    name: Compile AvalancheMQ
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsystemd-dev pkg-config tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev python-is-python3 python3
+
+      - name: Install Crystal
+        run: sudo snap install crystal --classic
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build avalanchemq
+        run: |
+          shards install --production
+          shards build --production avalanchemq avalanchemqctl
+
+      - name: Upload bin/
+        uses: actions/upload-artifact@v2
+        with:
+          name: bin
+          path: bin/
+
+  java-client-test:
+    name: RabbitMQ java client test
+    runs-on: ubuntu-20.04
+    needs: compile
+    continue-on-error: true
+
+    steps:
+      - name: Install dependencies
+        run:
+          sudo apt-get update
+          sudo apt-get install -y make libevent-dev openjdk-11-jre-headless
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
+          path: bin
+
+      - name: Run avalanchemq in background
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Clone java client
+        uses: actions/checkout@v2
+        with:
+          repository: 84codes/rabbitmq-java-client
+          path: rabbitmq-java-client
+
+      - name: Run java tests
+        run: |
+          cd rabbitmq-java-client
+          make deps
+          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
+
+  bunny-test:
+    name: Bunny client test
+    runs-on: ubuntu-20.04
+    needs: compile
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-dev
+
+      - name: Checkout AvalancheMQ for bunny_definitions.json
+        uses: actions/checkout@v2
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
+          path: bin
+
+      - name: Run avalanchemq in background
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Import definitions
+        run: |
+          chmod +x bin/avalanchemqctl
+          bin/avalanchemqctl import_definitions .github/bunny_definitions.json
+
+      - name: Clone Bunny
+        uses: actions/checkout@v2
+        with:
+          repository: ruby-amqp/bunny
+          path: bunny
+
+      - name: Setup ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: bunny
+          ruby-version: 2.7.1
+          bundler-cache: true
+
+      - name: Run specs
+        run: |
+          cd bunny
+          CI=true bundle exec rspec --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
+
+  http-api-test:
+    name: RabbitMQ HTTP API client test
+    runs-on: ubuntu-20.04
+    needs: compile
+    continue-on-error: true
+
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
+          path: bin
+
+      - name: Run avalanchemq in background
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Clone HTTP API client
+        uses: actions/checkout@v2
+        with:
+          repository: dentarg/rabbitmq_http_api_client
+          path: rabbitmq_http_api_client
+
+      - name: Setup ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: rabbitmq_http_api_client
+          ruby-version: 2.7.1
+          bundler-cache: true
+
+      - name: Run specs
+        run: |
+          cd rabbitmq_http_api_client
+          bundle exec rspec
