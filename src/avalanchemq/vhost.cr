@@ -793,7 +793,7 @@ module AvalancheMQ
         type = arguments.delete("x-delayed-type")
         raise "Missing required argument 'x-delayed-type'" unless type
         arguments["x-delayed-message"] = true
-        make(vhost, name, type, durable, auto_delete, internal, arguments)
+        make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       when "x-federation-upstream"
         FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
