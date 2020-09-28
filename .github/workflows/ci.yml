@@ -153,7 +153,7 @@ jobs:
       - name: Clone HTTP API client
         uses: actions/checkout@v2
         with:
-          repository: ruby-amqp/rabbitmq_http_api_client
+          repository: dentarg/rabbitmq_http_api_client
           path: rabbitmq_http_api_client
 
       - name: Setup ruby
