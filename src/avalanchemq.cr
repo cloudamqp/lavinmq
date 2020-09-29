@@ -202,6 +202,9 @@ end
 Signal::USR1.trap do
   STDOUT.puts System.resource_usage
   STDOUT.puts GC.prof_stats
+  fcount = 0
+  Fiber.list { fcount += 1 }
+  puts "Fiber count: #{fcount}"
   report(amqp_server)
   STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
   File.open(File.join(amqp_server.data_dir, "string_pool.dump"), "w") do |f|
