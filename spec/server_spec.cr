@@ -358,6 +358,27 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "validates header exchange x-match" do
+    with_channel do |ch|
+      hdrs = AMQP::Client::Arguments.new
+      hdrs["x-match"] = "fail"
+      expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+        ch.exchange("hx1", "headers", passive: false, args: hdrs)
+      end
+    end
+  end
+
+  it "validates header exchange binding with x-match" do
+    with_channel do |ch|
+      hdrs = AMQP::Client::Arguments.new
+      hdrs["x-match"] = 123
+      q = ch.queue
+      expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+        q.bind("amq.headers", "", args: hdrs)
+      end
+    end
+  end
+
   it "should persist exchange-exchange binding"  do
     hdrs = AMQP::Client::Arguments.new
     hdrs["x-match"] = "all"

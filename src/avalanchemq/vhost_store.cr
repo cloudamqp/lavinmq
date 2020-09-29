@@ -1,5 +1,6 @@
 require "json"
 require "./vhost"
+require "./user"
 
 module AvalancheMQ
   class VHostStore
