@@ -13,10 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UI: Fix name filter pagination bug
 - Support delayed exchange via policy and x-delayed-message exchange type
 - Clear all user permissions to a vhost when it's deleted
+- Allow exchange to exchange binding for internal exchanges
+- Redeclare queue updatex expiration time correctly
+- Stricter validation of queue argments
+- Stricter validation of frame sizes
+- Closing connections on missed heartbeat (even if the TCP connection is alive)
+- Correctly requeue cancelled consumers messages on close
+- Respect the not_in_use flag when deleting exchanges
+- UI: Fixing the Unbind button on Exchange in the UI
+- Support for Nack with delivery tag 0
+- Stricter exchange and queue name validation
+- Dead-letters can't loop
+- Detect header/body frames that are out of order
 
 ### Added
+- Support for consistent hash exchange
 - Support for exchange federation
 - Support for priority queues
+- Ability to "pause" queues, stopping messages to be delivered to consumers
 - max-length-bytes supported as queue argument and policy
 - UI: Shows bytes of messages a queue hold
 - UI: Show data rates and heartbeats in connections listing
@@ -24,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - systemctl reload avalanchemq now supported in systemd (by sending HUP to main pid)
 - UNIX socket support for HTTP server
 - Documented how persistent exchange works in the readme
+- Promethous exporter at /metrics
+- Respect the CC header when dead-lettering
+- Support for Decimal values in headers
+- UI: Show Unroutable messages rates in Exchange graph
+- UI: Churn stats
+- Queue bind now substitutes empty queue and routing key values with last declared queue
+- UserID header is now validate
+- Better server properties sent on connection establishment
 
 ### Changed
 - On-disk file formats has changed so previous data directories are incompatible with this version
@@ -32,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DEB packages are distributed via packagecloud.io
 - Log less on shutdown
 - Higher throughput due to revamped segment GC algorithm
+- Validate x-match headers
+- Don't allow declaring or deleting the default exchange
+- avalanchemqctl now uses a private unix socket for communication
+- Make queue/exchange delete and unbind idempotent
 
 ## [0.11.0] - 2020-07-01
 
