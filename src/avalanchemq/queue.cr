@@ -618,12 +618,12 @@ module AvalancheMQ
     end
 
     private def handle_dlx_header(meta, reason)
-      routing_keys = [meta.routing_key.as(AMQP::Field)]
-      props = meta.properties.clone
-      headers = props.headers || AMQP::Table.new
+      props = meta.properties
+      headers = props.headers.try(&.to_h) || Hash(String, AMQP::Field).new
       headers.delete("x-delay")
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
+      routing_keys = [meta.routing_key.as(AMQP::Field)]
       if cc = headers.delete("CC")
         # should route to all the CC RKs but then delete them,
         # so we (ab)use the BCC header for that
@@ -631,31 +631,43 @@ module AvalancheMQ
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
-      xdeaths = Array(AMQP::Table).new(1)
-      if headers.has_key? "x-death"
-        headers["x-death"].as?(Array(AMQP::Field)).try &.each do |tbl|
-          xdeaths << tbl.as(AMQP::Table)
+      xdeaths = headers["x-death"]?.as?(Array(AMQP::Table)) || Array(AMQP::Table).new(1)
+      if idx = xdeaths.index { |d| d["queue"]? == @name && d["reason"]? == reason.to_s }
+        xd = xdeaths[idx]
+        count = xd["count"].as?(Int) || 0
+        xd["count"] = count + 1
+        xd["time"] = RoughTime.utc
+        xd["routing_keys"] = routing_keys
+        xd["original-expiration"] = props.expiration if props.expiration
+        if idx > 0
+          xdeaths.delete_at idx
+          xdeaths.unshift xd
         end
+      else
+        xd = Hash(String, AMQP::Field){
+          "exchange"     => meta.exchange_name,
+          "queue"        => @name,
+          "routing-keys" => routing_keys,
+          "reason"       => reason.to_s,
+          "count"        => 1,
+          "time"         => RoughTime.utc,
+        }
+        xd["original-expiration"] = props.expiration if props.expiration
+        xdeaths.unshift AMQP::Table.new(xd)
       end
-      xd = xdeaths.find { |d| d["queue"] == @name && d["reason"] == reason.to_s }
-      xdeaths.delete(xd)
-      count = xd.try &.fetch("count", 0).as?(Int32) || 0
-      death = Hash(String, AMQP::Field){
-        "exchange"     => meta.exchange_name,
-        "queue"        => @name,
-        "routing-keys" => routing_keys,
-        "reason"       => reason.to_s,
-        "count"        => count + 1,
-        "time"         => RoughTime.utc,
-      }
-      if props.expiration
-        death["original-expiration"] = props.expiration
-        props.expiration = nil
-      end
-      xdeaths.unshift AMQP::Table.new(death)
+      props.expiration = nil if props.expiration
 
       headers["x-death"] = xdeaths
-      props.headers = headers
+      unless headers.has_key?("x-first-death-reason")
+        headers["x-first-death-reason"] = reason.to_s
+      end
+      unless headers.has_key?("x-first-death-queue")
+        headers["x-first-death-queue"] = @name
+      end
+      unless headers.has_key?("x-first-death-exchange")
+        headers["x-first-death-exchange"] = meta.exchange_name
+      end
+      props.headers = AMQP::Table.new(headers)
       props
     end
 
