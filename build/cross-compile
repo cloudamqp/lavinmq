@@ -1,10 +1,12 @@
 #!/bin/bash -eux
 
-# on a amd64 machine:
-target=$1
+# on a x64 machine:
+srcfile=$1
+target=$2
+
 export CFLAGS="-fPIC"
-buildcmd=$(crystal build --cross-compile --target=aarch64-unknown-linux-gnu --release src/avalanchemq.cr)
-scp avalanchemq.o "$target":.
+buildcmd=$(crystal build --cross-compile --target=aarch64-unknown-linux-gnu --release $srcfile)
+scp "$(basename $srcfile).o" "$target":.
 
 # on the arm64 machine:
 ssh "$target" << EOF
