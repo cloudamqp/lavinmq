@@ -500,6 +500,7 @@ module AvalancheMQ
     private def segment_file(id : UInt32) : IO::Memory
       return @segment_file if @segment_id == id
       mfile = @vhost.segment_file(id)
+      @segment_id = id
       @segment_file = IO::Memory.new(mfile.to_slice, writeable: false)
     end
 
