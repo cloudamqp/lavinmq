@@ -488,7 +488,7 @@ describe AvalancheMQ::Server do
       q.publish_confirm "m2"
       msgs = [] of AMQP::Client::Message
       q.subscribe { |msg| msgs << msg }
-      wait_for { msgs.size == 1 }
+      wait_for { msgs.size >= 1 }
       msgs.size.should eq 1
     end
   end
