@@ -273,7 +273,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  pending "can publish to queues with max-length 0" do
+  it "can publish to queues with max-length 0 if there's consumers" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
       args["x-max-length"] = 0
@@ -292,6 +292,20 @@ describe AvalancheMQ::Server do
           raise "timeout"
         end
       end
+    end
+  end
+
+  it "msgs publish to queue w/o consumers with max-length 0 will be dropped" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-max-length"] = 0
+      q = ch.queue "", durable: false, exclusive: true, args: args
+      q.publish_confirm "1"
+      q.publish_confirm "2"
+      sleep 0.1
+      q.get.should be_nil
+      sleep 0.1
+      q.get.should be_nil
     end
   end
 
