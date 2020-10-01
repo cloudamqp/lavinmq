@@ -588,13 +588,33 @@ module AvalancheMQ
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
       if dlx
-        dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
-        props = handle_dlx_header(msg, reason)
-        dead_letter_msg(msg, sp, props, dlx, dlrk)
+        unless dead_letter_loop?(msg.properties.headers, reason)
+          dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
+          props = handle_dlx_header(msg, reason)
+          dead_letter_msg(msg, sp, props, dlx, dlrk)
+        end
       end
       delete_message sp, msg.persistent?
     rescue ex : IO::EOFError
       raise ex
+    end
+
+    # checks if the message has been dead lettered to the same queue
+    # for the same reason already
+    private def dead_letter_loop?(headers, reason) : Bool
+      return false if headers.nil?
+      if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
+        xdeaths.each do |xd|
+          if xd = xd.as?(AMQ::Protocol::Table)
+            break if xd["reason"]? == "rejected"
+            if xd["queue"]? == @name && xd["reason"]? == reason.to_s
+              @log.debug { "preventing dead letter loop" }
+              return true
+            end
+          end
+        end
+      end
+      false
     end
 
     private def handle_dlx_header(meta, reason)
