@@ -791,6 +791,7 @@ module AvalancheMQ
       if requeue
         was_empty = @ready.insert(sp) == 1
         @requeued << sp
+        drop_overflow if @consumers.empty?
         message_available if was_empty
       else
         expire_msg(sp, :rejected)
@@ -804,6 +805,7 @@ module AvalancheMQ
       @log.debug { "Returning #{sps.size} msgs to ready state" }
       @reject_count += sps.size
       was_empty = @ready.insert(sps) == sps.size
+      drop_overflow if @consumers.empty?
       message_available if was_empty
     end
 
