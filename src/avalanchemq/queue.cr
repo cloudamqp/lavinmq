@@ -447,8 +447,8 @@ module AvalancheMQ
       return false if @state == QueueState::Closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
-      drop_overflow(sp)
       was_empty = @ready.push(sp) == 1
+      drop_overflow if @consumers.empty?
       @publish_count += 1
       if was_empty
         message_available
@@ -457,37 +457,35 @@ module AvalancheMQ
       end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
-    rescue ex : RejectOverFlow
-      @log.debug { "Overflow reject message sp=#{sp}" }
-      raise ex
     end
 
-    private def reject_on_overflow(sp : SegmentPosition)
+    private def reject_on_overflow(sp : SegmentPosition) : Nil
+      return unless @reject_on_overflow
       if ml = @max_length
-        if @reject_on_overflow && @ready.size >= ml
+        if @ready.size >= ml
+          @log.debug { "Overflow reject message sp=#{sp}" }
           raise RejectOverFlow.new
         end
       end
 
       if mlb = @max_length_bytes
-        if @reject_on_overflow && (@ready.sum { |r| r.bytesize } + sp.bytesize) >= mlb
+        if @ready.sum(&.bytesize) + sp.bytesize >= mlb
+          @log.debug { "Overflow reject message sp=#{sp}" }
           raise RejectOverFlow.new
         end
       end
     end
 
-    private def drop_overflow(extra : SegmentPosition? = nil)
+    private def drop_overflow : Nil
       if ml = @max_length
-        extra_size = extra.nil? ? 0 : 1
-        @ready.limit_size(ml - extra_size) do |sp|
+        @ready.limit_size(ml) do |sp|
           @log.debug { "Overflow drop head sp=#{sp}" }
           expire_msg(sp, :maxlen)
         end
       end
 
       if mlb = @max_length_bytes
-        extra_size = extra.nil? ? 0 : extra.bytesize
-        @ready.limit_byte_size(mlb - extra_size) do |sp|
+        @ready.limit_byte_size(mlb) do |sp|
           @log.debug { "Overflow drop head sp=#{sp}" }
           expire_msg(sp, :maxlenbytes)
         end
@@ -631,33 +629,48 @@ module AvalancheMQ
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
-      xdeaths = headers["x-death"]?.as?(Array(AMQP::Table)) || Array(AMQP::Table).new(1)
-      if idx = xdeaths.index { |d| d["queue"]? == @name && d["reason"]? == reason.to_s }
-        xd = xdeaths[idx]
+      xdeaths = headers["x-death"]?.as?(Array(AMQP::Field))
+      xdeaths ||= headers["x-death"] = Array(AMQP::Field).new(1)
+
+      found_at = -1
+      xdeaths.each_with_index do |xd, idx|
+        xd = xd.as(AMQP::Table)
+        next if xd["queue"]? != @name
+        next if xd["reason"]? != reason.to_s
+        next if xd["exchange"]? != meta.exchange_name
+
         count = xd["count"].as?(Int) || 0
         xd["count"] = count + 1
         xd["time"] = RoughTime.utc
         xd["routing_keys"] = routing_keys
         xd["original-expiration"] = props.expiration if props.expiration
-        if idx > 0
-          xdeaths.delete_at idx
-          xdeaths.unshift xd
-        end
-      else
+        found_at = idx
+        break
+      end
+
+      case found_at
+      when -1
+        # not found so inserting new x-death
         xd = Hash(String, AMQP::Field){
-          "exchange"     => meta.exchange_name,
           "queue"        => @name,
-          "routing-keys" => routing_keys,
           "reason"       => reason.to_s,
+          "exchange"     => meta.exchange_name,
           "count"        => 1,
           "time"         => RoughTime.utc,
+          "routing-keys" => routing_keys,
         }
         xd["original-expiration"] = props.expiration if props.expiration
         xdeaths.unshift AMQP::Table.new(xd)
+      when 0
+        # do nothing, updated xd is in the front
+      else
+        # move updated xd to the front
+        xd = xdeaths.delete_at(found_at)
+        xdeaths.unshift xd.as(AMQP::Table)
       end
+
       props.expiration = nil if props.expiration
 
-      headers["x-death"] = xdeaths
       unless headers.has_key?("x-first-death-reason")
         headers["x-first-death-reason"] = reason.to_s
       end
@@ -667,6 +680,7 @@ module AvalancheMQ
       unless headers.has_key?("x-first-death-exchange")
         headers["x-first-death-exchange"] = meta.exchange_name
       end
+
       props.headers = AMQP::Table.new(headers)
       props
     end
