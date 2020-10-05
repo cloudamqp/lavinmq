@@ -21,7 +21,7 @@ describe AvalancheMQ::Queue do
 
   it "Should not dead letter messages to it self due to queue length" do
     with_channel do |ch|
-      q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(
+      q1 = ch.queue("", args: AMQP::Client::Arguments.new(
         {"x-max-length" => 1, "x-dead-letter-exchange" => ""}
       ))
       q1.publish_confirm ""
