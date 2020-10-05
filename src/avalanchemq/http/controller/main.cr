@@ -161,6 +161,11 @@ module AvalancheMQ
             page(context, Iterator(Federation::Upstream::Link).chain(itrs))
           end
         end
+
+        get "/api/extensions" do |context, _params|
+          Tuple.new.to_json(context.response)
+          context
+        end
       end
     end
   end

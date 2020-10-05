@@ -60,7 +60,7 @@ describe AvalancheMQ::HTTP::QueuesController do
       response = get("/api/queues/%2f/q0/bindings?page=1&page_size=100")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
-      body["items"].as_a.size.should eq 1
+      body["items"].as_a.size.should eq 2
     ensure
       s.vhosts["/"].delete_queue("q0")
     end

@@ -87,7 +87,7 @@ module AvalancheMQ
           {
             queue: {
               name:  @queue.name,
-              vhost: @queue.vhost,
+              vhost: @queue.vhost.name,
             },
             consumer_tag:    @tag,
             exclusive:       @exclusive,

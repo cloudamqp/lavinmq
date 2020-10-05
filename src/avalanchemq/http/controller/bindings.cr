@@ -36,6 +36,10 @@ module AvalancheMQ
             q = queue(context, params, vhost, "queue")
             itr = e.queue_bindings.each.select { |(_, v)| v.includes?(q) }
               .map { |(k, _)| e.binding_details(k, q) }
+            if e.name.empty?
+              default_binding = BindingDetails.new("", q.vhost.name, {q.name, nil}, q)
+              itr = {default_binding}.each.chain(itr)
+            end
             page(context, itr)
           end
         end
@@ -64,7 +68,7 @@ module AvalancheMQ
             end
             ok = e.vhost.bind_queue(q.name, e.name, routing_key, AMQP::Table.new(arguments))
             props = BindingDetails.hash_key({routing_key, arguments})
-            context.response.headers["Location"] = context.request.path + "/" + props
+            context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             @log.debug do
               binding = binding_for_props(context, e, q, props)

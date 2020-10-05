@@ -62,7 +62,7 @@ module AvalancheMQ
           return context
         end
         page = params["page"].to_i
-        page_size = params["page_size"]?.try(&.to_i) || 1000
+        page_size = params["page_size"]?.try(&.to_i) || 100
         start = (page - 1) * page_size
         JSON.build(context.response) do |json|
           json.object do
@@ -73,6 +73,7 @@ module AvalancheMQ
             json.field("filtered_count", filtered_count)
             json.field("item_count", item_count)
             json.field("page", page)
+            json.field("page_count", (total_count / page_size + 1).to_i )
             json.field("page_size", page_size)
             json.field("total_count", total_count)
           end
@@ -111,8 +112,8 @@ module AvalancheMQ
         end
       end
 
-      private def not_found(context, message = "Not found")
-        halt(context, 404, {error: "not_found", reason: message})
+      private def not_found(context, message = "Not Found")
+        halt(context, 404, {error: "Object Not Found", reason: message})
       end
 
       private def bad_request(context, message = "Bad request")
@@ -138,7 +139,7 @@ module AvalancheMQ
         if @amqp_server.vhosts[vhost]?
           yield vhost
         else
-          not_found(context, "VHost #{vhost} does not exist")
+          not_found(context, "Not Found")
         end
         context
       end

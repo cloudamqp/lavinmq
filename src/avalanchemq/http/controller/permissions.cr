@@ -29,9 +29,11 @@ module AvalancheMQ
 
         get "/api/permissions/:vhost/:user" do |context, params|
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params) do |_vhost|
+          with_vhost(context, params) do |vhost|
             u = user(context, params, "user")
-            u.permissions_details.to_json(context.response)
+            perm = u.permissions[vhost]?
+            not_found(context) unless perm
+            u.permissions_details(vhost, perm).to_json(context.response)
           end
         end
 
