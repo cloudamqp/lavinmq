@@ -29,23 +29,22 @@ describe AvalancheMQ::Queue do
       q1.get.should_not be_nil
       q1.get.should be_nil
     end
-  ensure
-    s.vhosts["/"].delete_queue("q1")
   end
 
   it "Should dead letter messages to it self only if rejected" do
+    queue_name = Random::Secure.hex
     with_channel do |ch|
-      q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(
+      q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new(
         {"x-dead-letter-exchange" => ""}
       ))
-      ch.default_exchange.publish_confirm("", "q1")
+      ch.default_exchange.publish_confirm("", queue_name)
       msg = q1.get(no_ack: false).not_nil!
       msg.reject(requeue: false)
       q1.get(no_ack: false).should_not be_nil
     end
   ensure
     s.vhosts["/"].delete_queue("dlq")
-    s.vhosts["/"].delete_queue("q1")
+    s.vhosts["/"].delete_queue(queue_name.as(String))
   end
 
   describe "Paused" do
