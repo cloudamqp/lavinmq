@@ -1,0 +1,167 @@
+---
+openapi: 3.0.3
+info:
+  version: 1.0.0
+  title: AvalancheMQ Management HTTP API
+  contact:
+    name: AvalancheMQ Team
+    url: https://www.avalanchemq.com/
+    email: contact@84codes.com
+servers:
+- url: http://localhost:15672/api
+components:
+  schemas:
+    Foo:
+      type: object
+paths:
+  "/bindings":
+    "$ref": "./paths/bindings.yaml#/~1bindings"
+  "/bindings/{vhost}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}"
+  "/bindings/{vhost}/e/{name}/q/{queue}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}"
+  "/bindings/{vhost}/e/{name}/q/{queue}/{props}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}~1{props}"
+  "/bindings/{vhost}/e/{name}/q/{queue}/*props":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}~1*props"
+  "/bindings/{vhost}/e/{name}/e/{destination}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}"
+  "/bindings/{vhost}/e/{name}/e/{destination}/{props}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}~1{props}"
+  "/bindings/{vhost}/e/{name}/e/{destination}/*props":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}~1*props"
+  "/channels":
+    "$ref": "./paths/channels.yaml#/~1channels"
+  "/vhosts/{vhost}/channels":
+    "$ref": "./paths/channels.yaml#/~1vhosts~1{vhost}~1channels"
+  "/channels/{name}":
+    "$ref": "./paths/channels.yaml#/~1channels~1{name}"
+  "/connections":
+    "$ref": "./paths/connections.yaml#/~1connections"
+  "/vhosts/{vhost}/connections":
+    "$ref": "./paths/connections.yaml#/~1vhosts~1{vhost}~1connections"
+  "/connections/{name}":
+    "$ref": "./paths/connections.yaml#/~1connections~1{name}"
+  "/connections/{name}/channels":
+    "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
+  "/consumers":
+    "$ref": "./paths/consumers.yaml#/~1consumers"
+  "/consumers/{vhost}":
+    "$ref": "./paths/consumers.yaml#/~1consumers~1{vhost}"
+  "/consumers/{vhost}/{connection}/{channel}/{consumer_tag}":
+    "$ref": "./paths/consumers.yaml#/~1consumers~1{vhost}~1{connection}~1{channel}~1{consumer_tag}"
+  "/definitions":
+    "$ref": "./paths/definitions.yaml#/~1definitions"
+  "/definitions/upload":
+    "$ref": "./paths/definitions.yaml#/~1definitions~1upload"
+  "/definitions/{vhost}":
+    "$ref": "./paths/definitions.yaml#/~1definitions~1{vhost}"
+  "/exchanges":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges"
+  "/exchanges/{vhost}":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}"
+  "/exchanges/{vhost}/{name}":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}"
+  "/exchanges/{vhost}/{name}/bindings/source":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1source"
+  "/exchanges/{vhost}/{name}/bindings/destination":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1destination"
+  "/exchanges/{vhost}/{name}/publish":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1publish"
+  "/overview":
+    "$ref": "./paths/main.yaml#/~1overview"
+  "/whoami":
+    "$ref": "./paths/main.yaml#/~1whoami"
+  "/aliveness-test/{vhost}":
+    "$ref": "./paths/main.yaml#/~1aliveness-test~1{vhost}"
+  "/shovels":
+    "$ref": "./paths/main.yaml#/~1shovels"
+  "/shovels/{vhost}":
+    "$ref": "./paths/main.yaml#/~1shovels~1{vhost}"
+  "/federation-links":
+    "$ref": "./paths/main.yaml#/~1federation-links"
+  "/federation-links/{vhost}":
+    "$ref": "./paths/main.yaml#/~1federation-links~1{vhost}"
+  "/extensions":
+    "$ref": "./paths/main.yaml#/~1extensions"
+  "/nodes":
+    "$ref": "./paths/nodes.yaml#/~1nodes"
+  "/nodes/{name}":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1{name}"
+  "/parameters":
+    "$ref": "./paths/parameters.yaml#/~1parameters"
+  "/parameters/{component}":
+    "$ref": "./paths/parameters.yaml#/~1parameters~1{component}"
+  "/parameters/{component}/{vhost}":
+    "$ref": "./paths/parameters.yaml#/~1parameters~1{component}~1{vhost}"
+  "/parameters/{component}/{vhost}/{name}":
+    "$ref": "./paths/parameters.yaml#/~1parameters~1{component}~1{vhost}~1{name}"
+  "/global-parameters":
+    "$ref": "./paths/parameters.yaml#/~1global-parameters"
+  "/global-parameters/{name}":
+    "$ref": "./paths/parameters.yaml#/~1global-parameters~1{name}"
+  "/policies":
+    "$ref": "./paths/parameters.yaml#/~1policies"
+  "/policies/{vhost}":
+    "$ref": "./paths/parameters.yaml#/~1policies~1{vhost}"
+  "/policies/{vhost}/{name}":
+    "$ref": "./paths/parameters.yaml#/~1policies~1{vhost}~1{name}"
+  "/permissions":
+    "$ref": "./paths/permissions.yaml#/~1permissions"
+  "/permissions/{vhost}/{user}":
+    "$ref": "./paths/permissions.yaml#/~1permissions~1{vhost}~1{user}"
+  "/queues":
+    "$ref": "./paths/queues.yaml#/~1queues"
+  "/queues/{vhost}":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}"
+  "/queues/{vhost}/{name}":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}"
+  "/queues/{vhost}/{name}/bindings":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1bindings"
+  "/queues/{vhost}/{name}/contents":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1contents"
+  "/queues/{vhost}/{name}/get":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1get"
+  "/users":
+    "$ref": "./paths/users.yaml#/~1users"
+  "/users/without-permissions":
+    "$ref": "./paths/users.yaml#/~1users~1without-permissions"
+  "/users/bulk-delete":
+    "$ref": "./paths/users.yaml#/~1users~1bulk-delete"
+  "/users/{name}":
+    "$ref": "./paths/users.yaml#/~1users~1{name}"
+  "/users/{name}/permissions":
+    "$ref": "./paths/users.yaml#/~1users~1{name}~1permissions"
+  "/vhosts":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts"
+  "/vhosts/{vhost}":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{vhost}"
+  "/vhosts/{vhost}/permissions":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{vhost}~1permissions"
+tags:
+- name: bindings
+  description: testing
+- name: channels
+  description: placeholder
+- name: connections
+  description: placeholder
+- name: consumers
+  description: placeholder
+- name: definitions
+  description: placeholder
+- name: exchanges
+  description: placeholder
+- name: main
+  description: placeholder
+- name: nodes
+  description: placeholder
+- name: parameters
+  description: placeholder
+- name: permissions
+  description: placeholder
+- name: queues
+  description: placeholder
+- name: users
+  description: placeholder
+- name: vhosts
+  description: placeholder

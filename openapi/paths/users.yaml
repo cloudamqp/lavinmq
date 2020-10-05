@@ -1,0 +1,66 @@
+---
+"/users":
+  get:
+    tags:
+    - users
+    summary: "/users"
+    operationId: "/users"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/users/without-permissions":
+  get:
+    tags:
+    - users
+    summary: "/users/without-permissions"
+    operationId: "/users/without-permissions"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/users/bulk-delete":
+  post:
+    tags:
+    - users
+    summary: "/users/bulk-delete"
+    operationId: "/users/bulk-delete"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/users/{name}":
+  delete:
+    tags:
+    - users
+    summary: "/users/:name"
+    operationId: "/users/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/users/{name}/permissions":
+  get:
+    tags:
+    - users
+    summary: "/users/:name/permissions"
+    operationId: "/users/:name/permissions"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

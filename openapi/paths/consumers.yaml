@@ -1,0 +1,40 @@
+---
+"/consumers":
+  get:
+    tags:
+    - consumers
+    summary: "/consumers"
+    operationId: "/consumers"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/consumers/{vhost}":
+  get:
+    tags:
+    - consumers
+    summary: "/consumers/:vhost"
+    operationId: "/consumers/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/consumers/{vhost}/{connection}/{channel}/{consumer_tag}":
+  delete:
+    tags:
+    - consumers
+    summary: "/consumers/:vhost/:connection/:channel/:consumer_tag"
+    operationId: "/consumers/:vhost/:connection/:channel/:consumer_tag"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

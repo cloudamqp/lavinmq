@@ -1,0 +1,27 @@
+---
+"/nodes":
+  get:
+    tags:
+    - nodes
+    summary: "/nodes"
+    operationId: "/nodes"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/nodes/{name}":
+  get:
+    tags:
+    - nodes
+    summary: "/nodes/:name"
+    operationId: "/nodes/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

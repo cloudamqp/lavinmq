@@ -1,2 +1,12 @@
 #!/bin/sh
 cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js
+
+mkdir -p static/docs/openapi
+ln -f -s ../../../openapi/openapi.yaml static/docs/openapi
+ln -f -s ../../../openapi/paths static/docs/openapi
+cp node_modules/swagger-ui-dist/swagger-ui-bundle.js static/docs/swagger-ui-bundle.js
+cp node_modules/swagger-ui-dist/swagger-ui-standalone-preset.js static/docs/swagger-ui-standalone-preset.js
+cp node_modules/swagger-ui-dist/swagger-ui.css static/docs/swagger-ui.css
+cp node_modules/swagger-ui-dist/favicon-32x32.png static/docs/favicon-32x32.png
+cp node_modules/swagger-ui-dist/index.html static/docs/dev-index.html
+sed -i '' 's/https:\/\/petstore\.swagger\.io\/v2\/swagger.json/\.\/openapi\/openapi\.yaml/' static/docs/dev-index.html

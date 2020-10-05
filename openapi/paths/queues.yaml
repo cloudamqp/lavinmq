@@ -1,0 +1,79 @@
+---
+"/queues":
+  get:
+    tags:
+    - queues
+    summary: "/queues"
+    operationId: "/queues"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}":
+  get:
+    tags:
+    - queues
+    summary: "/queues/:vhost"
+    operationId: "/queues/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}/{name}":
+  delete:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name"
+    operationId: "/queues/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}/{name}/bindings":
+  get:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name/bindings"
+    operationId: "/queues/:vhost/:name/bindings"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}/{name}/contents":
+  delete:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name/contents"
+    operationId: "/queues/:vhost/:name/contents"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}/{name}/get":
+  post:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name/get"
+    operationId: "/queues/:vhost/:name/get"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

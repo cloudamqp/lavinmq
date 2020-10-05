@@ -1,0 +1,79 @@
+---
+"/exchanges":
+  get:
+    tags:
+    - exchanges
+    summary: "/exchanges"
+    operationId: "/exchanges"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/exchanges/{vhost}":
+  get:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost"
+    operationId: "/exchanges/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/exchanges/{vhost}/{name}":
+  delete:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost/:name"
+    operationId: "/exchanges/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/exchanges/{vhost}/{name}/bindings/source":
+  get:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost/:name/bindings/source"
+    operationId: "/exchanges/:vhost/:name/bindings/source"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/exchanges/{vhost}/{name}/bindings/destination":
+  get:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost/:name/bindings/destination"
+    operationId: "/exchanges/:vhost/:name/bindings/destination"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/exchanges/{vhost}/{name}/publish":
+  post:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost/:name/publish"
+    operationId: "/exchanges/:vhost/:name/publish"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

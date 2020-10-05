@@ -1,0 +1,27 @@
+---
+"/permissions":
+  get:
+    tags:
+    - permissions
+    summary: "/permissions"
+    operationId: "/permissions"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/permissions/{vhost}/{user}":
+  delete:
+    tags:
+    - permissions
+    summary: "/permissions/:vhost/:user"
+    operationId: "/permissions/:vhost/:user"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

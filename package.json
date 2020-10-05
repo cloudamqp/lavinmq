@@ -8,7 +8,9 @@
     "chart.js": "^2.7.3",
     "eslint-plugin-html": "^5.0.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "swagger-ui-dist": "^3.35.0"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "postinstall": "./build/npm_postinstall"

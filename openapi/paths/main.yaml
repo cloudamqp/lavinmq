@@ -1,0 +1,105 @@
+---
+"/overview":
+  get:
+    tags:
+    - main
+    summary: "/overview"
+    operationId: "/overview"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/whoami":
+  get:
+    tags:
+    - main
+    summary: "/whoami"
+    operationId: "/whoami"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/aliveness-test/{vhost}":
+  get:
+    tags:
+    - main
+    summary: "/aliveness-test/:vhost"
+    operationId: "/aliveness-test/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/shovels":
+  get:
+    tags:
+    - main
+    summary: "/shovels"
+    operationId: "/shovels"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/shovels/{vhost}":
+  get:
+    tags:
+    - main
+    summary: "/shovels/:vhost"
+    operationId: "/shovels/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/federation-links":
+  get:
+    tags:
+    - main
+    summary: "/federation-links"
+    operationId: "/federation-links"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/federation-links/{vhost}":
+  get:
+    tags:
+    - main
+    summary: "/federation-links/:vhost"
+    operationId: "/federation-links/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/extensions":
+  get:
+    tags:
+    - main
+    summary: "/extensions"
+    operationId: "/extensions"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

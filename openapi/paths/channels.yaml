@@ -1,0 +1,40 @@
+---
+"/channels":
+  get:
+    tags:
+    - channels
+    summary: "/channels"
+    operationId: "/channels"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/vhosts/{vhost}/channels":
+  get:
+    tags:
+    - channels
+    summary: "/vhosts/:vhost/channels"
+    operationId: "/vhosts/:vhost/channels"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/channels/{name}":
+  get:
+    tags:
+    - channels
+    summary: "/channels/:name"
+    operationId: "/channels/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

@@ -1,0 +1,40 @@
+---
+"/vhosts":
+  get:
+    tags:
+    - vhosts
+    summary: "/vhosts"
+    operationId: "/vhosts"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/vhosts/{vhost}":
+  delete:
+    tags:
+    - vhosts
+    summary: "/vhosts/:vhost"
+    operationId: "/vhosts/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/vhosts/{vhost}/permissions":
+  get:
+    tags:
+    - vhosts
+    summary: "/vhosts/:vhost/permissions"
+    operationId: "/vhosts/:vhost/permissions"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"

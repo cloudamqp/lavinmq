@@ -1,0 +1,105 @@
+---
+"/bindings":
+  get:
+    tags:
+    - bindings
+    summary: "/bindings"
+    operationId: "/bindings"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}":
+  get:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost"
+    operationId: "/bindings/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}/e/{name}/q/{queue}":
+  post:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/q/:queue"
+    operationId: "/bindings/:vhost/e/:name/q/:queue"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}/e/{name}/q/{queue}/{props}":
+  get:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/q/:queue/:props"
+    operationId: "/bindings/:vhost/e/:name/q/:queue/:props"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}/e/{name}/q/{queue}/*props":
+  delete:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/q/:queue/*props"
+    operationId: "/bindings/:vhost/e/:name/q/:queue/*props"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}/e/{name}/e/{destination}":
+  post:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/e/:destination"
+    operationId: "/bindings/:vhost/e/:name/e/:destination"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}/e/{name}/e/{destination}/{props}":
+  get:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/e/:destination/:props"
+    operationId: "/bindings/:vhost/e/:name/e/:destination/:props"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/bindings/{vhost}/e/{name}/e/{destination}/*props":
+  delete:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/e/:destination/*props"
+    operationId: "/bindings/:vhost/e/:name/e/:destination/*props"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
