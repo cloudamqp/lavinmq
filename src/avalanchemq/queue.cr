@@ -657,16 +657,15 @@ module AvalancheMQ
       case found_at
       when -1
         # not found so inserting new x-death
-        xd = Hash(String, AMQP::Field){
-          "queue"        => @name,
-          "reason"       => reason.to_s,
-          "exchange"     => meta.exchange_name,
-          "count"        => 1,
-          "time"         => RoughTime.utc,
-          "routing-keys" => routing_keys,
-        }
+        xd = AMQP::Table.new
+        xd["queue"] = @name
+        xd["reason"] = reason.to_s
+        xd["exchange"] = meta.exchange_name
+        xd["count"] = 1
+        xd["time"] = RoughTime.utc
+        xd["routing-keys"] = routing_keys
         xd["original-expiration"] = props.expiration if props.expiration
-        xdeaths.unshift AMQP::Table.new(xd)
+        xdeaths.unshift xd
       when 0
         # do nothing, updated xd is in the front
       else
