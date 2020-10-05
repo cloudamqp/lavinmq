@@ -617,10 +617,17 @@ module AvalancheMQ
 
     private def handle_dlx_header(meta, reason)
       props = meta.properties
-      headers = props.headers.try(&.to_h) || Hash(String, AMQP::Field).new
+      headers = props.headers ||= AMQP::Table.new
+
       headers.delete("x-delay")
       headers.delete("x-dead-letter-exchange")
       headers.delete("x-dead-letter-routing-key")
+
+      # there's a performance advantage to do `has_key?` over `||=`
+      headers["x-first-death-reason"]   = reason.to_s        unless headers.has_key? "x-first-death-reason"
+      headers["x-first-death-queue"]    = @name              unless headers.has_key? "x-first-death-queue"
+      headers["x-first-death-exchange"] = meta.exchange_name unless headers.has_key? "x-first-death-exchange"
+
       routing_keys = [meta.routing_key.as(AMQP::Field)]
       if cc = headers.delete("CC")
         # should route to all the CC RKs but then delete them,
@@ -629,8 +636,7 @@ module AvalancheMQ
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
-      xdeaths = headers["x-death"]?.as?(Array(AMQP::Field))
-      xdeaths ||= headers["x-death"] = Array(AMQP::Field).new(1)
+      xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
 
       found_at = -1
       xdeaths.each_with_index do |xd, idx|
@@ -668,20 +674,9 @@ module AvalancheMQ
         xd = xdeaths.delete_at(found_at)
         xdeaths.unshift xd.as(AMQP::Table)
       end
+      headers["x-death"] = xdeaths
 
       props.expiration = nil if props.expiration
-
-      unless headers.has_key?("x-first-death-reason")
-        headers["x-first-death-reason"] = reason.to_s
-      end
-      unless headers.has_key?("x-first-death-queue")
-        headers["x-first-death-queue"] = @name
-      end
-      unless headers.has_key?("x-first-death-exchange")
-        headers["x-first-death-exchange"] = meta.exchange_name
-      end
-
-      props.headers = AMQP::Table.new(headers)
       props
     end
 
