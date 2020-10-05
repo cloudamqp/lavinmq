@@ -125,6 +125,7 @@ module AvalancheMQ
       def next_msg_headers(frame)
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
         raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
+        valid_expiration?(frame) || return
         if direct_reply_request?(frame.properties.reply_to)
           if @client.direct_reply_channel
             frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
@@ -167,6 +168,21 @@ module AvalancheMQ
             end
           end
         end
+      end
+
+      private def valid_expiration?(frame) : Bool
+        if exp = frame.properties.expiration
+          if i = exp.to_i?
+            if i < 0
+              @client.send_precondition_failed(frame, "Negative expiration not allowed")
+              return false
+            end
+          else
+            @client.send_precondition_failed(frame, "Expiration not a number")
+            return false
+          end
+        end
+        true
       end
 
       private def server_flow?
