@@ -65,8 +65,6 @@ module TestHelpers
       raise "Execuction expired" if Time.monotonic - s > timeout
     end
     res
-  rescue e
-    puts "\nwait_for #{e.inspect_with_backtrace}"
   end
 
   def test_headers(headers = nil)
