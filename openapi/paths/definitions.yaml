@@ -1,5 +1,17 @@
 ---
 "/definitions":
+  get:
+    tags:
+    - definitions
+    summary: "/definitions"
+    operationId: "/definitions"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   post:
     tags:
     - definitions
@@ -26,6 +38,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/definitions/{vhost}":
+  get:
+    tags:
+    - definitions
+    summary: "/definitions/:vhost"
+    operationId: "/definitions/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   post:
     tags:
     - definitions

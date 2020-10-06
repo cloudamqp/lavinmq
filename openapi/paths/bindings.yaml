@@ -26,6 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/bindings/{vhost}/e/{name}/q/{queue}":
+  get:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/q/:queue"
+    operationId: "/bindings/:vhost/e/:name/q/:queue"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   post:
     tags:
     - bindings
@@ -65,6 +77,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/bindings/{vhost}/e/{name}/e/{destination}":
+  get:
+    tags:
+    - bindings
+    summary: "/bindings/:vhost/e/:name/e/:destination"
+    operationId: "/bindings/:vhost/e/:name/e/:destination"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   post:
     tags:
     - bindings

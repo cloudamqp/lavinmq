@@ -26,6 +26,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/exchanges/{vhost}/{name}":
+  get:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost/:name"
+    operationId: "/exchanges/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+  put:
+    tags:
+    - exchanges
+    summary: "/exchanges/:vhost/:name"
+    operationId: "/exchanges/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - exchanges

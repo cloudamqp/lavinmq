@@ -26,11 +26,61 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/queues/{vhost}/{name}":
+  get:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name"
+    operationId: "/queues/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+  put:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name"
+    operationId: "/queues/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - queues
     summary: "/queues/:vhost/:name"
     operationId: "/queues/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}/{name}/pause":
+  put:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name/pause"
+    operationId: "/queues/:vhost/:name/pause"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/queues/{vhost}/{name}/resume":
+  put:
+    tags:
+    - queues
+    summary: "/queues/:vhost/:name/resume"
+    operationId: "/queues/:vhost/:name/resume"
     responses:
       200:
         description: The description

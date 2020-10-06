@@ -39,6 +39,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/users/{name}":
+  get:
+    tags:
+    - users
+    summary: "/users/:name"
+    operationId: "/users/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+  put:
+    tags:
+    - users
+    summary: "/users/:name"
+    operationId: "/users/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - users

@@ -13,11 +13,36 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/vhosts/{vhost}":
+  get:
+    tags:
+    - vhosts
+    summary: "/vhosts/:vhost"
+    operationId: "/vhosts/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - vhosts
     summary: "/vhosts/:vhost"
     operationId: "/vhosts/:vhost"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+"/vhosts/{name}":
+  put:
+    tags:
+    - vhosts
+    summary: "/vhosts/:name"
+    operationId: "/vhosts/:name"
     responses:
       200:
         description: The description

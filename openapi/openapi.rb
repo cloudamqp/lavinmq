@@ -58,7 +58,7 @@ openapi_spec = YAML.load(File.read(File.join(__dir__, "openapi.yaml")))
 src_code_dir = File.expand_path(File.join(__dir__, ".."))
 http_code_dir = File.join(src_code_dir, "src/avalanchemq/http")
 files = Dir.glob(File.join(http_code_dir, "**/*.cr"))
-route_regex = /(?<verb>get|post|delete)\s+"\/api(?<route>\/.+)"/i
+route_regex = /(?<verb>get|post|put|delete)\s+"\/api(?<route>\/.+)"/i
 
 files_with_api_routes = Hash.new { |hash, key| hash[key] = [] }
 
@@ -91,10 +91,10 @@ tags += tag_names_from_src.map do |tag_name|
 end.compact
 
 files_with_api_routes.each do |src_file, api_routes|
-  openapi_routes = {}
+  openapi_routes = Hash.new { |hash, key| hash[key] = {} }
 
   api_routes.each do |route|
-    openapi_routes[route.with_path_param] = { route.verb => route.to_openapi }
+    openapi_routes[route.with_path_param][route.verb] = route.to_openapi
     openapi_spec["paths"][route.with_path_param] = { "$ref" => route.ref }
   end
 

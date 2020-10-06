@@ -39,6 +39,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/parameters/{component}/{vhost}/{name}":
+  get:
+    tags:
+    - parameters
+    summary: "/parameters/:component/:vhost/:name"
+    operationId: "/parameters/:component/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+  put:
+    tags:
+    - parameters
+    summary: "/parameters/:component/:vhost/:name"
+    operationId: "/parameters/:component/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - parameters
@@ -65,6 +89,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/global-parameters/{name}":
+  get:
+    tags:
+    - parameters
+    summary: "/global-parameters/:name"
+    operationId: "/global-parameters/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+  put:
+    tags:
+    - parameters
+    summary: "/global-parameters/:name"
+    operationId: "/global-parameters/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - parameters
@@ -104,6 +152,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/policies/{vhost}/{name}":
+  get:
+    tags:
+    - parameters
+    summary: "/policies/:vhost/:name"
+    operationId: "/policies/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+  put:
+    tags:
+    - parameters
+    summary: "/policies/:vhost/:name"
+    operationId: "/policies/:vhost/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - parameters

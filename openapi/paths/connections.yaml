@@ -26,6 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
 "/connections/{name}":
+  get:
+    tags:
+    - connections
+    summary: "/connections/:name"
+    operationId: "/connections/:name"
+    responses:
+      200:
+        description: The description
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
   delete:
     tags:
     - connections
