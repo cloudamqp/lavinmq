@@ -4,6 +4,7 @@
     tags:
     - nodes
     summary: "/nodes"
+    parameters: []
     operationId: "/nodes"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - nodes
     summary: "/nodes/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/nodes/:name"
     responses:
       200:

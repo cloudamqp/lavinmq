@@ -4,6 +4,7 @@
     tags:
     - exchanges
     summary: "/exchanges"
+    parameters: []
     operationId: "/exchanges"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost"
     responses:
       200:
@@ -30,6 +38,19 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost/:name"
     responses:
       200:
@@ -42,6 +63,19 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost/:name"
     responses:
       200:
@@ -54,6 +88,19 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost/:name"
     responses:
       200:
@@ -67,6 +114,19 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost/:name/bindings/source"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost/:name/bindings/source"
     responses:
       200:
@@ -80,6 +140,19 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost/:name/bindings/destination"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost/:name/bindings/destination"
     responses:
       200:
@@ -93,6 +166,19 @@
     tags:
     - exchanges
     summary: "/exchanges/:vhost/:name/publish"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/exchanges/:vhost/:name/publish"
     responses:
       200:

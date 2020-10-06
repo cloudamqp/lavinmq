@@ -4,6 +4,7 @@
     tags:
     - vhosts
     summary: "/vhosts"
+    parameters: []
     operationId: "/vhosts"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - vhosts
     summary: "/vhosts/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/vhosts/:vhost"
     responses:
       200:
@@ -29,6 +37,13 @@
     tags:
     - vhosts
     summary: "/vhosts/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/vhosts/:vhost"
     responses:
       200:
@@ -42,6 +57,13 @@
     tags:
     - vhosts
     summary: "/vhosts/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/vhosts/:name"
     responses:
       200:
@@ -55,6 +77,13 @@
     tags:
     - vhosts
     summary: "/vhosts/:vhost/permissions"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/vhosts/:vhost/permissions"
     responses:
       200:

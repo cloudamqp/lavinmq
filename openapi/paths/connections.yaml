@@ -4,6 +4,7 @@
     tags:
     - connections
     summary: "/connections"
+    parameters: []
     operationId: "/connections"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - connections
     summary: "/vhosts/:vhost/connections"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/vhosts/:vhost/connections"
     responses:
       200:
@@ -30,6 +38,13 @@
     tags:
     - connections
     summary: "/connections/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/connections/:name"
     responses:
       200:
@@ -42,6 +57,13 @@
     tags:
     - connections
     summary: "/connections/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/connections/:name"
     responses:
       200:
@@ -55,6 +77,13 @@
     tags:
     - connections
     summary: "/connections/:name/channels"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/connections/:name/channels"
     responses:
       200:

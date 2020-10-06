@@ -4,6 +4,7 @@
     tags:
     - bindings
     summary: "/bindings"
+    parameters: []
     operationId: "/bindings"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - bindings
     summary: "/bindings/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost"
     responses:
       200:
@@ -30,6 +38,25 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/q/:queue"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: queue
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/q/:queue"
     responses:
       200:
@@ -42,6 +69,25 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/q/:queue"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: queue
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/q/:queue"
     responses:
       200:
@@ -55,6 +101,31 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/q/:queue/:props"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: queue
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: props
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/q/:queue/:props"
     responses:
       200:
@@ -68,6 +139,25 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/q/:queue/*props"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: queue
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/q/:queue/*props"
     responses:
       200:
@@ -81,6 +171,25 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/e/:destination"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: destination
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/e/:destination"
     responses:
       200:
@@ -93,6 +202,25 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/e/:destination"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: destination
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/e/:destination"
     responses:
       200:
@@ -106,6 +234,31 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/e/:destination/:props"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: destination
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: props
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/e/:destination/:props"
     responses:
       200:
@@ -119,6 +272,25 @@
     tags:
     - bindings
     summary: "/bindings/:vhost/e/:name/e/:destination/*props"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: destination
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/bindings/:vhost/e/:name/e/:destination/*props"
     responses:
       200:

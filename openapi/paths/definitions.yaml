@@ -4,6 +4,7 @@
     tags:
     - definitions
     summary: "/definitions"
+    parameters: []
     operationId: "/definitions"
     responses:
       200:
@@ -16,6 +17,7 @@
     tags:
     - definitions
     summary: "/definitions"
+    parameters: []
     operationId: "/definitions"
     responses:
       200:
@@ -29,6 +31,7 @@
     tags:
     - definitions
     summary: "/definitions/upload"
+    parameters: []
     operationId: "/definitions/upload"
     responses:
       200:
@@ -42,6 +45,13 @@
     tags:
     - definitions
     summary: "/definitions/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/definitions/:vhost"
     responses:
       200:
@@ -54,6 +64,13 @@
     tags:
     - definitions
     summary: "/definitions/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/definitions/:vhost"
     responses:
       200:

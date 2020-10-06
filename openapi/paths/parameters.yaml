@@ -4,6 +4,7 @@
     tags:
     - parameters
     summary: "/parameters"
+    parameters: []
     operationId: "/parameters"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - parameters
     summary: "/parameters/:component"
+    parameters:
+    - in: path
+      name: component
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/parameters/:component"
     responses:
       200:
@@ -30,6 +38,19 @@
     tags:
     - parameters
     summary: "/parameters/:component/:vhost"
+    parameters:
+    - in: path
+      name: component
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/parameters/:component/:vhost"
     responses:
       200:
@@ -43,6 +64,25 @@
     tags:
     - parameters
     summary: "/parameters/:component/:vhost/:name"
+    parameters:
+    - in: path
+      name: component
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/parameters/:component/:vhost/:name"
     responses:
       200:
@@ -55,6 +95,25 @@
     tags:
     - parameters
     summary: "/parameters/:component/:vhost/:name"
+    parameters:
+    - in: path
+      name: component
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/parameters/:component/:vhost/:name"
     responses:
       200:
@@ -67,6 +126,25 @@
     tags:
     - parameters
     summary: "/parameters/:component/:vhost/:name"
+    parameters:
+    - in: path
+      name: component
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/parameters/:component/:vhost/:name"
     responses:
       200:
@@ -80,6 +158,7 @@
     tags:
     - parameters
     summary: "/global-parameters"
+    parameters: []
     operationId: "/global-parameters"
     responses:
       200:
@@ -93,6 +172,13 @@
     tags:
     - parameters
     summary: "/global-parameters/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/global-parameters/:name"
     responses:
       200:
@@ -105,6 +191,13 @@
     tags:
     - parameters
     summary: "/global-parameters/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/global-parameters/:name"
     responses:
       200:
@@ -117,6 +210,13 @@
     tags:
     - parameters
     summary: "/global-parameters/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/global-parameters/:name"
     responses:
       200:
@@ -130,6 +230,7 @@
     tags:
     - parameters
     summary: "/policies"
+    parameters: []
     operationId: "/policies"
     responses:
       200:
@@ -143,6 +244,13 @@
     tags:
     - parameters
     summary: "/policies/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/policies/:vhost"
     responses:
       200:
@@ -156,6 +264,19 @@
     tags:
     - parameters
     summary: "/policies/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/policies/:vhost/:name"
     responses:
       200:
@@ -168,6 +289,19 @@
     tags:
     - parameters
     summary: "/policies/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/policies/:vhost/:name"
     responses:
       200:
@@ -180,6 +314,19 @@
     tags:
     - parameters
     summary: "/policies/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/policies/:vhost/:name"
     responses:
       200:

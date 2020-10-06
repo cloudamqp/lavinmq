@@ -4,6 +4,7 @@
     tags:
     - channels
     summary: "/channels"
+    parameters: []
     operationId: "/channels"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - channels
     summary: "/vhosts/:vhost/channels"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/vhosts/:vhost/channels"
     responses:
       200:
@@ -30,6 +38,13 @@
     tags:
     - channels
     summary: "/channels/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/channels/:name"
     responses:
       200:

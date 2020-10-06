@@ -19,6 +19,7 @@ Route = Struct.new(:route, :verb, :src_file) do
     {
       "tags" => [tag],
       "summary" => route,
+      "parameters" => path_parameters,
       "operationId" => route,
       "responses" => {
         200 => {
@@ -33,6 +34,22 @@ Route = Struct.new(:route, :verb, :src_file) do
         }
       }
     }
+  end
+
+  def path_parameters
+    parameters = route.scan(/:(\w+)/).flatten
+
+    parameters.map do |parameter|
+      {
+        "in" => "path",
+        "name" => parameter,
+        "required" => true,
+        "schema" => {
+          "type" => "string",
+          "description" => "placeholder",
+        },
+      }
+    end
   end
 
   # https://swagger.io/docs/specification/describing-parameters/

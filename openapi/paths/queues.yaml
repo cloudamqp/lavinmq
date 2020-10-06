@@ -4,6 +4,7 @@
     tags:
     - queues
     summary: "/queues"
+    parameters: []
     operationId: "/queues"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - queues
     summary: "/queues/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost"
     responses:
       200:
@@ -30,6 +38,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name"
     responses:
       200:
@@ -42,6 +63,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name"
     responses:
       200:
@@ -54,6 +88,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name"
     responses:
       200:
@@ -67,6 +114,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name/pause"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name/pause"
     responses:
       200:
@@ -80,6 +140,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name/resume"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name/resume"
     responses:
       200:
@@ -93,6 +166,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name/bindings"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name/bindings"
     responses:
       200:
@@ -106,6 +192,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name/contents"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name/contents"
     responses:
       200:
@@ -119,6 +218,19 @@
     tags:
     - queues
     summary: "/queues/:vhost/:name/get"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/queues/:vhost/:name/get"
     responses:
       200:

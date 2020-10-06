@@ -4,6 +4,7 @@
     tags:
     - consumers
     summary: "/consumers"
+    parameters: []
     operationId: "/consumers"
     responses:
       200:
@@ -17,6 +18,13 @@
     tags:
     - consumers
     summary: "/consumers/:vhost"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/consumers/:vhost"
     responses:
       200:
@@ -30,6 +38,31 @@
     tags:
     - consumers
     summary: "/consumers/:vhost/:connection/:channel/:consumer_tag"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: connection
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: channel
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: consumer_tag
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/consumers/:vhost/:connection/:channel/:consumer_tag"
     responses:
       200:

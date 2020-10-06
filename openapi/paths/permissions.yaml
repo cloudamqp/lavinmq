@@ -4,6 +4,7 @@
     tags:
     - permissions
     summary: "/permissions"
+    parameters: []
     operationId: "/permissions"
     responses:
       200:
@@ -17,6 +18,19 @@
     tags:
     - permissions
     summary: "/permissions/:vhost/:user"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: user
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/permissions/:vhost/:user"
     responses:
       200:
@@ -29,6 +43,19 @@
     tags:
     - permissions
     summary: "/permissions/:vhost/:user"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: user
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/permissions/:vhost/:user"
     responses:
       200:
@@ -41,6 +68,19 @@
     tags:
     - permissions
     summary: "/permissions/:vhost/:user"
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: placeholder
+    - in: path
+      name: user
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/permissions/:vhost/:user"
     responses:
       200:

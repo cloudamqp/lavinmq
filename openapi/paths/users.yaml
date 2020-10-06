@@ -4,6 +4,7 @@
     tags:
     - users
     summary: "/users"
+    parameters: []
     operationId: "/users"
     responses:
       200:
@@ -17,6 +18,7 @@
     tags:
     - users
     summary: "/users/without-permissions"
+    parameters: []
     operationId: "/users/without-permissions"
     responses:
       200:
@@ -30,6 +32,7 @@
     tags:
     - users
     summary: "/users/bulk-delete"
+    parameters: []
     operationId: "/users/bulk-delete"
     responses:
       200:
@@ -43,6 +46,13 @@
     tags:
     - users
     summary: "/users/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/users/:name"
     responses:
       200:
@@ -55,6 +65,13 @@
     tags:
     - users
     summary: "/users/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/users/:name"
     responses:
       200:
@@ -67,6 +84,13 @@
     tags:
     - users
     summary: "/users/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/users/:name"
     responses:
       200:
@@ -80,6 +104,13 @@
     tags:
     - users
     summary: "/users/:name/permissions"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: placeholder
     operationId: "/users/:name/permissions"
     responses:
       200:
