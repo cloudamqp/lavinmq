@@ -502,7 +502,7 @@ module AvalancheMQ
       @segment_file = IO::Memory.new(mfile.to_slice, writeable: false)
     end
 
-    def metadata(sp) : MessageMetadata?
+    def metadata(sp) : MessageMetadata
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
       ts = Int64.from_io seg, IO::ByteFormat::SystemEndian
@@ -511,35 +511,30 @@ module AvalancheMQ
       pr = AMQP::Properties.from_io seg, IO::ByteFormat::SystemEndian
       sz = UInt64.from_io seg, IO::ByteFormat::SystemEndian
       MessageMetadata.new(ts, ex, rk, pr, sz)
-    rescue ex : IO::Error
-      @log.error { "Segment #{sp} not found, possible message loss. #{ex.inspect}" }
-      @ready.delete sp
-      delete_message sp
-      nil
     end
 
     private def time_to_message_expiration : Time::Span?
-      @log.debug { "Checking if next message has to be expired ready" }
-      meta = nil
-      expire_at = 0_i64
-      loop do
-        sp = @ready.first? || return
-        expire_at = sp.expiration_ts || 0_i64
-        break if expire_at > 0
-        if message_ttl = @message_ttl
-          if meta = metadata(sp)
-            expire_at = meta.timestamp + message_ttl
-            break
-          end
+      sp = @ready.first? || return
+      @log.debug { "Checking if message #{sp} has to be expired" }
+      if expire_at = expire_at(sp)
+        expire_in = expire_at - RoughTime.utc.to_unix_ms
+        if expire_in > 0
+          expire_in.milliseconds
         else
-          return
+          Time::Span.zero
         end
       end
-      expire_in = expire_at - RoughTime.utc.to_unix_ms
-      if expire_in > 0
-        expire_in.milliseconds
+    end
+
+    private def expire_at(sp : SegmentPosition) : Int64?
+      if message_ttl = @message_ttl
+        meta = metadata(sp)
+        expire_at = meta.timestamp + message_ttl
+        Math.min(expire_at, sp.expiration_ts) if sp.expiration_ts > 0
+      elsif sp.expiration_ts > 0
+        sp.expiration_ts
       else
-        Time::Span.zero
+        nil
       end
     end
 
@@ -547,29 +542,22 @@ module AvalancheMQ
       i = 0
       now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
-        @log.debug { "Checking if next message has to be expired" }
-        expire_at = sp.expiration_ts
-        env = nil
-        if expire_at.zero?
-          if @message_ttl.nil?
+        @log.debug { "Checking if next message #{sp} has to be expired" }
+        if expire_at = expire_at(sp)
+          expire_in = expire_at - now
+          if expire_in > 0
             @log.debug { "No more message to expire" }
-            next false
+            return
           end
-          env = read(sp)
-          expire_at = env.message.timestamp + (@message_ttl || 0)
-        end
-        expire_in = expire_at - now
-        if expire_in <= 0
-          env ||= read(sp)
-          expire_msg(env, :expired)
+
+          expire_msg(sp, :expired)
           if (i += 1) == 8192
             Fiber.yield
             i = 0
           end
           true
         else
-          @log.debug { "No more message to expire" }
-          false
+          return
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
