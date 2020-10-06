@@ -619,7 +619,10 @@ module AvalancheMQ
         send_precondition_failed(frame, "Exchange name isn't valid")
       elsif frame.exchange_name.empty?
         send_access_refused(frame, "Not allowed to bind to the default exchange")
-      elsif !@vhost.queues.has_key? frame.queue_name
+      end
+
+      q = @vhost.queues.fetch(frame.queue_name, nil)
+      if q.nil?
         send_not_found frame, "Queue '#{frame.queue_name}' not found"
       elsif !@vhost.exchanges.has_key? frame.exchange_name
         send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
@@ -629,6 +632,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
         send_access_refused(frame, "Not allowed to bind to internal queue")
+      elsif queue_exclusive_to_other_client?(q)
+        send_resource_locked(frame, "Exclusive queue")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
@@ -645,7 +650,10 @@ module AvalancheMQ
         send_precondition_failed(frame, "Exchange name isn't valid")
       elsif frame.exchange_name.empty?
         send_access_refused(frame, "Not allowed to unbind from the default exchange")
-      elsif !@vhost.queues.has_key? frame.queue_name
+      end
+
+      q = @vhost.queues.fetch(frame.queue_name, nil)
+      if q.nil?
         # should return not_found according to spec but we make it idempotent
         send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
       elsif !@vhost.exchanges.has_key? frame.exchange_name
@@ -657,6 +665,8 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
       elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
         send_access_refused(frame, "Not allowed to unbind from the internal queue")
+      elsif queue_exclusive_to_other_client?(q)
+        send_resource_locked(frame, "Exclusive queue")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
