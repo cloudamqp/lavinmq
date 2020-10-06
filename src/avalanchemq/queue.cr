@@ -530,7 +530,11 @@ module AvalancheMQ
       if message_ttl = @message_ttl
         meta = metadata(sp)
         expire_at = meta.timestamp + message_ttl
-        Math.min(expire_at, sp.expiration_ts) if sp.expiration_ts > 0
+        if sp.expiration_ts > 0
+          Math.min(expire_at, sp.expiration_ts)
+        else
+          expire_at
+        end
       elsif sp.expiration_ts > 0
         sp.expiration_ts
       else
