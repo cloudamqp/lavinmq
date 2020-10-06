@@ -112,6 +112,17 @@ Currently missing features
 * Plugins
 * Transactions (probably won't implement)
 
+### Known differences to other AMQP servers
+
+There are few edge-cases that are handled a bit differently in AvalancheMQ compared to other AMQP servers.
+
+* Messages being reject and requeued with TTL 0 is delivered to consumers if there are any, not expired
+* When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
+* TTL of queues and messages are correct to the second, not to the millisecond
+* Messages are not expired if there are active consumers
+* Newlines are not removed from Queue or Exchange names, they are forbidden
+* Impersonator tag (for overriding user_id) is not supported (yet)
+
 ### Persistent Exchange
 
 A persistent exchange will store all messages coming into the exchange
