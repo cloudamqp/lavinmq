@@ -3,11 +3,12 @@
   get:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,6 +30,7 @@
   get:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost"
     parameters:
     - in: path
@@ -39,7 +41,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -61,6 +63,7 @@
   get:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost/:name"
     parameters:
     - in: path
@@ -77,7 +80,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -98,6 +101,7 @@
   put:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost/:name"
     parameters:
     - in: path
@@ -114,7 +118,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -135,6 +139,7 @@
   delete:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost/:name"
     parameters:
     - in: path
@@ -151,7 +156,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -173,6 +178,7 @@
   get:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost/:name/bindings/source"
     parameters:
     - in: path
@@ -189,7 +195,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -211,6 +217,7 @@
   get:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost/:name/bindings/destination"
     parameters:
     - in: path
@@ -227,7 +234,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -249,6 +256,7 @@
   post:
     tags:
     - exchanges
+    description: CHANGEME
     summary: "/exchanges/:vhost/:name/publish"
     parameters:
     - in: path
@@ -265,7 +273,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

@@ -3,11 +3,12 @@
   get:
     tags:
     - permissions
+    description: CHANGEME
     summary: "/permissions"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,6 +30,7 @@
   get:
     tags:
     - permissions
+    description: CHANGEME
     summary: "/permissions/:vhost/:user"
     parameters:
     - in: path
@@ -45,7 +47,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -66,6 +68,7 @@
   put:
     tags:
     - permissions
+    description: CHANGEME
     summary: "/permissions/:vhost/:user"
     parameters:
     - in: path
@@ -82,7 +85,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -103,6 +106,7 @@
   delete:
     tags:
     - permissions
+    description: CHANGEME
     summary: "/permissions/:vhost/:user"
     parameters:
     - in: path
@@ -119,7 +123,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

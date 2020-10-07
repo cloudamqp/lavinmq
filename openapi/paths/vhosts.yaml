@@ -3,11 +3,12 @@
   get:
     tags:
     - vhosts
+    description: CHANGEME
     summary: "/vhosts"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,6 +30,7 @@
   get:
     tags:
     - vhosts
+    description: CHANGEME
     summary: "/vhosts/:name"
     parameters:
     - in: path
@@ -39,7 +41,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -60,6 +62,7 @@
   put:
     tags:
     - vhosts
+    description: CHANGEME
     summary: "/vhosts/:name"
     parameters:
     - in: path
@@ -70,7 +73,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -91,6 +94,7 @@
   delete:
     tags:
     - vhosts
+    description: CHANGEME
     summary: "/vhosts/:name"
     parameters:
     - in: path
@@ -101,7 +105,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -123,6 +127,7 @@
   get:
     tags:
     - vhosts
+    description: CHANGEME
     summary: "/vhosts/:name/permissions"
     parameters:
     - in: path
@@ -133,7 +138,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

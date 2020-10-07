@@ -3,7 +3,7 @@ openapi: 3.0.3
 info:
   version: 1.0.0
   title: AvalancheMQ Management HTTP API
-  description: TBD
+  description: CHANGEME
   contact:
     name: AvalancheMQ Team
     url: https://www.avalanchemq.com/

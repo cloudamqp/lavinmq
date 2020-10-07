@@ -3,11 +3,12 @@
   get:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,6 +30,7 @@
   get:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost"
     parameters:
     - in: path
@@ -39,7 +41,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -61,6 +63,7 @@
   get:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/q/:queue"
     parameters:
     - in: path
@@ -83,7 +86,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -104,6 +107,7 @@
   post:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/q/:queue"
     parameters:
     - in: path
@@ -126,7 +130,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -148,6 +152,7 @@
   get:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/q/:queue/:props"
     parameters:
     - in: path
@@ -176,7 +181,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -197,6 +202,7 @@
   delete:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/q/:queue/*props"
     parameters:
     - in: path
@@ -225,7 +231,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -247,6 +253,7 @@
   get:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/e/:destination"
     parameters:
     - in: path
@@ -269,7 +276,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -290,6 +297,7 @@
   post:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/e/:destination"
     parameters:
     - in: path
@@ -312,7 +320,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -334,6 +342,7 @@
   get:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/e/:destination/:props"
     parameters:
     - in: path
@@ -362,7 +371,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -383,6 +392,7 @@
   delete:
     tags:
     - bindings
+    description: CHANGEME
     summary: "/bindings/:vhost/e/:name/e/:destination/*props"
     parameters:
     - in: path
@@ -411,7 +421,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

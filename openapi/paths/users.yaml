@@ -3,11 +3,12 @@
   get:
     tags:
     - users
+    description: CHANGEME
     summary: "/users"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,11 +30,12 @@
   get:
     tags:
     - users
+    description: CHANGEME
     summary: "/users/without-permissions"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -55,11 +57,12 @@
   post:
     tags:
     - users
+    description: CHANGEME
     summary: "/users/bulk-delete"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -81,6 +84,7 @@
   get:
     tags:
     - users
+    description: CHANGEME
     summary: "/users/:name"
     parameters:
     - in: path
@@ -91,7 +95,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -112,6 +116,7 @@
   put:
     tags:
     - users
+    description: CHANGEME
     summary: "/users/:name"
     parameters:
     - in: path
@@ -122,7 +127,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -143,6 +148,7 @@
   delete:
     tags:
     - users
+    description: CHANGEME
     summary: "/users/:name"
     parameters:
     - in: path
@@ -153,7 +159,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -175,6 +181,7 @@
   get:
     tags:
     - users
+    description: CHANGEME
     summary: "/users/:name/permissions"
     parameters:
     - in: path
@@ -185,7 +192,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

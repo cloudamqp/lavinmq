@@ -3,11 +3,12 @@
   get:
     tags:
     - definitions
+    description: CHANGEME
     summary: "/definitions"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -28,11 +29,12 @@
   post:
     tags:
     - definitions
+    description: CHANGEME
     summary: "/definitions"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -54,11 +56,12 @@
   post:
     tags:
     - definitions
+    description: CHANGEME
     summary: "/definitions/upload"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -80,6 +83,7 @@
   get:
     tags:
     - definitions
+    description: CHANGEME
     summary: "/definitions/:vhost"
     parameters:
     - in: path
@@ -90,7 +94,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -111,6 +115,7 @@
   post:
     tags:
     - definitions
+    description: CHANGEME
     summary: "/definitions/:vhost"
     parameters:
     - in: path
@@ -121,7 +126,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

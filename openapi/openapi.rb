@@ -19,11 +19,12 @@ Route = Struct.new(:route, :verb, :src_file) do
   def to_openapi
     {
       "tags" => [tag],
+      "description" => "CHANGEME",
       "summary" => route,
       "parameters" => path_parameters,
       "operationId" => "CHANGEME",
       "responses" => {
-        200 => {
+        "200" => {
           "description" => "CHANGEME",
           "content" => {
             "application/json" => {

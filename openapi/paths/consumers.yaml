@@ -3,11 +3,12 @@
   get:
     tags:
     - consumers
+    description: CHANGEME
     summary: "/consumers"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,6 +30,7 @@
   get:
     tags:
     - consumers
+    description: CHANGEME
     summary: "/consumers/:vhost"
     parameters:
     - in: path
@@ -39,7 +41,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -61,6 +63,7 @@
   delete:
     tags:
     - consumers
+    description: CHANGEME
     summary: "/consumers/:vhost/:connection/:channel/:consumer_tag"
     parameters:
     - in: path
@@ -89,7 +92,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

@@ -3,11 +3,12 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/overview"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,11 +30,12 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/whoami"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -55,6 +57,7 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/aliveness-test/:vhost"
     parameters:
     - in: path
@@ -65,7 +68,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -87,11 +90,12 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/shovels"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -113,6 +117,7 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/shovels/:vhost"
     parameters:
     - in: path
@@ -123,7 +128,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -145,11 +150,12 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/federation-links"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -171,6 +177,7 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/federation-links/:vhost"
     parameters:
     - in: path
@@ -181,7 +188,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -203,11 +210,12 @@
   get:
     tags:
     - main
+    description: CHANGEME
     summary: "/extensions"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:

@@ -3,11 +3,12 @@
   get:
     tags:
     - connections
+    description: CHANGEME
     summary: "/connections"
     parameters: []
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -29,6 +30,7 @@
   get:
     tags:
     - connections
+    description: CHANGEME
     summary: "/vhosts/:vhost/connections"
     parameters:
     - in: path
@@ -39,7 +41,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -61,6 +63,7 @@
   get:
     tags:
     - connections
+    description: CHANGEME
     summary: "/connections/:name"
     parameters:
     - in: path
@@ -71,7 +74,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -92,6 +95,7 @@
   delete:
     tags:
     - connections
+    description: CHANGEME
     summary: "/connections/:name"
     parameters:
     - in: path
@@ -102,7 +106,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
@@ -124,6 +128,7 @@
   get:
     tags:
     - connections
+    description: CHANGEME
     summary: "/connections/:name/channels"
     parameters:
     - in: path
@@ -134,7 +139,7 @@
         description: CHANGEME
     operationId: CHANGEME
     responses:
-      200:
+      '200':
         description: CHANGEME
         content:
           application/json:
