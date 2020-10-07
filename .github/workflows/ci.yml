@@ -142,7 +142,7 @@ jobs:
             --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
 
   ruby-http-api-test:
-    name: RabbitMQ HTTP API client test
+    name: RabbitMQ HTTP API Ruby client test
     runs-on: ubuntu-20.04
     needs: compile
     continue-on-error: true
@@ -178,7 +178,7 @@ jobs:
           bundle exec rspec
 
   go-http-api-test:
-    name: RabbitMQ HTTP API client in Go client tests
+    name: RabbitMQ HTTP API Go client
     runs-on: ubuntu-20.04
     needs: compile
     continue-on-error: true
