@@ -13,6 +13,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}":
   get:
     tags:
@@ -33,6 +45,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}":
   get:
     tags:
@@ -59,6 +83,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   put:
     tags:
     - exchanges
@@ -84,6 +120,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   delete:
     tags:
     - exchanges
@@ -109,6 +157,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/bindings/source":
   get:
     tags:
@@ -135,6 +195,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/bindings/destination":
   get:
     tags:
@@ -161,6 +233,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/publish":
   post:
     tags:
@@ -187,3 +271,15 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

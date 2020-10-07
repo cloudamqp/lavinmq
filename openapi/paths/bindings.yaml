@@ -13,6 +13,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}":
   get:
     tags:
@@ -33,6 +45,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/q/{queue}":
   get:
     tags:
@@ -65,6 +89,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   post:
     tags:
     - bindings
@@ -96,6 +132,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/q/{queue}/{props}":
   get:
     tags:
@@ -134,6 +182,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   delete:
     tags:
     - bindings
@@ -165,6 +225,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/e/{destination}":
   get:
     tags:
@@ -197,6 +269,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   post:
     tags:
     - bindings
@@ -228,6 +312,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/e/{destination}/{props}":
   get:
     tags:
@@ -266,6 +362,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   delete:
     tags:
     - bindings
@@ -297,3 +405,15 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

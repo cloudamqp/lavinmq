@@ -13,6 +13,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/nodes/{name}":
   get:
     tags:
@@ -33,3 +45,15 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

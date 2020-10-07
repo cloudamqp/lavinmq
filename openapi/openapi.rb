@@ -1,6 +1,7 @@
 require "yaml"
 
-DEBUG = ENV.fetch("DEBUG", false)
+DEBUG = ENV["DEBUG"] != "false" ? true : false
+WRITE = ENV.fetch("WRITE", false)
 
 module Helper
   module_function
@@ -31,8 +32,28 @@ Route = Struct.new(:route, :verb, :src_file) do
               }
             }
           }
-        }
-      }
+        },
+        "4XX" => {
+          "description" => "Client Error",
+          "content" => {
+            "application/json" => {
+              "schema" => {
+                "$ref" => "../openapi.yaml#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+        },
+        "5XX" => {
+          "description" => "Server Error",
+          "content" => {
+            "application/json" => {
+              "schema" => {
+                "$ref" => "../openapi.yaml#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+        },
+      },
     }
   end
 
@@ -113,15 +134,21 @@ files_with_api_routes.each do |src_file, api_routes|
   openapi_routes = Hash.new { |hash, key| hash[key] = {} }
 
   api_routes.each do |route|
+    puts "#{route.verb.upcase}\t#{route.with_path_param}" if DEBUG
+
     openapi_routes[route.with_path_param][route.verb] = route.to_openapi
     openapi_spec["paths"][route.with_path_param] = { "$ref" => route.ref }
   end
 
-  File.write(File.join(__dir__, Helper.spec_path(src_file)), YAML.dump(openapi_routes))
+  if WRITE
+    File.write(File.join(__dir__, Helper.spec_path(src_file)), YAML.dump(openapi_routes))
+  end
 end
 
 openapi_spec["tags"] = tags
 
 puts YAML.dump(openapi_spec) if DEBUG
 
-File.write(File.join(__dir__, "openapi.yaml"), YAML.dump(openapi_spec))
+if WRITE
+  File.write(File.join(__dir__, "openapi.yaml"), YAML.dump(openapi_spec))
+end

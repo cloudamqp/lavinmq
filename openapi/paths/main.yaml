@@ -13,6 +13,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/whoami":
   get:
     tags:
@@ -27,6 +39,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/aliveness-test/{vhost}":
   get:
     tags:
@@ -47,6 +71,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/shovels":
   get:
     tags:
@@ -61,6 +97,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/shovels/{vhost}":
   get:
     tags:
@@ -81,6 +129,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/federation-links":
   get:
     tags:
@@ -95,6 +155,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/federation-links/{vhost}":
   get:
     tags:
@@ -115,6 +187,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/extensions":
   get:
     tags:
@@ -129,3 +213,15 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

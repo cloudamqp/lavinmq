@@ -13,6 +13,13 @@ components:
   schemas:
     Foo:
       type: object
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        reason:
+          type: string
 paths:
   "/bindings":
     "$ref": "./paths/bindings.yaml#/~1bindings"

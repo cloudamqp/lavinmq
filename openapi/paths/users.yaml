@@ -13,6 +13,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/users/without-permissions":
   get:
     tags:
@@ -27,6 +39,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/users/bulk-delete":
   post:
     tags:
@@ -41,6 +65,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/users/{name}":
   get:
     tags:
@@ -61,6 +97,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   put:
     tags:
     - users
@@ -80,6 +128,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   delete:
     tags:
     - users
@@ -99,6 +159,18 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/users/{name}/permissions":
   get:
     tags:
@@ -119,3 +191,15 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
