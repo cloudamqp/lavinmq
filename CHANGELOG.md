@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stricter exchange and queue name validation
 - Dead-letters can't loop
 - Detect header/body frames that are out of order
+- Don't allow binding/unbinding exclusive queues
+- Use the shortest TTL of expiration header and queue message-ttl
+- Validates the expiration field on publish
+- Semantic comparison of headers when declaring queues/exchanges
 
 ### Added
 - Support for consistent hash exchange
