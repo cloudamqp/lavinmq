@@ -13,7 +13,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -46,7 +46,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -85,7 +85,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -130,7 +130,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -174,7 +174,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -218,7 +218,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -245,7 +245,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -278,7 +278,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -310,7 +310,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -342,7 +342,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -369,7 +369,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -402,7 +402,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -441,7 +441,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -479,7 +479,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:
@@ -517,7 +517,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
       4XX:
         description: Client Error
         content:

@@ -1,0 +1,8 @@
+---
+consumers:
+  title: CHANGEME
+  type: object
+  properties:
+    CHANGEME:
+      type: string
+      description: CHANGEME

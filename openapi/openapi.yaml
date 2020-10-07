@@ -12,8 +12,6 @@ servers:
 - url: http://localhost:15672/api
 components:
   schemas:
-    Foo:
-      type: object
     ErrorResponse:
       type: object
       properties:
@@ -21,6 +19,32 @@ components:
           type: string
         reason:
           type: string
+    bindings:
+      "$ref": "./schemas/bindings.yaml#/bindings"
+    channels:
+      "$ref": "./schemas/channels.yaml#/channels"
+    connections:
+      "$ref": "./schemas/connections.yaml#/connections"
+    consumers:
+      "$ref": "./schemas/consumers.yaml#/consumers"
+    definitions:
+      "$ref": "./schemas/definitions.yaml#/definitions"
+    exchanges:
+      "$ref": "./schemas/exchanges.yaml#/exchanges"
+    main:
+      "$ref": "./schemas/main.yaml#/main"
+    nodes:
+      "$ref": "./schemas/nodes.yaml#/nodes"
+    parameters:
+      "$ref": "./schemas/parameters.yaml#/parameters"
+    permissions:
+      "$ref": "./schemas/permissions.yaml#/permissions"
+    queues:
+      "$ref": "./schemas/queues.yaml#/queues"
+    users:
+      "$ref": "./schemas/users.yaml#/users"
+    vhosts:
+      "$ref": "./schemas/vhosts.yaml#/vhosts"
 paths:
   "/bindings":
     "$ref": "./paths/bindings.yaml#/~1bindings"
@@ -148,28 +172,28 @@ paths:
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
 tags:
 - name: bindings
-  description: testing
+  description: CHANGEME
 - name: channels
-  description: placeholder
+  description: CHANGEME
 - name: connections
-  description: placeholder
+  description: CHANGEME
 - name: consumers
-  description: placeholder
+  description: CHANGEME
 - name: definitions
-  description: placeholder
+  description: CHANGEME
 - name: exchanges
-  description: placeholder
+  description: CHANGEME
 - name: main
-  description: placeholder
+  description: CHANGEME
 - name: nodes
-  description: placeholder
+  description: CHANGEME
 - name: parameters
-  description: placeholder
+  description: CHANGEME
 - name: permissions
-  description: placeholder
+  description: CHANGEME
 - name: queues
-  description: placeholder
+  description: CHANGEME
 - name: users
-  description: placeholder
+  description: CHANGEME
 - name: vhosts
-  description: placeholder
+  description: CHANGEME

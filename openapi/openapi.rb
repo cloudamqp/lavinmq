@@ -10,8 +10,12 @@ module Helper
     File.basename(src_file, ".cr")
   end
 
-  def spec_path(src_file)
+  def paths_path(src_file)
     File.join(".", "paths", "#{basename(src_file)}.yaml")
+  end
+
+  def schemas_path(src_file)
+    File.join(".", "schemas", "#{basename(src_file)}.yaml")
   end
 end
 
@@ -29,7 +33,7 @@ Route = Struct.new(:route, :verb, :src_file) do
           "content" => {
             "application/json" => {
               "schema" => {
-                "$ref" => "../openapi.yaml#/components/schemas/Foo"
+                "$ref" => "../openapi.yaml#/components/schemas/#{tag}"
               }
             }
           }
@@ -82,7 +86,7 @@ Route = Struct.new(:route, :verb, :src_file) do
   end
 
   def spec_path
-    Helper.spec_path(src_file)
+    Helper.paths_path(src_file)
   end
 
   def tag
@@ -127,9 +131,34 @@ tags = existing_tags.select { |tag| tag_names_from_src.include?(tag.fetch("name"
 # add new tags from source code
 tags += tag_names_from_src.map do |tag_name|
   if tags.none? { |tag| tag.fetch("name") ==  tag_name }
-    { "name" => tag_name, "description" => "placeholder" }
+    { "name" => tag_name, "description" => "CHANGEME" }
   end
 end.compact
+
+# schemas
+schemas = openapi_spec.dig("components", "schemas")
+
+# add one schema per tag
+tag_names_from_src.each do |tag_name|
+  openapi_schemas = {
+    tag_name => {
+      "title" => "CHANGEME",
+      "type" => "object",
+      "properties" => {
+        "CHANGEME" => {
+          "type" => "string",
+          "description" => "CHANGEME",
+        }
+      }
+    }
+  }
+
+  if WRITE
+    File.write(File.join(__dir__, Helper.schemas_path(tag_name)), YAML.dump(openapi_schemas))
+  end
+
+  schemas[tag_name] = { "$ref" => "./schemas/#{tag_name}.yaml#/#{tag_name}" }
+end
 
 files_with_api_routes.each do |src_file, api_routes|
   openapi_routes = Hash.new { |hash, key| hash[key] = {} }
@@ -142,11 +171,12 @@ files_with_api_routes.each do |src_file, api_routes|
   end
 
   if WRITE
-    File.write(File.join(__dir__, Helper.spec_path(src_file)), YAML.dump(openapi_routes))
+    File.write(File.join(__dir__, Helper.paths_path(src_file)), YAML.dump(openapi_routes))
   end
 end
 
 openapi_spec["tags"] = tags
+openapi_spec["components"]["schemas"] = schemas
 
 puts YAML.dump(openapi_spec) if DEBUG
 
