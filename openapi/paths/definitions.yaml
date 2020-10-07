@@ -3,13 +3,13 @@
   get:
     tags:
     - definitions
-    description: CHANGEME
-    summary: "/definitions"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetDefinitions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -29,13 +29,13 @@
   post:
     tags:
     - definitions
-    description: CHANGEME
-    summary: "/definitions"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -56,13 +56,13 @@
   post:
     tags:
     - definitions
-    description: CHANGEME
-    summary: "/definitions/upload"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -83,19 +83,19 @@
   get:
     tags:
     - definitions
-    description: CHANGEME
-    summary: "/definitions/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetDefinitions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -115,19 +115,19 @@
   post:
     tags:
     - definitions
-    description: CHANGEME
-    summary: "/definitions/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

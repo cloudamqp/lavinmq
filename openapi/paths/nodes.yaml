@@ -3,13 +3,13 @@
   get:
     tags:
     - nodes
-    description: CHANGEME
-    summary: "/nodes"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetNodes
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,19 +30,19 @@
   get:
     tags:
     - nodes
-    description: CHANGEME
-    summary: "/nodes/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetNodes
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

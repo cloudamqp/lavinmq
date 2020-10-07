@@ -3,13 +3,13 @@
   get:
     tags:
     - channels
-    description: CHANGEME
-    summary: "/channels"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetChannels
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,19 +30,19 @@
   get:
     tags:
     - channels
-    description: CHANGEME
-    summary: "/vhosts/:vhost/channels"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetChannels
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -63,19 +63,19 @@
   get:
     tags:
     - channels
-    description: CHANGEME
-    summary: "/channels/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetChannels
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

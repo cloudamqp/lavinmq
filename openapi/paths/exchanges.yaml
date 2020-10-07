@@ -3,13 +3,13 @@
   get:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,19 +30,19 @@
   get:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -63,25 +63,25 @@
   get:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -101,25 +101,25 @@
   put:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PutExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -139,25 +139,25 @@
   delete:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -178,25 +178,25 @@
   get:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost/:name/bindings/source"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -217,25 +217,25 @@
   get:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost/:name/bindings/destination"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -256,25 +256,25 @@
   post:
     tags:
     - exchanges
-    description: CHANGEME
-    summary: "/exchanges/:vhost/:name/publish"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PostExchanges
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

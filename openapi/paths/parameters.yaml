@@ -3,13 +3,13 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/parameters"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,19 +30,19 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/parameters/:component"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -63,25 +63,25 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/parameters/:component/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -102,31 +102,31 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/parameters/:component/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -146,31 +146,31 @@
   put:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/parameters/:component/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PutParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -190,31 +190,31 @@
   delete:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/parameters/:component/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -235,13 +235,13 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/global-parameters"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -262,19 +262,19 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/global-parameters/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -294,19 +294,19 @@
   put:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/global-parameters/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PutParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -326,19 +326,19 @@
   delete:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/global-parameters/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -359,13 +359,13 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/policies"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -386,19 +386,19 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/policies/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -419,25 +419,25 @@
   get:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/policies/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -457,25 +457,25 @@
   put:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/policies/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PutParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -495,25 +495,25 @@
   delete:
     tags:
     - parameters
-    description: CHANGEME
-    summary: "/policies/:vhost/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteParameters
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

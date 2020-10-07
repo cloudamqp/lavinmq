@@ -3,13 +3,13 @@
   get:
     tags:
     - vhosts
-    description: CHANGEME
-    summary: "/vhosts"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetVhosts
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,19 +30,19 @@
   get:
     tags:
     - vhosts
-    description: CHANGEME
-    summary: "/vhosts/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetVhosts
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -62,19 +62,19 @@
   put:
     tags:
     - vhosts
-    description: CHANGEME
-    summary: "/vhosts/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PutVhosts
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -94,19 +94,19 @@
   delete:
     tags:
     - vhosts
-    description: CHANGEME
-    summary: "/vhosts/:name"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteVhosts
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -127,19 +127,19 @@
   get:
     tags:
     - vhosts
-    description: CHANGEME
-    summary: "/vhosts/:name/permissions"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetVhosts
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

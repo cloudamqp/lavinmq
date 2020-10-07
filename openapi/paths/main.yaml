@@ -3,13 +3,13 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/overview"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,13 +30,13 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/whoami"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -57,19 +57,19 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/aliveness-test/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -90,13 +90,13 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/shovels"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -117,19 +117,19 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/shovels/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -150,13 +150,13 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/federation-links"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -177,19 +177,19 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/federation-links/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -210,13 +210,13 @@
   get:
     tags:
     - main
-    description: CHANGEME
-    summary: "/extensions"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetMain
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

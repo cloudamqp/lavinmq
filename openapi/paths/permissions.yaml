@@ -3,13 +3,13 @@
   get:
     tags:
     - permissions
-    description: CHANGEME
-    summary: "/permissions"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetPermissions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,25 +30,25 @@
   get:
     tags:
     - permissions
-    description: CHANGEME
-    summary: "/permissions/:vhost/:user"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: user
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetPermissions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -68,25 +68,25 @@
   put:
     tags:
     - permissions
-    description: CHANGEME
-    summary: "/permissions/:vhost/:user"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: user
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PutPermissions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -106,25 +106,25 @@
   delete:
     tags:
     - permissions
-    description: CHANGEME
-    summary: "/permissions/:vhost/:user"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: user
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeletePermissions
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:

@@ -3,13 +3,13 @@
   get:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME
+    operationId: CHANGEME-GetBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -30,19 +30,19 @@
   get:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -63,31 +63,31 @@
   get:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/q/:queue"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -107,31 +107,31 @@
   post:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/q/:queue"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PostBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -152,37 +152,37 @@
   get:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/q/:queue/:props"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: props
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -202,37 +202,37 @@
   delete:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/q/:queue/*props"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: props
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -253,31 +253,31 @@
   get:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/e/:destination"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -297,31 +297,31 @@
   post:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/e/:destination"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-PostBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -342,37 +342,37 @@
   get:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/e/:destination/:props"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: props
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-GetBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
@@ -392,37 +392,37 @@
   delete:
     tags:
     - bindings
-    description: CHANGEME
-    summary: "/bindings/:vhost/e/:name/e/:destination/*props"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: CHANGEME
+        description: CHANGEME.
     - in: path
       name: props
       required: true
       schema:
         type: string
-        description: CHANGEME
-    operationId: CHANGEME
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteBindings
     responses:
       '200':
-        description: CHANGEME
+        description: OK
         content:
           application/json:
             schema:
