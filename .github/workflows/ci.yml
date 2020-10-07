@@ -178,7 +178,7 @@ jobs:
           bundle exec rspec
 
   go-http-api-test:
-    name: RabbitMQ HTTP API Go client
+    name: RabbitMQ HTTP API Go client test
     runs-on: ubuntu-20.04
     needs: compile
     continue-on-error: true
