@@ -21,8 +21,8 @@ module AvalancheMQ
           page(context, vhosts)
         end
 
-        get "/api/vhosts/:vhost" do |context, params|
-          with_vhost(context, params) do |vhost|
+        get "/api/vhosts/:name" do |context, params|
+          with_vhost(context, params, "name") do |vhost|
             refuse_unless_management(context, user(context), vhost)
             v = @amqp_server.vhosts[vhost]
             VHostView.new(v).to_json(context.response)
@@ -37,17 +37,17 @@ module AvalancheMQ
           context
         end
 
-        delete "/api/vhosts/:vhost" do |context, params|
+        delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params) do |vhost|
+          with_vhost(context, params, "name") do |vhost|
             @amqp_server.vhosts.delete(vhost)
             context.response.status_code = 204
           end
         end
 
-        get "/api/vhosts/:vhost/permissions" do |context, params|
+        get "/api/vhosts/:name/permissions" do |context, params|
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params) do |vhost|
+          with_vhost(context, params, "name") do |vhost|
             @amqp_server.users.map do |_, u|
               next if u.hidden?
               u.permissions[vhost]?.try { |p| u.permissions_details(vhost, p) }
