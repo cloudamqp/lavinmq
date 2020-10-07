@@ -5,10 +5,10 @@
     - users
     summary: "/users"
     parameters: []
-    operationId: "/users"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -31,10 +31,10 @@
     - users
     summary: "/users/without-permissions"
     parameters: []
-    operationId: "/users/without-permissions"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -57,10 +57,10 @@
     - users
     summary: "/users/bulk-delete"
     parameters: []
-    operationId: "/users/bulk-delete"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -88,11 +88,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/users/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -119,11 +119,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/users/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -150,11 +150,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/users/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -182,11 +182,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/users/:name/permissions"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

@@ -5,10 +5,10 @@
     - bindings
     summary: "/bindings"
     parameters: []
-    operationId: "/bindings"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -36,11 +36,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -68,23 +68,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/q/:queue"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -111,23 +111,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/q/:queue"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -155,29 +155,29 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: props
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/q/:queue/:props"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -204,23 +204,29 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: queue
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/q/:queue/*props"
+        description: CHANGEME
+    - in: path
+      name: props
+      required: true
+      schema:
+        type: string
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -248,23 +254,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/e/:destination"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -291,23 +297,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/e/:destination"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -335,29 +341,29 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: props
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/e/:destination/:props"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -384,23 +390,29 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: destination
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/bindings/:vhost/e/:name/e/:destination/*props"
+        description: CHANGEME
+    - in: path
+      name: props
+      required: true
+      schema:
+        type: string
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

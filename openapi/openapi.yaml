@@ -3,6 +3,7 @@ openapi: 3.0.3
 info:
   version: 1.0.0
   title: AvalancheMQ Management HTTP API
+  description: TBD
   contact:
     name: AvalancheMQ Team
     url: https://www.avalanchemq.com/
@@ -141,12 +142,10 @@ paths:
     "$ref": "./paths/users.yaml#/~1users~1{name}~1permissions"
   "/vhosts":
     "$ref": "./paths/vhosts.yaml#/~1vhosts"
-  "/vhosts/{vhost}":
-    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{vhost}"
   "/vhosts/{name}":
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
-  "/vhosts/{vhost}/permissions":
-    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{vhost}~1permissions"
+  "/vhosts/{name}/permissions":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
 tags:
 - name: bindings
   description: testing

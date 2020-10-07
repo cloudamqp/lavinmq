@@ -5,10 +5,10 @@
     - vhosts
     summary: "/vhosts"
     parameters: []
-    operationId: "/vhosts"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -25,22 +25,53 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/vhosts/{vhost}":
+"/vhosts/{name}":
   get:
     tags:
     - vhosts
-    summary: "/vhosts/:vhost"
+    summary: "/vhosts/:name"
     parameters:
     - in: path
-      name: vhost
+      name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/vhosts/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/Foo"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - vhosts
+    summary: "/vhosts/:name"
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME
+    operationId: CHANGEME
+    responses:
+      200:
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -60,38 +91,6 @@
   delete:
     tags:
     - vhosts
-    summary: "/vhosts/:vhost"
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: placeholder
-    operationId: "/vhosts/:vhost"
-    responses:
-      200:
-        description: The description
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/Foo"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/vhosts/{name}":
-  put:
-    tags:
-    - vhosts
     summary: "/vhosts/:name"
     parameters:
     - in: path
@@ -99,11 +98,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/vhosts/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -120,22 +119,22 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/vhosts/{vhost}/permissions":
+"/vhosts/{name}/permissions":
   get:
     tags:
     - vhosts
-    summary: "/vhosts/:vhost/permissions"
+    summary: "/vhosts/:name/permissions"
     parameters:
     - in: path
-      name: vhost
+      name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/vhosts/:vhost/permissions"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

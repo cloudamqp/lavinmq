@@ -5,10 +5,10 @@
     - permissions
     summary: "/permissions"
     parameters: []
-    operationId: "/permissions"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -36,17 +36,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: user
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/permissions/:vhost/:user"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -73,17 +73,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: user
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/permissions/:vhost/:user"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -110,17 +110,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: user
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/permissions/:vhost/:user"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

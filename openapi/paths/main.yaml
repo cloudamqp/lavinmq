@@ -5,10 +5,10 @@
     - main
     summary: "/overview"
     parameters: []
-    operationId: "/overview"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -31,10 +31,10 @@
     - main
     summary: "/whoami"
     parameters: []
-    operationId: "/whoami"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -62,11 +62,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/aliveness-test/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -89,10 +89,10 @@
     - main
     summary: "/shovels"
     parameters: []
-    operationId: "/shovels"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -120,11 +120,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/shovels/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -147,10 +147,10 @@
     - main
     summary: "/federation-links"
     parameters: []
-    operationId: "/federation-links"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -178,11 +178,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/federation-links/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -205,10 +205,10 @@
     - main
     summary: "/extensions"
     parameters: []
-    operationId: "/extensions"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

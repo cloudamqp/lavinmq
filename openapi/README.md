@@ -9,3 +9,9 @@ To work on the documentation
 1. Run `npm install` to prepare the `static/docs` directory
 1. Start AvalancheMQ (not in release mode)
 1. Open [http://localhost:15672/docs/dev-index.html](http://localhost:15672/docs/dev-index.html)
+
+To validate the spec, use [spectral](https://github.com/stoplightio/spectral)
+
+    npm install -g @stoplight/spectral
+
+    spectral lint openapi.yaml

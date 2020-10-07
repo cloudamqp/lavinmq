@@ -5,10 +5,10 @@
     - consumers
     summary: "/consumers"
     parameters: []
-    operationId: "/consumers"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -36,11 +36,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/consumers/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -68,29 +68,29 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: connection
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: channel
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: consumer_tag
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/consumers/:vhost/:connection/:channel/:consumer_tag"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

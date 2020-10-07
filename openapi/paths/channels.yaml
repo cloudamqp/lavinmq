@@ -5,10 +5,10 @@
     - channels
     summary: "/channels"
     parameters: []
-    operationId: "/channels"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -36,11 +36,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/vhosts/:vhost/channels"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -68,11 +68,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/channels/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

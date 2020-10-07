@@ -5,10 +5,10 @@
     - parameters
     summary: "/parameters"
     parameters: []
-    operationId: "/parameters"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -36,11 +36,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/parameters/:component"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -68,17 +68,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/parameters/:component/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -106,23 +106,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/parameters/:component/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -149,23 +149,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/parameters/:component/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -192,23 +192,23 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/parameters/:component/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -231,10 +231,10 @@
     - parameters
     summary: "/global-parameters"
     parameters: []
-    operationId: "/global-parameters"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -262,11 +262,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/global-parameters/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -293,11 +293,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/global-parameters/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -324,11 +324,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/global-parameters/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -351,10 +351,10 @@
     - parameters
     summary: "/policies"
     parameters: []
-    operationId: "/policies"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -382,11 +382,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/policies/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -414,17 +414,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/policies/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -451,17 +451,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/policies/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -488,17 +488,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/policies/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

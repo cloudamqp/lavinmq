@@ -5,10 +5,10 @@
     - definitions
     summary: "/definitions"
     parameters: []
-    operationId: "/definitions"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -30,10 +30,10 @@
     - definitions
     summary: "/definitions"
     parameters: []
-    operationId: "/definitions"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -56,10 +56,10 @@
     - definitions
     summary: "/definitions/upload"
     parameters: []
-    operationId: "/definitions/upload"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -87,11 +87,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/definitions/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -118,11 +118,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/definitions/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:

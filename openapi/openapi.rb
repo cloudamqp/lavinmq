@@ -21,10 +21,10 @@ Route = Struct.new(:route, :verb, :src_file) do
       "tags" => [tag],
       "summary" => route,
       "parameters" => path_parameters,
-      "operationId" => route,
+      "operationId" => "CHANGEME",
       "responses" => {
         200 => {
-          "description" => "The description",
+          "description" => "CHANGEME",
           "content" => {
             "application/json" => {
               "schema" => {
@@ -58,7 +58,7 @@ Route = Struct.new(:route, :verb, :src_file) do
   end
 
   def path_parameters
-    parameters = route.scan(/:(\w+)/).flatten
+    parameters = route.scan(/(:|\*)(\w+)/).map(&:last)
 
     parameters.map do |parameter|
       {
@@ -67,7 +67,7 @@ Route = Struct.new(:route, :verb, :src_file) do
         "required" => true,
         "schema" => {
           "type" => "string",
-          "description" => "placeholder",
+          "description" => "CHANGEME",
         },
       }
     end

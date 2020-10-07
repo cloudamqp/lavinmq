@@ -5,10 +5,10 @@
     - exchanges
     summary: "/exchanges"
     parameters: []
-    operationId: "/exchanges"
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -36,11 +36,11 @@
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -68,17 +68,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -105,17 +105,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -142,17 +142,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost/:name"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -180,17 +180,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost/:name/bindings/source"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -218,17 +218,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost/:name/bindings/destination"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
@@ -256,17 +256,17 @@
       required: true
       schema:
         type: string
-        description: placeholder
+        description: CHANGEME
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: placeholder
-    operationId: "/exchanges/:vhost/:name/publish"
+        description: CHANGEME
+    operationId: CHANGEME
     responses:
       200:
-        description: The description
+        description: CHANGEME
         content:
           application/json:
             schema:
