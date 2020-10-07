@@ -134,7 +134,6 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
-"/bindings/{vhost}/e/{name}/q/{queue}/*props":
   delete:
     tags:
     - bindings
@@ -267,7 +266,6 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/Foo"
-"/bindings/{vhost}/e/{name}/e/{destination}/*props":
   delete:
     tags:
     - bindings

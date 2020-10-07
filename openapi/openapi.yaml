@@ -22,14 +22,10 @@ paths:
     "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}"
   "/bindings/{vhost}/e/{name}/q/{queue}/{props}":
     "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}~1{props}"
-  "/bindings/{vhost}/e/{name}/q/{queue}/*props":
-    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}~1*props"
   "/bindings/{vhost}/e/{name}/e/{destination}":
     "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}"
   "/bindings/{vhost}/e/{name}/e/{destination}/{props}":
     "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}~1{props}"
-  "/bindings/{vhost}/e/{name}/e/{destination}/*props":
-    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}~1*props"
   "/channels":
     "$ref": "./paths/channels.yaml#/~1channels"
   "/vhosts/{vhost}/channels":

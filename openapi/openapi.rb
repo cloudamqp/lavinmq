@@ -53,8 +53,10 @@ Route = Struct.new(:route, :verb, :src_file) do
   end
 
   # https://swagger.io/docs/specification/describing-parameters/
+  # Handle both named parameters and glob parameters
+  # https://github.com/luislavena/radix/blob/v0.3.9/src/radix/tree.cr#L251-L291
   def with_path_param
-    route.gsub(/:(\w+)/, '{\1}')
+    route.gsub(/:(\w+)/, '{\1}').gsub(/\*(\w+)/, '{\1}')
   end
 
   def spec_path
