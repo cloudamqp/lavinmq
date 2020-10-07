@@ -3,10 +3,10 @@
   get:
     tags:
     - vhosts
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all vhosts in the server.
+    summary: Get all vhosts
     parameters: []
-    operationId: CHANGEME-GetVhosts
+    operationId: GetVhosts
     responses:
       '200':
         description: OK
@@ -30,23 +30,23 @@
   get:
     tags:
     - vhosts
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Find a specific vhost by name.
+    summary: Get vhost
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetVhosts
+        description: Name of the vhost
+    operationId: GetVhost
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+              "$ref": "../openapi.yaml#/components/schemas/vhost"
       4XX:
         description: Client Error
         content:
@@ -62,23 +62,19 @@
   put:
     tags:
     - vhosts
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Create a new vhost.
+    summary: Create vhost
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-PutVhosts
+        description: Name of the vhost
+    operationId: PutVhost
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+      '204':
+        description: The resource was created successfully.
       4XX:
         description: Client Error
         content:
@@ -94,23 +90,19 @@
   delete:
     tags:
     - vhosts
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Remove a specific vhost by name.
+    summary: Delete vhost
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-DeleteVhosts
+        description: Name of the vhost.
+    operationId: DeleteVhost
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+      '204':
+        description: The resource was deleted successfully.
       4XX:
         description: Client Error
         content:
@@ -127,23 +119,23 @@
   get:
     tags:
     - vhosts
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Get the permissions for a vhost.
+    summary: Get vhost permissions
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetVhosts
+        description: Name of the vhost
+    operationId: GetVhostPermissions
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+              "$ref": "../openapi.yaml#/components/schemas/permission"
       4XX:
         description: Client Error
         content:

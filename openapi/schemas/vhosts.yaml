@@ -1,8 +1,25 @@
 ---
 vhosts:
-  title: CHANGEME
+  type: array
+  items:
+    "$ref": "#/vhost"
+vhost:
   type: object
   properties:
-    CHANGEME:
+    name:
       type: string
-      description: CHANGEME
+      description: Name of the vhost.
+    dir:
+      type: string
+      description: The directory on disk that maps to the vhost.
+    cluster_state:
+      type: object
+    messages:
+      type: integer
+      description: Number of messages in the vhost.
+    messages_unacknowledged:
+      type: integer
+      description: Number of unacknowledged messages in the vhost.
+    messages_ready:
+      type: integer
+      description: Number of ready messages in the vhost.

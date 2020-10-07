@@ -15,3 +15,8 @@ To validate the spec, use [spectral](https://github.com/stoplightio/spectral)
     npm install -g @stoplight/spectral
 
     spectral lint openapi.yaml
+
+OpenAPI notes:
+
+* `summary` is the short description (used in the redoc menu for instance)
+* `description` is a longer description (supports Markdown)

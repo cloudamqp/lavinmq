@@ -1,8 +1,31 @@
 ---
 users:
-  title: CHANGEME
+  type: array
+  items:
+    "$ref": "#/user"
+user:
   type: object
   properties:
-    CHANGEME:
+    name:
       type: string
-      description: CHANGEME
+      description:  Name of the user.
+    password_hash:
+      type: string
+      description: The password hash.
+    hashing_algorithm:
+      type: string
+      description: Hashing algorithm used to generate the password hash.
+      enum:
+      - SHA512
+      - SHA256
+      - Bcrypt
+      - MD5
+    tags:
+      type: string
+      description: List of tags (comma-separated).
+      enum:
+      - administrator
+      - monitoring
+      - management
+      - policymaker
+      - http

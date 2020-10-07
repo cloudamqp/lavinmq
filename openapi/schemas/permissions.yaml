@@ -1,8 +1,39 @@
 ---
 permissions:
-  title: CHANGEME
+  type: array
+  items:
+    "$ref": "#/permission"
+permission:
   type: object
   properties:
-    CHANGEME:
+    user:
       type: string
-      description: CHANGEME
+      description: Username.
+    vhost:
+      type: string
+      description: Name of the vhost.
+    configure:
+      type: string
+      description: Configure permissions (regular expression).
+    read:
+      type: string
+      description: Read permissions (regular expression).
+    write:
+      type: string
+      description: Write permissions (regular expression).
+PutPermissionsRequest:
+  type: object
+  properties:
+    configure:
+      type: string
+      description: Configure permissions (regular expression).
+    read:
+      type: string
+      description: Read permissions (regular expression).
+    write:
+      type: string
+      description: Write permissions (regular expression).
+  required:
+  - configure
+  - read
+  - write

@@ -37,12 +37,18 @@ components:
       "$ref": "./schemas/nodes.yaml#/nodes"
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
+    permission:
+      "$ref": "./schemas/permissions.yaml#/permission"
     permissions:
       "$ref": "./schemas/permissions.yaml#/permissions"
+    PutPermissionsRequest:
+      "$ref": "./schemas/permissions.yaml#/PutPermissionsRequest"
     queues:
       "$ref": "./schemas/queues.yaml#/queues"
     users:
       "$ref": "./schemas/users.yaml#/users"
+    vhost:
+      "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:
       "$ref": "./schemas/vhosts.yaml#/vhosts"
 paths:
