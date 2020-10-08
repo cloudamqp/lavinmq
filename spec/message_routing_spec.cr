@@ -145,6 +145,20 @@ describe AvalancheMQ::TopicExchange do
     x.unbind(q11, "#.a.#")
   end
 
+  it "should match double star-wildcards" do
+    q12 = AvalancheMQ::Queue.new(vhost, "q12")
+    x.bind(q12, "c.*.*")
+    x.matches("c.a.d").should eq(Set{q12})
+    x.unbind(q12, "c.*.*")
+  end
+
+  it "should match triple star-wildcards" do
+    q13 = AvalancheMQ::Queue.new(vhost, "q13")
+    x.bind(q13, "c.*.*.*")
+    x.matches("c.a.d.e").should eq(Set{q13})
+    x.unbind(q13, "c.*.*.*")
+  end
+
   it "can differentiate a.b.c from a.b" do
     q = AvalancheMQ::Queue.new(vhost, "")
     x.bind(q, "a.b.c")
