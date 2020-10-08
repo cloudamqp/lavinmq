@@ -50,16 +50,17 @@ jobs:
       - name: Check if Git tag exists
         run: echo "::set-env name=HEAD_TAG::$(git tag --points-at HEAD)"
 
-      - name: Install Ruby
-        run: sudo snap install ruby --classic
+      - uses: actions/setup-ruby@v1
+        with:
+          ruby-version: '2.7'
         if: env.HEAD_TAG != ''
 
       - name: Install packagecloud cli
-        run: ruby.gem install package_cloud
+        run: gem install package_cloud
         if: env.HEAD_TAG != ''
 
       - name: Upload to packagecloud
-        run: $HOME/.gem/bin/package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
+        run: package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
         env:
           PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
         if: env.HEAD_TAG != ''
