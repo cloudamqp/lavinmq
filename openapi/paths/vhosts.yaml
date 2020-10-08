@@ -4,7 +4,7 @@
     tags:
     - vhosts
     description: List all vhosts in the server.
-    summary: Get all vhosts
+    summary: List all vhosts
     parameters: []
     operationId: GetVhosts
     responses:
@@ -31,7 +31,7 @@
     tags:
     - vhosts
     description: Find a specific vhost by name.
-    summary: Get vhost
+    summary: List vhost
     parameters:
     - in: path
       name: name
@@ -62,8 +62,8 @@
   put:
     tags:
     - vhosts
-    description: Create a new vhost.
-    summary: Create vhost
+    description: Create a new vhost, or update an existing vhost.
+    summary: Create/update vhost
     parameters:
     - in: path
       name: name
@@ -74,7 +74,7 @@
     operationId: PutVhost
     responses:
       '204':
-        description: The resource was created successfully.
+        description: The resource was created or updated successfully.
       4XX:
         description: Client Error
         content:
@@ -119,8 +119,8 @@
   get:
     tags:
     - vhosts
-    description: Get the permissions for a vhost.
-    summary: Get vhost permissions
+    description: List the permissions for a vhost.
+    summary: List permissions of vhost
     parameters:
     - in: path
       name: name

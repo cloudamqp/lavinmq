@@ -21,7 +21,7 @@ permission:
     write:
       type: string
       description: Write permissions (regular expression).
-PutPermissionsRequest:
+permissions-put-request:
   type: object
   properties:
     configure:

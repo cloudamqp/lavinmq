@@ -3,10 +3,10 @@
   get:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all users in the server.
+    summary: List all users
     parameters: []
-    operationId: CHANGEME-GetUsers
+    operationId: GetUsers
     responses:
       '200':
         description: OK
@@ -30,10 +30,10 @@
   get:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all users that doesn't have any permissions.
+    summary: List users with no permissions
     parameters: []
-    operationId: CHANGEME-GetUsers
+    operationId: GetUsersWithoutPermissions
     responses:
       '200':
         description: OK
@@ -57,10 +57,16 @@
   post:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Delete multiple users.
+    summary: Bulk delete users
     parameters: []
-    operationId: CHANGEME-PostUsers
+    operationId: BulkDeleteUsers
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/users-bulk-delete-request"
     responses:
       '200':
         description: OK
@@ -84,23 +90,23 @@
   get:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Find a specific user by name.
+    summary: List user
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetUsers
+        description: Name of the user.
+    operationId: GetUser
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/users"
+              "$ref": "../openapi.yaml#/components/schemas/user"
       4XX:
         description: Client Error
         content:
@@ -116,23 +122,25 @@
   put:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Create new user, or update an existing user.
+    summary: Create/update user
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-PutUsers
+        description: Name of the user.
+    operationId: PutUser
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/users-put-request"
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/users"
+      '204':
+        description: The resource was created or updated successfully.
       4XX:
         description: Client Error
         content:
@@ -148,23 +156,19 @@
   delete:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Remove a specific use by name.
+    summary: Delete user
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-DeleteUsers
+        description: Name of the user.
+    operationId: DeleteUser
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/users"
+      '204':
+        description: The resource were deleted successfully.
       4XX:
         description: Client Error
         content:
@@ -181,23 +185,23 @@
   get:
     tags:
     - users
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List permissions by user.
+    summary: List permissions of user
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetUsers
+        description: Name of the user.
+    operationId: GetUserPermissions
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/users"
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
       4XX:
         description: Client Error
         content:

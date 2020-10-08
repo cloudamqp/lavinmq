@@ -4,7 +4,7 @@
     tags:
     - permissions
     description: List permissions for each vhost in the server.
-    summary: Get all permissions
+    summary: List all permissions
     parameters: []
     operationId: GetPermissions
     responses:
@@ -30,8 +30,8 @@
   get:
     tags:
     - permissions
-    description: Get permissions by vhost and user.
-    summary: By vhost and user
+    description: List permissions by vhost and user.
+    summary: List permissions by vhost and user
     parameters:
     - in: path
       name: vhost
@@ -89,7 +89,7 @@
       content:
         application/json:
           schema:
-            "$ref": "../openapi.yaml#/components/schemas/PutPermissionsRequest"
+            "$ref": "../openapi.yaml#/components/schemas/permissions-put-request"
     responses:
       '204':
         description: The permissions were created successfully.
