@@ -42,6 +42,8 @@ p = OptionParser.parse do |parser|
   end
   parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.cert_path = v }
   parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.key_path = v }
+  parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| config.ciphers = v }
+  parser.on("--tls-compability-mode", "Enables TLS v1.0 and old ciphers") { config.tls_compability_mode = true }
   parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
     level = Logger::Severity.parse?(v.to_s)
     config.log_level = level if level
@@ -104,27 +106,39 @@ lock.truncate
 lock.print System.hostname
 lock.fsync
 
+context = nil
+if !config.cert_path.empty?
+  context = OpenSSL::SSL::Context::Server.new
+  if config.tls_compability_mode
+    context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+  end
+  context.certificate_chain = config.cert_path
+  context.private_key = config.key_path.empty? ? config.cert_path : config.key_path
+  context.ciphers = config.ciphers unless config.ciphers.empty?
+end
+
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
 amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
 
 if config.amqp_port > 0
   spawn(name: "AMQP listening on #{config.amqp_port}") do
-    amqp_server.not_nil!.listen(config.amqp_bind, config.amqp_port)
+    amqp_server.try &.listen(config.amqp_bind, config.amqp_port)
   end
 end
 
-if config.amqps_port > 0 && !config.cert_path.empty?
+if config.amqps_port > 0
   spawn(name: "AMQPS listening on #{config.amqps_port}") do
-    amqp_server.not_nil!.listen_tls(config.amqp_bind, config.amqps_port,
-      config.cert_path,
-      config.key_path || config.cert_path)
+    if ctx = context
+      amqp_server.try &.listen_tls(config.amqp_bind, config.amqps_port, ctx)
+    end
   end
 end
 
 unless config.unix_path.empty?
   spawn(name: "AMQP listening at #{config.unix_path}") do
-    amqp_server.not_nil!.listen_unix(config.unix_path)
+    amqp_server.try &.listen_unix(config.unix_path)
   end
 end
 
@@ -133,10 +147,10 @@ if config.http_port > 0 || config.https_port > 0 || !config.http_unix_path.empty
   if config.http_port > 0
     http_server.bind_tcp(config.http_bind, config.http_port)
   end
-  if config.https_port > 0 && !config.cert_path.empty?
-    http_server.bind_tls(config.http_bind, config.https_port,
-      config.cert_path,
-      config.key_path || config.cert_path)
+  if config.https_port > 0
+    if ctx = context
+      http_server.bind_tls(config.http_bind, config.https_port, ctx)
+    end
   end
   unless config.http_unix_path.empty?
     http_server.bind_unix(config.http_unix_path)
@@ -227,8 +241,18 @@ Signal::HUP.trap do
   else
     log.info { "Reloading configuration file '#{config_file}'" }
     config.parse(config_file)
-    amqp_server.reload_settings(config.cert_path, config.key_path)
-    http_server.try &.reload_settings(config.cert_path, config.key_path)
+    if tls = context
+      if config.tls_compability_mode
+        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+      else
+        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
+      end
+      tls.certificate_chain = config.cert_path
+      tls.private_key = config.key_path.empty? ? config.cert_path : config.key_path
+      tls.ciphers = config.ciphers unless config.ciphers.empty?
+    end
   end
   SystemD.notify("READY=1\n")
 end

@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- tls_compability_mode configuration option that enables tls 1.0 and old ciphers (config and cmd line)
+- tls_ciphers configuration option that sets enabled TLS ciphers (config and cmd line)
+
 ## [1.0.0-alpha.2] - 2020-10-08
 
 ### Fixed

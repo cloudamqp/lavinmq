@@ -49,10 +49,7 @@ module AvalancheMQ
         @log.info { "Bound to #{addr}" }
       end
 
-      def bind_tls(address, port, cert_path, key_path)
-        @context = ctx = OpenSSL::SSL::Context::Server.new
-        ctx.certificate_chain = cert_path
-        ctx.private_key = key_path
+      def bind_tls(address, port, ctx)
         addr = @http.bind_tls address, port, ctx
         @log.info { "Bound on #{addr}" }
       end
@@ -68,16 +65,9 @@ module AvalancheMQ
         else
           FileUtils.mkdir_p(File.dirname(INTERNAL_UNIX_SOCKET))
         end
-        @http.bind_unix INTERNAL_UNIX_SOCKET
+        addr = @http.bind_unix INTERNAL_UNIX_SOCKET
         File.chmod(INTERNAL_UNIX_SOCKET, 0o770)
-      end
-
-      def reload_settings(cert_path, key_path)
-        if ctx = @context
-          ctx.certificate_chain = cert_path
-          ctx.private_key = key_path
-          @log.info { "Certificate reloaded" }
-        end
+        @log.info { "Bound to #{addr}" }
       end
 
       def listen

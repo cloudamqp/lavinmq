@@ -10,6 +10,8 @@ module AvalancheMQ
     property unix_path = ""
     property cert_path = ""
     property key_path = ""
+    property ciphers = ""
+    property tls_compability_mode = false
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = -1
@@ -67,6 +69,8 @@ module AvalancheMQ
         when "tcp_nodelay"          then @tcp_nodelay = true?(v)
         when "tls_cert"             then @cert_path = v
         when "tls_key"              then @key_path = v
+        when "tls_ciphers"          then @ciphers = v
+        when "tls_compability_mode" then @tls_compability_mode = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
