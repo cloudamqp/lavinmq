@@ -693,6 +693,7 @@ module AvalancheMQ
         sp = @referenced_sps.bsearch { |x| x.segment >= seg }
         if sp.try(&.segment) != seg
           @log.debug { "Deleting segment #{seg}" }
+          @segment_holes.delete(mfile)
           deleted_bytes += mfile.size
           mfile.delete
           mfile.close
@@ -717,23 +718,19 @@ module AvalancheMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          if file.nil?
-            @log.info { "prev_sp: #{prev_sp} sp: #{sp.inspect}, file nil" }
+          if f = file
+            punched += punch_hole(f, prev_sp_end, sp.position)
           else
-            punched += punch_hole(file.not_nil!, prev_sp_end, sp.position)
+            @log.info { "prev_sp: #{prev_sp} sp: #{sp.inspect}, file nil" }
           end
         else # dealing with a new segment
           # punch to the end of the last file
-          if seg = file
-            punched += punch_hole(seg, prev_sp_end, seg.size)
-            seg.close
+          if f = file
+            punched += punch_hole(f, prev_sp_end, f.size)
+            f.close
           end
 
-          # then open this segment
-          path = File.join(@data_dir, "msgs.#{sp.segment.to_s.rjust(10, '0')}")
-          file = File.open(path, "a+").tap do |f|
-            f.buffer_size = Config.instance.file_buffer_size
-          end
+          file = @segments[sp.segment]
           @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
           # punch from start of the segment (but not the version prefix)
@@ -751,15 +748,52 @@ module AvalancheMQ
       @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
     end
 
-    private def punch_hole(segment : File, start_pos : Int, end_pos : Int)
+    # For each file we hold an array of holes where we've already punched
+    record Hole, start_pos : UInt32, end_pos : UInt32
+    @segment_holes = Hash(MFile, Array(Hole)).new { |h, k| h[k] = Array(Hole).new }
+
+    private def punch_hole(segment, start_pos : Int, end_pos : Int) : Int
+      start_pos = start_pos.to_u32
+      end_pos = end_pos.to_u32
       hole_size = end_pos - start_pos
-      if hole_size > 0
+      return 0 if hole_size == 0
+
+      holes = @segment_holes[segment]
+      if idx = holes.bsearch_index { |hole| hole.start_pos >= start_pos }
+        hole = holes[idx]
+        hole_start = hole.start_pos
+        hole_end = hole.end_pos
+
+        case
+        when start_pos == hole_start && hole_end == end_pos
+          # we got the exact same hole
+          return 0
+        when  start_pos == hole_start && hole_end < end_pos
+          # we got a hole that's not as long, then expand the hole
+          holes[idx] = Hole.new(start_pos, end_pos)
+        when start_pos < hole_start <= end_pos
+        # if the next hole is further away, but this hole ends after the next hole starts
+        # then expand the hole
+          end_pos = Math.max(end_pos, hole_end)
+          holes[idx] = Hole.new(start_pos, end_pos)
+        when start_pos < end_pos < hole_start
+          # this a completely new hole
+          holes.insert(idx, Hole.new(start_pos, end_pos))
+        else
+          raise "Unexpected hole punching case: \
+                 start_pos=#{start_pos} end_pos=#{end_pos} \
+                 hole_start=#{hole_start} hole_end=#{hole_end}"
+        end
+
+        hole_size = end_pos - start_pos
         @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
         segment.punch_hole(hole_size, start_pos)
-        hole_size
       else
-        0
+        @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
+        segment.punch_hole(hole_size, start_pos)
+        holes << Hole.new(start_pos, end_pos)
       end
+      hole_size
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)

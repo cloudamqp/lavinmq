@@ -192,6 +192,7 @@ def report(s)
     puts_size_capacity vh.@exchanges, 4
     puts_size_capacity vh.@queues, 4
     puts_size_capacity vh.@referenced_sps, 4
+    puts_size_capacity vh.@segment_holes, 4
     vh.queues.each do |_, q|
       puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
       puts_size_capacity q.@consumers, 6
