@@ -66,36 +66,25 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
-    def reload_settings(cert_path : String, key_path : String)
-      if ctx = @context
-        @log.info { "Reloading TLS certificate" }
-        ctx.certificate_chain = cert_path
-        ctx.private_key = key_path
-      end
-    end
-
-    def listen_tls(bind, port, cert_path : String, key_path : String, ca_path : String? = nil)
+    def listen_tls(bind, port, context)
       s = TCPServer.new(bind, port)
       @listeners << s
-      @context = context = OpenSSL::SSL::Context::Server.new
-      context.certificate_chain = cert_path
-      context.private_key = key_path
-      context.ca_certificates = ca_path if ca_path
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         begin
           client = s.accept? || break
+          remote_addr = client.remote_address
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          @log.info { "Connected #{ssl_client.try &.tls_version} #{ssl_client.try &.cipher}" }
+          @log.info { "Connected #{ssl_client.tls_version} #{ssl_client.cipher}" }
           client.sync = true
           client.read_buffering = false
           # only do buffering on the tls socket
           ssl_client.sync = false
           ssl_client.read_buffering = true
           set_socket_options(client)
-          spawn handle_connection(ssl_client, client.remote_address, client.local_address), name: "Server#handle_connection(tls)"
+          spawn handle_connection(ssl_client, remote_addr, client.local_address), name: "Server#handle_connection(tls)"
         rescue ex
-          @log.error "Error accepting OpenSSL connection: #{ex.inspect}"
+          @log.error "Error accepting TLS connection from #{remote_addr}: #{ex.inspect}"
           begin
             client.try &.close
           rescue ex2
