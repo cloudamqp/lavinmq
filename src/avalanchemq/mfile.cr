@@ -155,9 +155,7 @@ class MFile < IO
       move = offset & 4095
       offset -= move
       # adjust size accordingly
-      if move < 4095
-        size -= 4095 - move
-      end
+      size -= 4095 - move
 
       addr = @buffer + offset
       if LibC.madvise(addr, size, LibC::MADV_REMOVE) != 0
