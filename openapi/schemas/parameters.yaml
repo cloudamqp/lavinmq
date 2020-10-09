@@ -1,6 +1,15 @@
 ---
 parameters:
-  title: CHANGEME
+  type: object
+  properties:
+    CHANGEME:
+      type: string
+      description: CHANGEME
+policies:
+  type: array
+  items:
+    "$ref": "#/policy"
+policy:
   type: object
   properties:
     CHANGEME:

@@ -3,10 +3,10 @@
   get:
     tags:
     - queues
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all queues in the server.
+    summary: List all queues
     parameters: []
-    operationId: CHANGEME-GetQueues
+    operationId: GetQueues
     responses:
       '200':
         description: OK

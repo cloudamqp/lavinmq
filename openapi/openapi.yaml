@@ -37,6 +37,10 @@ components:
       "$ref": "./schemas/nodes.yaml#/nodes"
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
+    policy:
+      "$ref": "./schemas/parameters.yaml#/policy"
+    policies:
+      "$ref": "./schemas/parameters.yaml#/policies"
     permission:
       "$ref": "./schemas/permissions.yaml#/permission"
     permissions:

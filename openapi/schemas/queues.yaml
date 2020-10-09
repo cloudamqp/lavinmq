@@ -1,8 +1,102 @@
 ---
 queues:
-  title: CHANGEME
+  type: array
+  items:
+    "$ref": "#/queue"
+queue:
   type: object
   properties:
-    CHANGEME:
+    name:
       type: string
+      description: Name of the queue.
+    durable:
+      type: boolean
+    exclusive:
+      type: boolean
+    auto_delete:
+      type: boolean
+    arguments:
+      type: object
+      description: Optional queue arguments (e.g. message TTL, max length, etc.)
+    consumers:
+      type: integer
+      description: Number of consumers.
+    vhost:
+      type: string
+      description: Name of the vhost.
+    messages:
+      type: integer
+      description: Number of messages in the queue.
+    ready:
+      type: string
+      description: Number of ready messages in the queue.
+    ready_bytes:
+      type: string
+    unacked:
+      type: string
+      description: Number of unacknowledged messages in the queue.
+    unacked_bytes:
+      type: string
+    policy:
+      type: string
+      nullable: true
+      description: Policy name.
+    exclusive_consumer_tag:
+      type: string
+      nullable: true
       description: CHANGEME
+    state:
+      type: string
+      description: The state of the queue.
+      enum:
+      - running
+      - paused
+      - flow
+      - closed
+      - deleted
+    effective_policy_definition:
+        "$ref": "../openapi.yaml#/components/schemas/policy"
+    message_stats:
+      type: array
+      description: Queue statistics.
+      items:
+        "$ref": "#/message_stats"
+    internal:
+      type: boolean
+      description: CHANGEME
+message_stats:
+  type: object
+  properties:
+    ack:
+      type: integer
+    ack_details:
+      "$ref": "#/stats_details"
+    deliver:
+      type: integer
+    deliver_details:
+      "$ref": "#/stats_details"
+    get:
+      type: integer
+    get_details:
+      "$ref": "#/stats_details"
+    publish:
+      type: integer
+    publish_details:
+      "$ref": "#/stats_details"
+    redeliver:
+      type: integer
+    redeliver_details:
+      "$ref": "#/stats_details"
+    reject:
+      type: integer
+    reject_details:
+      "$ref": "#/stats_details"
+stats_details:
+  type: object
+  properties:
+    rate:
+      type: integer
+    log:
+      type: array
+      items:
+        type: integer
