@@ -2,6 +2,7 @@ lib LibC
   MS_ASYNC = 0x0001
   {% if flag?(:linux) %}
     MS_SYNC = 0x0004
+    MADV_REMOVE = 9
   {% else %}
     MS_SYNC = 0x0010
   {% end %}
@@ -22,6 +23,7 @@ class MFile < IO
   getter? closed = false
   getter size = 0
   getter capacity = 0
+  getter path : String
   @buffer : Bytes
 
   # Map a file, if no capacity is given the file must exists and
@@ -141,5 +143,26 @@ class MFile < IO
 
   def to_slice
     @buffer
+  end
+
+  def punch_hole(size, offset = 0)
+    {% if flag?(:linux) %}
+      # assume 4kB page size
+      # can't punch holes smaller than page size
+      return if size < 4096
+      # page align offset
+      offset += 4095
+      move = offset & 4095
+      offset -= move
+      # adjust size accordingly
+      if move < 4095
+        size -= 4095 - move
+      end
+
+      addr = @buffer + offset
+      if LibC.madvise(addr, size, LibC::MADV_REMOVE) != 0
+        raise IO::Error.from_errno("madvise")
+      end
+    {% end %}
   end
 end

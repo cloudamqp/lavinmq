@@ -651,10 +651,13 @@ module AvalancheMQ
           delete_unused_segments
         end
         gc_log("delete unused segs", elapsed)
-        elapsed = Time.measure do
-          hole_punch_segments
-        end
-        gc_log("hole punching", elapsed)
+
+        {% if flag?(:linux) %}
+          elapsed = Time.measure do
+            hole_punch_segments
+          end
+          gc_log("hole punching", elapsed)
+        {% end %}
 
         # If less than half the capacity is used, recreate to reclaim RAM
         current_capacity = @referenced_sps.capacity
