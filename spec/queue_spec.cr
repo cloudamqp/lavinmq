@@ -92,9 +92,9 @@ describe AvalancheMQ::Queue do
           ch.basic_ack(msg.delivery_tag)
         end
         select
-        when channel.receive
-          fail "Consumer should not get a message" unless iq.state == AvalancheMQ::QueueState::Flow
-        when timeout Time::Span.new(seconds: 2)
+        when msg = channel.receive
+          fail "Consumer should not get a message '#{msg}'"
+        when timeout 2.seconds
           iq.resume!
         end
         channel.receive.should eq "test message 2"
