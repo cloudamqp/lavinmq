@@ -44,7 +44,7 @@ class MFile < IO
   end
 
   private def open_fd
-    flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
+    flags = @readonly ? LibC::O_RDWR : LibC::O_CREAT | LibC::O_RDWR
     perms = 0o644
     fd = LibC.open(@path.check_no_null_byte, flags, perms)
     raise File::Error.from_errno("Error opening file", file: @path) if fd < 0
@@ -64,7 +64,7 @@ class MFile < IO
 
   private def mmap(fd) : Bytes
     protection = LibC::PROT_READ
-    protection |= LibC::PROT_WRITE unless @readonly
+    protection |= LibC::PROT_WRITE # unless @readonly
     flags = LibC::MAP_SHARED
     buffer = LibC.mmap(nil, @capacity, protection, flags, fd, 0).as(UInt8*)
     raise RuntimeError.from_errno("mmap") if buffer == LibC::MAP_FAILED
@@ -147,8 +147,9 @@ class MFile < IO
 
   def punch_hole(size, offset = 0)
     {% if flag?(:linux) %}
+      return if @closed
       # assume 4kB page size
-      # can't punch holes smaller than page size
+      # don't bother punch holes smaller than a page
       return if size < 4096
       # page align offset
       offset += 4095
