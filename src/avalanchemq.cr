@@ -117,10 +117,10 @@ if !config.tls_cert_path.empty?
   case config.tls_min_version
   when "1.0"
     context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
   when "1.1"
     context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1)
-    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
   when "1.2", ""
     # 1.2 is default
   when "1.3"
@@ -260,11 +260,11 @@ Signal::HUP.trap do
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
                            OpenSSL::SSL::Options::NO_TLS_V1_1 |
                            OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
       when "1.1"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
       when "1.2", ""
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
