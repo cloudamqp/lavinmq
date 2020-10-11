@@ -6,8 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.4] - 2020-10-12
+
 ### Fixed
 - When allowing TLS 1.0 and 1.1, add SECLEVEL=1 to ciphers list (required in ubuntu/debian)
+- Corrent page aligment when hole punching segment files
+
+### Changed
+- Don't strip debug symbols in debian/ubuntu package
 
 ## [1.0.0-alpha.3] - 2020-10-11
 
