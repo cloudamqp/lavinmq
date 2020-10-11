@@ -19,6 +19,8 @@ FileDescriptorStoreMax=1048576
 NoNewPrivileges=true
 Nice=-1
 OOMScoreAdjust=-250
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target
