@@ -418,8 +418,8 @@ module AvalancheMQ
       @deleted = true
       close
       @vhost.delete_queue(@name)
+      @log.info { "Deleted" }
       notify_observers(:delete)
-      @log.debug { "Deleted" }
       true
     end
 
@@ -673,7 +673,6 @@ module AvalancheMQ
 
     private def expire_queue(now = Time.monotonic) : Bool
       return false unless @consumers.empty?
-      @log.debug "Expired"
       @vhost.delete_queue(@name)
       true
     end

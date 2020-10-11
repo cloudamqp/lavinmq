@@ -38,6 +38,7 @@ module AvalancheMQ
       end
       user = User.create(name, password, "Bcrypt", tags)
       @users[name] = user
+      @log.info { "User=#{name} Created" }
       save! if save
       user
     end
@@ -78,6 +79,7 @@ module AvalancheMQ
     def delete(name, save = true) : User?
       return if name == DIRECT_USER
       if user = @users.delete name
+        @log.info { "User=#{name} Deleted" }
         save! if save
         user
       end

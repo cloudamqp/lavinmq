@@ -39,7 +39,7 @@ module AvalancheMQ
     def delete(name)
       if shovel = @shovels.delete name
         shovel.terminate
-        @vhost.log.info { "Shovel '#{name}' deleted" }
+        @vhost.log.info { "Shovel '#{name}' Deleted" }
         shovel
       end
     end

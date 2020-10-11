@@ -27,6 +27,7 @@ module AvalancheMQ
         return v
       end
       vhost = VHost.new(name, @data_dir, @log.dup, user, @events)
+      @log.info { "Vhost=#{name} created" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
@@ -38,6 +39,7 @@ module AvalancheMQ
       if vhost = @vhosts.delete name
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
+        @log.info { "Vhost=#{name} deleted" }
         save!
       end
     ensure

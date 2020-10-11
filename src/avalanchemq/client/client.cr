@@ -57,7 +57,7 @@ module AvalancheMQ
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
       @events.send(EventType::ConnectionCreated)
-      @log.info "Connected as user #{@user.name}"
+      @log.info { "Connection=#{@name} established for vhost: #{@vhost}, user: #{@user}, remote_address: #{@remote_address}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -438,6 +438,11 @@ module AvalancheMQ
       else
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
+<<<<<<< HEAD
+=======
+      @channel_closed_count += @channels.size
+      @log.info { "Connection=#{@name} disconnected" }
+>>>>>>> 46ab04f1... updated logs to be consistent
       @running = false
     end
 
