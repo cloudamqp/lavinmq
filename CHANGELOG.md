@@ -6,8 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.3] - 2020-10-11
+
+### Fixed
+- Considerably faster garbage collection of segments and hole punching
+
 ### Added
-- tls_compability_mode configuration option that enables tls 1.0 and old ciphers (config and cmd line)
+- tls_min_version configuration option, default is 1.2, but 1.0, 1.1 and 1.3 is are also allowed options
 - tls_ciphers configuration option that sets enabled TLS ciphers (config and cmd line)
 
 ## [1.0.0-alpha.2] - 2020-10-08
