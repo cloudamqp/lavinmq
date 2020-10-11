@@ -185,8 +185,13 @@ module AvalancheMQ
       else
         @log.info { "Accepting AMQP connection (#{client.name})" }
       end
-    rescue ex : IO::Error
+    rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
+      begin
+        socket.close
+      rescue
+        nil
+      end
     end
 
     private def set_socket_options(socket)
