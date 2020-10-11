@@ -466,8 +466,11 @@ module AvalancheMQ
             end
       sorted_policies = @policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
-        match = sorted_policies.find { |p| p.match?(r) }
-        match.nil? ? r.clear_policy : r.apply_policy(match)
+        if match = sorted_policies.find { |p| p.match?(r) }
+          r.apply_policy(match)
+        else
+          r.clear_policy
+        end
       end
     rescue ex : TypeCastError
       @log.warn { "Invalid policy. #{ex.message}" }
