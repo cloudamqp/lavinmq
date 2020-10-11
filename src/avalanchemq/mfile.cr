@@ -145,24 +145,33 @@ class MFile < IO
     @buffer
   end
 
-  # MADV_REMOVE, assume page size 4096
-  def punch_hole(size, offset = 0) : Int
-    {% if flag?(:linux) %}
+  {% if flag?(:linux) %}
+    PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE)
+
+    def punch_hole(size, offset = 0) : Int
       return 0 if size < 4096
+      o = offset
+
       # page align offset
-      offset += 4095
-      offset -= offset & 4095
+      offset += PAGESIZE - 1
+      offset -= offset & PAGESIZE - 1
+
+      # adjust size accordingly
+      size -= offset - o
+
       # page align size too, but downwards
-      size -= 4095
-      size -= size & 4095
+      if size & PAGESIZE - 1 != 0
+        size += PAGESIZE - 1
+        size -= size & PAGESIZE - 1
+        size -= PAGESIZE
+      end
+      return 0 if size == 0
 
       addr = @buffer + offset
       if LibC.madvise(addr, size, LibC::MADV_REMOVE) != 0
         raise IO::Error.from_errno("madvise")
       end
-      return size
-    {% else %}
-      0
-    {% end %}
-  end
+      size
+    end
+  {% end %}
 end
