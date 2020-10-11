@@ -793,10 +793,9 @@ module AvalancheMQ
         segment.punch_hole(hole_size, start_pos)
       else
         @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
-        segment.punch_hole(hole_size, start_pos)
         holes << Hole.new(start_pos, end_pos)
+        segment.punch_hole(hole_size, start_pos)
       end
-      hole_size
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
