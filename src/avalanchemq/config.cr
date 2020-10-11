@@ -8,10 +8,10 @@ module AvalancheMQ
     property amqp_port = 5672
     property amqps_port = -1
     property unix_path = ""
-    property cert_path = ""
-    property key_path = ""
-    property ciphers = ""
-    property tls_compability_mode = false
+    property tls_cert_path = ""
+    property tls_key_path = ""
+    property tls_ciphers = ""
+    property tls_min_version = ""
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = -1
@@ -67,10 +67,10 @@ module AvalancheMQ
         when "file_buffer_size"     then @file_buffer_size = v.to_i32
         when "socket_buffer_size"   then @socket_buffer_size = v.to_i32
         when "tcp_nodelay"          then @tcp_nodelay = true?(v)
-        when "tls_cert"             then @cert_path = v
-        when "tls_key"              then @key_path = v
-        when "tls_ciphers"          then @ciphers = v
-        when "tls_compability_mode" then @tls_compability_mode = true?(v)
+        when "tls_cert"             then @tls_cert_path = v
+        when "tls_key"              then @tls_key_path = v
+        when "tls_ciphers"          then @tls_ciphers = v
+        when "tls_min_version"      then @tls_min_version = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
@@ -83,8 +83,8 @@ module AvalancheMQ
         when "bind"        then @amqp_bind = v
         when "port"        then @amqp_port = v.to_i32
         when "tls_port"    then @amqps_port = v.to_i32
-        when "tls_cert"    then @cert_path = v # backward compatibility
-        when "tls_key"     then @key_path = v  # backward compatibility
+        when "tls_cert"    then @tls_cert_path = v # backward compatibility
+        when "tls_key"     then @tls_key_path = v  # backward compatibility
         when "unix_path"   then @unix_path = v
         when "heartbeat"   then @heartbeat = v.to_u16
         when "channel_max" then @channel_max = v.to_u16
@@ -101,8 +101,8 @@ module AvalancheMQ
         when "bind"      then @http_bind = v
         when "port"      then @http_port = v.to_i32
         when "tls_port"  then @https_port = v.to_i32
-        when "tls_cert"  then @cert_path = v # backward compatibility
-        when "tls_key"   then @key_path = v  # backward compatibility
+        when "tls_cert"  then @tls_cert_path = v # backward compatibility
+        when "tls_key"   then @tls_key_path = v  # backward compatibility
         when "unix_path" then @http_unix_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"

@@ -40,10 +40,10 @@ p = OptionParser.parse do |parser|
   parser.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
     config.http_unix_path = v
   end
-  parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.cert_path = v }
-  parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.key_path = v }
-  parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| config.ciphers = v }
-  parser.on("--tls-compability-mode", "Enables TLS v1.0 and old ciphers") { config.tls_compability_mode = true }
+  parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.tls_cert_path = v }
+  parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.tls_key_path = v }
+  parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| config.tls_ciphers = v }
+  parser.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| config.tls_min_version = v }
   parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
     level = Logger::Severity.parse?(v.to_s)
     config.log_level = level if level
@@ -106,21 +106,33 @@ lock.truncate
 lock.print System.hostname
 lock.fsync
 
-context = nil
-if !config.cert_path.empty?
-  context = OpenSSL::SSL::Context::Server.new
-  if config.tls_compability_mode
-    context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
-  end
-  context.certificate_chain = config.cert_path
-  context.private_key = config.key_path.empty? ? config.cert_path : config.key_path
-  context.ciphers = config.ciphers unless config.ciphers.empty?
-end
-
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
 amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
+
+context = nil
+if !config.tls_cert_path.empty?
+  context = OpenSSL::SSL::Context::Server.new
+  context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
+  case config.tls_min_version
+  when "1.0"
+    context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+  when "1.1"
+    context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1)
+    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+  when "1.2", ""
+    # 1.2 is default
+  when "1.3"
+    context.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+  else
+    log.warn { "Unrecognized config value for tls_min_version: '#{config.tls_min_version}'" }
+  end
+
+  context.certificate_chain = config.tls_cert_path
+  context.private_key = config.tls_key_path.empty? ? config.tls_cert_path : config.tls_key_path
+  context.ciphers = config.tls_ciphers unless config.tls_ciphers.empty?
+end
 
 if config.amqp_port > 0
   spawn(name: "AMQP listening on #{config.amqp_port}") do
@@ -242,16 +254,29 @@ Signal::HUP.trap do
     log.info { "Reloading configuration file '#{config_file}'" }
     config.parse(config_file)
     if tls = context
-      if config.tls_compability_mode
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+      case config.tls_min_version
+      when "1.0"
+        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
+                           OpenSSL::SSL::Options::NO_TLS_V1_1 |
+                           OpenSSL::SSL::Options::NO_TLS_V1)
         tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
-      else
+      when "1.1"
+        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
+        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
+        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD
+      when "1.2", ""
+        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
         tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
+      when "1.3"
+        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
+      else
+        log.warn { "Unrecognized config value for tls_min_version: '#{config.tls_min_version}'" }
       end
-      tls.certificate_chain = config.cert_path
-      tls.private_key = config.key_path.empty? ? config.cert_path : config.key_path
-      tls.ciphers = config.ciphers unless config.ciphers.empty?
+      tls.certificate_chain = config.tls_cert_path
+      tls.private_key = config.tls_key_path.empty? ? config.tls_cert_path : config.tls_key_path
+      tls.ciphers = config.tls_ciphers unless config.tls_ciphers.empty?
     end
   end
   SystemD.notify("READY=1\n")
