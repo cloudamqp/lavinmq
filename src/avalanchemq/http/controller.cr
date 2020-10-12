@@ -73,7 +73,7 @@ module AvalancheMQ
             json.field("filtered_count", filtered_count)
             json.field("item_count", item_count)
             json.field("page", page)
-            json.field("page_count", (total_count / page_size + 1).to_i )
+            json.field("page_count", (total_count / page_size + 1).to_i)
             json.field("page_size", page_size)
             json.field("total_count", total_count)
           end
