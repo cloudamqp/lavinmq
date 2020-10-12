@@ -76,7 +76,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         }
       })
       response = put("/api/queues/%2f/putqueue", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       response = get("/api/queues/%2f/putqueue")
       response.status_code.should eq 200
     ensure
@@ -85,7 +85,7 @@ describe AvalancheMQ::HTTP::QueuesController do
 
     it "should not require any body" do
       response = put("/api/queues/%2f/okq")
-      response.status_code.should eq 204
+      response.status_code.should eq 201
     ensure
       s.vhosts["/"].delete_queue("okq")
     end
@@ -95,7 +95,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         "durable": true
       })
       response = put("/api/queues/%2f/q1d", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       body = %({
         "durable": false
       })
