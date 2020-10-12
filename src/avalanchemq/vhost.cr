@@ -693,15 +693,21 @@ module AvalancheMQ
       @log.debug "Garbage collecting segments"
       deleted_bytes = 0_u64
       @segments.delete_if do |seg, mfile|
-        next if seg == @segments.last_key
-        sp = @referenced_sps.bsearch { |x| x.segment >= seg }
-        if sp.try(&.segment) != seg
-          @log.debug { "Deleting segment #{seg}" }
-          @segment_holes.delete(mfile)
-          deleted_bytes += mfile.size
-          mfile.delete
-          mfile.close
-          true
+        next if mfile == @wfile
+        if sp = @referenced_sps.bsearch { |x| x.segment >= seg }
+          if sp.segment != seg
+            @log.info { "Deleting segment #{seg}" }
+            deleted_bytes += mfile.size
+            mfile.close(truncate_to_size: false)
+            mfile.delete
+            @segment_holes.delete(mfile)
+            true
+          end
+        else
+          # means that referend sps doesn't include the a segment this large
+          # but can referenced sps now have more entries by now, that possibly references this segment?
+          # but at the same time, this segment isn't the active one so how's that possible?
+          next
         end
       end
       @log.info { "Garbage collected #{deleted_bytes.humanize_bytes} of unused segments" } if deleted_bytes > 0
