@@ -146,10 +146,10 @@ class MFile < IO
   end
 
   {% if flag?(:linux) %}
-    PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE)
+    PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
 
-    def punch_hole(size, offset = 0) : Int
-      return 0 if size < PAGESIZE
+    def punch_hole(size : UInt32, offset : UInt32 = 0u32) : UInt32
+      return 0u32 if size < PAGESIZE
       o = offset
 
       # page align offset
@@ -165,7 +165,7 @@ class MFile < IO
         size -= size & PAGESIZE - 1
         size -= PAGESIZE
       end
-      return 0 if size == 0
+      return 0u32 if size == 0
 
       addr = @buffer + offset
       if LibC.madvise(addr, size, LibC::MADV_REMOVE) != 0
