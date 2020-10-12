@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Don't delete segments that might have references to it
+- Don't double base64 encode message bodies in UI
+- Allow PUT to queues without body
+
 ## [1.0.0-alpha.4] - 2020-10-12
 
 ### Fixed
