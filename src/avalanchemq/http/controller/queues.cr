@@ -68,13 +68,13 @@ module AvalancheMQ
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
               end
-              context.response.status_code = 200
+              context.response.status_code = 204
             elsif name.starts_with? "amq."
               bad_request(context, "Not allowed to use the amq. prefix")
             else
               @amqp_server.vhosts[vhost]
                 .declare_queue(name, durable, auto_delete, tbl)
-              context.response.status_code = 204
+              context.response.status_code = 201
             end
           end
         end
