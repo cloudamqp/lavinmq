@@ -206,11 +206,11 @@ module AvalancheMQ
     end
 
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
-      if @wfile.capacity < @wfile.size + msg.bytesize
-        open_new_segment(msg.bytesize)
-      end
-      wfile = @wfile
       @write_lock.synchronize do
+        wfile = @wfile
+        if wfile.capacity < wfile.size + msg.bytesize
+          wfile = open_new_segment(msg.bytesize)
+        end
         wfile.seek(0, IO::Seek::End)
         sp = SegmentPosition.make(@segments.last_key, wfile.pos.to_u32, msg)
         if store_offset
