@@ -737,7 +737,6 @@ module AvalancheMQ
           # punch to the end of the last file
           if f = file
             punched += punch_hole(f, prev_sp_end, f.size)
-            f.close
           end
 
           file = @segments[sp.segment]
@@ -752,7 +751,6 @@ module AvalancheMQ
 
       if file && prev_sp.segment != @segments.last_key
         punched += punch_hole(file, prev_sp_end, file.size)
-        file.close
       end
 
       @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
