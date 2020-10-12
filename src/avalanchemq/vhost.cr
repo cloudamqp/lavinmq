@@ -646,20 +646,17 @@ module AvalancheMQ
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
-        elapsed = Time.measure do
+        gc_log("collecting sps") do
           collect_sps
         end
-        gc_log("collecting sps", elapsed)
-        elapsed = Time.measure do
+        gc_log("delete unused segs") do
           delete_unused_segments
         end
-        gc_log("delete unused segs", elapsed)
 
         {% if flag?(:linux) %}
-          elapsed = Time.measure do
+          gc_log("hole punching") do
             hole_punch_segments
           end
-          gc_log("hole punching", elapsed)
         {% end %}
 
         # If less than half the capacity is used, recreate to reclaim RAM
@@ -675,9 +672,10 @@ module AvalancheMQ
       end
     end
 
-    private def gc_log(task, elapsed)
+    private def gc_log(desc, &blk)
+      elapsed = Time.measure(&blk)
       return if elapsed.total_milliseconds <= 10
-      @log.info { "GC segments, #{task} took #{elapsed.total_milliseconds} ms" }
+      @log.info { "GC segments, #{desc} took #{elapsed.total_milliseconds} ms" }
     end
 
     private def collect_sps : Nil
