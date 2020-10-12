@@ -149,7 +149,7 @@ class MFile < IO
     PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE)
 
     def punch_hole(size, offset = 0) : Int
-      return 0 if size < 4096
+      return 0 if size < PAGESIZE
       o = offset
 
       # page align offset
