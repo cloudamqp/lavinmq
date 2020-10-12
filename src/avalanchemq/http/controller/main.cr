@@ -71,6 +71,7 @@ module AvalancheMQ
 
           {
             avalanchemq_version: AvalancheMQ::VERSION,
+            node:                System.hostname,
             uptime:              @amqp_server.uptime.to_i,
             object_totals:       {
               channels:    channels,
@@ -82,10 +83,10 @@ module AvalancheMQ
             queue_totals: {
               messages:             ready + unacked,
               messages_ready:       ready,
-              messages_unacked:     unacked,
+              messages_unacknowledged:     unacked,
               messages_log:         add_logs(ready_log, unacked_log),
               messages_ready_log:   ready_log,
-              messages_unacked_log: unacked_log,
+              messages_unacknowledged_log: unacked_log,
             },
             recv_oct_details: {
               rate: recv_rate,

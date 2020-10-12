@@ -42,7 +42,10 @@ module AvalancheMQ
           queue_deleted:               @amqp_server.queue_deleted_count,
           queue_deleted_details:       { rate: @amqp_server.queue_deleted_rate },
           applications:                APPLICATIONS,
-          partitions:                  Tuple.new
+          partitions:                  Tuple.new,
+          proc_used:                   0,
+          run_queue:                   0,
+          sockets_used:                0,
         })
       end
 
