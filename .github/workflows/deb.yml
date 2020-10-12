@@ -47,19 +47,23 @@ jobs:
           path: builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
           name: avalanchemq_${{ env.VERSION }}-1-${{ env.CODENAME }}_${{ env.ARCH }}.deb
 
-      - name: Check if Git tag exists
-        run: echo "::set-env name=HEAD_TAG::$(git tag --points-at HEAD)"
-
       - uses: actions/setup-ruby@v1
         with:
           ruby-version: '2.7'
-        if: env.HEAD_TAG != ''
 
       - name: Install packagecloud cli
         run: gem install package_cloud
-        if: env.HEAD_TAG != ''
 
-      - name: Upload to packagecloud
+      - name: Upload to packagecloud head repo
+        run: package_cloud push cloudamqp/avalanchemq-head/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
+        env:
+          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
+        if: github.ref == 'refs/heads/master'
+
+      - name: Check if Git tag exists
+        run: echo "::set-env name=HEAD_TAG::$(git tag --points-at HEAD)"
+
+      - name: Upload to packagecloud release repo
         run: package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
         env:
           PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
