@@ -84,7 +84,7 @@ describe AvalancheMQ::HTTP::QueuesController do
     end
 
     it "should not require any body" do
-      response = put("/api/queues/%2f/okq", body: %({}))
+      response = put("/api/queues/%2f/okq")
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_queue("okq")
