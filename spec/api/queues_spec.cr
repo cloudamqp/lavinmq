@@ -151,21 +151,39 @@ describe AvalancheMQ::HTTP::QueuesController do
   end
 
   describe "POST /api/queues/vhost/name/get" do
-    it "should get messages" do
+    it "should get plain text messages" do
       with_channel do |ch|
         q = ch.queue("q4")
+        q4 = s.vhosts["/"].queues["q4"]
         q.publish "m1"
-        sleep 0.05
-        body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+        wait_for { q4.message_count == 1 }
+        body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
         response = post("/api/queues/%2f/q4/get", body: body)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        body.as_a.empty?.should be_false
-        s.vhosts["/"].queues["q4"].empty?.should be_true
+        body[0]["payload"].should eq "m1"
+        q4.empty?.should be_true
+      end
+    ensure
+      s.vhosts["/"].delete_queue("q4")
+    end
+
+    it "should get encoded messages" do
+      with_channel do |ch|
+        q = ch.queue("q4")
+        q4 = s.vhosts["/"].queues["q4"]
+        mem_io = IO::Memory.new
+        Compress::Deflate::Writer.open(mem_io) { |deflate| deflate.print("m1") }
+        encoded_msg = mem_io.to_s
+        q.publish encoded_msg, props: AMQP::Client::Properties.new(content_encoding: "deflate")
+        wait_for { q4.message_count == 1 }
+        body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
+        response = post("/api/queues/%2f/q4/get", body: body)
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body[0]["payload"].should eq encoded_msg
+        body[0]["payload_encoding"].should eq "string"
+        q4.empty?.should be_true
       end
     ensure
       s.vhosts["/"].delete_queue("q4")
