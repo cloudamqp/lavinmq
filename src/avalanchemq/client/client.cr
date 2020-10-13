@@ -149,15 +149,17 @@ module AvalancheMQ
     end
 
     private def send_heartbeat
-      if @last_recv_heartbeat + (@heartbeat + 5).seconds < RoughTime.utc
-        ago = (RoughTime.utc - @last_recv_heartbeat).milliseconds
-        @log.info { "No heartbeat in #{ago / 1000}s" }
-        @last_sent_heartbeat = RoughTime.utc
+      now = RoughTime.utc
+      last_recv_heartbeat = @last_recv_heartbeat
+      if last_recv_heartbeat + (@heartbeat + 5).seconds < now
+        ago = (now - last_recv_heartbeat).milliseconds
+        @log.info { "No heartbeat in #{ago / 1000}s (timeout #{@heartbeat}s)" }
+        @last_sent_heartbeat = now
         # don't close connections, rely on TCP keepalive instead
-        send(AMQP::Frame::Heartbeat.new)
+        send AMQP::Frame::Heartbeat.new
       else
-        @last_sent_heartbeat = RoughTime.utc
-        send(AMQP::Frame::Heartbeat.new)
+        @last_sent_heartbeat = now
+        send AMQP::Frame::Heartbeat.new
       end
     end
 
