@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "compress/deflate"
 
 describe AvalancheMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
@@ -173,7 +174,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         q = ch.queue("q4")
         q4 = s.vhosts["/"].queues["q4"]
         mem_io = IO::Memory.new
-        Compress::Deflate::Writer.open(mem_io) { |deflate| deflate.print("m1") }
+        Compress::Deflate::Writer.open(mem_io, Compress::Deflate::BEST_SPEED) { |deflate| deflate.print("m1") }
         encoded_msg = mem_io.to_s
         q.publish encoded_msg, props: AMQP::Client::Properties.new(content_encoding: "deflate")
         wait_for { q4.message_count == 1 }
@@ -181,8 +182,8 @@ describe AvalancheMQ::HTTP::QueuesController do
         response = post("/api/queues/%2f/q4/get", body: body)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        body[0]["payload"].should eq encoded_msg
-        body[0]["payload_encoding"].should eq "string"
+        body[0]["payload"].should eq Base64.urlsafe_encode(encoded_msg)
+        body[0]["payload_encoding"].should eq "base64"
         q4.empty?.should be_true
       end
     ensure

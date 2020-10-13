@@ -171,7 +171,7 @@ module AvalancheMQ
                   payload = String.new(env.message.body[0, size])
                   case encoding
                   when "auto"
-                    if payload.valid_encoding? || !env.message.properties.content_encoding.nil?
+                    if payload.valid_encoding?
                       content = payload
                       payload_encoding = "string"
                     else
