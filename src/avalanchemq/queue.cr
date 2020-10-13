@@ -56,7 +56,9 @@ module AvalancheMQ
     @paused = Channel(Nil).new(1)
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
-    rate_stats(%w(ack deliver get publish redeliver reject), %w(message_count unacked_count))
+    rate_stats(
+      %w(ack deliver confirm get get_no_ack publish redeliver reject return_unroutable),
+      %w(message_count unacked_count))
 
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready, unacked
     getter policy : Policy?
