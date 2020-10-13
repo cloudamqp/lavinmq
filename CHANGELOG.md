@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.7] - 2020-10-13
+
+### Fixed
+- Send heartbeats at heartbeat timeout / 2
+- UI: Always base64 bodies if not valid utf8
+- HTTP API: Message stats on vhost
+- HTTP API: More stat properites at /api/nodes
+- HTTP API: Allow publishing msgs without body
+
 ## [1.0.0-alpha.6] - 2020-10-13
 
 ### Fixed
