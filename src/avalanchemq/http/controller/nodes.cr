@@ -45,7 +45,7 @@ module AvalancheMQ
           partitions:                  Tuple.new,
           proc_used:                   0,
           run_queue:                   0,
-          sockets_used:                0,
+          sockets_used:                @amqp_server.vhosts.sum { |_, v| v.connections.size }
         })
       end
 
