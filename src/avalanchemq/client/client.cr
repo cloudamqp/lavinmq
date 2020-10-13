@@ -30,7 +30,8 @@ module AvalancheMQ
 
     @connected_at : Int64
     @running = true
-    @last_heartbeat = RoughTime.utc
+    @last_recv_heartbeat = RoughTime.utc
+    @last_sent_heartbeat = RoughTime.utc
     rate_stats(%w(send_oct recv_oct channel_created channel_closed))
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket,
@@ -148,10 +149,11 @@ module AvalancheMQ
     end
 
     private def send_heartbeat
-      if @last_heartbeat + @heartbeat.seconds + 1.seconds < RoughTime.utc
-        @log.debug { "Closing due to missed heartbeat" }
+      if @last_recv_heartbeat + (@heartbeat + 1).seconds < RoughTime.utc
+        @log.info { "Closing due to missed heartbeat" }
         false
       else
+        @last_sent_heartbeat = RoughTime.utc
         send(AMQP::Frame::Heartbeat.new)
       end
     end
@@ -345,8 +347,11 @@ module AvalancheMQ
       when AMQP::Frame::Basic::Recover
         with_channel frame, &.basic_recover(frame)
       when AMQP::Frame::Heartbeat
-        @last_heartbeat = RoughTime.utc
-        send frame
+        @last_recv_heartbeat = RoughTime.utc
+        if @last_sent_heartbeat + (@heartbeat // 2).seconds < RoughTime.utc
+          @last_sent_heartbeat = RoughTime.utc
+          send frame
+        end
       else
         @log.error { "#{frame.inspect}, not implemented" }
         send_not_implemented(frame)
