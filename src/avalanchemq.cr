@@ -144,6 +144,8 @@ if config.amqps_port > 0
   spawn(name: "AMQPS listening on #{config.amqps_port}") do
     if ctx = context
       amqp_server.try &.listen_tls(config.amqp_bind, config.amqps_port, ctx)
+    else
+      log.warn { "Certificate for AMQPS not configured" }
     end
   end
 end
