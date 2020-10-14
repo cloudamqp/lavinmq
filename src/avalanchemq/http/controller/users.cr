@@ -20,12 +20,6 @@ module AvalancheMQ
         not_found(context, "Not Found") if u.nil? || u.hidden?
         u
       end
-
-      private def at_least_one_of(body, fields)
-        return false if body.as_h?.nil?
-
-        fields.any? { |field| body[field]? }
-      end
     end
 
     class UsersController < Controller
@@ -74,9 +68,7 @@ module AvalancheMQ
           name = params["name"]
           bad_request(context, "Illegal user name") if UserStore.hidden?(name)
           body = parse_body(context)
-          unless at_least_one_of(body, %w(password_hash password))
-            bad_request(context, "Field  'password_hash' or 'password' is required when updating existing user")
-          end
+          bad_request(context) unless body.as_h?
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s)
@@ -95,6 +87,8 @@ module AvalancheMQ
               @amqp_server.users.add(name, password_hash, hashing_alogrithm, tags)
             elsif password
               @amqp_server.users.create(name, password, tags)
+            else
+              bad_request(context, "Field 'password_hash' or 'password' is required when creating new user")
             end
             context.response.status_code = 201
           end

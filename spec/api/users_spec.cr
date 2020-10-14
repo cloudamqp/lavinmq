@@ -128,7 +128,7 @@ describe AvalancheMQ::HTTP::UsersController do
       response = put("/api/users/foo", body: "\"{}\"")
       response.status_code.should eq 400
       body = JSON.parse(response.body)
-      body["reason"].as_s.should match(/Field .+ is required/)
+      body["reason"].as_s.should eq "Bad request"
     end
   end
 
