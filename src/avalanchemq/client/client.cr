@@ -137,7 +137,7 @@ module AvalancheMQ
     ensure
       cleanup
       close_socket
-      @log.debug { "read_loop exited" }
+      @log.info { "Closed" }
     end
 
     private def frame_size_ok?(frame) : Bool
@@ -155,9 +155,7 @@ module AvalancheMQ
         recv_ago = (now - last_recv_heartbeat).total_seconds.round(1)
         sent_ago = (now - @last_sent_heartbeat).total_seconds.round(1)
         @log.info { "Heartbeat timeout (#{@heartbeat}), last seen #{recv_ago} s ago, sent heartbeat #{sent_ago} s ago" }
-        @last_sent_heartbeat = now
-        # don't close connections, rely on TCP keepalive instead
-        send AMQP::Frame::Heartbeat.new
+        false
       else
         @last_sent_heartbeat = now
         send AMQP::Frame::Heartbeat.new
@@ -295,6 +293,7 @@ module AvalancheMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def process_frame(frame) : Nil
+      @last_recv_heartbeat = RoughTime.utc
       @recv_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Channel::Open
@@ -353,7 +352,7 @@ module AvalancheMQ
       when AMQP::Frame::Basic::Recover
         with_channel frame, &.basic_recover(frame)
       when AMQP::Frame::Heartbeat
-        @last_recv_heartbeat = RoughTime.utc
+        # don't reply with a heartbeat if we just sent one
         if @last_sent_heartbeat + (@heartbeat // 2).seconds < RoughTime.utc
           @last_sent_heartbeat = RoughTime.utc
           send frame
