@@ -45,6 +45,7 @@ jobs:
       - name: Install Crystal
         run: |
           wget https://crystal-lang.org/install.sh
+          chmod +x install.sh
           sudo ./install.sh --crystal=0.35.1
 
       - name: Checkout
