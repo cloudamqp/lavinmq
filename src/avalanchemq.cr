@@ -22,6 +22,9 @@ p = OptionParser.parse do |parser|
   parser.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
     config.amqps_port = v.to_i
   end
+  parser.on("--proxy-protocol=PROTOCOL", "which PROXY protocol version to use (default: none)") do |v|
+    config.proxy_protocol = v.to_i
+  end
   parser.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
     config.amqp_bind = v
   end
@@ -136,7 +139,7 @@ end
 
 if config.amqp_port > 0
   spawn(name: "AMQP listening on #{config.amqp_port}") do
-    amqp_server.try &.listen(config.amqp_bind, config.amqp_port)
+    amqp_server.try &.listen(config.amqp_bind, config.amqp_port, config.proxy_protocol)
   end
 end
 

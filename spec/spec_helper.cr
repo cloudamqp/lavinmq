@@ -94,7 +94,7 @@ module TestHelpers
     @@s = AvalancheMQ::Server.new(dir, log.dup)
     @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, log.dup)
     @@h.not_nil!.bind_tcp(cfg.http_bind, cfg.http_port)
-    spawn { @@s.try &.listen(cfg.amqp_bind, cfg.amqp_port) }
+    spawn { @@s.try &.listen(cfg.amqp_bind, cfg.amqp_port, cfg.proxy_protocol) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
     ctx = OpenSSL::SSL::Context::Server.new

@@ -49,16 +49,35 @@ module AvalancheMQ
       @vhosts[vhost_name].connections
     end
 
-    def listen(bind = "::", port = 5672)
+    def listen(bind = "::", port = 5672, proxy_protocol_version = 0)
       s = TCPServer.new(bind, port)
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
+        remote_addr = client.remote_address
+        local_addr = client.local_address
         client.sync = false
         client.read_buffering = true
         set_socket_options(client)
-        spawn handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection"
+
+        if proxy_protocol_version > 0
+          proxyheader =
+            begin
+              case proxy_protocol_version
+              when 1 then ProxyProtocol::V1.parse(client)
+              else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+              end
+            rescue ex
+              @log.info { "Error accepting TCP socket: #{ex.inspect}" }
+              client.close
+              next
+            end
+          remote_addr = proxyheader.src
+          local_addr = proxyheader.dst
+        end
+
+        spawn handle_connection(client, remote_addr, local_addr), name: "Server#handle_connection"
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect}"

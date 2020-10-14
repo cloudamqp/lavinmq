@@ -7,6 +7,7 @@ module AvalancheMQ
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
+    property proxy_protocol = 0
     property unix_path = ""
     property tls_cert_path = ""
     property tls_key_path = ""
@@ -80,15 +81,16 @@ module AvalancheMQ
     private def parse_amqp(settings)
       settings.each do |config, v|
         case config
-        when "bind"        then @amqp_bind = v
-        when "port"        then @amqp_port = v.to_i32
-        when "tls_port"    then @amqps_port = v.to_i32
-        when "tls_cert"    then @tls_cert_path = v # backward compatibility
-        when "tls_key"     then @tls_key_path = v  # backward compatibility
-        when "unix_path"   then @unix_path = v
-        when "heartbeat"   then @heartbeat = v.to_u16
-        when "channel_max" then @channel_max = v.to_u16
-        when "frame_max"   then @frame_max = v.to_u32
+        when "bind"           then @amqp_bind = v
+        when "port"           then @amqp_port = v.to_i32
+        when "tls_port"       then @amqps_port = v.to_i32
+        when "tls_cert"       then @tls_cert_path = v # backward compatibility
+        when "tls_key"        then @tls_key_path = v  # backward compatibility
+        when "proxy_protocol" then @proxy_protocol = v.to_i32
+        when "unix_path"      then @unix_path = v
+        when "heartbeat"      then @heartbeat = v.to_u16
+        when "channel_max"    then @channel_max = v.to_u16
+        when "frame_max"      then @frame_max = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end
