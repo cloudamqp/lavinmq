@@ -97,6 +97,7 @@ module AvalancheMQ
         peer_host:         @remote_address.address,
         peer_port:         @remote_address.port,
         name:              @name,
+        pid:               @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
         tls_version:       @socket.is_a?(OpenSSL::SSL::Socket) ? @socket.as(OpenSSL::SSL::Socket).tls_version : nil,
         cipher:            @socket.is_a?(OpenSSL::SSL::Socket) ? @socket.as(OpenSSL::SSL::Socket).cipher : nil,
@@ -394,7 +395,7 @@ module AvalancheMQ
       @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
-      @events.send(EventType::ConnectionClosed)
+      @events.send(EventType::ConnectionClosed) unless @events.closed?
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
     end
