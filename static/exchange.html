@@ -166,7 +166,6 @@
             el.textContent = key + " = " + item.arguments[key]; 
             argList.appendChild(el)
           })
-          console.log(argList)
           avalanchemq.dom.setChild('#e-arguments', argList)
           if (item.policy) {
             const policyLink = document.createElement('a')
