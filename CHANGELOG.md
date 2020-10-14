@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.8] - 2020-10-14
+
+### Fixed
+- All frames are counted as heartbeats, but we also make sure to send heartbeats if we only receive traffic
+- Regression where only the first exchange to exchange binding was respected
+
+### Added
+- UI: Show exchange arguments
+
 ## [1.0.0-alpha.7] - 2020-10-13
 
 ### Fixed
