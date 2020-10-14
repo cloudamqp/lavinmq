@@ -122,7 +122,7 @@ module AvalancheMQ
 
       MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
 
-      def next_msg_headers(frame)
+      def next_msg_headers(frame, ts)
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
         raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         valid_expiration?(frame) || return
@@ -141,16 +141,16 @@ module AvalancheMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish(@next_msg_body) if frame.body_size.zero?
+        finish_publish(@next_msg_body, ts) if frame.body_size.zero?
       end
 
-      def add_content(frame)
+      def add_content(frame, ts)
         if @next_publish_exchange_name.nil? || @next_msg_props.nil?
           frame.body.skip(frame.body_size)
           raise Error::UnexpectedFrame.new(frame)
         end
         if frame.body_size == @next_msg_size
-          finish_publish(frame.body)
+          finish_publish(frame.body, ts)
         else
           copied = IO.copy(frame.body, @next_msg_body, frame.body_size)
           @next_msg_body_pos += copied
@@ -160,7 +160,7 @@ module AvalancheMQ
           if @next_msg_body_pos == @next_msg_size
             @next_msg_body.rewind
             begin
-              finish_publish(@next_msg_body)
+              finish_publish(@next_msg_body, ts)
             ensure
               @next_msg_body.truncate
               @next_msg_body.rewind
@@ -189,9 +189,8 @@ module AvalancheMQ
         @client.vhost.flow?
       end
 
-      private def finish_publish(body_io)
+      private def finish_publish(body_io, ts)
         @publish_count += 1
-        ts = RoughTime.utc
         props = @next_msg_props.not_nil!
         props.timestamp ||= ts if Config.instance.set_timestamp
         msg = Message.new(ts.to_unix * 1000,

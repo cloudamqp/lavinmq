@@ -22,16 +22,17 @@ module AvalancheMQ
     getter remote_address
     getter max_frame_size : UInt32
     getter channel_max : UInt16
-    getter heartbeat : UInt16
+    getter heartbeat_timeout : UInt16
     getter auth_mechanism : String
     getter client_properties : AMQP::Table
     getter direct_reply_consumer_tag : String?
     getter log : Logger
 
     @connected_at : Int64
+    @heartbeat_interval : Time::Span?
     @running = true
-    @last_recv_heartbeat = RoughTime.utc
-    @last_sent_heartbeat = RoughTime.utc
+    @last_recv_frame = RoughTime.utc
+    @last_sent_frame = RoughTime.utc
     rate_stats(%w(send_oct recv_oct channel_created channel_closed))
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket,
@@ -45,7 +46,8 @@ module AvalancheMQ
       @log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
       @channel_max = tune_ok.channel_max
-      @heartbeat = tune_ok.heartbeat
+      @heartbeat_timeout = tune_ok.heartbeat
+      @heartbeat_interval = tune_ok.heartbeat.zero? ? nil : (tune_ok.heartbeat / 2).seconds
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
       @client_properties = start_ok.client_properties
@@ -67,7 +69,7 @@ module AvalancheMQ
         connected_at:      @connected_at,
         type:              "network",
         channel_max:       @channel_max,
-        timeout:           @heartbeat,
+        timeout:           @heartbeat_timeout,
         client_properties: @client_properties,
         vhost:             @vhost.name,
         user:              @user.name,
@@ -85,8 +87,9 @@ module AvalancheMQ
 
     private def read_loop
       i = 0
+      socket = @socket
       loop do
-        AMQP::Frame.from_io(@socket) do |frame|
+        AMQP::Frame.from_io(socket) do |frame|
           {% unless flag?(:release) %}
             @log.debug { "Received #{frame.inspect}" }
           {% end %}
@@ -150,14 +153,12 @@ module AvalancheMQ
 
     private def send_heartbeat
       now = RoughTime.utc
-      last_recv_heartbeat = @last_recv_heartbeat
-      if last_recv_heartbeat + (@heartbeat + 5).seconds < now
-        recv_ago = (now - last_recv_heartbeat).total_seconds.round(1)
-        sent_ago = (now - @last_sent_heartbeat).total_seconds.round(1)
-        @log.info { "Heartbeat timeout (#{@heartbeat}), last seen #{recv_ago} s ago, sent heartbeat #{sent_ago} s ago" }
+      if @last_recv_frame + (@heartbeat_timeout + 5).seconds < now
+        recv_ago = (now - @last_recv_frame).total_seconds.round(1)
+        sent_ago = (now - @last_sent_frame).total_seconds.round(1)
+        @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{recv_ago} s ago, sent frame #{sent_ago} s ago" }
         false
       else
-        @last_sent_heartbeat = now
         send AMQP::Frame::Heartbeat.new
       end
     end
@@ -168,9 +169,11 @@ module AvalancheMQ
         @log.debug { "Send #{frame.inspect}" }
       {% end %}
       @write_lock.synchronize do
-        @socket.write_bytes frame, IO::ByteFormat::NetworkEndian
-        @socket.flush
+        s = @socket
+        s.write_bytes frame, IO::ByteFormat::NetworkEndian
+        s.flush
       end
+      @last_sent_frame = RoughTime.utc
       @send_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Connection::CloseOk
@@ -207,16 +210,17 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       @write_lock.synchronize do
+        socket = @socket
         {% unless flag?(:release) %}
           @log.debug { "Send #{frame.inspect}" }
         {% end %}
-        @socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+        socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
         {% unless flag?(:release) %}
           @log.debug { "Send #{header.inspect}" }
         {% end %}
-        @socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
+        socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         @send_oct_count += 8_u64 + header.bytesize
         pos = 0
         while pos < msg.size
@@ -230,12 +234,12 @@ module AvalancheMQ
                  in Message
                    AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
                  end
-          @socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
+          socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
           @send_oct_count += 8_u64 + body.bytesize
           pos += length
         end
-        # @log.debug { "Flushing" }
-        @socket.flush
+        socket.flush
+        @last_sent_frame = RoughTime.utc
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
@@ -293,7 +297,7 @@ module AvalancheMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def process_frame(frame) : Nil
-      @last_recv_heartbeat = RoughTime.utc
+      @last_recv_frame = now = RoughTime.utc
       @recv_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Channel::Open
@@ -332,9 +336,9 @@ module AvalancheMQ
       when AMQP::Frame::Basic::Publish
         start_publish(frame)
       when AMQP::Frame::Header
-        with_channel frame, &.next_msg_headers(frame)
+        with_channel frame, &.next_msg_headers(frame, now)
       when AMQP::Frame::Body
-        with_channel frame, &.add_content(frame)
+        with_channel frame, &.add_content(frame, now)
       when AMQP::Frame::Basic::Consume
         consume(frame)
       when AMQP::Frame::Basic::Get
@@ -352,14 +356,15 @@ module AvalancheMQ
       when AMQP::Frame::Basic::Recover
         with_channel frame, &.basic_recover(frame)
       when AMQP::Frame::Heartbeat
-        # don't reply with a heartbeat if we just sent one
-        if @last_sent_heartbeat + (@heartbeat // 2).seconds < RoughTime.utc
-          @last_sent_heartbeat = RoughTime.utc
-          send frame
-        end
+        nil
       else
         @log.error { "#{frame.inspect}, not implemented" }
         send_not_implemented(frame)
+      end
+      if heartbeat_interval = @heartbeat_interval
+        if @last_sent_frame + heartbeat_interval < now
+          send AMQP::Frame::Heartbeat.new
+        end
       end
     rescue frame : Error::UnexpectedFrame
       @log.error { "#{frame.inspect}, unexpected frame" }
