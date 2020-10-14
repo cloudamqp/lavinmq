@@ -35,6 +35,10 @@
             <td id="e-features"></td>
           </tr>
           <tr>
+            <th>Arguments</th>
+            <td id="e-arguments"></td>
+          </tr>
+          <tr>
             <th>Policy</th>
             <td id="e-policy"></td>
           </tr>
@@ -153,6 +157,17 @@
           document.getElementById('e-features').textContent = features
           document.getElementById('e-type').textContent = item.type
           document.querySelector('#exchange').textContent = exchange + ' in virtual host ' + item.vhost
+          let argList = document.createElement('div')
+          let args = Object.keys(item.arguments).forEach(key => { 
+            if (key == 'x-delayed-exchange' && item.arguments[key] === false) {
+              return
+            }
+            let el = document.createElement('div');
+            el.textContent = key + " = " + item.arguments[key]; 
+            argList.appendChild(el)
+          })
+          console.log(argList)
+          avalanchemq.dom.setChild('#e-arguments', argList)
           if (item.policy) {
             const policyLink = document.createElement('a')
             policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
