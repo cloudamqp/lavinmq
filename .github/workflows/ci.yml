@@ -43,7 +43,9 @@ jobs:
           sudo apt-get install -y libsystemd-dev pkg-config tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev python-is-python3 python3
 
       - name: Install Crystal
-        run: sudo snap install crystal --classic
+        run: |
+          wget https://crystal-lang.org/install.sh
+          sudo ./install.sh --crystal=0.35.1
 
       - name: Checkout
         uses: actions/checkout@v2

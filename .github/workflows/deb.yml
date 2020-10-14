@@ -9,11 +9,13 @@ jobs:
         os: [ubuntu-18.04, ubuntu-20.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Crystal
-        run: sudo snap install crystal --classic
-
       - name: Install dependencies
         run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian build-essential gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev
+
+      - name: Install Crystal
+        run: |
+          wget https://crystal-lang.org/install.sh
+          sudo ./install.sh --crystal=0.35.1
 
       - name: Checkout
         uses: actions/checkout@v2
