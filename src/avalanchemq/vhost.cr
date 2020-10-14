@@ -157,8 +157,9 @@ module AvalancheMQ
         queues.add? q
       end
 
+      visited.add(ex)
       ex.exchange_matches(routing_key, headers) do |e2e|
-        if visited.add?(ex)
+        if visited.add?(e2e)
           find_all_queues(e2e, routing_key, headers, visited, queues)
         end
       end
