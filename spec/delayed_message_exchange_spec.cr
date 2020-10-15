@@ -48,9 +48,8 @@ describe "Delayed Message Exchange" do
       x.publish "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
       queue = s.vhosts["/"].queues[q_name]
       queue.message_count.should eq 0
-      wait_for(5.seconds) { queue.message_count == 1 }
+      wait_for { queue.message_count == 2 }
       q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("delay-short")
-      wait_for { queue.message_count == 1 }
       q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("delay-long")
     end
   ensure
