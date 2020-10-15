@@ -19,7 +19,7 @@ module AvalancheMQ
     property heartbeat = 0_u16                   # second
     property frame_max = 1048576_u32             # bytes
     property channel_max = 2048_u16              # number
-    property segment_size : Int32 = 32 * 1024**2 # byte
+    property segment_size : Int32 = 1024**3      # byte
     property gc_segments_interval = 60           # second
     property queue_max_acks = 2_000_000          # number of message
     property stats_interval = 5000               # millisecond
