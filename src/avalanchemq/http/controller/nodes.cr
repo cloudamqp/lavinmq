@@ -56,9 +56,9 @@ module AvalancheMQ
         end
 
         get "/api/nodes/:name" do |context, params|
-          n = nodes_info.find { |n| n[:name] == params["name"] }
-          context.response.status_code = 404 unless n
-          n.to_json(context.response) if n
+          node = nodes_info.find { |n| n[:name] == params["name"] }
+          context.response.status_code = 404 unless node
+          node.to_json(context.response) if node
           context
         end
       end
