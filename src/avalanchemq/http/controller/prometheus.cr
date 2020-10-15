@@ -72,4 +72,3 @@ module AvalancheMQ
     end
   end
 end
-
