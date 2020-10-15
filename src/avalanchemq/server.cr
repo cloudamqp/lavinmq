@@ -109,19 +109,21 @@ module AvalancheMQ
         client.read_buffering = true
         client.write_timeout = 15
         client.buffer_size = Config.instance.socket_buffer_size
-        proxyheader =
-          begin
-            case proxy_protocol_version
-            when 0 then ProxyProtocol::Header.local
-            when 1 then ProxyProtocol::V1.parse(client)
-            else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+        spawn(name: "Server#handle_connection(unix)") do
+          proxyheader =
+            begin
+              case proxy_protocol_version
+              when 0 then ProxyProtocol::Header.local
+              when 1 then ProxyProtocol::V1.parse(client)
+              else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
+              end
+            rescue ex
+              @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
+              client.close
+              next
             end
-          rescue ex
-            @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
-            client.close
-            next
-          end
-        spawn handle_connection(client, proxyheader.src, proxyheader.dst), name: "Server#handle_connection(unix)"
+          handle_connection(client, proxyheader.src, proxyheader.dst)
+        end
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in unix listener: #{ex.inspect}"
