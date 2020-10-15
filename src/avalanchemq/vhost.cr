@@ -717,7 +717,7 @@ module AvalancheMQ
         if sp = @referenced_sps.bsearch { |x| x.segment >= seg }
           if sp.segment != seg
             @log.info { "Deleting segment #{seg}" }
-            deleted_bytes += mfile.size
+            deleted_bytes += mfile.disk_usage
             mfile.close(truncate_to_size: false)
             mfile.delete
             @segment_holes.delete(mfile)
