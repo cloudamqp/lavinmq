@@ -35,7 +35,7 @@ describe AvalancheMQ::DurableQueue do
     end
   end
 
-  it "GC message index when msgs are dead-lettered" do
+  pending "GC message index when msgs are dead-lettered" do
     sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
     max_acks = AvalancheMQ::Config.instance.queue_max_acks
     with_channel do |ch|
@@ -63,7 +63,7 @@ describe AvalancheMQ::DurableQueue do
 end
 
 describe AvalancheMQ::VHost do
-  it "GC segments" do
+  pending "GC segments" do
     vhost = s.vhosts["/"]
     vhost.queues.each_value &.delete
     vhost.queues.clear
