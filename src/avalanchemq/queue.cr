@@ -673,6 +673,7 @@ module AvalancheMQ
 
     private def expire_queue(now = Time.monotonic) : Bool
       return false unless @consumers.empty?
+      @log.debug "Expired"
       @vhost.delete_queue(@name)
       true
     end

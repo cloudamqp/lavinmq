@@ -130,7 +130,6 @@ module AvalancheMQ
     def delete
       terminate
       @vhost.delete_parameter("shovel", @name)
-      @log.info { "Shovel=#{@name} Deleted" }
     end
 
     def terminated?
