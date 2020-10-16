@@ -658,36 +658,37 @@ module AvalancheMQ
       segments
     end
 
-    @referenced_sps = Array(SegmentPosition).new(1_000_000)
-
     private def gc_segments_loop
       # Don't gc all vhosts at the same time
       sleep Random.rand(Config.instance.gc_segments_interval)
+      # save some memory if the vhost was created and deleted fast
+      return if @closed
+      referenced_sps = Array(SegmentPosition).new(1_000_000)
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         gc_log("collecting sps") do
-          collect_sps
+          collect_sps(referenced_sps)
         end
         gc_log("delete unused segs") do
-          delete_unused_segments
+          delete_unused_segments(referenced_sps)
         end
 
         {% if flag?(:linux) %}
           gc_log("hole punching") do
-            hole_punch_segments
+            hole_punch_segments(referenced_sps)
           end
         {% end %}
 
         # If less than half the capacity is used, recreate to reclaim RAM
-        current_capacity = @referenced_sps.capacity
-        new_capacity = Math.max(1_000_000, @referenced_sps.size)
-        if (new_capacity < current_capacity) && (current_capacity > @referenced_sps.size * 2)
+        current_capacity = referenced_sps.capacity
+        new_capacity = Math.max(1_000_000, referenced_sps.size)
+        if (new_capacity < current_capacity) && (current_capacity > referenced_sps.size * 2)
           @log.debug { "Reclaim sp reference memory from #{current_capacity} to #{new_capacity}" }
-          @referenced_sps = Array(SegmentPosition).new(new_capacity)
+          referenced_sps = Array(SegmentPosition).new(new_capacity)
           GC.collect
         else
-          @referenced_sps.clear
+          referenced_sps.clear
         end
       end
     end
@@ -698,23 +699,23 @@ module AvalancheMQ
       @log.info { "GC segments, #{desc} took #{elapsed.total_milliseconds} ms" }
     end
 
-    private def collect_sps : Nil
+    private def collect_sps(referenced_sps) : Nil
       @exchanges.each_value do |ex|
-        ex.referenced_sps(@referenced_sps)
+        ex.referenced_sps(referenced_sps)
       end
       @queues.each_value do |q|
-        q.unacked.copy_to @referenced_sps
-        q.ready.copy_to @referenced_sps
+        q.unacked.copy_to referenced_sps
+        q.ready.copy_to referenced_sps
       end
-      @referenced_sps.sort!
+      referenced_sps.sort!
     end
 
-    private def delete_unused_segments : Nil
+    private def delete_unused_segments(referenced_sps) : Nil
       @log.debug "Garbage collecting segments"
       deleted_bytes = 0_u64
       @segments.delete_if do |seg, mfile|
         next if mfile == @wfile
-        if sp = @referenced_sps.bsearch { |x| x.segment >= seg }
+        if sp = referenced_sps.bsearch { |x| x.segment >= seg }
           if sp.segment != seg
             @log.info { "Deleting segment #{seg}" }
             deleted_bytes += mfile.disk_usage
@@ -734,14 +735,14 @@ module AvalancheMQ
       @log.debug { "#{@segments.size} segments on disk" }
     end
 
-    private def hole_punch_segments : Nil
+    private def hole_punch_segments(referenced_sps) : Nil
       @log.debug { "Hole punching segments" }
 
       punched = 0_u64
       file = nil
       prev_sp = SegmentPosition.zero
       prev_sp_end = sizeof(Int32).to_u32 # start after schema version prefix
-      @referenced_sps.each do |sp|
+      referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
         # if the last segment was the same as this
@@ -754,9 +755,9 @@ module AvalancheMQ
             @log.info { "prev_sp: #{prev_sp} sp: #{sp.inspect}, file nil" }
           end
         else # dealing with a new segment
-          # punch to the end of the last file
+          # truncate the previous file
           if f = file
-            punched += punch_hole(f, prev_sp_end, f.size)
+            punched += f.truncate(prev_sp_end)
           end
 
           file = @segments[sp.segment]
@@ -769,8 +770,9 @@ module AvalancheMQ
         prev_sp = sp
       end
 
-      if file && prev_sp.segment != @segments.last_key
-        punched += punch_hole(file, prev_sp_end, file.size)
+      # truncate the last opened segment to last message
+      if file && file != @wfile
+        punched += file.truncate(prev_sp_end)
       end
 
       @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
