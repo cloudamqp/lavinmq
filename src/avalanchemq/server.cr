@@ -15,27 +15,36 @@ require "./chained_logger"
 require "./config"
 require "./proxy_protocol"
 require "./client/client"
+require "./stats"
 
 module AvalancheMQ
   class Server
     getter vhosts, users, data_dir, log, parameters
     getter? closed, flow
-    alias ConnectionsEvents = Channel(Tuple(Client, Symbol))
+    alias ChurnEvents = Channel(Tuple(Symbol, UInt32))
     include ParameterTarget
+    include Stats
+    getter channel_closed_log, channel_created_log, connection_closed_log, connection_created_log,
+           queue_declared_log, queue_deleted_log
 
     @start = Time.monotonic
     @closed = false
     @flow = true
+    rate_stats(%w(channel_closed channel_created connection_closed connection_created
+                  queue_declared queue_deleted))
+
 
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket::Server).new(3)
       @users = UserStore.instance(@data_dir, @log)
-      @vhosts = VHostStore.new(@data_dir, @log, @users)
+      @churn_events = ChurnEvents.new
+      @vhosts = VHostStore.new(@data_dir, @log, @users, @churn_events)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+      spawn churn_events, name: "Server#churn_events"
     end
 
     def connections
@@ -228,15 +237,25 @@ module AvalancheMQ
       socket.write_timeout = 15
     end
 
+    private def churn_events
+      loop do
+        event = @churn_events.receive
+        case event[0]
+          when :channel_closed      then @channel_closed_count += event[1]
+          when :channel_created     then @channel_created_count += event[1]
+          when :connection_closed   then @connection_closed_count += event[1]
+          when :connection_created  then @connection_created_count += event[1]
+          when :queue_declared      then @queue_declared_count += event[1]
+          when :queue_deleted       then @queue_deleted_count += event[1]
+        end
+      end
+    end
+
     private def stats_loop
       statm = File.open("/proc/self/statm") if File.exists?("/proc/self/statm")
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
-        {% for sm in SERVER_METRICS %}
-          @{{sm.id}}_count = 0_u64
-          @{{sm.id}}_rate = 0_f64
-        {% end %}
 
         @vhosts.each_value do |vhost|
           vhost.queues.each_value(&.update_rates)
@@ -244,19 +263,9 @@ module AvalancheMQ
           vhost.connections.each do |connection|
             connection.update_rates
             connection.channels.each_value(&.update_rates)
-            stats = connection.stats_details
-            @channel_created_count += stats["channel_created"]
-            @channel_created_rate += stats["channel_created_details"]["rate"]
-            @channel_closed_count += stats["channel_closed"]
-            @channel_closed_rate += stats["channel_closed_details"]["rate"]
           end
-          vhost.update_rates
-          stats = vhost.stats_details
-          {% for item in %w(connection_created connection_closed queue_declared queue_deleted) %}
-            @{{item.id}}_count += stats["{{item.id}}"]
-            @{{item.id}}_rate += stats["{{item.id}}_details"]["rate"]
-          {% end %}
         end
+        update_rates()
 
         interval = Config.instance.stats_interval.milliseconds.to_i
         log_size = Config.instance.stats_log_size
