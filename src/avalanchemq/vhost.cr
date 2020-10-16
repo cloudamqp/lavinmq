@@ -21,12 +21,10 @@ require "./reference_counter"
 require "./mfile"
 require "./queue_factory"
 require "./schema"
-require "./stats"
 
 module AvalancheMQ
   class VHost
     include SortableJSON
-    include Stats
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
       log, shovels, direct_reply_channels, upstreams, default_user,
@@ -50,10 +48,8 @@ module AvalancheMQ
                         x-federation-upstream x-delayed-message
                         x-consistent-hash)
 
-    rate_stats(%w(connection_created connection_closed queue_declared queue_deleted))
-
     def initialize(@name : String, @server_data_dir : String,
-                   @log : Logger, @default_user : User)
+                   @log : Logger, @default_user : User, @churn_events : Server::ChurnEvents)
       @log.progname = "vhost=#{@name}"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -364,7 +360,7 @@ module AvalancheMQ
       when AMQP::Frame::Queue::Declare
         return false if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] = QueueFactory.make(self, f)
-        @queue_declared_count += 1
+        @churn_events.send({:queue_declared, 1_u32})
         apply_policies([q] of Queue) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
@@ -373,7 +369,7 @@ module AvalancheMQ
               ex.unbind(q, *binding_args) if destinations.includes?(q)
             end
           end
-          @queue_deleted_count += 1
+          @churn_events.send({:queue_deleted, 1_u32})
           q.delete
         else
           return false
@@ -409,11 +405,12 @@ module AvalancheMQ
     end
 
     def add_connection(client : Client)
+      client.churn_events = @churn_events
       @connections << client
-      @connection_created_count += 1
+      @churn_events.send({ :connection_created, 1_u32})
       client.on_close do |c|
         @connections.delete c
-        @connection_closed_count += 1
+        @churn_events.send({ :connection_closed, 1_u32})
       end
     end
 
