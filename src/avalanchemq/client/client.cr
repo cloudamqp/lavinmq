@@ -55,7 +55,7 @@ module AvalancheMQ
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
-      @log.debug "Connected"
+      @log.info "Connected as user #{@user.name}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -140,7 +140,7 @@ module AvalancheMQ
     ensure
       cleanup
       close_socket
-      @log.info { "Closed" }
+      @log.info { "Connection closed (user=#{@user.name})" }
     end
 
     private def frame_size_ok?(frame) : Bool
