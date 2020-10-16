@@ -321,7 +321,7 @@ module AvalancheMQ
     {% end %}
 
     private def control_flow!
-      if @disk_free < Config.instance.segment_size * 2
+      if @disk_free < 2_i64 * Config.instance.segment_size
         if flow?
           @log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
           flow(false)
@@ -329,7 +329,7 @@ module AvalancheMQ
       elsif !flow?
         @log.info { "Not low on disk space, starting flow" }
         flow(true)
-      elsif @disk_free < Config.instance.segment_size * 3
+      elsif @disk_free < 3_i64 * Config.instance.segment_size
         @log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
