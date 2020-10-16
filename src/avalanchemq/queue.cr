@@ -740,13 +740,10 @@ module AvalancheMQ
       msg = BytesMessage.new(ts, ex, rk, pr, sz, body)
       redelivered = @requeued.includes?(sp)
       Envelope.new(sp, msg, redelivered)
-    rescue ex : IO::Error
+    rescue ex
       @log.error { "Message #{sp} not found, possible message loss. #{ex.inspect}" }
       @ready.delete(sp)
       delete_message sp
-      raise ex
-    rescue ex
-      @log.error "Error reading message at #{sp}: #{ex.inspect_with_backtrace}"
       raise ex
     ensure
       @requeued.delete(sp) if redelivered
