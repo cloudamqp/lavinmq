@@ -438,11 +438,8 @@ module AvalancheMQ
       else
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
-<<<<<<< HEAD
-=======
       @channel_closed_count += @channels.size
       @log.info { "Connection=#{@name} disconnected" }
->>>>>>> 46ab04f1... updated logs to be consistent
       @running = false
     end
 

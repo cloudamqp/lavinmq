@@ -38,7 +38,7 @@ module AvalancheMQ
       end
       user = User.create(name, password, "Bcrypt", tags)
       @users[name] = user
-      @log.info { "User=#{name} Created" }
+      @log.info { "user=#{name} Created" }
       save! if save
       user
     end
@@ -55,6 +55,7 @@ module AvalancheMQ
       perm = {config: config, read: read, write: write}
       @users[user].permissions[vhost] = perm
       @users[user].invalidate_acl_caches
+      @log.info("Updated permissions to vhost=#{vhost} for user=#{user}")
       save!
       perm
     end
@@ -62,6 +63,7 @@ module AvalancheMQ
     def rm_permission(user, vhost)
       if perm = @users[user].permissions.delete vhost
         @users[user].invalidate_acl_caches
+        @log.info("Removed permissions to vhost=#{vhost} for user=#{user}")
         save!
         perm
       end
@@ -79,7 +81,7 @@ module AvalancheMQ
     def delete(name, save = true) : User?
       return if name == DIRECT_USER
       if user = @users.delete name
-        @log.info { "User=#{name} Deleted" }
+        @log.info { "user=#{name} Deleted" }
         save! if save
         user
       end
