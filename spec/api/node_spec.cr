@@ -43,5 +43,24 @@ describe AvalancheMQ::HTTP::NodesController do
       data["queue_declared"].as_i.should eq (declared_queues + 1)
       data["queue_deleted"].as_i.should eq (deleted_queues + 1)
     end
+
+    it "should not delete stats when connection is closed" do
+      with_channel do
+        sleep 5.1 # Let stats_loop run once
+        response = get("/api/nodes")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        data = body.as_a.first.as_h
+        data["channel_created"].as_i.should eq 1
+        data["channel_closed"].as_i.should eq 0
+      end
+      sleep 5.1 # Let stats_loop run once
+      response = get("/api/nodes")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      data = body.as_a.first.as_h
+      data["channel_created"].as_i.should eq 1
+      data["channel_closed"].as_i.should eq 1
+    end
   end
 end
