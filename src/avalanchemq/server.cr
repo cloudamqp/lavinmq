@@ -246,9 +246,9 @@ module AvalancheMQ
             connection.channels.each_value(&.update_rates)
             stats = connection.stats_details
             @channel_created_count += stats["channel_created"]
-            @channel_created_rate += stats.["channel_created_details"]["rate"]
-            @channel_closed_count += stats.["channel_closed"]
-            @channel_closed_rate += stats.["channel_closed_details"]["rate"]
+            @channel_created_rate += stats["channel_created_details"]["rate"]
+            @channel_closed_count += stats["channel_closed"]
+            @channel_closed_rate += stats["channel_closed_details"]["rate"]
           end
           vhost.update_rates
           stats = vhost.stats_details
