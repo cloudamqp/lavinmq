@@ -70,19 +70,21 @@ module AvalancheMQ
     end
 
     def close : Bool
-      super.tap do |closed|
-        next unless closed
-        @log.debug { "Closing index files" }
-        @ack.close
+      super || return false
+      @log.debug { "Closing index files" }
+      @enq_lock.synchronize do
         @enq.close
       end
+      @ack_lock.synchronize do
+        @ack.close
+      end
+      true
     end
 
     def delete : Bool
-      super.tap do |deleted|
-        next unless deleted
-        FileUtils.rm_rf @index_dir
-      end
+      super || return false
+      FileUtils.rm_rf @index_dir
+      true
     end
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
@@ -116,6 +118,7 @@ module AvalancheMQ
       @enq_lock.synchronize do
         @enq.truncate
         SchemaVersion.prefix(@enq)
+        @enq.fsync(flush_metadata: true)
       end
       @ack_lock.synchronize do
         @ack.truncate
@@ -150,11 +153,10 @@ module AvalancheMQ
           SchemaVersion.verify(enq)
           SchemaVersion.verify(ack)
 
-          ack_count = (ack.size - sizeof(Int32)) // SP_SIZE
+          @acks = ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
           acked = Array(SegmentPosition).new(ack_count)
           loop do
             acked << SegmentPosition.from_io ack
-            @acks += 1
           rescue IO::EOFError
             break
           end
@@ -163,11 +165,11 @@ module AvalancheMQ
           # we redeclare the ready queue with a larger initial capacity
           enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
           capacity = Math.max(enq_count, 1024)
-          @ready = ReadyQueue.new Math.pw2ceil(capacity)
+          @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
           loop do
             sp = SegmentPosition.from_io enq
             next if acked.bsearch { |asp| asp >= sp } == sp
-            @ready << sp
+            ready << sp
           rescue IO::EOFError
             break
           end
