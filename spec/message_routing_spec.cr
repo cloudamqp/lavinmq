@@ -14,7 +14,6 @@ end
 
 describe AvalancheMQ::DirectExchange do
   it "matches exact rk" do
-    log = Logger.new(File.open("/dev/null", "w"))
     vhost = s.vhosts.create("x")
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
     x = AvalancheMQ::DirectExchange.new(vhost, "")
@@ -23,7 +22,6 @@ describe AvalancheMQ::DirectExchange do
   end
 
   it "matches no rk" do
-    log = Logger.new(File.open("/dev/null", "w"))
     vhost = s.vhosts.create("x")
     x = AvalancheMQ::DirectExchange.new(vhost, "")
     x.matches("q1").should be_empty
@@ -32,7 +30,6 @@ end
 
 describe AvalancheMQ::FanoutExchange do
   it "matches any rk" do
-    log = Logger.new(File.open("/dev/null", "w"))
     vhost = s.vhosts.create("x")
     q1 = AvalancheMQ::Queue.new(vhost, "q1")
     x = AvalancheMQ::FanoutExchange.new(vhost, "")
@@ -41,7 +38,6 @@ describe AvalancheMQ::FanoutExchange do
   end
 
   it "matches no rk" do
-    log = Logger.new(File.open("/dev/null", "w"))
     vhost = s.vhosts.create("x")
     x = AvalancheMQ::FanoutExchange.new(vhost, "")
     x.matches("q1").should be_empty
@@ -171,8 +167,6 @@ describe AvalancheMQ::TopicExchange do
 end
 
 describe AvalancheMQ::HeadersExchange do
-  log = Logger.new(STDOUT)
-  log.level = LOG_LEVEL
   vhost = s.vhosts.create("x")
   x = AvalancheMQ::HeadersExchange.new(vhost, "h", false, false, true)
   hdrs_all = {
