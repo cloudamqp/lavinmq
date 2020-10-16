@@ -151,24 +151,20 @@ class MFile < IO
     @buffer
   end
 
-  {% if flag?(:linux) %}
-    PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
-
-    def punch_hole(size : UInt32, offset : UInt32 = 0u32) : UInt32
+  def punch_hole(size : UInt32, offset : UInt32 = 0u32) : UInt32
+    {% if flag?(:linux) %}
       return 0u32 if size < PAGESIZE
       o = offset
 
       # page align offset
-      offset += PAGESIZE - 1
-      offset -= offset & PAGESIZE - 1
+      offset = page_align(offset)
 
       # adjust size accordingly
       size -= offset - o
 
       # page align size too, but downwards
       if size & PAGESIZE - 1 != 0
-        size += PAGESIZE - 1
-        size -= size & PAGESIZE - 1
+        size = page_align(size)
         size -= PAGESIZE
       end
       return 0u32 if size == 0
@@ -178,6 +174,28 @@ class MFile < IO
         raise IO::Error.from_errno("madvise")
       end
       size
-    end
-  {% end %}
+    {% else %}
+      return 0u32 # only linux supports MADV_REMOVE/hole punching
+    {% end %}
+  end
+
+  def truncate(new_size : Int) : Int32
+    new_size = page_align(new_size.to_i32)
+    bytes = @capacity - new_size
+    return 0 if bytes < PAGESIZE # don't bother truncating less than a page
+    code = LibC.munmap(@buffer + new_size, bytes)
+    raise RuntimeError.from_errno("Error unmapping file") if code == -1
+    @capacity = @size = new_size
+    code = LibC.truncate(@path.check_no_null_byte, new_size)
+    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    bytes
+  end
+
+  PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
+
+  private def page_align(n : Int) : Int
+    n += PAGESIZE - 1
+    n -= n & PAGESIZE - 1
+    n
+  end
 end
