@@ -3,8 +3,7 @@ require "./spec_helper"
 describe AvalancheMQ::VHost do
   log = Logger.new(STDOUT)
   log.level = LOG_LEVEL
-
-  vhost = AvalancheMQ::VHost.new("add_policy", "/tmp/spec", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
+  vhost = s.vhosts.create("add_policy")
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
@@ -29,7 +28,7 @@ describe AvalancheMQ::VHost do
   end
 
   it "should be able to list policies" do
-    vhost2 = AvalancheMQ::VHost.new("add_remove_policy", "/tmp/spec_lp", log, AvalancheMQ::User.create("", "", "MD5", [] of AvalancheMQ::Tag))
+    vhost2 = s.vhosts.create("add_remove_policy")
     vhost2.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
     vhost2.delete_policy("test")
     vhost2.policies.size.should eq 0
