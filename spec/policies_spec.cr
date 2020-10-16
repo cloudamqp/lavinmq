@@ -1,8 +1,6 @@
 require "./spec_helper"
 
 describe AvalancheMQ::VHost do
-  log = Logger.new(STDOUT)
-  log.level = LOG_LEVEL
   vhost = s.vhosts.create("add_policy")
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),

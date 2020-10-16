@@ -16,8 +16,6 @@ module ShovelSpecHelpers
 end
 
 describe AvalancheMQ::Shovel do
-  log = Logger.new(STDOUT)
-  log.level = LOG_LEVEL
   vhost = s.vhosts.create("x")
 
   it "should shovel and stop when queue length is met" do
