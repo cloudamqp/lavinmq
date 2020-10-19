@@ -6,10 +6,10 @@ require "systemd"
 require "./avalanchemq/server_cli"
 require "./avalanchemq/reporter"
 
-config_file = ""
-if conf_dir = ENV["ConfigurationDirectory"]?
-  config_file = File.join(conf_dir, "avalanchemq.ini")
-end
+config_dir = ENV.fetch("ConfigurationDirectory", "/etc/avalanchemq")
+config_file = File.join(config_dir, "avalanchemq.ini")
+config_file = "" unless File.exists?(config_file)
+
 config = AvalancheMQ::Config.instance
 
 AvalancheMQ::ServerCLI.new(config, config_file).parse
