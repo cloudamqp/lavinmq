@@ -1,66 +1,14 @@
 require "./avalanchemq/version"
 require "./stdlib/*"
 require "./avalanchemq/config"
-require "option_parser"
 require "file"
-require "ini"
+require "systemd"
+require "./avalanchemq/server_cli"
 
 config_file = ""
 config = AvalancheMQ::Config.instance
 
-p = OptionParser.parse do |parser|
-  parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-  parser.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
-    config.amqp_bind = v
-    config.http_bind = v
-  end
-  parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config_file = v }
-  parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
-  parser.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
-    config.amqp_port = v.to_i
-  end
-  parser.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
-    config.amqps_port = v.to_i
-  end
-  parser.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
-    config.amqp_bind = v
-  end
-  parser.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
-    config.http_port = v.to_i
-  end
-  parser.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
-    config.https_port = v.to_i
-  end
-  parser.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
-    config.http_bind = v
-  end
-  parser.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
-    config.unix_path = v
-  end
-  parser.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
-    config.http_unix_path = v
-  end
-  parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.tls_cert_path = v }
-  parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.tls_key_path = v }
-  parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| config.tls_ciphers = v }
-  parser.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| config.tls_min_version = v }
-  parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-    level = Logger::Severity.parse?(v.to_s)
-    config.log_level = level if level
-  end
-  parser.on("-d", "--debug", "Verbose logging") { config.log_level = Logger::DEBUG }
-  parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
-  parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
-  parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
-end
-
-config.parse(config_file) unless config_file.empty?
-
-if config.data_dir.empty?
-  STDERR.puts "No data directory specified"
-  STDERR.puts p
-  exit 2
-end
+AvalancheMQ::ServerCLI.new(config, config_file).parse
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./avalanchemq/server"
@@ -109,70 +57,100 @@ lock.fsync
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
 amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
+http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
+
+def reload_tls(context, config, log)
+  if tls = context
+    case config.tls_min_version
+    when "1.0"
+      tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
+                         OpenSSL::SSL::Options::NO_TLS_V1_1 |
+                         OpenSSL::SSL::Options::NO_TLS_V1)
+      tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
+    when "1.1"
+      tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
+      tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
+      tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
+    when "1.2", ""
+      tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+      tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+      tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
+    when "1.3"
+      tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+      tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
+    else
+      log.warn { "Unrecognized config value for tls_min_version: '#{config.tls_min_version}'" }
+    end
+    tls.certificate_chain = config.tls_cert_path
+    tls.private_key = config.tls_key_path.empty? ? config.tls_cert_path : config.tls_key_path
+    tls.ciphers = config.tls_ciphers unless config.tls_ciphers.empty?
+  end
+end
 
 context = nil
 if !config.tls_cert_path.empty?
   context = OpenSSL::SSL::Context::Server.new
   context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-  case config.tls_min_version
-  when "1.0"
-    context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
-  when "1.1"
-    context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_1)
-    context.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
-  when "1.2", ""
-    # 1.2 is default
-  when "1.3"
-    context.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-  else
-    log.warn { "Unrecognized config value for tls_min_version: '#{config.tls_min_version}'" }
-  end
+  reload_tls(context, config, log)
+end
 
-  context.certificate_chain = config.tls_cert_path
-  context.private_key = config.tls_key_path.empty? ? config.tls_cert_path : config.tls_key_path
-  context.ciphers = config.tls_ciphers unless config.tls_ciphers.empty?
+SystemD.listen_fds_with_names.each do |fd, name|
+  case name
+  when "avalanchemq.socket", "unknown"
+    case
+    when SystemD.is_tcp_listener?(fd)
+      spawn amqp_server.listen(TCPServer.new(fd: fd)), name: "AMQP server listener"
+    when SystemD.is_unix_stream_listener?(fd)
+      spawn amqp_server.listen(UNIXServer.new(fd: fd)), name: "AMQP server listener"
+    else
+      raise "Unsupported amqp socket type"
+    end
+  when "avalanchemq-http.socket"
+    case
+    when SystemD.is_tcp_listener?(fd)
+      http_server.bind(TCPServer.new(fd: fd))
+    when SystemD.is_unix_stream_listener?(fd)
+      http_server.bind(UNIXServer.new(fd: fd))
+    else
+      raise "Unsupported http socket type"
+    end
+  else
+    puts "unexpected socket via systemd #{fd} '#{name}'"
+  end
 end
 
 if config.amqp_port > 0
-  spawn(name: "AMQP listening on #{config.amqp_port}") do
-    amqp_server.try &.listen(config.amqp_bind, config.amqp_port)
-  end
+  spawn amqp_server.listen(config.amqp_bind, config.amqp_port),
+    name: "AMQP listening on #{config.amqp_port}"
 end
 
 if config.amqps_port > 0
-  spawn(name: "AMQPS listening on #{config.amqps_port}") do
-    if ctx = context
-      amqp_server.try &.listen_tls(config.amqp_bind, config.amqps_port, ctx)
-    else
-      log.warn { "Certificate for AMQPS not configured" }
-    end
+  if ctx = context
+    spawn amqp_server.listen_tls(config.amqp_bind, config.amqps_port, ctx),
+      name: "AMQPS listening on #{config.amqps_port}"
+  else
+    log.warn { "Certificate for AMQPS not configured" }
   end
 end
 
 unless config.unix_path.empty?
-  spawn(name: "AMQP listening at #{config.unix_path}") do
-    amqp_server.try &.listen_unix(config.unix_path)
-  end
+  spawn amqp_server.listen_unix(config.unix_path), name: "AMQP listening at #{config.unix_path}"
 end
 
-if config.http_port > 0 || config.https_port > 0 || !config.http_unix_path.empty?
-  http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
-  if config.http_port > 0
-    http_server.bind_tcp(config.http_bind, config.http_port)
+if config.http_port > 0
+  http_server.bind_tcp(config.http_bind, config.http_port)
+end
+if config.https_port > 0
+  if ctx = context
+    http_server.bind_tls(config.http_bind, config.https_port, ctx)
   end
-  if config.https_port > 0
-    if ctx = context
-      http_server.bind_tls(config.http_bind, config.https_port, ctx)
-    end
-  end
-  unless config.http_unix_path.empty?
-    http_server.bind_unix(config.http_unix_path)
-  end
-  http_server.bind_internal_unix
-  spawn(name: "HTTP listener") do
-    http_server.not_nil!.listen
-  end
+end
+unless config.http_unix_path.empty?
+  http_server.bind_unix(config.http_unix_path)
+end
+http_server.bind_internal_unix
+spawn(name: "HTTP listener") do
+  http_server.not_nil!.listen
 end
 
 macro puts_size_capacity(obj, indent = 0)
@@ -255,31 +233,7 @@ Signal::HUP.trap do
   else
     log.info { "Reloading configuration file '#{config_file}'" }
     config.parse(config_file)
-    if tls = context
-      case config.tls_min_version
-      when "1.0"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
-                           OpenSSL::SSL::Options::NO_TLS_V1_1 |
-                           OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
-      when "1.1"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
-      when "1.2", ""
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
-      when "1.3"
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
-      else
-        log.warn { "Unrecognized config value for tls_min_version: '#{config.tls_min_version}'" }
-      end
-      tls.certificate_chain = config.tls_cert_path
-      tls.private_key = config.tls_key_path.empty? ? config.tls_cert_path : config.tls_key_path
-      tls.ciphers = config.tls_ciphers unless config.tls_ciphers.empty?
-    end
+    reload_tls(context, config, log)
   end
   SystemD.notify("READY=1\n")
 end

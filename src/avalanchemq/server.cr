@@ -49,6 +49,38 @@ module AvalancheMQ
       @vhosts[vhost_name].connections
     end
 
+    def listen(s : TCPServer)
+      @listeners << s
+      @log.info { "Listening on #{s.local_address}" }
+      loop do
+        client = s.accept? || break
+        client.sync = false
+        client.read_buffering = true
+        set_socket_options(client)
+        spawn handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection"
+      end
+    rescue ex : IO::Error
+      abort "Unrecoverable error in listener: #{ex.inspect}"
+    ensure
+      @listeners.delete(s)
+    end
+
+    def listen(s : UNIXServer)
+      @listeners << s
+      @log.info { "Listening on #{s.local_address}" }
+      while client = s.accept?
+        client.sync = false
+        client.read_buffering = true
+        client.write_timeout = 15
+        client.buffer_size = Config.instance.socket_buffer_size
+        spawn(handle_proxied_connection(client), name: "Server#handle_connection(unix)")
+      end
+    rescue ex : IO::Error
+      abort "Unrecoverable error in unix listener: #{ex.inspect}"
+    ensure
+      @listeners.delete(s)
+    end
+
     def listen(bind = "::", port = 5672)
       s = TCPServer.new(bind, port)
       @listeners << s
@@ -98,23 +130,11 @@ module AvalancheMQ
       @listeners.delete(s)
     end
 
-    def listen_unix(path : String, proxy_protocol_version = 1)
+    def listen_unix(path : String)
       File.delete(path) if File.exists?(path)
       s = UNIXServer.new(path)
-      @listeners << s
       File.chmod(path, 0o777)
-      @log.info { "Listening on #{s.local_address}" }
-      while client = s.accept?
-        client.sync = false
-        client.read_buffering = true
-        client.write_timeout = 15
-        client.buffer_size = Config.instance.socket_buffer_size
-        spawn(handle_proxied_connection(client, proxy_protocol_version), name: "Server#handle_connection(unix)")
-      end
-    rescue ex : IO::Error
-      abort "Unrecoverable error in unix listener: #{ex.inspect}"
-    ensure
-      @listeners.delete(s)
+      listen(s)
     end
 
     def close
@@ -182,7 +202,7 @@ module AvalancheMQ
       end
     end
 
-    private def handle_proxied_connection(client, proxy_protocol_version)
+    private def handle_proxied_connection(client, proxy_protocol_version = 1)
       proxyheader =
         begin
           case proxy_protocol_version

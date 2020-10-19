@@ -44,6 +44,11 @@ module AvalancheMQ
         @http = ::HTTP::Server.new(handlers)
       end
 
+      def bind(socket)
+        addr = @http.bind(socket)
+        @log.info { "Bound to #{addr}" }
+      end
+
       def bind_tcp(address, port)
         addr = @http.bind_tcp address, port
         @log.info { "Bound to #{addr}" }
