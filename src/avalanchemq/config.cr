@@ -16,6 +16,7 @@ module AvalancheMQ
     property http_port = 15672
     property https_port = -1
     property http_unix_path = ""
+    property amqp_systemd_socket_name = ""
     property heartbeat = 0_u16                   # second
     property frame_max = 1048576_u32             # bytes
     property channel_max = 2048_u16              # number
@@ -81,15 +82,16 @@ module AvalancheMQ
     private def parse_amqp(settings)
       settings.each do |config, v|
         case config
-        when "bind"        then @amqp_bind = v
-        when "port"        then @amqp_port = v.to_i32
-        when "tls_port"    then @amqps_port = v.to_i32
-        when "tls_cert"    then @tls_cert_path = v # backward compatibility
-        when "tls_key"     then @tls_key_path = v  # backward compatibility
-        when "unix_path"   then @unix_path = v
-        when "heartbeat"   then @heartbeat = v.to_u16
-        when "channel_max" then @channel_max = v.to_u16
-        when "frame_max"   then @frame_max = v.to_u32
+        when "bind"                then @amqp_bind = v
+        when "port"                then @amqp_port = v.to_i32
+        when "tls_port"            then @amqps_port = v.to_i32
+        when "tls_cert"            then @tls_cert_path = v # backward compatibility
+        when "tls_key"             then @tls_key_path = v  # backward compatibility
+        when "systemd_socket_name" then @amqp_systemd_socket_name = v
+        when "unix_path"           then @unix_path = v
+        when "heartbeat"           then @heartbeat = v.to_u16
+        when "channel_max"         then @channel_max = v.to_u16
+        when "frame_max"           then @frame_max = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end
