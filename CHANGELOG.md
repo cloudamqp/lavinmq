@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Support for systemd socket activation, both of the HTTP and AMQP sockets
+
+### Changed
+- Default segment size is now 1 GB (up from 32 MB)
+- Report size of deleted segments without holes
+- Truncate segments after last message (not hole punching)
+
 ## [1.0.0-alpha.8] - 2020-10-14
 
 ### Fixed
