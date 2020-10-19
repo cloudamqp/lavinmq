@@ -11,44 +11,44 @@
       <li>
         <a href="/queues">Queues</a>
         <ul class="hide">
-          <li><a href="#declare">Add Queue</a></li>
+          <li><a href="/queues#declare">Add Queue</a></li>
         </ul>
       </li>
       <li>
         <a href="/exchanges">Exchanges</a>
         <ul class="hide">
-          <li><a href="#addExchange">Add Exchange</a></li>
+          <li><a href="/exchanges#addExchange">Add Exchange</a></li>
         </ul>
       </li>
       <li>
         <a href="/users">Users</a>
         <ul class="hide">
-          <li><a href="#createUser">Add User</a></li>
+          <li><a href="/users#createUser">Add User</a></li>
         </ul>
       </li>
       <li>
         <a href="/vhosts">Virtual hosts</a>
         <ul class="hide">
-          <li><a href="#createVhost">Add Virtual host</a></li>
+          <li><a href="/vhosts#createVhost">Add Virtual host</a></li>
         </ul>
       </li>
       <li><a href="/nodes">Nodes</a></li>
       <li>
         <a href="/policies">Policies</a>
         <ul class="hide">
-          <li><a href="#createPolicy">Add Policy</a></li>
+          <li><a href="/policies#createPolicy">Add Policy</a></li>
         </ul>
       </li>
       <li>
         <a href="/shovels">Shovels</a>
         <ul class="hide">
-          <li><a href="#createShovel">Add Shovel</a></li>
+          <li><a href="/shovels#createShovel">Add Shovel</a></li>
         </ul>
       </li>
       <li>
         <a href="/federation">Federation</a>
         <ul class="hide">
-          <li><a href="#createUpstream">Add Upstream</a></li>
+          <li><a href="/federation#createUpstream">Add Upstream</a></li>
         </ul>
       </li>
     </ul>
@@ -65,7 +65,7 @@
     li.classList.remove('active')
     toggleSubMenu(li, true)
   })
-  const active = document.querySelector('aside a[href="' + path + '"]')
+  const active = document.querySelector('aside a[href^="' + path.slice(0,-1) + '"]')
   if (active) {
     const activeLi = active.parentElement
     activeLi.classList.add('active')
