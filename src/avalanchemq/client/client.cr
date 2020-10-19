@@ -81,6 +81,8 @@ module AvalancheMQ
         peer_port:         @remote_address.port,
         name:              @name,
         ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
+        tls_version:       @socket.is_a?(OpenSSL::SSL::Socket) ? @socket.as(OpenSSL::SSL::Socket).tls_version : nil,
+        cipher:            @socket.is_a?(OpenSSL::SSL::Socket) ? @socket.as(OpenSSL::SSL::Socket).cipher : nil,
         state:             state,
       }.merge(stats_details)
     end

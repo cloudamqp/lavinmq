@@ -34,6 +34,8 @@
                 <th data-sort-key="user" class="left">User</th>
                 <th data-sort-key="state">State</th>
                 <th data-sort-key="ssl">TLS</th>
+                <th data-sort-key="tls_version">TLS Version</th>
+                <th data-sort-key="cipher">Cipher</th>
                 <th data-sort-key="protocol">Protocol</th>
                 <th data-sort-key="channels">Channels</th>
                 <th data-sort-key="channel_max">Channel max</th>
@@ -92,17 +94,19 @@
           avalanchemq.table.renderCell(tr, 1, connectionLink)
           avalanchemq.table.renderCell(tr, 2, item.user)
           avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
-          avalanchemq.table.renderCell(tr, 5, item.protocol, 'center')
-          avalanchemq.table.renderCell(tr, 7, item.channel_max, 'right')
-          avalanchemq.table.renderCell(tr, 8, item.timeout, 'right')
+          avalanchemq.table.renderCell(tr, 5, item.tls_version, 'center')
+          avalanchemq.table.renderCell(tr, 6, item.cipher, 'center')
+          avalanchemq.table.renderCell(tr, 7, item.protocol, 'center')
+          avalanchemq.table.renderCell(tr, 9, item.channel_max, 'right')
+          avalanchemq.table.renderCell(tr, 10, item.timeout, 'right')
           // avalanchemq.table.renderCell(tr, 8, item.auth_mechanism)
-          avalanchemq.table.renderHtmlCell(tr, 9, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
-          avalanchemq.table.renderCell(tr, 10, new Date(item.connected_at).toLocaleString(), 'center')
+          avalanchemq.table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
+          avalanchemq.table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
         }
         avalanchemq.table.renderCell(tr, 3, null, `center state-${item.state}`)
-        avalanchemq.table.renderCell(tr, 6, item.channels, 'right')
-        avalanchemq.table.renderCell(tr, 11, numFormatter.format(item.recv_oct), 'right')
-        avalanchemq.table.renderCell(tr, 12, numFormatter.format(item.send_oct), 'right')
+        avalanchemq.table.renderCell(tr, 8, item.channels, 'right')
+        avalanchemq.table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
+        avalanchemq.table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
       })
     </script>
   </body>
