@@ -7,6 +7,9 @@ require "./avalanchemq/server_cli"
 require "./avalanchemq/reporter"
 
 config_file = ""
+if conf_dir = ENV["ConfigurationDirectory"]?
+  config_file = File.join(conf_dir, "avalanchemq.ini")
+end
 config = AvalancheMQ::Config.instance
 
 AvalancheMQ::ServerCLI.new(config, config_file).parse
