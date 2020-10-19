@@ -1,0 +1,10 @@
+[Unit]
+Description=AvalancheMQ
+
+[Socket]
+ListenStream=/tmp/avalanchemq.sock
+
+Service=avalanchemq.service
+
+[Install] 
+WantedBy=sockets.target
