@@ -111,10 +111,12 @@
           const name = encodeURIComponent(item.name)
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/policies/' + vhost + '/' + name
-          avalanchemq.http.request('DELETE', url)
-            .then(() => {
-              avalanchemq.dom.removeNodes(tr)
-            }).catch(avalanchemq.http.standardErrorHandler)
+          if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
+            avalanchemq.http.request('DELETE', url)
+              .then(() => {
+                avalanchemq.dom.removeNodes(tr)
+              }).catch(avalanchemq.http.standardErrorHandler)
+          }
         }
         avalanchemq.table.renderCell(tr, 6, btn, 'right')
       })
