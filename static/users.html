@@ -52,7 +52,7 @@
           <input type="text" name="tags">
         </label>
         <div id="tags" class="label">
-          <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="">None</a>
+          <a data-tag="administrator">Administrator</a> | <a data-tag="policymaker">Policymaker</a> | <a data-tag="monitoring">Monitoring</a> | <a data-tag="management">Management</a> | <a data-tag="http">Http</a> | <a data-tag="">None</a>
         </div>
         <button type="submit" class="btn-primary">Add user</button>
       </form>
@@ -107,7 +107,14 @@
       })
 
       document.querySelector('#tags').onclick = e => {
-        document.querySelector('[name=tags]').value = e.target.getAttribute('data-tag')
+        val = e.target.getAttribute('data-tag')
+        if (val) {
+          currentVal = document.querySelector('[name=tags]').value
+          document.querySelector('[name=tags]').value = currentVal ? currentVal + ', ' + val : val
+        }
+        else if (val === "") {
+          document.querySelector('[name=tags]').value = ""
+        }
       }
     </script>
   </body>
