@@ -243,13 +243,16 @@ shutdown = ->(_s : Signal) do
   if first_shutdown_attempt
     first_shutdown_attempt = false
     SystemD.notify("STOPPING=1\n")
+    amqp_server.vhosts.each do |_, vh|
+      SystemD.store_fds(vh.connections.map(&.fd), "vhost=#{vh.dir}")
+    end
     puts "Shutting down gracefully..."
     amqp_server.close
     http_server.try &.close
+    lock.close
     puts "Fibers: "
     Fiber.yield
     Fiber.list { |f| puts f.inspect }
-    lock.close
     exit 0
   else
     puts "Fibers: "

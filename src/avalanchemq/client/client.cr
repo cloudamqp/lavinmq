@@ -59,6 +59,20 @@ module AvalancheMQ
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
+    # socket's file descriptor
+    def fd
+      case @socket
+      when OpenSSL::SSL::Socket
+        @socket.as(OpenSSL::SSL::Socket).@bio.io.as(IO::FileDescriptor).fd
+      when TCPSocket
+        @socket.as(TCPSocket).fd
+      when UNIXSocket
+        @socket.as(UNIXSocket).fd
+      else
+        raise "Unexpected socket #{@socket.class}"
+      end
+    end
+
     def channel_name_prefix
       @remote_address.to_s
     end

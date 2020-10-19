@@ -30,7 +30,7 @@ module AvalancheMQ
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
       log, shovels, direct_reply_channels, upstreams, default_user,
-      connections
+      connections, dir
     property? flow = true
     getter? closed = false
 
