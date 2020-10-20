@@ -360,8 +360,8 @@ module AvalancheMQ
       when AMQP::Frame::Queue::Declare
         return false if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] = QueueFactory.make(self, f)
-        @churn_events.send({:queue_declared, 1_u32}) unless loading
         apply_policies([q] of Queue) unless loading
+        @churn_events.send({:queue_declared, 1_u32}) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
           @exchanges.each_value do |ex|
@@ -369,7 +369,7 @@ module AvalancheMQ
               ex.unbind(q, *binding_args) if destinations.includes?(q)
             end
           end
-          @churn_events.send({:queue_deleted, 1_u32}) unless loading
+          @churn_events.send({:queue_deleted, 1_u32})
           q.delete
         else
           return false
