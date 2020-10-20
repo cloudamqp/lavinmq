@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.9] - 2020-10-20
+
 ### Added
 - Support for systemd socket activation, both of the HTTP and AMQP sockets
 
@@ -13,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default segment size is now 1 GB (up from 32 MB)
 - Report size of deleted segments without holes
 - Truncate segments after last message (not hole punching)
+- Looks for a config file at /etc/avalanchemq
+- Uses ENV["StateDirectory"] as data dir if set
+
+### Fixed
+- Bug where segment files could be truncated at boot
 
 ## [1.0.0-alpha.8] - 2020-10-14
 
