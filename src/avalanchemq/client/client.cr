@@ -17,7 +17,7 @@ module AvalancheMQ
     include SortableJSON
 
     property direct_reply_consumer_tag
-    getter vhost, channels, log, name
+    getter vhost, channels, log, name, churn_events
     getter user
     getter remote_address
     getter max_frame_size : UInt32
@@ -27,7 +27,6 @@ module AvalancheMQ
     getter client_properties : AMQP::Table
     getter direct_reply_consumer_tag : String?
     getter log : Logger
-    property churn_events : AvalancheMQ::Server::ChurnEvents?
 
     @connected_at : Int64
     @heartbeat_interval : Time::Span?
@@ -41,6 +40,7 @@ module AvalancheMQ
                    @local_address : Socket::IPAddress,
                    @vhost : VHost,
                    @user : User,
+                   @churn_events : AvalancheMQ::Server::ChurnEvents,
                    tune_ok,
                    start_ok)
       @log = vhost.log.dup
@@ -276,8 +276,8 @@ module AvalancheMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, remote_address, local_address, vhosts, users, log)
-      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup)
+    def self.start(socket, remote_address, local_address, vhosts, users, log, churn_events)
+      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup, churn_events)
     end
 
     private def with_channel(frame)
@@ -308,7 +308,7 @@ module AvalancheMQ
 
     private def open_channel(frame)
       @channels[frame.channel] = Client::Channel.new(self, frame.channel)
-      @churn_events.try &.send({ :channel_created, 1_u32 })
+      @churn_events.send({ :channel_created, 1_u32 })
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 
@@ -320,11 +320,11 @@ module AvalancheMQ
       when AMQP::Frame::Channel::Open
         open_channel(frame)
       when AMQP::Frame::Channel::Close
-        @churn_events.try &.send({:channel_closed, 1_u32})
+        @churn_events.send({:channel_closed, 1_u32})
         @channels.delete(frame.channel).try &.close
         send AMQP::Frame::Channel::CloseOk.new(frame.channel)
       when AMQP::Frame::Channel::CloseOk
-        @churn_events.try &.send({:channel_closed, 1_u32})
+        @churn_events.send({:channel_closed, 1_u32})
         @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow
         @channels[frame.channel].client_flow(frame.active)
@@ -393,7 +393,7 @@ module AvalancheMQ
       @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)
       @exclusive_queues.clear
-      @churn_events.try &.send({ :channel_closed, @channels.size.to_u })
+      @churn_events.send({ :channel_closed, @channels.size.to_u })
       @channels.each_value &.close
       @channels.clear
       @on_close_callback.try &.call(self)
@@ -428,7 +428,7 @@ module AvalancheMQ
       else
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       end
-      @churn_events.try &.send({ :channel_closed, 1_u32 })
+      @churn_events.send({ :channel_closed, 1_u32 })
       @channels[frame.channel].running = false
     end
 
@@ -440,7 +440,7 @@ module AvalancheMQ
       else
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
-      @churn_events.try &.send({ :channel_closed, @channels.size.to_u })
+      @churn_events.send({ :channel_closed, @channels.size.to_u })
       @running = false
     end
 
