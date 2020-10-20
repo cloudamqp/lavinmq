@@ -16,7 +16,11 @@ To validate the spec, use [spectral](https://github.com/stoplightio/spectral)
 
     spectral lint openapi.yaml
 
-OpenAPI notes:
+Serve local file and watch for updates
+
+    ./redoc-serve-and-watch
+
+## OpenAPI notes
 
 * `summary` is the short description (used in the redoc menu for instance)
 * `description` is a longer description (supports Markdown)
