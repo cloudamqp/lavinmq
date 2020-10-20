@@ -30,7 +30,7 @@ describe AvalancheMQ::VHost do
     vhost2.add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
     vhost2.delete_policy("test")
     vhost2.policies.size.should eq 0
-    vhost2.delete
+    s.vhosts.delete("add_remove_policy")
   end
 
   it "should overwrite policy with same name" do
