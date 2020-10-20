@@ -28,12 +28,13 @@ class MFile < IO
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
+  # The file won't be truncated if the capacity is smaller than current size
   def initialize(@path : String, capacity : Int? = nil)
     @readonly = capacity.nil?
     fd = open_fd
     @size = file_size(fd)
-    @capacity = (capacity || @size).to_i32
-    truncate(fd, @capacity) unless @capacity == @size
+    @capacity = capacity ? Math.max(capacity.to_i32, @size) : @size
+    truncate(fd, @capacity) if @capacity > @size
     @buffer = mmap(fd)
     close_fd(fd)
   end
@@ -51,7 +52,7 @@ class MFile < IO
     fd
   end
 
-  private def file_size(fd)
+  private def file_size(fd) : Int32
     code = LibC.fstat(fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
     stat.st_size.to_i32
@@ -120,10 +121,11 @@ class MFile < IO
   end
 
   def write(slice : Bytes) : Nil
-    raise IO::Error.new("Out of capacity") if @capacity < @pos + slice.size
-    slice.copy_to(@buffer + @pos)
-    @pos += slice.size
-    @size = @pos if @pos > @size
+    pos = @pos
+    raise IO::Error.new("Out of capacity") if @capacity < pos + slice.size
+    slice.copy_to(@buffer + pos)
+    @pos = pos += slice.size
+    @size = pos if pos > @size
   end
 
   def read(slice : Bytes)
