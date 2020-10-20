@@ -39,12 +39,12 @@ module AvalancheMQ
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket::Server).new(3)
       @users = UserStore.instance(@data_dir, @log)
-      @churn_events = ChurnEvents.new
+      @churn_events = ChurnEvents.new(1000)
+      spawn churn_events_loop, name: "Server#churn_events"
       @vhosts = VHostStore.new(@data_dir, @log, @users, @churn_events)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
-      spawn churn_events, name: "Server#churn_events"
     end
 
     def connections
@@ -152,6 +152,8 @@ module AvalancheMQ
       @listeners.each &.close
       @log.debug "Closing vhosts"
       @vhosts.close
+      @log.debug "Closing #churn_events channel"
+      @churn_events.close
     end
 
     def add_parameter(p : Parameter)
@@ -237,18 +239,30 @@ module AvalancheMQ
       socket.write_timeout = 15
     end
 
-    private def churn_events
+    private def churn_events_loop
       loop do
-        event = @churn_events.receive
-        case event[0]
-          when :channel_closed      then @channel_closed_count += event[1]
-          when :channel_created     then @channel_created_count += event[1]
-          when :connection_closed   then @connection_closed_count += event[1]
-          when :connection_created  then @connection_created_count += event[1]
-          when :queue_declared      then @queue_declared_count += event[1]
-          when :queue_deleted       then @queue_deleted_count += event[1]
+        type, value = @churn_events.receive? || break
+        case type
+          when :channel_closed      then @channel_closed_count += value
+          when :channel_created     then @channel_created_count += value
+          when :connection_closed   then @connection_closed_count += value
+          when :connection_created  then @connection_created_count += value
+          when :queue_declared      then @queue_declared_count += value
+          when :queue_deleted       then @queue_deleted_count += value
         end
       end
+    end
+
+    def update_stats_rates
+      @vhosts.each_value do |vhost|
+        vhost.queues.each_value(&.update_rates)
+        vhost.exchanges.each_value(&.update_rates)
+        vhost.connections.each do |connection|
+          connection.update_rates
+          connection.channels.each_value(&.update_rates)
+        end
+      end
+      update_rates()
     end
 
     private def stats_loop
@@ -256,16 +270,7 @@ module AvalancheMQ
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
-
-        @vhosts.each_value do |vhost|
-          vhost.queues.each_value(&.update_rates)
-          vhost.exchanges.each_value(&.update_rates)
-          vhost.connections.each do |connection|
-            connection.update_rates
-            connection.channels.each_value(&.update_rates)
-          end
-        end
-        update_rates()
+        update_stats_rates()
 
         interval = Config.instance.stats_interval.milliseconds.to_i
         log_size = Config.instance.stats_log_size
