@@ -405,7 +405,6 @@ module AvalancheMQ
     end
 
     def add_connection(client : Client)
-      client.churn_events = @churn_events
       @connections << client
       @churn_events.send({ :connection_created, 1_u32})
       client.on_close do |c|
