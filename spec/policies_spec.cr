@@ -21,8 +21,6 @@ describe AvalancheMQ::VHost do
     vhost.delete_policy("test")
     sleep 0.01
     vhost.queues["test1"].policy.should be_nil
-  ensure
-    vhost.delete_queue("test1")
   end
 
   it "should be able to list policies" do
@@ -49,10 +47,9 @@ describe AvalancheMQ::VHost do
     vhost.queues["test"].policy.not_nil!.name.should eq "ml"
   ensure
     vhost.delete_policy("ml")
-    vhost.delete_queue("test")
   end
 
-  it "should respect priroty" do
+  it "should respect priority" do
     definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
     vhost.queues["test2"] = AvalancheMQ::Queue.new(vhost, "test")
     vhost.add_policy("ml2", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 1_i8)
@@ -60,7 +57,6 @@ describe AvalancheMQ::VHost do
     sleep 0.01
     vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
   ensure
-    vhost.delete_queue("test2")
     vhost.delete_policy("ml2")
     vhost.delete_policy("ml1")
   end
@@ -120,7 +116,7 @@ describe AvalancheMQ::VHost do
   it "should apply max-length-bytes on existing queue" do
     definitions = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
     with_channel do |ch|
-      q = ch.queue("max-length-bytes")
+      q = ch.queue("max-length-bytes", exclusive: true)
       q.publish_confirm "short1"
       q.publish_confirm "short2"
       q.publish_confirm "long"
@@ -142,7 +138,7 @@ describe AvalancheMQ::VHost do
   it "should remove head if queue to large" do
     definitions = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
     with_channel do |ch|
-      q = ch.queue("max-length-bytes")
+      q = ch.queue("max-length-bytes", exclusive: true)
       s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
       sleep 0.01
       q.publish_confirm "short1"
@@ -162,7 +158,7 @@ describe AvalancheMQ::VHost do
     definitions = { "max-length-bytes" => JSON::Any.new(100_i64),
                     "overflow": JSON::Any.new("reject-publish") } of String => JSON::Any
     with_channel do |ch|
-      q = ch.queue("max-length-bytes")
+      q = ch.queue("max-length-bytes", exclusive: true)
       s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
       sleep 0.01
       q.publish_confirm "short1"

@@ -23,7 +23,7 @@ describe AvalancheMQ::HTTP::NodesController do
       data = body.as_a.first.as_h
       declared_queues = data["queue_declared"].as_i
       deleted_queues = data["queue_deleted"].as_i
-      s.vhosts["/"].declare_queue("q0", false, false)
+      s.vhosts["/"].declare_queue("this_queue_should_not_exist", false, false)
       s.update_stats_rates()
 
       response = get("/api/nodes")
@@ -33,7 +33,7 @@ describe AvalancheMQ::HTTP::NodesController do
       data = body.as_a.first.as_h
       data["queue_declared"].as_i.should eq (declared_queues + 1)
       data["queue_deleted"].as_i.should eq deleted_queues
-      s.vhosts["/"].delete_queue("q0")
+      s.vhosts["/"].delete_queue("this_queue_should_not_exist")
       s.update_stats_rates()
 
       response = get("/api/nodes")
