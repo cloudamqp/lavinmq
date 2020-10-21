@@ -572,12 +572,14 @@ module AvalancheMQ
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
-      if dlx
-        unless dead_letter_loop?(msg.properties.headers, reason)
-          dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
-          props = handle_dlx_header(msg, reason)
-          dead_letter_msg(msg, sp, props, dlx, dlrk)
+      if sp.flags.has_dlx? || @dlx
+        dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
+        if dlx
+          unless dead_letter_loop?(msg.properties.headers, reason)
+            dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
+            props = handle_dlx_header(msg, reason)
+            dead_letter_msg(msg, sp, props, dlx, dlrk)
+          end
         end
       end
       delete_message sp, msg.persistent?
