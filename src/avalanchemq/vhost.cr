@@ -450,26 +450,31 @@ module AvalancheMQ
       @upstreams.not_nil!.stop_all
     end
 
-    def close
+    def close(seamless_restart = false)
       @closed = true
       @log.info("Closing")
       stop_shovels
       Fiber.yield
       stop_upstream_links
       Fiber.yield
-      @log.debug "Closing connections"
-      @connections.each &.close("Broker shutdown")
-      # wait up to 10s for clients to gracefully close
-      100.times do
-        break if @connections.empty?
-        sleep 0.1
+      if seamless_restart
+        # TODO: Handover FDs to systemd
+        SystemD.store_fds(@connections.map &.fd, "vhost=#{@name}")
+      else
+        @log.debug "Closing connections"
+        @connections.each &.close("Broker shutdown")
+        # wait up to 10s for clients to gracefully close
+        100.times do
+          break if @connections.empty?
+          sleep 0.1
+        end
       end
       @queues.each_value &.close
       Fiber.yield
       @save.close
       Fiber.yield
       @segments.each_value &.close
-      compact!
+      compact!(include_transient: seamless_restart)
     end
 
     def delete
@@ -553,27 +558,27 @@ module AvalancheMQ
       @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
     end
 
-    private def compact!
+    private def compact!(include_transient = false)
       @log.info "Compacting definitions"
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
         io.buffer_size = Config.instance.file_buffer_size
         SchemaVersion.prefix io
         @exchanges.each do |_name, e|
-          next unless e.durable
+          next if !include_transient && !e.durable
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
           io.write_bytes f
         end
         @queues.each do |_name, q|
-          next unless q.durable
+          next if !include_transient && !q.durable
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
           io.write_bytes f
         end
         @exchanges.each do |_name, e|
-          next unless e.durable
+          next if !include_transient && !e.durable
           e.queue_bindings.each do |bt, queues|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
