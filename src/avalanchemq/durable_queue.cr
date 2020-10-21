@@ -23,10 +23,10 @@ module AvalancheMQ
       File.write(File.join(@index_dir, ".queue"), @name)
       @enq = File.open(File.join(@index_dir, "enq"), "a+")
       @enq.buffer_size = Config.instance.file_buffer_size
-      SchemaVersion.verify_or_prefix(@enq)
+      SchemaVersion.verify_or_prefix(@enq, :index)
       @ack = File.open(File.join(@index_dir, "ack"), "a+")
       @ack.buffer_size = Config.instance.file_buffer_size
-      SchemaVersion.verify_or_prefix(@ack)
+      SchemaVersion.verify_or_prefix(@ack, :index)
     end
 
     private def compact_index! : Nil
@@ -37,7 +37,7 @@ module AvalancheMQ
       @enq.close
       @enq = File.new(File.join(@index_dir, "enq.tmp"), "w")
       @enq.buffer_size = Config.instance.file_buffer_size
-      SchemaVersion.prefix(@enq)
+      SchemaVersion.prefix(@enq, :index)
       @ready.locked_each do |all_ready|
         unacked = @unacked.all_segment_positions.sort!.each
         next_unacked = unacked.next.as?(SegmentPosition)
@@ -62,7 +62,7 @@ module AvalancheMQ
       @enq.fsync(flush_metadata: true)
 
       @ack.truncate
-      SchemaVersion.prefix(@ack)
+      SchemaVersion.prefix(@ack, :index)
       @acks = 0_u32
     ensure
       @ack_lock.unlock
@@ -117,12 +117,12 @@ module AvalancheMQ
       @log.info "Purging"
       @enq_lock.synchronize do
         @enq.truncate
-        SchemaVersion.prefix(@enq)
+        SchemaVersion.prefix(@enq, :index)
         @enq.fsync(flush_metadata: true)
       end
       @ack_lock.synchronize do
         @ack.truncate
-        SchemaVersion.prefix(@ack)
+        SchemaVersion.prefix(@ack, :index)
         @acks = 0_u32
       end
       super
@@ -144,14 +144,16 @@ module AvalancheMQ
 
     private def restore_index : Nil
       @log.info "Restoring index"
+      SchemaVersion.migrate(File.join(@index_dir, "enq"), :index)
+      SchemaVersion.migrate(File.join(@index_dir, "ack"), :index)
       File.open(File.join(@index_dir, "enq")) do |enq|
         File.open(File.join(@index_dir, "ack")) do |ack|
           enq.buffer_size = Config.instance.file_buffer_size
           ack.buffer_size = Config.instance.file_buffer_size
           enq.advise(File::Advice::Sequential)
           ack.advise(File::Advice::Sequential)
-          SchemaVersion.verify(enq)
-          SchemaVersion.verify(ack)
+          SchemaVersion.verify(enq, :index)
+          SchemaVersion.verify(ack, :index)
 
           @acks = ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
           acked = Array(SegmentPosition).new(ack_count)
