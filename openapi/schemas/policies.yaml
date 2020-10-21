@@ -1,0 +1,33 @@
+policies:
+  type: array
+  items:
+    "$ref": "#/policy"
+policy:
+  type: object
+  properties:
+    name:
+      type: string
+    vhost:
+      type: string
+    pattern:
+      type: string
+    apply-to:
+      type: string
+      # TODO enum?
+    priority:
+      type: integer
+    definition:
+      type: object
+      # TODO add properties
+PutPolicyRequestBody:
+  type: object
+  properties:
+    pattern:
+      type: string
+      description: TODO
+    definition:
+      type: object
+      description: TODO
+  required:
+  - pattern
+  - definition

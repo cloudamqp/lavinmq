@@ -38,9 +38,11 @@ components:
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
     policy:
-      "$ref": "./schemas/parameters.yaml#/policy"
+      "$ref": "./schemas/policies.yaml#/policy"
     policies:
-      "$ref": "./schemas/parameters.yaml#/policies"
+      "$ref": "./schemas/policies.yaml#/policies"
+    policies-PutPolicyRequestBody:
+      "$ref": "./schemas/policies.yaml#/PutPolicyRequestBody"
     permission:
       "$ref": "./schemas/permissions.yaml#/permission"
     permissions:
@@ -55,7 +57,9 @@ components:
       "$ref": "./schemas/queues.yaml#/queue-bindings"
     queue-messages:
       "$ref": "./schemas/queues.yaml#/messages"
-    queue-GetQueueMessagesRequestBody:
+    queues-PutQueueRequestBody:
+      "$ref": "./schemas/queues.yaml#/PutQueueRequestBody"
+    queues-GetQueueMessagesRequestBody:
       "$ref": "./schemas/queues.yaml#/GetQueueMessagesRequestBody"
     user:
       "$ref": "./schemas/users.yaml#/user"
@@ -153,11 +157,11 @@ paths:
   "/global-parameters/{name}":
     "$ref": "./paths/parameters.yaml#/~1global-parameters~1{name}"
   "/policies":
-    "$ref": "./paths/parameters.yaml#/~1policies"
+    "$ref": "./paths/policies.yaml#/~1policies"
   "/policies/{vhost}":
-    "$ref": "./paths/parameters.yaml#/~1policies~1{vhost}"
+    "$ref": "./paths/policies.yaml#/~1policies~1{vhost}"
   "/policies/{vhost}/{name}":
-    "$ref": "./paths/parameters.yaml#/~1policies~1{vhost}~1{name}"
+    "$ref": "./paths/policies.yaml#/~1policies~1{vhost}~1{name}"
   "/permissions":
     "$ref": "./paths/permissions.yaml#/~1permissions"
   "/permissions/{vhost}/{user}":
@@ -212,6 +216,8 @@ tags:
 - name: nodes
   description: CHANGEME
 - name: parameters
+  description: CHANGEME
+- name: policies
   description: CHANGEME
 - name: permissions
   description: CHANGEME

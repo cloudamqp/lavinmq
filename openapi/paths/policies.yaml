@@ -1,0 +1,173 @@
+"/policies":
+  get:
+    tags:
+    - policies
+    description: List all policies.
+    summary: List all policies
+    parameters: []
+    operationId: GetPolicies
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/policies"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/policies/{vhost}":
+  get:
+    tags:
+    - policies
+    description: List all policies for a specific vhost.
+    summary: List policies for vhost
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    operationId: GetPoliciesForVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/policies"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/policies/{vhost}/{name}":
+  get:
+    tags:
+    - policies
+    description: List a specific policy.
+    summary: List policy
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: Name of policy.
+    operationId: GetPolicy
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/policy"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - policies
+    description: Create or update a policy.
+    summary: Create/update policy
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: Name of policy.
+    operationId: PutPolicy
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/policies-PutPolicyRequestBody"
+    responses:
+      '204':
+        description: The resource was created or updated successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - policies
+    description: Delete a policy.
+    summary: Delete policy
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: Name of policy.
+    operationId: DeletePolicy
+    responses:
+      '204':
+        description: The policy were deleted successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

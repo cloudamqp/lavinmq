@@ -119,6 +119,12 @@
         type: string
         description: Name of queue.
     operationId: PutQueue
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/queues-PutQueueRequestBody"
     responses:
       '200':
         description: OK
@@ -354,7 +360,7 @@
       content:
         application/json:
           schema:
-            "$ref": "../openapi.yaml#/components/schemas/queue-GetQueueMessagesRequestBody"
+            "$ref": "../openapi.yaml#/components/schemas/queues-GetQueueMessagesRequestBody"
     responses:
       '200':
         description: OK
