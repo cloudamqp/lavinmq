@@ -34,7 +34,7 @@ user:
       name:
         type: string
         description:  Name of the user.
-users-bulk-delete-request:
+BulkDeleteUsersRequestBody:
   type: object
   properties:
     users:
@@ -44,7 +44,7 @@ users-bulk-delete-request:
         type: string
   required:
   -  users
-users-put-request:
+PutUserRequestBody:
   allOf:
   - "$ref": "#/user-properties"
   - type: object

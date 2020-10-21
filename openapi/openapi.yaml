@@ -45,18 +45,26 @@ components:
       "$ref": "./schemas/permissions.yaml#/permission"
     permissions:
       "$ref": "./schemas/permissions.yaml#/permissions"
-    permissions-put-request:
-      "$ref": "./schemas/permissions.yaml#/permissions-put-request"
+    permissions-PutPermissionsRequestBody:
+      "$ref": "./schemas/permissions.yaml#/PutPermissionsRequestBody"
+    queue:
+      "$ref": "./schemas/queues.yaml#/queue"
     queues:
       "$ref": "./schemas/queues.yaml#/queues"
+    queue-bindings:
+      "$ref": "./schemas/queues.yaml#/queue-bindings"
+    queue-messages:
+      "$ref": "./schemas/queues.yaml#/messages"
+    queue-GetQueueMessagesRequestBody:
+      "$ref": "./schemas/queues.yaml#/GetQueueMessagesRequestBody"
     user:
       "$ref": "./schemas/users.yaml#/user"
     users:
       "$ref": "./schemas/users.yaml#/users"
-    users-bulk-delete-request:
-      "$ref": "./schemas/users.yaml#/users-bulk-delete-request"
-    users-put-request:
-      "$ref": "./schemas/users.yaml#/users-put-request"
+    users-BulkDeleteUsersRequestBody:
+      "$ref": "./schemas/users.yaml#/BulkDeleteUsersRequestBody"
+    users-PutUserRequestBody:
+      "$ref": "./schemas/users.yaml#/PutUserRequestBody"
     vhost:
       "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:

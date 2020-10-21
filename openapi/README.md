@@ -16,7 +16,7 @@ To validate the spec, use [spectral](https://github.com/stoplightio/spectral)
 
     spectral lint openapi.yaml
 
-Serve local file and watch for updates
+Serve local file and watch for updates (FIXME: browser can cache spec files even if they have changed)
 
     ./redoc-serve-and-watch
 

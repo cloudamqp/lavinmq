@@ -66,14 +66,10 @@
       content:
         application/json:
           schema:
-            "$ref": "../openapi.yaml#/components/schemas/users-bulk-delete-request"
+            "$ref": "../openapi.yaml#/components/schemas/users-BulkDeleteUsersRequestBody"
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/users"
+      '204':
+        description: The users were deleted successfully.
       4XX:
         description: Client Error
         content:
@@ -137,7 +133,7 @@
       content:
         application/json:
           schema:
-            "$ref": "../openapi.yaml#/components/schemas/users-put-request"
+            "$ref": "../openapi.yaml#/components/schemas/users-PutUserRequestBody"
     responses:
       '204':
         description: The resource was created or updated successfully.
@@ -156,7 +152,7 @@
   delete:
     tags:
     - users
-    description: Remove a specific use by name.
+    description: Remove a specific user by name.
     summary: Delete user
     parameters:
     - in: path

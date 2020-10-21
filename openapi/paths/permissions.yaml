@@ -89,7 +89,7 @@
       content:
         application/json:
           schema:
-            "$ref": "../openapi.yaml#/components/schemas/permissions-put-request"
+            "$ref": "../openapi.yaml#/components/schemas/permissions-PutPermissionsRequestBody"
     responses:
       '204':
         description: The permissions were created successfully.
