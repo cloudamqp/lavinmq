@@ -353,7 +353,6 @@ module AvalancheMQ
           end
         else
           @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
-          close
         end
       end
 
