@@ -66,7 +66,6 @@ module AvalancheMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      compact!
       spawn save!, name: "VHost/#{@name}#save!"
       spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
     end
