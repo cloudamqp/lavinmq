@@ -6,10 +6,10 @@ describe AvalancheMQ::Queue::SortedReadyQueue do
   it "should insert SegmentPosition sorted" do
     q = AvalancheMQ::Queue::SortedReadyQueue.new
     sps = [
-      AvalancheMQ::SegmentPosition.new(10,10,5),
-      AvalancheMQ::SegmentPosition.new(10,10,1),
-      AvalancheMQ::SegmentPosition.new(10,10,10),
-      AvalancheMQ::SegmentPosition.new(10,10,3)
+      AvalancheMQ::SegmentPosition.new(10,10,5u32),
+      AvalancheMQ::SegmentPosition.new(10,10,1u32),
+      AvalancheMQ::SegmentPosition.new(10,10,10u32),
+      AvalancheMQ::SegmentPosition.new(10,10,3u32)
     ]
     sps.each { |sp| q.push(sp) }
     sps.sort!
@@ -23,13 +23,13 @@ describe AvalancheMQ::Queue::SortedReadyQueue do
   it "should return SegmentPosition with lowest expiration ts" do
     q = AvalancheMQ::Queue::SortedReadyQueue.new
     sps = [
-      AvalancheMQ::SegmentPosition.new(10,10,5),
-      AvalancheMQ::SegmentPosition.new(10,10,1),
-      AvalancheMQ::SegmentPosition.new(10,10,10),
-      AvalancheMQ::SegmentPosition.new(10,10,3)
+      AvalancheMQ::SegmentPosition.new(10,10,5u32),
+      AvalancheMQ::SegmentPosition.new(10,10,1u32),
+      AvalancheMQ::SegmentPosition.new(10,10,10u32),
+      AvalancheMQ::SegmentPosition.new(10,10,3u32)
     ]
     sps.each { |sp| q.push(sp) }
     sp = q.first?
-    sp.should eq (AvalancheMQ::SegmentPosition.new(10,10,1))
+    sp.should eq (AvalancheMQ::SegmentPosition.new(10,10,1u32))
   end
 end
