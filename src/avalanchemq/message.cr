@@ -26,6 +26,16 @@ module AvalancheMQ
       skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
       skipped
     end
+
+    def self.from_io(io, format = IO::ByteFormat::SystemEndian) : self
+      ts = Int64.from_io io, format
+      ex = AMQP::ShortString.from_io io, format
+      rk = AMQP::ShortString.from_io io, format
+      pr = AMQP::Properties.from_io io, format
+      sz = UInt64.from_io io, format
+      body = io.to_slice[io.pos, sz]
+      BytesMessage.new(ts, ex, rk, pr, sz, body)
+    end
   end
 
   struct Message
@@ -79,6 +89,15 @@ module AvalancheMQ
 
     def persistent?
       @properties.delivery_mode == 2_u8
+    end
+
+    def self.from_io(io, format = IO::ByteFormat::SystemEndian)
+      ts = Int64.from_io io, format
+      ex = AMQP::ShortString.from_io io, format
+      rk = AMQP::ShortString.from_io io, format
+      pr = AMQP::Properties.from_io io, format
+      sz = UInt64.from_io io, format
+      MessageMetadata.new(ts, ex, rk, pr, sz)
     end
   end
 

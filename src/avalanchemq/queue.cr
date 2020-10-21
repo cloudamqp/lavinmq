@@ -506,12 +506,7 @@ module AvalancheMQ
     def metadata(sp) : MessageMetadata
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
-      ts = Int64.from_io seg, IO::ByteFormat::SystemEndian
-      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
-      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
-      pr = AMQP::Properties.from_io seg, IO::ByteFormat::SystemEndian
-      sz = UInt64.from_io seg, IO::ByteFormat::SystemEndian
-      MessageMetadata.new(ts, ex, rk, pr, sz)
+      MessageMetadata.from_io(seg)
     end
 
     private def time_to_message_expiration : Time::Span?
@@ -731,13 +726,7 @@ module AvalancheMQ
     def read(sp : SegmentPosition)
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
-      ts = Int64.from_io seg, IO::ByteFormat::SystemEndian
-      ex = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
-      rk = AMQP::ShortString.from_io seg, IO::ByteFormat::SystemEndian
-      pr = AMQP::Properties.from_io seg, IO::ByteFormat::SystemEndian
-      sz = UInt64.from_io seg, IO::ByteFormat::SystemEndian
-      body = seg.to_slice[seg.pos, sz]
-      msg = BytesMessage.new(ts, ex, rk, pr, sz, body)
+      msg = BytesMessage.from_io(seg)
       redelivered = @requeued.includes?(sp)
       Envelope.new(sp, msg, redelivered)
     rescue ex
