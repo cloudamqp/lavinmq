@@ -33,6 +33,8 @@ components:
       "$ref": "./schemas/exchanges.yaml#/exchanges"
     main:
       "$ref": "./schemas/main.yaml#/main"
+    node:
+      "$ref": "./schemas/nodes.yaml#/node"
     nodes:
       "$ref": "./schemas/nodes.yaml#/nodes"
     parameter:

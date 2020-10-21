@@ -3,10 +3,10 @@
   get:
     tags:
     - nodes
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Get statistics for all nodes.
+    summary: Statistics for all nodes
     parameters: []
-    operationId: CHANGEME-GetNodes
+    operationId: GetNodes
     responses:
       '200':
         description: OK
@@ -30,23 +30,23 @@
   get:
     tags:
     - nodes
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Get statistics for specific node.
+    summary: Statistics for single node
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetNodes
+        description: Name of node.
+    operationId: GetNode
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/nodes"
+              "$ref": "../openapi.yaml#/components/schemas/node"
       4XX:
         description: Client Error
         content:
