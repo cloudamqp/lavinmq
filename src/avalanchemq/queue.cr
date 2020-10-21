@@ -581,8 +581,6 @@ module AvalancheMQ
         end
       end
       delete_message sp, msg.persistent?
-    rescue ex : IO::EOFError
-      raise ex
     end
 
     # checks if the message has been dead lettered to the same queue
