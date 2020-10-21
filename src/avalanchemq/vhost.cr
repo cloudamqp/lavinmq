@@ -239,7 +239,7 @@ module AvalancheMQ
       path = File.join(@data_dir, filename)
       capacity = Config.instance.segment_size + next_msg_size
       wfile = MFile.new(path, capacity)
-      SchemaVersion.prefix(wfile)
+      SchemaVersion.prefix(wfile, :message)
       @wfile = @segments[next_id] = wfile
     end
 
@@ -523,7 +523,7 @@ module AvalancheMQ
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         io.buffer_size = Config.instance.file_buffer_size
         io.advise(File::Advice::Sequential)
-        SchemaVersion.verify(io)
+        SchemaVersion.verify(io, :definition)
         loop do
           begin
             AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |frame|
@@ -557,7 +557,7 @@ module AvalancheMQ
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
         io.buffer_size = Config.instance.file_buffer_size
-        SchemaVersion.prefix io
+        SchemaVersion.prefix(io, :definition)
         @exchanges.each do |_name, e|
           next if !include_transient && !e.durable
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
@@ -647,9 +647,9 @@ module AvalancheMQ
                  MFile.new(path)
                end
         if was_empty
-          SchemaVersion.prefix(file)
+          SchemaVersion.prefix(file, :message)
         else
-          SchemaVersion.verify(file)
+          SchemaVersion.verify(file, :message)
         end
         segments[seg] = file
       end
