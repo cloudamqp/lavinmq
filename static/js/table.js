@@ -83,9 +83,9 @@
             e.target.classList.toggle('sorting_desc')
           } else {
             sortKey = newSortKey
-            reverseOrder = false
-            e.target.classList.add('sorting_asc')
-            e.target.classList.remove('sorting_desc')
+            reverseOrder = true
+            e.target.classList.add('sorting_desc')
+            e.target.classList.remove('sorting_asc')
           }
           updateQueryState({ sort: sortKey, reverseOrder })
           const t = table.tBodies[0]
