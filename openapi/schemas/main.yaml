@@ -1,8 +1,132 @@
 ---
-main:
-  title: CHANGEME
+overview:
   type: object
   properties:
-    CHANGEME:
+    avalanchemq_version:
       type: string
-      description: CHANGEME
+    exchange_types:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+    listeners:
+      type: array
+      items:
+        type: object
+        properties:
+          ip_address:
+            type: string
+          protocol:
+            type: string
+            enum:
+            - amqp
+          port:
+            type: integer
+    message_stats:
+      type: object
+      properties:
+        ack:
+          type: integer
+        ack_details:
+          "$ref": "#/stats_details"
+        deliver:
+          type: integer
+        deliver_details:
+          "$ref": "#/stats_details"
+        get:
+          type: integer
+        get_details:
+          "$ref": "#/stats_details"
+        publish:
+          type: integer
+        publish_details:
+          "$ref": "#/stats_details"
+        redeliver:
+          type: integer
+        redeliver_details:
+          "$ref": "#/stats_details"
+        reject:
+          type: integer
+        reject_details:
+          "$ref": "#/stats_details"
+    node:
+      type: string
+      description: Node hostname.
+    object_totals:
+      type: object
+      properties:
+        channels:
+          type: integer
+        connections:
+          type: integer
+        consumers:
+          type: integer
+        exchanges:
+          type: integer
+        queues:
+          type: integer
+    queue_totals:
+      properties:
+        messages:
+          type: integer
+        messages_ready:
+          type: integer
+        messages_unacknowledged:
+          type: integer
+        messages_log:
+          type: array
+          items:
+            type: integer
+        messages_ready_log:
+          type: array
+          items:
+            type: integer
+        messages_unacknowledged_log:
+          type: array
+          items:
+            type: integer
+    recv_oct_details:
+      type: object
+      properties:
+        rate:
+          type: integer
+        log:
+          type: array
+    send_oct_details:
+      type: object
+      properties:
+        rate:
+          type: integer
+        log:
+          type: array
+    uptime:
+      type: integer
+stats_details:
+  type: object
+  properties:
+    rate:
+      type: integer
+    log:
+      type: array
+      items:
+        type: integer
+aliveness-test:
+  type: object
+  properties:
+    status:
+      type: string
+      enum:
+      - ok
+      - failed
+shovels:
+  type: array
+  # TODO
+federation-links:
+  type: array
+  # TODO
+extensions:
+  type: array
+  items:
+    type: object

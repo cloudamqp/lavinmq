@@ -31,8 +31,16 @@ components:
       "$ref": "./schemas/definitions.yaml#/definitions"
     exchanges:
       "$ref": "./schemas/exchanges.yaml#/exchanges"
-    main:
-      "$ref": "./schemas/main.yaml#/main"
+    main-overview:
+      "$ref": "./schemas/main.yaml#/overview"
+    main-aliveness-test:
+      "$ref": "./schemas/main.yaml#/aliveness-test"
+    main-shovels:
+      "$ref": "./schemas/main.yaml#/shovels"
+    main-federation-links:
+      "$ref": "./schemas/main.yaml#/federation-links"
+    main-extensions:
+      "$ref": "./schemas/main.yaml#/extensions"
     node:
       "$ref": "./schemas/nodes.yaml#/node"
     nodes:

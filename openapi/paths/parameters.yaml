@@ -276,7 +276,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameter"
+              "$ref": "../openapi.yaml#/components/schemas/global-parameter"
       4XX:
         description: Client Error
         content:
