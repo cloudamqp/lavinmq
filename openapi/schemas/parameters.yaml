@@ -1,7 +1,41 @@
 ---
 parameters:
+  type: array
+  items:
+    "$ref": "#/parameter"
+global-parameters:
+  type: array
+  items:
+    "$ref": "#/parameter"
+parameter:
   type: object
   properties:
-    CHANGEME:
+    name:
       type: string
-      description: CHANGEME
+    value:
+      type: string
+    component:
+      type: string
+      description: TODO
+    vhost:
+      type: string
+global-parameter:
+  type: object
+  properties:
+    name:
+      type: string
+    value:
+      type: string
+    component:
+      nullable: true
+      type: string
+    vhost:
+      nullable: true
+      type: string
+PutParameterRequestBody:
+  type: object
+  properties:
+    value:
+      type: string
+  required:
+  - value

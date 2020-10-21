@@ -3,10 +3,10 @@
   get:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all parameters.
+    summary: List all parameters
     parameters: []
-    operationId: CHANGEME-GetParameters
+    operationId: GetParameters
     responses:
       '200':
         description: OK
@@ -30,16 +30,16 @@
   get:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all parameters for a specific component.
+    summary: List parameters by component
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetParameters
+        description: Name of component.
+    operationId: GetParametersComponent
     responses:
       '200':
         description: OK
@@ -63,22 +63,22 @@
   get:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all parameters for a specific component and vhost.
+    summary: List parameters by component and vhost
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of component.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetParameters
+        description:  Name of vhost.
+    operationId: GetParametersComponentVhost
     responses:
       '200':
         description: OK
@@ -102,35 +102,35 @@
   get:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List a specific parameter.
+    summary: List parameter
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of component.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of vhost.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetParameters
+        description: Name of parameter.
+    operationId: GetParameter
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+              "$ref": "../openapi.yaml#/components/schemas/parameter"
       4XX:
         description: Client Error
         content:
@@ -146,35 +146,37 @@
   put:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Create or update a parameter.
+    summary: Create/update parameter
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of component.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of vhost.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-PutParameters
+        description: Name of parameter.
+    operationId: PutParameter
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      '204':
+        description: The parameter were created/updated successfully.
       4XX:
         description: Client Error
         content:
@@ -190,35 +192,31 @@
   delete:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Remove a specific parameter.
+    summary: Delete parameter
     parameters:
     - in: path
       name: component
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of component.
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description:  Name of vhost.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-DeleteParameters
+        description: Name of parameter.
+    operationId: DeleteParameter
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      '204':
+        description: The parameter were deleted successfully.
       4XX:
         description: Client Error
         content:
@@ -235,17 +233,17 @@
   get:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all global parameters.
+    summary: List global parameters
     parameters: []
-    operationId: CHANGEME-GetParameters
+    operationId: GetGlobalParameters
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+              "$ref": "../openapi.yaml#/components/schemas/global-parameters"
       4XX:
         description: Client Error
         content:
@@ -262,23 +260,23 @@
   get:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List specific global parameter.
+    summary: List global parameter
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetParameters
+        description: Name of global parameter.
+    operationId: GetGlobalParameter
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+              "$ref": "../openapi.yaml#/components/schemas/parameter"
       4XX:
         description: Client Error
         content:
@@ -294,23 +292,25 @@
   put:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Create or update a global parameter.
+    summary: Create/update global parameter
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-PutParameters
+        description: Name of gloabl parameter.
+    operationId: PutGlobalParameter
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      '204':
+        description: The global parameter were created/updated successfully.
       4XX:
         description: Client Error
         content:
@@ -326,23 +326,19 @@
   delete:
     tags:
     - parameters
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Remove a specific global parameter.
+    summary: Delete global parameter
     parameters:
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-DeleteParameters
+        description: Name of global parameter.
+    operationId: DeleteGlobalParameter
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      '204':
+        description: The global parameter were deleted successfully.
       4XX:
         description: Client Error
         content:

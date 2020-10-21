@@ -38,7 +38,7 @@
       schema:
         type: string
         description: Name of vhost.
-    operationId: GetPoliciesForVhost
+    operationId: GetPoliciesVhost
     responses:
       '200':
         description: OK

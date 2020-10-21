@@ -35,8 +35,16 @@ components:
       "$ref": "./schemas/main.yaml#/main"
     nodes:
       "$ref": "./schemas/nodes.yaml#/nodes"
+    parameter:
+      "$ref": "./schemas/parameters.yaml#/parameter"
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
+    parameters-PutParameterRequestBody:
+      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody"
+    global-parameter:
+      "$ref": "./schemas/parameters.yaml#/global-parameter"
+    global-parameters:
+      "$ref": "./schemas/parameters.yaml#/global-parameters"
     policy:
       "$ref": "./schemas/policies.yaml#/policy"
     policies:
