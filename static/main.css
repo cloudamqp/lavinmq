@@ -764,7 +764,37 @@ fieldset.inline {
   right: 5px;
 }
 
+.arg-tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.arg-tooltip .tooltiptext {
+  visibility: hidden;
+  width: 150px;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  text-align: center;
+  padding: 5px 2px;
+  border-radius: 6px;
+
+  width: 150px;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -75px;
+  position: absolute;
+  z-index: 1;
+}
+
+.arg-tooltip:hover .tooltiptext {
+  visibility: visible;
+}
+
 pre.arguments > div {
   padding-left: 1em;
   text-indent: -1em;
+}
+#dataTags {
+  margin-left :150px;
+  padding: 7px;
 }

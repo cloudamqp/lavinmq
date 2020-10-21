@@ -71,7 +71,13 @@
         <label>
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
+              <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
+            </a>
+          </div>
         </label>
+
         <button type="submit" class="btn-primary">Add exchange</button>
       </form>
     </main>
@@ -158,6 +164,17 @@
             evt.target.reset()
           }).catch(avalanchemq.http.standardErrorHandler)
       })
+
+      document.querySelector('#dataTags').onclick = e => {
+        val = e.target.getAttribute('data-tag')
+        currentVal = document.querySelector('[name=arguments]').value
+        if (currentVal === "" && val) {
+          document.querySelector('[name=arguments]').value = "{\"" + val + "\": value}"
+        }
+        else if (currentVal[currentVal.length - 1] === "}" && val) {
+          document.querySelector('[name=arguments]').value = currentVal.substr(0, currentVal.length - 1) + ",\n\"" + val + "\": value}"
+        }
+      }
     </script>
   </body>
 </html>
