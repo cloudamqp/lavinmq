@@ -119,7 +119,21 @@ module AvalancheMQ
         frame_max: Config.instance.frame_max,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
-      tune_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::TuneOk) }
+      AMQP::Frame.from_io(socket) do |frame|
+        case frame
+        when AMQP::Frame::Connection::TuneOk
+          if frame.frame_max < 4096
+            log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
+            socket.close
+            return
+          end
+          frame
+        else
+           log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
+           socket.close
+           return
+         end
+      end
       if tune_ok.frame_max < 4096
         log.warn { "Suggested Frame max (#{tune_ok.frame_max}) too low, closing connection" }
         socket.close
