@@ -2,16 +2,22 @@ module AvalancheMQ
   struct SegmentPosition
     include Comparable(self)
 
+    @[Flags]
+    enum SPFlags : UInt8
+      HasDLX
+    end
+
     getter segment : UInt32
     getter position : UInt32
     getter bytesize : UInt32
     getter expiration_ts : Int64
     getter priority : UInt8
-    BYTESIZE = 21
+    getter flags : SPFlags
+    BYTESIZE = 22
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32 = 0_u32, @expiration_ts : Int64 = 0_i64, @priority : UInt8 = 0_u8)
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize = 0_u32, @expiration_ts = 0_i64, @priority = 0_u8, @flags = SPFlags.new(0_u8))
     end
 
     def self.zero
@@ -25,7 +31,8 @@ module AvalancheMQ
       format.encode(@position, slice[4, 4])
       format.encode(@bytesize, slice[8, 4])
       format.encode(@expiration_ts, slice[12, 8])
-      format.encode(@priority, slice[20, 1])
+      slice[20] = @priority
+      slice[21] = @flags.value
       io.write(slice)
     end
 
@@ -40,8 +47,10 @@ module AvalancheMQ
       pos = UInt32.from_io(io, format)
       bytesize = UInt32.from_io(io, format)
       ts = Int64.from_io(io, format)
-      priority = UInt8.from_io(io, format)
-      self.new(seg, pos, bytesize, ts, priority)
+      priority = io.read_byte || raise IO::EOFError.new
+      flags_value = io.read_byte || raise IO::EOFError.new
+      flags = SPFlags.from_value flags_value
+      self.new(seg, pos, bytesize, ts, priority, flags)
     end
 
     def self.from_i64(i : Int64)
@@ -76,7 +85,13 @@ module AvalancheMQ
             0_i64
           end
         priority = msg.properties.priority || 0_u8
-        self.new(segment, position, msg.bytesize.to_u32, expires_at, priority)
+        flags =
+          if msg.properties.headers.try(&.has_key?("x-dead-letter-exchange"))
+            SPFlags::HasDLX
+          else
+            SPFlags.new(0u8)
+          end
+        self.new(segment, position, msg.bytesize.to_u32, expires_at, priority, flags)
     end
   end
 end
