@@ -49,7 +49,7 @@ module AvalancheMQ
                         x-consistent-hash)
 
     def initialize(@name : String, @server_data_dir : String,
-                   @log : Logger, @default_user : User, @churn_events : Server::ChurnEvents)
+                   @log : Logger, @default_user : User, @events : Server::Event)
       @log.progname = "vhost=#{@name}"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -361,7 +361,7 @@ module AvalancheMQ
         return false if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] = QueueFactory.make(self, f)
         apply_policies([q] of Queue) unless loading
-        @churn_events.send({:queue_declared, 1_u32}) unless loading
+        @events.send(EventType::QueueDeclared) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
           @exchanges.each_value do |ex|
@@ -369,7 +369,7 @@ module AvalancheMQ
               ex.unbind(q, *binding_args) if destinations.includes?(q)
             end
           end
-          @churn_events.send({:queue_deleted, 1_u32})
+          @events.send(EventType::QueueDeleted)
           q.delete
         else
           return false
@@ -406,10 +406,8 @@ module AvalancheMQ
 
     def add_connection(client : Client)
       @connections << client
-      @churn_events.send({ :connection_created, 1_u32})
       client.on_close do |c|
         @connections.delete c
-        @churn_events.send({ :connection_closed, 1_u32})
       end
     end
 
