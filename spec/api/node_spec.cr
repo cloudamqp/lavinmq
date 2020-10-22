@@ -16,7 +16,7 @@ describe AvalancheMQ::HTTP::NodesController do
     end
 
     it "should update queue data" do
-      s.update_stats_rates()
+      s.update_stats_rates
 
       response = get("/api/nodes")
       body = JSON.parse(response.body)
@@ -24,7 +24,7 @@ describe AvalancheMQ::HTTP::NodesController do
       declared_queues = data["queue_declared"].as_i
       deleted_queues = data["queue_deleted"].as_i
       s.vhosts["/"].declare_queue("this_queue_should_not_exist", false, false)
-      s.update_stats_rates()
+      s.update_stats_rates
 
       response = get("/api/nodes")
       response.status_code.should eq 200
@@ -34,7 +34,7 @@ describe AvalancheMQ::HTTP::NodesController do
       data["queue_declared"].as_i.should eq (declared_queues + 1)
       data["queue_deleted"].as_i.should eq deleted_queues
       s.vhosts["/"].delete_queue("this_queue_should_not_exist")
-      s.update_stats_rates()
+      s.update_stats_rates
 
       response = get("/api/nodes")
       response.status_code.should eq 200
@@ -46,7 +46,7 @@ describe AvalancheMQ::HTTP::NodesController do
     end
 
     it "should not delete stats when connection is closed" do
-      s.update_stats_rates()
+      s.update_stats_rates
 
       response = get("/api/nodes")
       response.status_code.should eq 200
@@ -55,7 +55,7 @@ describe AvalancheMQ::HTTP::NodesController do
       channels_created = data["channel_created"].as_i
       channels_closed = data["channel_closed"].as_i
       with_channel do
-        s.update_stats_rates()
+        s.update_stats_rates
 
         response = get("/api/nodes")
         response.status_code.should eq 200
@@ -64,7 +64,7 @@ describe AvalancheMQ::HTTP::NodesController do
         data["channel_created"].as_i.should eq (channels_created + 1)
         data["channel_closed"].as_i.should eq (channels_closed)
       end
-      s.update_stats_rates()
+      s.update_stats_rates
 
       response = get("/api/nodes")
       response.status_code.should eq 200

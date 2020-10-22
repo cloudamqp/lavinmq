@@ -271,7 +271,7 @@ module AvalancheMQ
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
-        update_stats_rates()
+        update_stats_rates
 
         interval = Config.instance.stats_interval.milliseconds.to_i
         log_size = Config.instance.stats_log_size
