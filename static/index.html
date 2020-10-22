@@ -83,12 +83,18 @@
 <script src="/js/chart.js"></script>
 <script>
   /* globals avalanchemq */
-  const msgChart = avalanchemq.chart.render('msgChart', 'msgs', { aspectRatio: 2 })
+  const msgChart = avalanchemq.chart.render('msgChart', 'msgs', { aspectRatio: 2 }, true)
   const dataChart = avalanchemq.chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
   const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
 
   function updateCharts (response) {
-    avalanchemq.chart.update(msgChart, response.queue_totals)
+    let msgStats = {
+      messages_ready: response.queue_totals.messages_ready,
+      messages_unacknowledged: response.queue_totals.messages_unacknowledged,
+      messages_ready_log: response.queue_totals.messages_ready_log,
+      messages_unacknowledged_log: response.queue_totals.messages_unacknowledged_log
+    }
+    avalanchemq.chart.update(msgChart, msgStats, "origin")
     avalanchemq.chart.update(rateChart, response.message_stats)
     const dataStats = {
       send_details: response.send_oct_details,

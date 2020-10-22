@@ -10,7 +10,7 @@
     return ctx.clientWidth / 10
   }
 
-  function render (id, unit, options = {}) {
+  function render (id, unit, options = {}, stacked = false) {
     const el = document.getElementById(id)
     const graphContainer = document.createElement('div')
     graphContainer.classList.add('graph')
@@ -78,20 +78,33 @@
               min: 0,
               suggestedMax: 10,
               callback: helpers.nFormatter
-            }
+            },
+            stacked: stacked
           }]
         },
         legendCallback: function (chart) {
           const text = []
+          let total = 0
           for (let i = 0; i < chart.data.datasets.length; i++) {
             const dataSet = chart.data.datasets[i]
             const value = dataSet.data[-1] ? dataSet.data[-1].y : ''
+            total += value
             text.push(`<div class="legend-item checked">
               <div class="toggle"></div>
               <div class="color-ref" style="background-color:${dataSet.backgroundColor}"></div>
               <div>
                 <div class="legend-label">${dataSet.label}</div>
                 <div class="legend-value">${helpers.formatNumber(value)}</div>
+              </div>
+            </div>`)
+          }
+          if (stacked) {
+            text.push(`<div class="legend-item checked">
+              <div class="toggle"></div>
+              <div class="color-ref" style="background-color:${chartColors.slice(-1)[0]}"></div>
+              <div>
+                <div class="legend-label">Total</div>
+                <div class="legend-value">${helpers.formatNumber(total)}</div>
               </div>
             </div>`)
           }
@@ -136,14 +149,15 @@
     return (data.rate === undefined) ? data : data.rate
   }
 
-  function createDataset (key, color) {
+  function createDataset (key, color, fill) {
     const label = formatLabel(key)
     return {
       key,
       label,
-      fill: false,
+      fill: fill,
       type: 'line',
-      steppedLine: true,
+      steppedLine: false,
+      lineTension: 0.3,
       pointRadius: 0,
       pointStyle: 'line',
       data: [],
@@ -163,7 +177,7 @@
     dataset.data.push(point)
   }
 
-  function update (chart, data) {
+  function update (chart, data, filled = false) {
     const date = new Date()
     const maxY = ticks(chart.ctx.canvas)
     let keys = Object.keys(data)
@@ -177,7 +191,7 @@
       const i = keys.indexOf(key)
       if (dataset === undefined) {
         const color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
-        dataset = createDataset(key, color)
+        dataset = createDataset(key, color, filled)
         chart.data.datasets.push(dataset)
         legend.innerHTML = chart.generateLegend()
         const log = data[`${key}_log`] || data[key].log || []
@@ -189,6 +203,14 @@
       addToDataset(dataset, data[key], date, maxY)
       setTimeout(() => {
         legend.children[i].querySelector('.legend-value').innerHTML = helpers.formatNumber(dataset.data.slice(-1)[0].y)
+      }, 50)
+    }
+    if (chart.config.options.scales.yAxes[0].stacked) {
+      setTimeout(() => {
+        const value = chart.data.datasets.reduce((accumulator, dataset) => {
+          return accumulator + dataset.data.slice(-1)[0].y
+        }, 0)
+        legend.children[legend.children.length - 1].querySelector('.legend-value').innerHTML = helpers.formatNumber(value)
       }, 50)
     }
     chart.update()
