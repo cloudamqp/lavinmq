@@ -90,11 +90,18 @@ jobs:
           repository: 84codes/rabbitmq-java-client
           path: rabbitmq-java-client
 
-      - name: Run java tests
+      - name: Run java tests (allowed to fail)
+        id: test
+        continue-on-error: true
         run: |
           cd rabbitmq-java-client
           make deps
           ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
+
+      - name: >-
+          Test outcome: ${{ steps.test.outcome }}
+        run: echo NOOP
+
 
   bunny-test:
     name: Bunny client test
