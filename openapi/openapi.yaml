@@ -29,8 +29,16 @@ components:
       "$ref": "./schemas/consumers.yaml#/consumers"
     definitions:
       "$ref": "./schemas/definitions.yaml#/definitions"
+    exchange:
+      "$ref": "./schemas/exchanges.yaml#/exchange"
     exchanges:
       "$ref": "./schemas/exchanges.yaml#/exchanges"
+    exchanges-publish:
+      "$ref": "./schemas/exchanges.yaml#/publish"
+    exchanges-PutExchangeRequestBody:
+      "$ref": "./schemas/exchanges.yaml#/PutExchangeRequestBody"
+    exchanges-PublishRequestBody:
+      "$ref": "./schemas/exchanges.yaml#/PublishRequestBody"
     main-overview:
       "$ref": "./schemas/main.yaml#/overview"
     main-aliveness-test:

@@ -126,18 +126,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/queues-PutQueueRequestBody"
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/queues"
+      '201':
+        description: The resource was created successfully.
       '204':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/queues"
+        description: The resource was updated successfully.
       4XX:
         description: Client Error
         content:
@@ -171,7 +163,7 @@
     operationId: DeleteQueue
     responses:
       '204':
-        description: The resource were deleted successfully.
+        description: The resource was deleted successfully.
       4XX:
         description: Client Error
         content:
@@ -323,7 +315,7 @@
     operationId: PurgeQueue
     responses:
       '204':
-        description: The queue were purged successfully.
+        description: The queue was purged successfully.
       4XX:
         description: Client Error
         content:

@@ -1,8 +1,26 @@
 ---
 bindings:
-  title: CHANGEME
+  type: array
+  items:
+    "$ref": "#/binding"
+binding:
   type: object
   properties:
-    CHANGEME:
+    source:
       type: string
-      description: CHANGEME
+    vhost:
+      type: string
+    destination:
+      type: string
+    destination_type:
+      type: string
+      enum:
+      - exchange
+      - queue
+    routing_key:
+      type: string
+    arguments:
+      type: object
+      nullable: true
+    properties_key:
+      type: string
