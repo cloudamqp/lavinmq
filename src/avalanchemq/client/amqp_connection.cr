@@ -80,11 +80,11 @@ module AvalancheMQ
       when "PLAIN"
         resp = start_ok.response
         i = resp.index('\u0000', 1).not_nil!
-        { resp[1...i], resp[(i + 1)..-1] }
+        {resp[1...i], resp[(i + 1)..-1]}
       when "AMQPLAIN"
         io = ::IO::Memory.new(start_ok.response)
         tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
-        { tbl["LOGIN"].as(String), tbl["PASSWORD"].as(String) }
+        {tbl["LOGIN"].as(String), tbl["PASSWORD"].as(String)}
       else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
       end
     end
@@ -129,10 +129,10 @@ module AvalancheMQ
           end
           frame
         else
-           log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
-           socket.close
-           return
-         end
+          log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
+          socket.close
+          return
+        end
       end
       if tune_ok.frame_max < 4096
         log.warn { "Suggested Frame max (#{tune_ok.frame_max}) too low, closing connection" }
