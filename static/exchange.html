@@ -158,12 +158,12 @@
           document.getElementById('e-type').textContent = item.type
           document.querySelector('#exchange').textContent = exchange + ' in virtual host ' + item.vhost
           let argList = document.createElement('div')
-          let args = Object.keys(item.arguments).forEach(key => { 
+          let args = Object.keys(item.arguments).forEach(key => {
             if (key == 'x-delayed-exchange' && item.arguments[key] === false) {
               return
             }
             let el = document.createElement('div');
-            el.textContent = key + " = " + item.arguments[key]; 
+            el.textContent = key + " = " + item.arguments[key];
             argList.appendChild(el)
           })
           avalanchemq.dom.setChild('#e-arguments', argList)
@@ -241,7 +241,9 @@
           properties
         }
         avalanchemq.http.request('POST', url, { body })
-          .then(() => { avalanchemq.dom.toast('Published message to ' + exchange) })
+          .then(res => {
+            avalanchemq.dom.toast('Published message to ' + exchange + (res.routed ? '.' : ', but not routed.'))
+          })
           .catch(avalanchemq.http.alertErrorHandler)
       })
 
