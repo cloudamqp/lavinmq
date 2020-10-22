@@ -119,7 +119,7 @@ module AvalancheMQ
         frame_max: Config.instance.frame_max,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
-      AMQP::Frame.from_io(socket) do |frame|
+      tune_ok = AMQP::Frame.from_io(socket) do |frame|
         case frame
         when AMQP::Frame::Connection::TuneOk
           if frame.frame_max < 4096
