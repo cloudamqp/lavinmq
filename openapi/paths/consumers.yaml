@@ -5,7 +5,6 @@
     - consumers
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-GetConsumers
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/consumers/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - consumers
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetConsumers
     responses:
       '200':
@@ -60,36 +59,36 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/consumers/{vhost}/{connection}/{channel}/{consumer_tag}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: connection
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: channel
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: consumer_tag
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   delete:
     tags:
     - consumers
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: connection
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: channel
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: consumer_tag
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-DeleteConsumers
     responses:
       '200':

@@ -5,7 +5,6 @@
     - nodes
     description: Get statistics for all nodes.
     summary: Statistics for all nodes
-    parameters: []
     operationId: GetNodes
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/nodes/{name}":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of node.
   get:
     tags:
     - nodes
     description: Get statistics for specific node.
     summary: Statistics for single node
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of node.
     operationId: GetNode
     responses:
       '200':

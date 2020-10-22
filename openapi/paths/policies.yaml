@@ -4,7 +4,6 @@
     - policies
     description: List all policies.
     summary: List all policies
-    parameters: []
     operationId: GetPolicies
     responses:
       '200':
@@ -26,18 +25,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/policies/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
   get:
     tags:
     - policies
     description: List all policies for a specific vhost.
     summary: List policies for vhost
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
     operationId: GetPoliciesVhost
     responses:
       '200':
@@ -59,24 +58,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/policies/{vhost}/{name}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of policy.
   get:
     tags:
     - policies
     description: List a specific policy.
     summary: List policy
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of policy.
     operationId: GetPolicy
     responses:
       '200':
@@ -102,19 +101,6 @@
     - policies
     description: Create or update a policy.
     summary: Create/update policy
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of policy.
     operationId: PutPolicy
     requestBody:
       required: true
@@ -142,19 +128,6 @@
     - policies
     description: Delete a policy.
     summary: Delete policy
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of policy.
     operationId: DeletePolicy
     responses:
       '204':

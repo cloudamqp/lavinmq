@@ -5,7 +5,6 @@
     - connections
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-GetConnections
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/vhosts/{vhost}/connections":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - connections
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetConnections
     responses:
       '200':
@@ -60,18 +59,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/connections/{name}":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - connections
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetConnections
     responses:
       '200':
@@ -97,13 +96,6 @@
     - connections
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-DeleteConnections
     responses:
       '200':
@@ -125,18 +117,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/connections/{name}/channels":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - connections
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetConnections
     responses:
       '200':

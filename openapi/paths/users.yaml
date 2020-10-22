@@ -5,7 +5,6 @@
     - users
     description: List all users in the server.
     summary: List all users
-    parameters: []
     operationId: GetUsers
     responses:
       '200':
@@ -32,7 +31,6 @@
     - users
     description: List all users that doesn't have any permissions.
     summary: List users with no permissions
-    parameters: []
     operationId: GetUsersWithoutPermissions
     responses:
       '200':
@@ -59,7 +57,6 @@
     - users
     description: Delete multiple users.
     summary: Bulk delete users
-    parameters: []
     operationId: BulkDeleteUsers
     requestBody:
       required: true
@@ -83,18 +80,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/users/{name}":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the user.
   get:
     tags:
     - users
     description: Find a specific user by name.
     summary: List user
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: GetUser
     responses:
       '200':
@@ -120,13 +117,6 @@
     - users
     description: Create new user, or update an existing user.
     summary: Create/update user
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: PutUser
     requestBody:
       required: true
@@ -154,13 +144,6 @@
     - users
     description: Remove a specific user by name.
     summary: Delete user
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: DeleteUser
     responses:
       '204':
@@ -178,18 +161,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/users/{name}/permissions":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the user.
   get:
     tags:
     - users
     description: List permissions by user.
     summary: List permissions of user
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: GetUserPermissions
     responses:
       '200':

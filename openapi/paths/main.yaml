@@ -5,7 +5,6 @@
     - main
     description: Various server information.
     summary: Server info
-    parameters: []
     operationId: Overview
     responses:
       '200':
@@ -32,7 +31,6 @@
     - main
     description: Info about the authenticated user.
     summary: User info
-    parameters: []
     operationId: WhoAmI
     responses:
       '200':
@@ -54,18 +52,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/aliveness-test/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
   get:
     tags:
     - main
     description: "Declares a queue, publishes and consumes a message. Note: to prevent churn, the aliveness queue is not removed."
     summary: Aliveness test
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
     operationId: AlivenessTest
     responses:
       '200':
@@ -92,7 +90,6 @@
     - main
     description: List all shovels.
     summary: List shovels
-    parameters: []
     operationId: GetShovels
     responses:
       '200':
@@ -114,18 +111,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/shovels/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
   get:
     tags:
     - main
     description: List all shovels for specific vhost.
     summary: List shovels by vhost
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
     operationId: GetShovelsVhost
     responses:
       '200':
@@ -152,7 +149,6 @@
     - main
     description: List all federation links.
     summary: List federation links
-    parameters: []
     operationId: GetFederationLinks
     responses:
       '200':
@@ -174,18 +170,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/federation-links/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - main
     description: List all federation links for specific vhost.
     summary: List federation links by vhost
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: GetFederationLinksVhost
     responses:
       '200':
@@ -212,7 +208,6 @@
     - main
     description: List all extensions.
     summary: List extensions
-    parameters: []
     operationId: GetExtensions
     responses:
       '200':

@@ -5,7 +5,6 @@
     - definitions
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-GetDefinitions
     responses:
       '200':
@@ -31,7 +30,6 @@
     - definitions
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-PostDefinitions
     responses:
       '200':
@@ -58,7 +56,6 @@
     - definitions
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-PostDefinitions
     responses:
       '200':
@@ -80,18 +77,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/definitions/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - definitions
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetDefinitions
     responses:
       '200':
@@ -117,13 +114,6 @@
     - definitions
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-PostDefinitions
     responses:
       '200':

@@ -5,7 +5,6 @@
     - channels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-GetChannels
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/vhosts/{vhost}/channels":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - channels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetChannels
     responses:
       '200':
@@ -60,18 +59,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/channels/{name}":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - channels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetChannels
     responses:
       '200':

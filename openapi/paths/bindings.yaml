@@ -5,7 +5,6 @@
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters: []
     operationId: CHANGEME-GetBindings
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetBindings
     responses:
       '200':
@@ -60,30 +59,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/q/{queue}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: queue
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: queue
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetBindings
     responses:
       '200':
@@ -109,25 +108,6 @@
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: queue
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-PostBindings
     responses:
       '200':
@@ -149,36 +129,36 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/q/{queue}/{props}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: queue
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: props
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: queue
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: props
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetBindings
     responses:
       '200':
@@ -204,31 +184,6 @@
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: queue
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: props
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-DeleteBindings
     responses:
       '200':
@@ -250,30 +205,30 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/e/{destination}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: destination
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: destination
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetBindings
     responses:
       '200':
@@ -299,25 +254,6 @@
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: destination
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-PostBindings
     responses:
       '200':
@@ -339,36 +275,36 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/bindings/{vhost}/e/{name}/e/{destination}/{props}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: destination
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
+  - in: path
+    name: props
+    required: true
+    schema:
+      type: string
+      description: CHANGEME.
   get:
     tags:
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: destination
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: props
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-GetBindings
     responses:
       '200':
@@ -394,31 +330,6 @@
     - bindings
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: destination
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    - in: path
-      name: props
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
     operationId: CHANGEME-DeleteBindings
     responses:
       '200':

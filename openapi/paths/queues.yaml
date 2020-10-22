@@ -5,7 +5,6 @@
     - queues
     description: List all queues in the server.
     summary: List all queues
-    parameters: []
     operationId: GetQueues
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
   get:
     tags:
     - queues
     description: List all queues for specific vhost.
     summary: List queues for vhost
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
     operationId: GetQueuesVhost
     responses:
       '200':
@@ -60,24 +59,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
   get:
     tags:
     - queues
     description: Find specific queue by name and vhost.
     summary: List queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: GetQueue
     responses:
       '200':
@@ -105,19 +104,6 @@
     - queues
     description: Create new queue under given vhost, or update an existing queue.
     summary: Create/update queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: PutQueue
     requestBody:
       required: true
@@ -147,19 +133,6 @@
     - queues
     description: Remove a specific queue by name and vhost.
     summary: Delete queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: DeleteQueue
     responses:
       '204':
@@ -177,24 +150,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/pause":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
   put:
     tags:
     - queues
     description: Pause the queue. When the queue is paused, messages are not delivered to consumers.
     summary: Pause queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: PauseQueue
     responses:
       '200':
@@ -216,24 +189,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/resume":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
   put:
     tags:
     - queues
     description: Resume the queue. When the queue is paused, messages are not delivered to consumers.
     summary: Resume queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: ResumeQueue
     responses:
       '200':
@@ -255,24 +228,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/bindings":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
   get:
     tags:
     - queues
     description: List bindings specific queue by name and vhost.
     summary: List bindings for queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: GetQueueBindings
     responses:
       '200':
@@ -294,24 +267,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/contents":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
   delete:
     tags:
     - queues
     description: Delete all contents of a queue.
     summary: Purge queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: PurgeQueue
     responses:
       '204':
@@ -329,24 +302,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/get":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
   post:
     tags:
     - queues
     description: Get one ore more messages from a specific queue.
     summary: Get messages from queue
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of queue.
     operationId: GetQueueMessages
     requestBody:
       content:

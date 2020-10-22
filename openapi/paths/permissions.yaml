@@ -5,7 +5,6 @@
     - permissions
     description: List permissions for each vhost in the server.
     summary: List all permissions
-    parameters: []
     operationId: GetPermissions
     responses:
       '200':
@@ -27,24 +26,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/permissions/{vhost}/{user}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: user
+    required: true
+    schema:
+      type: string
+      description: Name of the user.
   get:
     tags:
     - permissions
     description: List permissions by vhost and user.
     summary: List permissions by vhost and user
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of the vhost.
-    - in: path
-      name: user
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: GetPermissionsVhostUser
     responses:
       '200':
@@ -70,19 +69,6 @@
     - permissions
     description: Create or update permissions by vhost and user.
     summary: Create/update permissions
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of the vhost.
-    - in: path
-      name: user
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: PutPermissions
     requestBody:
       required: true
@@ -110,19 +96,6 @@
     - permissions
     description: Delete permissions by vhost and user.
     summary: Delete permissions
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of the vhost.
-    - in: path
-      name: user
-      required: true
-      schema:
-        type: string
-        description: Name of the user.
     operationId: DeletePermissions
     responses:
       '204':

@@ -5,7 +5,6 @@
     - exchanges
     description: List all exchanges.
     summary: List exchanges
-    parameters: []
     operationId: GetExchanges
     responses:
       '200':
@@ -27,18 +26,18 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost
   get:
     tags:
     - exchanges
     description: List all exchanges for a specific vhost.
     summary: List exchanges by vhost
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost
     operationId: GetExchangesVhost
     responses:
       '200':
@@ -60,24 +59,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of exchange.
   get:
     tags:
     - exchanges
     description: Find a specific exchange by vhost and name.
     summary: List exchange
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of exchange.
     operationId: GetExchange
     responses:
       '200':
@@ -103,19 +102,6 @@
     - exchanges
     description: Create a new exchange, or update an existing exchange.
     summary: Create/update exchange
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of exchange.
     operationId: PutExchange
     requestBody:
       required: true
@@ -143,19 +129,6 @@
     - exchanges
     description: Remove a specific exchange.
     summary: Delete exchange
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of exchange.
     operationId: DeleteExchange
     responses:
       '204':
@@ -173,24 +146,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/bindings/source":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of exchange.
   get:
     tags:
     - exchanges
     description: List all bindings where the specific exchange is the source.
     summary: Bindings (source)
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of exchange.
     operationId: GetExchangeBindingsSource
     responses:
       '200':
@@ -212,24 +185,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/bindings/destination":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of exchange.
   get:
     tags:
     - exchanges
     description: List all bindings where the specific exchange is the destination.
     summary: Bindings (destination)
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of exchange.
     operationId: GetExchangeBindingsDestination
     responses:
       '200':
@@ -251,24 +224,24 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/publish":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of exchange.
   post:
     tags:
     - exchanges
     description: Publish a message to the specific exchange. Check the response body to understand if the message was successfully routed or not.
     summary: Publish message
-    parameters:
-    - in: path
-      name: vhost
-      required: true
-      schema:
-        type: string
-        description: Name of vhost.
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: Name of exchange.
     operationId: PostExchangePublish
     requestBody:
       required: true
