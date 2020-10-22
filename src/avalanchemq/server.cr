@@ -241,8 +241,7 @@ module AvalancheMQ
     end
 
     private def events_loop
-      loop do
-        type = @events.receive? || break
+      while type = @events.receive?
         case type
         in EventType::ChannelClosed     then @channel_closed_count += 1
         in EventType::ChannelCreated    then @channel_created_count += 1
