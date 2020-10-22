@@ -127,6 +127,7 @@
         if (e.body) {
           tableError.textContent = 'Error fetching data: ' + e.body
         } else {
+          tableError.textContent = "Error fetching data: Can't reach server, please try to refresh the page!"
           console.error(e)
         }
         if (timer) {
