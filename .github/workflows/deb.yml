@@ -24,13 +24,13 @@ jobs:
           fetch-depth: 0
 
       - name: Get Ubuntu release name
-        run: echo "::set-env name=CODENAME::$(lsb_release -cs)"
+        run: echo "CODENAME=$(lsb_release -cs)" >> $GITHUB_ENV
 
       - name: Get version
-        run: echo "::set-env name=VERSION::$(git describe --tags | cut -c2-)"
+        run: echo "VERSION=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
 
       - name: Get arch
-        run: echo "::set-env name=ARCH::$(dpkg --print-architecture)"
+        run: echo "ARCH=$(dpkg --print-architecture)" >> $GITHUB_ENV
 
       - name: Build deb package
         run: build/deb ${{ env.VERSION }} 1
