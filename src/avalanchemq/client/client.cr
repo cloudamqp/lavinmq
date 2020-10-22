@@ -17,7 +17,7 @@ module AvalancheMQ
     include SortableJSON
 
     property direct_reply_consumer_tag
-    getter vhost, channels, log, name, events
+    getter vhost, channels, log, name
     getter user
     getter remote_address
     getter max_frame_size : UInt32
