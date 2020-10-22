@@ -190,7 +190,7 @@
       let dataset = chart.data.datasets.find(dataset => dataset.key === key)
       const i = keys.indexOf(key)
       if (dataset === undefined) {
-        const color = chartColors[Math.floor((i / keys.length) * chartColors.length)]
+        const color = chartColors[i % chartColors.length]
         dataset = createDataset(key, color, filled)
         chart.data.datasets.push(dataset)
         legend.innerHTML = chart.generateLegend()
