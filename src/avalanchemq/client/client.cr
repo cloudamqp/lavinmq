@@ -85,6 +85,7 @@ module AvalancheMQ
         connected_at:      @connected_at,
         type:              "network",
         channel_max:       @channel_max,
+        frame_max:         @max_frame_size,
         timeout:           @heartbeat_timeout,
         client_properties: @client_properties,
         vhost:             @vhost.name,
