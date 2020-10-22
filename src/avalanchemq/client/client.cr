@@ -33,13 +33,14 @@ module AvalancheMQ
     @running = true
     @last_recv_frame = RoughTime.utc
     @last_sent_frame = RoughTime.utc
-    rate_stats(%w(send_oct recv_oct channel_created channel_closed))
+    rate_stats(%w(send_oct recv_oct))
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket,
                    @remote_address : Socket::IPAddress,
                    @local_address : Socket::IPAddress,
                    @vhost : VHost,
                    @user : User,
+                   @events : Server::Event,
                    tune_ok,
                    start_ok)
       @log = vhost.log.dup
@@ -55,6 +56,7 @@ module AvalancheMQ
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
+      @events.send(EventType::ConnectionCreated)
       @log.info "Connected as user #{@user.name}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
@@ -275,8 +277,8 @@ module AvalancheMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, remote_address, local_address, vhosts, users, log)
-      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup)
+    def self.start(socket, remote_address, local_address, vhosts, users, log, events)
+      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup, events)
     end
 
     private def with_channel(frame)
@@ -306,8 +308,7 @@ module AvalancheMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
-      @channel_created_count += 1
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel, @events)
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 
@@ -319,11 +320,9 @@ module AvalancheMQ
       when AMQP::Frame::Channel::Open
         open_channel(frame)
       when AMQP::Frame::Channel::Close
-        @channel_closed_count += 1
         @channels.delete(frame.channel).try &.close
         send AMQP::Frame::Channel::CloseOk.new(frame.channel)
       when AMQP::Frame::Channel::CloseOk
-        @channel_closed_count += 1
         @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow
         @channels[frame.channel].client_flow(frame.active)
@@ -392,9 +391,9 @@ module AvalancheMQ
       @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)
       @exclusive_queues.clear
-      @channel_closed_count += @channels.size
       @channels.each_value &.close
       @channels.clear
+      @events.send(EventType::ConnectionClosed)
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
     end
@@ -427,7 +426,6 @@ module AvalancheMQ
       else
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       end
-      @channel_closed_count += 1
       @channels[frame.channel].running = false
     end
 
@@ -439,7 +437,6 @@ module AvalancheMQ
       else
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
-      @channel_closed_count += @channels.size
       @running = false
     end
 

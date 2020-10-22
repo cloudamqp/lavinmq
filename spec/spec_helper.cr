@@ -59,10 +59,10 @@ module TestHelpers
   end
 
   def wait_for(timeout = 5.seconds)
-    s = Time.monotonic
+    sec = Time.monotonic
     until res = yield
       Fiber.yield
-      raise "Execuction expired" if Time.monotonic - s > timeout
+      raise "Execuction expired" if Time.monotonic - sec > timeout
     end
     res
   end

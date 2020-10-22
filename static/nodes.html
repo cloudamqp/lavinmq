@@ -131,18 +131,24 @@
         const connectionChurnStats = {
           connection_created_details: response[0].connection_created_details.rate,
           connection_closed_details: response[0].connection_closed_details.rate,
+          connection_created_details_log: response[0].connection_created_details.log,
+          connection_closed_details_log: response[0].connection_closed_details.log
         }
         avalanchemq.chart.update(connectionChurnChart, connectionChurnStats)
 
         const channelChurnStats = {
           channel_created_details: response[0].channel_created_details.rate,
           channel_closed_details: response[0].channel_closed_details.rate,
+          channel_created_details_log: response[0].channel_created_details.log,
+          channel_closed_details_log: response[0].channel_closed_details.log
         }
         avalanchemq.chart.update(channelChurnChart, channelChurnStats)
 
         const queueChurnStats = {
           queue_declared_details: response[0].queue_declared_details.rate,
           queue_deleted_details: response[0].queue_deleted_details.rate,
+          queue_declared_details_log: response[0].queue_declared_details.log,
+          queue_deleted_details_log: response[0].queue_deleted_details.log
         }
         avalanchemq.chart.update(queueChurnChart, queueChurnStats)
 

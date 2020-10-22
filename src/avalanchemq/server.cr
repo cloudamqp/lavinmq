@@ -15,24 +15,34 @@ require "./chained_logger"
 require "./config"
 require "./proxy_protocol"
 require "./client/client"
+require "./stats"
+require "./event_type"
 
 module AvalancheMQ
   class Server
     getter vhosts, users, data_dir, log, parameters
     getter? closed, flow
-    alias ConnectionsEvents = Channel(Tuple(Client, Symbol))
+    alias Event = Channel(EventType)
     include ParameterTarget
+    include Stats
+    getter channel_closed_log, channel_created_log, connection_closed_log, connection_created_log,
+           queue_declared_log, queue_deleted_log
 
     @start = Time.monotonic
     @closed = false
     @flow = true
+    rate_stats(%w(channel_closed channel_created connection_closed connection_created
+                  queue_declared queue_deleted))
+
 
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket::Server).new(3)
       @users = UserStore.instance(@data_dir, @log)
-      @vhosts = VHostStore.new(@data_dir, @log, @users)
+      @events = Event.new(1000)
+      spawn events_loop, name: "Server#events"
+      @vhosts = VHostStore.new(@data_dir, @log, @users, @events)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -143,6 +153,8 @@ module AvalancheMQ
       @listeners.each &.close
       @log.debug "Closing vhosts"
       @vhosts.close
+      @log.debug "Closing #events channel"
+      @events.close
     end
 
     def add_parameter(p : Parameter)
@@ -187,7 +199,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket, remote_address, local_address)
-      client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log)
+      client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log, @events)
       if client.nil?
         socket.close
       else
@@ -228,35 +240,37 @@ module AvalancheMQ
       socket.write_timeout = 15
     end
 
+    private def events_loop
+      while type = @events.receive?
+        case type
+        in EventType::ChannelClosed     then @channel_closed_count += 1
+        in EventType::ChannelCreated    then @channel_created_count += 1
+        in EventType::ConnectionClosed  then @connection_closed_count += 1
+        in EventType::ConnectionCreated then @connection_created_count += 1
+        in EventType::QueueDeclared     then @queue_declared_count += 1
+        in EventType::QueueDeleted      then @queue_deleted_count += 1
+        end
+      end
+    end
+
+    def update_stats_rates
+      @vhosts.each_value do |vhost|
+        vhost.queues.each_value(&.update_rates)
+        vhost.exchanges.each_value(&.update_rates)
+        vhost.connections.each do |connection|
+          connection.update_rates
+          connection.channels.each_value(&.update_rates)
+        end
+      end
+      update_rates()
+    end
+
     private def stats_loop
       statm = File.open("/proc/self/statm") if File.exists?("/proc/self/statm")
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
-        {% for sm in SERVER_METRICS %}
-          @{{sm.id}}_count = 0_u64
-          @{{sm.id}}_rate = 0_f64
-        {% end %}
-
-        @vhosts.each_value do |vhost|
-          vhost.queues.each_value(&.update_rates)
-          vhost.exchanges.each_value(&.update_rates)
-          vhost.connections.each do |connection|
-            connection.update_rates
-            connection.channels.each_value(&.update_rates)
-            stats = connection.stats_details
-            @channel_created_count += stats["channel_created"]
-            @channel_created_rate += stats.["channel_created_details"]["rate"]
-            @channel_closed_count += stats.["channel_closed"]
-            @channel_closed_rate += stats.["channel_closed_details"]["rate"]
-          end
-          vhost.update_rates
-          stats = vhost.stats_details
-          {% for item in %w(connection_created connection_closed queue_declared queue_deleted) %}
-            @{{item.id}}_count += stats["{{item.id}}"]
-            @{{item.id}}_rate += stats["{{item.id}}_details"]["rate"]
-          {% end %}
-        end
+        update_stats_rates
 
         interval = Config.instance.stats_interval.milliseconds.to_i
         log_size = Config.instance.stats_log_size

@@ -39,7 +39,7 @@ module AvalancheMQ
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
 
-      def initialize(@client : Client, @id : UInt16)
+      def initialize(@client : Client, @id : UInt16, @events : Server::Event)
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
@@ -48,6 +48,7 @@ module AvalancheMQ
         @next_msg_body.sync = true
         @next_msg_body.read_buffering = false
         @next_msg_body.delete
+        @events.send(EventType::ChannelCreated)
       end
 
       record Unack,
@@ -506,6 +507,7 @@ module AvalancheMQ
           unack.queue.reject(unack.sp, true)
         end
         @next_msg_body.close
+        @events.send(EventType::ChannelClosed)
         @log.debug { "Closed" }
       end
 
