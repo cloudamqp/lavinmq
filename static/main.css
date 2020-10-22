@@ -358,7 +358,10 @@ aside li.active a {
 
 #table-error {
   color: red;
-  float: right;
+}
+
+#upstreamTable-error {
+  color: red;
 }
 
 .table-multihead {
@@ -685,6 +688,7 @@ fieldset.inline {
 .chart-container .legend {
   grid-column: 2 / span 1;
   grid-row-gap: 5px;
+  overflow-wrap: anywhere;
 }
 
 .chart-container .legend .legend-item {
