@@ -17,7 +17,7 @@ module AvalancheMQ
     include SortableJSON
 
     property direct_reply_consumer_tag
-    getter vhost, channels, log, name, churn_events
+    getter vhost, channels, log, name, events
     getter user
     getter remote_address
     getter max_frame_size : UInt32
@@ -40,7 +40,7 @@ module AvalancheMQ
                    @local_address : Socket::IPAddress,
                    @vhost : VHost,
                    @user : User,
-                   @churn_events : AvalancheMQ::Server::ChurnEvents,
+                   @events : Server::Event,
                    tune_ok,
                    start_ok)
       @log = vhost.log.dup
@@ -56,6 +56,7 @@ module AvalancheMQ
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
+      @events.send(EventType::ConnectionCreated)
       @log.info "Connected as user #{@user.name}"
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
@@ -276,8 +277,8 @@ module AvalancheMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, remote_address, local_address, vhosts, users, log, churn_events)
-      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup, churn_events)
+    def self.start(socket, remote_address, local_address, vhosts, users, log, events)
+      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup, events)
     end
 
     private def with_channel(frame)
@@ -307,7 +308,7 @@ module AvalancheMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, frame.channel, @churn_events)
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel, @events)
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 
@@ -392,6 +393,7 @@ module AvalancheMQ
       @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
+      @events.send(EventType::ConnectionClosed)
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
     end

@@ -16,12 +16,13 @@ require "./config"
 require "./proxy_protocol"
 require "./client/client"
 require "./stats"
+require "./event_type"
 
 module AvalancheMQ
   class Server
     getter vhosts, users, data_dir, log, parameters
     getter? closed, flow
-    alias ChurnEvents = Channel(Tuple(Symbol, UInt32))
+    alias Event = Channel(EventType)
     include ParameterTarget
     include Stats
     getter channel_closed_log, channel_created_log, connection_closed_log, connection_created_log,
@@ -39,9 +40,9 @@ module AvalancheMQ
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket::Server).new(3)
       @users = UserStore.instance(@data_dir, @log)
-      @churn_events = ChurnEvents.new(1000)
-      spawn churn_events_loop, name: "Server#churn_events"
-      @vhosts = VHostStore.new(@data_dir, @log, @users, @churn_events)
+      @events = Event.new(1000)
+      spawn events_loop, name: "Server#events"
+      @vhosts = VHostStore.new(@data_dir, @log, @users, @events)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -152,8 +153,8 @@ module AvalancheMQ
       @listeners.each &.close
       @log.debug "Closing vhosts"
       @vhosts.close
-      @log.debug "Closing #churn_events channel"
-      @churn_events.close
+      @log.debug "Closing #events channel"
+      @events.close
     end
 
     def add_parameter(p : Parameter)
@@ -198,7 +199,7 @@ module AvalancheMQ
     end
 
     private def handle_connection(socket, remote_address, local_address)
-      client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log, @churn_events)
+      client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log, @events)
       if client.nil?
         socket.close
       else
@@ -239,16 +240,16 @@ module AvalancheMQ
       socket.write_timeout = 15
     end
 
-    private def churn_events_loop
+    private def events_loop
       loop do
-        type, value = @churn_events.receive? || break
+        type = @events.receive? || break
         case type
-          when :channel_closed      then @channel_closed_count += value
-          when :channel_created     then @channel_created_count += value
-          when :connection_closed   then @connection_closed_count += value
-          when :connection_created  then @connection_created_count += value
-          when :queue_declared      then @queue_declared_count += value
-          when :queue_deleted       then @queue_deleted_count += value
+        in EventType::ChannelClosed     then @channel_closed_count += 1
+        in EventType::ChannelCreated    then @channel_created_count += 1
+        in EventType::ConnectionClosed  then @connection_closed_count += 1
+        in EventType::ConnectionCreated then @connection_created_count += 1
+        in EventType::QueueDeclared     then @queue_declared_count += 1
+        in EventType::QueueDeleted      then @queue_deleted_count += 1
         end
       end
     end
