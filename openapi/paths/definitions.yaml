@@ -3,9 +3,9 @@
   get:
     tags:
     - definitions
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetDefinitions
+    description: Server definitions. TODO.
+    summary: Definitions
+    operationId: GetDefinitions
     responses:
       '200':
         description: OK

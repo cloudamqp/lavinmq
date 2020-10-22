@@ -1,8 +1,70 @@
 ---
 definitions:
-  title: CHANGEME
   type: object
   properties:
-    CHANGEME:
+    avalanchemq_version:
       type: string
-      description: CHANGEME
+    users:
+      "$ref": "../openapi.yaml#/components/schemas/users"
+    vhosts:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          dir:
+            type: string
+          tracing:
+            type: boolean
+          cluster_state:
+            type: object
+    queues:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          vhost:
+            type: string
+          durable:
+            type: boolean
+          auto_delete:
+            type: boolean
+          arguments:
+            type: object
+    exchanges:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          vhost:
+            type: string
+          type:
+            type: string
+            enum:
+            - direct
+            - fanout
+            - topic
+            - headers
+          durable:
+            type: boolean
+          auto_delete:
+            type: boolean
+          internal:
+            type: boolean
+          arguments:
+            type: object
+    bindings:
+      "$ref": "../openapi.yaml#/components/schemas/bindings"
+    permissions:
+      "$ref": "../openapi.yaml#/components/schemas/permissions"
+    policies:
+      "$ref": "../openapi.yaml#/components/schemas/policies"
+    parameters:
+      "$ref": "../openapi.yaml#/components/schemas/parameters"
+    global_parameters:
+      "$ref": "../openapi.yaml#/components/schemas/global-parameters"
