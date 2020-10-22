@@ -19,12 +19,22 @@ jobs:
 
   spec:
     name: Spec
-    runs-on: ubuntu-latest
-    container: crystallang/crystal:0.35.1
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsystemd-dev libyaml-dev
+
+      - name: Install Crystal
+        run: |
+          wget https://crystal-lang.org/install.sh
+          chmod +x install.sh
+          sudo ./install.sh --crystal=0.35.1
 
       - name: Shards install
         run: shards install
