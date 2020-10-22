@@ -44,6 +44,12 @@
             <th>Channel max</th>
             <td id="channel_max"></td>
           </tr>
+          <tr>
+            <th>TLS version</th>
+            <td id="tls_version"></td>
+            <th>Cipher</th>
+            <td id="cipher"></td>
+          </tr>
         </table>
       </section>
       <section class="card cols-6">
@@ -144,6 +150,8 @@
             document.getElementById('heartbeat').textContent = item.timeout + 's'
             document.getElementById('authentication').textContent = item.auth_mechanism
             document.getElementById('channel_max').textContent = item.channel_max
+            document.getElementById('tls_version').textContent = item.tls_version
+            document.getElementById('cipher').textContent = item.cipher
             const cp = item.client_properties
             document.getElementById('cp-name').textContent = cp.connection_name
             document.getElementById('cp-capabilities').textContent = avalanchemq.dom.jsonToText(cp.capabilities)

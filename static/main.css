@@ -401,6 +401,10 @@ aside li.active a {
   border-right: 0
 }
 
+.details-table td {
+  overflow-wrap: break-word;
+}
+
 .small-table {
   width: 50%;
   max-width: 600px;
