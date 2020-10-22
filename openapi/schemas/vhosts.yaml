@@ -23,3 +23,22 @@ vhost:
     messages_ready:
       type: integer
       description: Number of ready messages in the vhost.
+    messages_stats:
+      type: object
+      properties:
+        ack:
+          type: integer
+        confirm:
+          type: integer
+        deliver:
+          type: integer
+        get:
+          type: integer
+        get_no_ack:
+          type: integer
+        publish:
+          type: integer
+        redeliver:
+          type: integer
+        return_unroutable:
+          type: integer
