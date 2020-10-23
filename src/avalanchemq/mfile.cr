@@ -61,7 +61,7 @@ class MFile < IO
   def disk_usage
     code = LibC.stat(@path.check_no_null_byte, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
-    stat.st_blksize * stat.st_blocks
+    stat.st_blocks.to_u64 * stat.st_blksize
   end
 
   private def truncate(fd, size)
