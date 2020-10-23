@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.10] - 2020-10-23
+
+### Changed
+- UI: Display more connection properties such as max_frame, TLS version and cipher
+- UI: Nicer charts
+- UI: Default sort order is now descending
+
+### Fixed
+- Lower IOPS usage when messages are expired and all data doesn't fit in disk cache
+- Churn metrics correctly reported from closed connections/channels
+
+### Added
+- Releases are published on Docker hub: https://hub.docker.com/repository/docker/cloudamqp/avalanchemq
+
 ## [1.0.0-alpha.9] - 2020-10-20
 
 ### Added
