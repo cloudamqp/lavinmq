@@ -3,9 +3,9 @@
   get:
     tags:
     - channels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetChannels
+    description: Details for all open channels.
+    summary: List channels
+    operationId: GetChannels
     responses:
       '200':
         description: OK
@@ -32,13 +32,13 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   get:
     tags:
     - channels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetChannels
+    description: Details for all open channels for a specific vhost.
+    summary: List channels by vhost
+    operationId: GetChannelsVhost
     responses:
       '200':
         description: OK
@@ -65,20 +65,20 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of channel.
   get:
     tags:
     - channels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetChannels
+    description: Details for a specific channel.
+    summary: List channel
+    operationId: GetChannel
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/channels"
+              "$ref": "../openapi.yaml#/components/schemas/channel-with-consumer-details"
       4XX:
         description: Client Error
         content:

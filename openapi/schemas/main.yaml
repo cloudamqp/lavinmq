@@ -88,21 +88,13 @@ overview:
           items:
             type: integer
     recv_oct_details:
-      type: object
-      properties:
-        rate:
-          type: integer
-        log:
-          type: array
+      "$ref": "#/float_stats_details"
     send_oct_details:
-      type: object
-      properties:
-        rate:
-          type: integer
-        log:
-          type: array
+      "$ref": "#/float_stats_details"
     uptime:
       type: integer
+      description: Unix timestamp (seconds)
+
 stats_details:
   type: object
   properties:
@@ -112,6 +104,17 @@ stats_details:
       type: array
       items:
         type: integer
+
+float_stats_details:
+  type: object
+  properties:
+    rate:
+      type: number
+    log:
+      type: array
+      items:
+        type: number
+
 aliveness-test:
   type: object
   properties:

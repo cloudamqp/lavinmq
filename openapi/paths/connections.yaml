@@ -3,9 +3,9 @@
   get:
     tags:
     - connections
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetConnections
+    description: Details for all open connections.
+    summary: List connections
+    operationId: GetConnections
     responses:
       '200':
         description: OK
@@ -32,13 +32,13 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   get:
     tags:
     - connections
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetConnections
+    description: Details for all open connections for a specific vhost.
+    summary: List connections by vhost
+    operationId: GetConnectionsVhost
     responses:
       '200':
         description: OK
@@ -65,20 +65,20 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of connection.
   get:
     tags:
     - connections
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetConnections
+    description: Details for specific connection.
+    summary: List connection
+    operationId: GetConnection
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/connections"
+              "$ref": "../openapi.yaml#/components/schemas/connection"
       4XX:
         description: Client Error
         content:
@@ -94,16 +94,12 @@
   delete:
     tags:
     - connections
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-DeleteConnections
+    description: Close a specific connection.
+    summary: Close connection
+    operationId: DeleteConnection
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/connections"
+      '204':
+        description: The connection was closed successfully.
       4XX:
         description: Client Error
         content:
@@ -123,20 +119,20 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of connection.
   get:
     tags:
     - connections
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetConnections
+    description: Details for open channels for specific connection.
+    summary: List channels by connection
+    operationId: GetConnectionChannels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/connections"
+              "$ref": "../openapi.yaml#/components/schemas/channels"
       4XX:
         description: Client Error
         content:

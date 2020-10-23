@@ -119,7 +119,7 @@ PublishRequestBody:
           type: string
         timestamp:
           type: integer
-          description: Unix timestamp
+          description: Unix timestamp (seconds)
         type:
           type: string
         user_id:

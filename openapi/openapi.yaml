@@ -21,10 +21,16 @@ components:
           type: string
     bindings:
       "$ref": "./schemas/bindings.yaml#/bindings"
+    channel-with-consumer-details:
+      "$ref": "./schemas/channels.yaml#/channel-with-consumer-details"
     channels:
       "$ref": "./schemas/channels.yaml#/channels"
+    connection:
+      "$ref": "./schemas/connections.yaml#/connection"
     connections:
       "$ref": "./schemas/connections.yaml#/connections"
+    consumer-channel-details:
+      "$ref": "./schemas/consumers.yaml#/channel-details"
     consumers:
       "$ref": "./schemas/consumers.yaml#/consumers"
     definitions:
