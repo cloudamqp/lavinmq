@@ -3,7 +3,7 @@ require "logger"
 module AvalancheMQ
   class LogFormatter
     def self.use(log : Logger, log_prefix_systemd_level = false)
-      log.formatter = Logger::Formatter.new do |severity, _datetime, progname, message, io|
+      log.formatter = Logger::Formatter.new do |severity, datetime, progname, message, io|
         if log_prefix_systemd_level
           io << case severity
           when Logger::Severity::DEBUG then "<7>"
@@ -14,6 +14,7 @@ module AvalancheMQ
           else
           end
         end
+        io << datetime << " [" << severity << "] " unless ENV.fetch("JOURNAL_STREAM",nil)
         io << progname << ": " << message
       end
     end

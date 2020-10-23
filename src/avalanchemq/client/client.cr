@@ -57,7 +57,7 @@ module AvalancheMQ
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
       @events.send(EventType::ConnectionCreated)
-      @log.info "Connected as user #{@user.name}"
+      @log.info { "Connection (#{@name}) established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -159,7 +159,7 @@ module AvalancheMQ
     ensure
       cleanup
       close_socket
-      @log.info { "Connection closed (user=#{@user.name})" }
+      @log.info "Connection (#{@name}) disconnected for user=#{@user.name} "
     end
 
     private def frame_size_ok?(frame) : Bool
@@ -438,6 +438,7 @@ module AvalancheMQ
       else
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
+      @log.info { "Connection=#{@name} disconnected" }
       @running = false
     end
 

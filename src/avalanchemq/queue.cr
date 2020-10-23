@@ -418,8 +418,8 @@ module AvalancheMQ
       @deleted = true
       close
       @vhost.delete_queue(@name)
+      @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
-      @log.debug { "Deleted" }
       true
     end
 

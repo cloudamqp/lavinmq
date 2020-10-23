@@ -291,6 +291,7 @@ module AvalancheMQ
     def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
         auto_delete, false, arguments)
+      @log.info { "queue=#{name} (durable: #{durable}, auto_delete=#{auto_delete}, arguments: #{arguments}) Created" }
     end
 
     def delete_queue(name)
@@ -301,6 +302,7 @@ module AvalancheMQ
                          arguments = AMQP::Table.new)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
         auto_delete, internal, false, arguments)
+      @log.info { "exchange=#{name} Created" }
     end
 
     def delete_exchange(name)
@@ -391,6 +393,7 @@ module AvalancheMQ
     def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
                    definition : Hash(String, JSON::Any), priority : Int8)
       add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))
+      @log.info { "Policy=#{name} Created" }
     end
 
     def add_policy(p : Policy)
@@ -402,6 +405,7 @@ module AvalancheMQ
     def delete_policy(name)
       @policies.delete(name)
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      @log.info { "Policy=#{name} Deleted" }
     end
 
     def add_connection(client : Client)
@@ -446,7 +450,6 @@ module AvalancheMQ
 
     def close(seamless_restart = false)
       @closed = true
-      @log.info("Closing")
       stop_shovels
       Fiber.yield
       stop_upstream_links

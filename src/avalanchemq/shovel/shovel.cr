@@ -27,7 +27,7 @@ module AvalancheMQ
     end
 
     def run
-      @log.info { "Starting" }
+      @log.info { "Created and Starting" }
       @state = State::Starting
       spawn(run_loop, name: "Shovel #{@vhost.name}/#{@name}")
       Fiber.yield
