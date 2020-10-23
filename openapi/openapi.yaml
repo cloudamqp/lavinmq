@@ -29,6 +29,14 @@ components:
       "$ref": "./schemas/consumers.yaml#/consumers"
     definitions:
       "$ref": "./schemas/definitions.yaml#/definitions"
+    definitions-vhost:
+      "$ref": "./schemas/definitions.yaml#/definitions-vhost"
+    definitions-PostDefinitionsRequestBody:
+      "$ref": "./schemas/definitions.yaml#/PostDefinitionsRequestBody"
+    definitions-PostDefinitionsVhostRequestBody:
+      "$ref": "./schemas/definitions.yaml#/PostDefinitionsVhostRequestBody"
+    definitions-UploadDefinitionsRequestBody:
+      "$ref": "./schemas/definitions.yaml#/UploadDefinitionsRequestBody"
     exchange:
       "$ref": "./schemas/exchanges.yaml#/exchange"
     exchanges:
