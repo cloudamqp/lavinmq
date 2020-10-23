@@ -28,6 +28,10 @@ module AvalancheMQ
         end
       end
 
+      def peek
+        @ready.first
+      end
+
       # Shift until block breaks or it returns false
       # If broken with false yield, return the message to the queue
       def shift(&blk : SegmentPosition -> Bool)
@@ -152,6 +156,14 @@ module AvalancheMQ
 
       def first?
         @ready[0]?
+      end
+
+      def [](idx)
+        @ready[idx]
+      end
+
+      def []?(idx)
+        @ready[idx]?
       end
 
       def empty?

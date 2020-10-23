@@ -1,3 +1,4 @@
+require "benchmark"
 require "json"
 require "logger"
 require "../stdlib/*"
@@ -655,43 +656,148 @@ module AvalancheMQ
       segments
     end
 
+    abstract class SPQueue
+      include Comparable(self)
+      @pos = 0
+
+      def self.new(ready : Queue::ReadyQueue)
+        SPReadyQueue.new(ready)
+      end
+
+      def self.new(unack : Queue::UnackQueue)
+        SPUnackQueue.new(unack)
+      end
+
+      def <=>(other : self)
+        if p = peek
+          if o = other.peek
+            p <=> o
+          else
+            1
+          end
+        else
+          -1
+        end
+      end
+
+      abstract def peek : SegmentPosition?
+      abstract def shift : SegmentPosition
+      abstract def empty? : Bool
+    end
+
+    class SPReadyQueue < SPQueue
+      def initialize(@ready : Queue::ReadyQueue)
+      end
+
+      def peek : SegmentPosition?
+        @ready[@pos]?
+      end
+
+      def shift : SegmentPosition
+        v = @ready[@pos]
+        @pos += 1
+        v
+      end
+
+      def empty? : Bool
+        @pos == @ready.size
+      end
+    end
+
+    class SPUnackQueue < SPQueue
+      def initialize(@unack : Queue::UnackQueue)
+      end
+
+      def peek : SegmentPosition?
+        @unack[@pos]?.try &.sp
+      end
+
+      def shift : SegmentPosition
+        v = @unack[@pos].sp
+        @pos += 1
+        v
+      end
+
+      def empty? : Bool
+        @pos == @unack.size
+      end
+    end
+
+    class PriorityQueue(T)
+      def initialize(initial_capacity)
+        @queue = Deque(T).new(initial_capacity)
+      end
+
+      def empty?
+        @queue.empty?
+      end
+
+      def shift
+        @queue.shift
+      end
+
+      def push(item : T)
+        q = @queue
+        if idx = q.bsearch_index { |e| e > item }
+          q.insert(idx, item)
+        else
+          q.push item
+        end
+      end
+
+      def <<(item : T)
+        push(item)
+      end
+    end
+
+    class ReferencedSPs
+      include Enumerable(SegmentPosition)
+
+      def initialize(initial_capacity = 128)
+        @pq = PriorityQueue(SPQueue).new(initial_capacity)
+      end
+
+      def <<(q : SPQueue)
+        @pq << q unless q.empty?
+      end
+
+      def empty?
+        @pq.empty?
+      end
+
+      def each
+        pq = @pq
+        until pq.empty?
+          q = pq.shift
+          yield q.shift
+          pq.push q unless q.empty?
+        end
+      end
+    end
+
     private def gc_segments_loop
       # Don't gc all vhosts at the same time
       sleep Random.rand(Config.instance.gc_segments_interval)
       # save some memory if the vhost was created and deleted fast
       return if @closed
-      referenced_sps = Array(SegmentPosition).new(1_000_000)
+      referenced_sps = ReferencedSPs.new(@queues.size)
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         gc_log("collecting sps") do
           collect_sps(referenced_sps)
         end
-        gc_log("delete unused segs") do
-          delete_unused_segments(referenced_sps)
-        end
-
-        {% if flag?(:linux) %}
-          gc_log("hole punching") do
-            hole_punch_segments(referenced_sps)
-          end
-        {% end %}
-
-        # If less than half the capacity is used, recreate to reclaim RAM
-        current_capacity = referenced_sps.capacity
-        new_capacity = Math.max(1_000_000, referenced_sps.size)
-        if (new_capacity < current_capacity) && (current_capacity > referenced_sps.size * 2)
-          @log.debug { "Reclaim sp reference memory from #{current_capacity} to #{new_capacity}" }
-          referenced_sps = Array(SegmentPosition).new(new_capacity)
-          GC.collect
-        else
-          referenced_sps.clear
+        gc_log("hole punching") do
+          hole_punch_segments(referenced_sps)
         end
       end
     end
 
     private def gc_log(desc, &blk)
-      elapsed = Time.measure(&blk)
+      elapsed = Time.measure do
+        mem = Benchmark.memory(&blk)
+        @log.info { "GC segments, #{desc} used #{mem.humanize_bytes} memory" }
+      end
       return if elapsed.total_milliseconds <= 10
       @log.info { "GC segments, #{desc} took #{elapsed.total_milliseconds} ms" }
     end
@@ -701,41 +807,28 @@ module AvalancheMQ
         ex.referenced_sps(referenced_sps)
       end
       @queues.each_value do |q|
-        q.unacked.copy_to referenced_sps
-        q.ready.copy_to referenced_sps
+        # FIXME: adapt SPQueue for unacked queue
+        referenced_sps << SPQueue.new(q.unacked)
+        referenced_sps << SPQueue.new(q.ready)
       end
-      referenced_sps.sort!
-    end
-
-    private def delete_unused_segments(referenced_sps) : Nil
-      @log.debug "Garbage collecting segments"
-      deleted_bytes = 0_u64
-      @segments.delete_if do |seg, mfile|
-        next if mfile == @wfile
-        if sp = referenced_sps.bsearch { |x| x.segment >= seg }
-          if sp.segment != seg
-            @log.info { "Deleting segment #{seg}" }
-            deleted_bytes += mfile.disk_usage
-            mfile.close(truncate_to_size: false)
-            mfile.delete
-            @segment_holes.delete(mfile)
-            true
-          end
-        else
-          # means that referend sps doesn't include the a segment this large
-          # but can referenced sps now have more entries by now, that possibly references this segment?
-          # but at the same time, this segment isn't the active one so how's that possible?
-          next
-        end
-      end
-      @log.info { "Garbage collected #{deleted_bytes.humanize_bytes} of unused segments" } if deleted_bytes > 0
-      @log.debug { "#{@segments.size} segments on disk" }
     end
 
     private def hole_punch_segments(referenced_sps) : Nil
       @log.debug { "Hole punching segments" }
-
       punched = 0_u64
+
+      if referenced_sps.empty?
+        @segments.delete_if do |seg, mfile|
+          next if mfile == @wfile
+          punched += mfile.disk_usage
+          @log.info { "Deleting segment #{seg}" }
+          @segment_holes.delete(mfile)
+          mfile.close(truncate_to_size: false)
+          mfile.delete
+          true
+        end
+      end
+
       file = nil
       prev_sp = SegmentPosition.zero
       prev_sp_end = sizeof(Int32).to_u32 # start after schema version prefix
@@ -746,19 +839,26 @@ module AvalancheMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          if f = file
-            punched += punch_hole(f, prev_sp_end, sp.position)
-          else
-            @log.info { "prev_sp: #{prev_sp} sp: #{sp.inspect}, file nil" }
-          end
+          punched += punch_hole(file.not_nil!, prev_sp_end, sp.position)
         else # dealing with a new segment
           # truncate the previous file
           if f = file
             punched += f.truncate(prev_sp_end)
           end
 
+          # if a segment is missing between this and previous SP
+          # means that a segment is unused, so let's delete it
+          ((prev_sp.segment + 1)...sp.segment).each do |seg|
+            if mfile = @segments.delete(seg)
+              punched += mfile.disk_usage
+              @log.info { "Deleting segment #{seg}" }
+              @segment_holes.delete(mfile)
+              mfile.close(truncate_to_size: false)
+              mfile.delete
+            end
+          end
+
           file = @segments[sp.segment]
-          @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
           # punch from start of the segment (but not the version prefix)
           punched += punch_hole(file, sizeof(Int32), sp.position)

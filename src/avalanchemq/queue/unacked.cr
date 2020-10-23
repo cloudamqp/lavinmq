@@ -56,6 +56,14 @@ module AvalancheMQ
         @unacked.size
       end
 
+      def [](index) : Unack
+        @unacked[index]
+      end
+
+      def []?(index) : Unack?
+        @unacked[index]?
+      end
+
       def sum(&blk : Unack -> _)
         @unacked.sum(&blk)
       end
