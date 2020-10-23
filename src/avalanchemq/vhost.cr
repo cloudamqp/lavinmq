@@ -45,8 +45,8 @@ module AvalancheMQ
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
     EXCHANGE_TYPES = %w(direct fanout topic headers
-                        x-federation-upstream x-delayed-message
-                        x-consistent-hash)
+      x-federation-upstream x-delayed-message
+      x-consistent-hash)
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User, @events : Server::Event)
@@ -252,10 +252,10 @@ module AvalancheMQ
 
     def details_tuple
       {
-        name: @name,
-        dir:  @dir,
-        tracing: false,
-        cluster_state: NamedTuple.new
+        name:          @name,
+        dir:           @dir,
+        tracing:       false,
+        cluster_state: NamedTuple.new,
       }
     end
 
@@ -278,16 +278,16 @@ module AvalancheMQ
         messages:                ready + unacked,
         messages_unacknowledged: unacked,
         messages_ready:          ready,
-        message_stats: {
-          ack: ack,
-          confirm: confirm,
-          deliver: deliver,
-          get: get,
-          get_no_ack: get_no_ack,
-          publish: publish,
-          redeliver: redeliver,
-          return_unroutable: return_unroutable
-        }
+        message_stats:           {
+          ack:               ack,
+          confirm:           confirm,
+          deliver:           deliver,
+          get:               get,
+          get_no_ack:        get_no_ack,
+          publish:           publish,
+          redeliver:         redeliver,
+          return_unroutable: return_unroutable,
+        },
       }
     end
 
@@ -802,12 +802,12 @@ module AvalancheMQ
         when start_pos == hole_start && hole_end == end_pos
           # we got the exact same hole
           return 0
-        when  start_pos == hole_start && hole_end < end_pos
+        when start_pos == hole_start && hole_end < end_pos
           # we got a hole that's not as long, then expand the hole
           holes[idx] = Hole.new(start_pos, end_pos)
         when start_pos < hole_start <= end_pos
-        # if the next hole is further away, but this hole ends after the next hole starts
-        # then expand the hole
+          # if the next hole is further away, but this hole ends after the next hole starts
+          # then expand the hole
           end_pos = Math.max(end_pos, hole_end)
           holes[idx] = Hole.new(start_pos, end_pos)
         when start_pos < end_pos < hole_start
