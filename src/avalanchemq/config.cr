@@ -82,6 +82,7 @@ module AvalancheMQ
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def parse_amqp(settings)
       settings.each do |config, v|
         case config
