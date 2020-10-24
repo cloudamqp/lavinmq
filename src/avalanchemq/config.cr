@@ -95,8 +95,8 @@ module AvalancheMQ
         when "frame_max"   then @frame_max = v.to_u32
         when "channel_max" then @channel_max = v.to_u16
         when "systemd_socket_name" then @amqp_systemd_socket_name = v
-        when "unix_proxy_protocol" then @unix_proxy_protocol = bool?(v)
-        when "tcp_proxy_protocol"  then @tcp_proxy_protocol = bool?(v)
+        when "unix_proxy_protocol" then @unix_proxy_protocol = true?(v)
+        when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end
