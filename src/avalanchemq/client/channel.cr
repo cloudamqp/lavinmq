@@ -227,7 +227,7 @@ module AvalancheMQ
           end
         end
         @confirm_total += 1 if @confirm
-        ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
+        ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues, @confirm
         if ok
           @client.vhost.waiting4confirm(self) if @confirm
         else

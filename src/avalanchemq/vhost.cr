@@ -88,12 +88,15 @@ module AvalancheMQ
 
     def fsync
       return unless @fsync
-      @log.debug { "fsync" }
+      @log.debug { "fsync segment file" }
       @wfile.fsync
       @queues_to_fsync_lock.synchronize do
+        @log.debug { "fsyncing #{@queues_to_fsync.size} queues" }
         @queues_to_fsync.each &.fsync_enq
+        @queues_to_fsync.clear
       end
       @awaiting_confirm_lock.synchronize do
+        @log.debug { "send confirm to #{@awaiting_confirm.size} channels" }
         @awaiting_confirm.each do |ch|
           ch.confirm_ack(multiple: true)
         end
@@ -111,7 +114,7 @@ module AvalancheMQ
     # False if no queue was able to receive the message because they're
     # closed
     def publish(msg : Message, immediate = false,
-                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
+                visited = Set(Exchange).new, found_queues = Set(Queue).new, confirm = false) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       properties = msg.properties
@@ -130,7 +133,7 @@ module AvalancheMQ
       found_queues.each do |q|
         if q.publish(sp, flush)
           ex.publish_out_count += 1
-          if q.is_a?(DurableQueue) && flush
+          if confirm && q.is_a?(DurableQueue) && flush
             @queues_to_fsync_lock.synchronize do
               @queues_to_fsync << q
             end
