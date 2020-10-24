@@ -8,6 +8,8 @@ module AvalancheMQ
     property amqp_port = 5672
     property amqps_port = -1
     property unix_path = ""
+    property unix_proxy_protocol = true # PROXY protocol on unix domain socket connections
+    property tcp_proxy_protocol = false  # PROXY protocol on amqp tcp connections
     property tls_cert_path = ""
     property tls_key_path = ""
     property tls_ciphers = ""
@@ -93,6 +95,8 @@ module AvalancheMQ
         when "frame_max"   then @frame_max = v.to_u32
         when "channel_max" then @channel_max = v.to_u16
         when "systemd_socket_name" then @amqp_systemd_socket_name = v
+        when "unix_proxy_protocol" then @unix_proxy_protocol = bool?(v)
+        when "tcp_proxy_protocol"  then @tcp_proxy_protocol = bool?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end

@@ -67,7 +67,11 @@ module AvalancheMQ
         client.sync = false
         client.read_buffering = true
         set_socket_options(client)
-        spawn handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection"
+        if Config.instance.tcp_proxy_protocol
+          spawn(handle_proxied_connection(client), name: "Server#handle_proxied_connection(tcp)")
+        else
+          spawn(handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection(tcp)")
+        end
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect}"
@@ -78,12 +82,18 @@ module AvalancheMQ
     def listen(s : UNIXServer)
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
+      src = Socket::IPAddress.new("127.0.0.1", 0)
+      dst = Socket::IPAddress.new("127.0.0.1", 0)
       while client = s.accept?
         client.sync = false
         client.read_buffering = true
         client.write_timeout = 15
         client.buffer_size = Config.instance.socket_buffer_size
-        spawn(handle_proxied_connection(client), name: "Server#handle_connection(unix)")
+        if Config.instance.unix_proxy_protocol
+          spawn(handle_proxied_connection(client), name: "Server#handle_proxied_connection(unix)")
+        else
+          spawn(handle_connection(client, src, dst), name: "Server#handle_connection(unix)")
+        end
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in unix listener: #{ex.inspect}"
@@ -93,19 +103,7 @@ module AvalancheMQ
 
     def listen(bind = "::", port = 5672)
       s = TCPServer.new(bind, port)
-      @listeners << s
-      @log.info { "Listening on #{s.local_address}" }
-      loop do
-        client = s.accept? || break
-        client.sync = false
-        client.read_buffering = true
-        set_socket_options(client)
-        spawn handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection"
-      end
-    rescue ex : IO::Error
-      abort "Unrecoverable error in listener: #{ex.inspect}"
-    ensure
-      @listeners.delete(s)
+      listen(s)
     end
 
     def listen_tls(bind, port, context)
@@ -215,20 +213,12 @@ module AvalancheMQ
       end
     end
 
-    private def handle_proxied_connection(client, proxy_protocol_version = 1)
-      proxyheader =
-        begin
-          case proxy_protocol_version
-          when 0 then ProxyProtocol::Header.local
-          when 1 then ProxyProtocol::V1.parse(client)
-          else        raise "Unsupported proxy protocol version #{proxy_protocol_version}"
-          end
-      rescue ex
-        @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
-        client.close rescue nil
-        return
-      end
+    private def handle_proxied_connection(client)
+      proxyheader = ProxyProtocol::V1.parse(client)
       handle_connection(client, proxyheader.src, proxyheader.dst)
+    rescue ex
+      @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
+      client.close rescue nil
     end
 
     private def set_socket_options(socket)
