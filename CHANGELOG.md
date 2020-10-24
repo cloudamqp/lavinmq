@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.12] - 2020-10-25
+
+### Added
+- tcp_proxy_protocol config for if PROXY protocol is used on TCP connections
+
+### Fixed
+- Optimize publish of persisted messages when when publish confirm isn't enabled
+
 ## [1.0.0-alpha.11] - 2020-10-24
 
 ### Fixed
