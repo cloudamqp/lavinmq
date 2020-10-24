@@ -564,15 +564,19 @@ module AvalancheMQ
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
-      env = read(sp)
-      expire_msg(env, reason)
+      if sp.flags.has_dlx? || @dlx
+        env = read(sp)
+        expire_msg(env, reason)
+      else
+        delete_message sp
+      end
     end
 
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
-      msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       if sp.flags.has_dlx? || @dlx
+        msg = env.message
         dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
         if dlx
           unless dead_letter_loop?(msg.properties.headers, reason)
