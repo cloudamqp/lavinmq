@@ -16,7 +16,11 @@ parameter:
       type: string
     component:
       type: string
-      description: TODO
+      description: Name of component.
+      enum:
+      - shovel
+      - federation-upstream
+      - federation-upstream-set
     vhost:
       type: string
 global-parameter:
@@ -29,6 +33,10 @@ global-parameter:
     component:
       nullable: true
       type: string
+      enum:
+      - shovel
+      - federation-upstream
+      - federation-upstream-set
     vhost:
       nullable: true
       type: string

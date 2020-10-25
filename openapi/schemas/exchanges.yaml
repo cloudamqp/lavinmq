@@ -17,6 +17,7 @@ exchange:
       nullable: true
     internal:
       type: boolean
+      description: If the exchange is internal (meaning clients can't publish directly to it).
     message_stats:
       type: object
       properties:

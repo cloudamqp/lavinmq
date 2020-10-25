@@ -244,8 +244,8 @@
   get:
     tags:
     - queues
-    description: List bindings specific queue by name and vhost.
-    summary: List bindings for queue
+    description: List bindings for a specific queue.
+    summary: List queue bindings
     operationId: GetQueueBindings
     responses:
       '200':

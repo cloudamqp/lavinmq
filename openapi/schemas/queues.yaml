@@ -44,7 +44,7 @@ queue:
     exclusive_consumer_tag:
       type: string
       nullable: true
-      description: TODO
+      description: Consumer tag of the exclusive subscriber, if any.
     state:
       type: string
       description: The state of the queue.
@@ -60,7 +60,7 @@ queue:
         "$ref": "#/message_stats"
     internal:
       type: boolean
-      description: TODO
+      description: If the queue is internal (meaning clients can't publish directly to it).
 consumer_details:
   type: object
   properties:
@@ -119,9 +119,11 @@ queue-bindings:
       type: string
     destination:
       type: string
-    description_type:
+    destination_type:
       type: string
-      # TODO: enum?
+      enum:
+      - exchange
+      - queue
     routing_key:
       type: string
     arguments:
@@ -165,7 +167,6 @@ message-properties:
       type: string
     headers:
       type: object
-      description: TODO
     delivery_mode:
       type: integer
     priority:

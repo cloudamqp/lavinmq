@@ -110,7 +110,7 @@
             "$ref": "../openapi.yaml#/components/schemas/policies-PutPolicyRequestBody"
     responses:
       '204':
-        description: The resource was created or updated successfully.
+        description: The policy was created or updated successfully.
       4XX:
         description: Client Error
         content:
