@@ -24,6 +24,7 @@ Nice=-1
 OOMScoreAdjust=-250
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
