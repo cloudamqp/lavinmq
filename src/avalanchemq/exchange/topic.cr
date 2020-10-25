@@ -54,6 +54,19 @@ module AvalancheMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def matches(binding_keys, routing_key, headers = nil, &blk : Queue | Exchange -> _)
+      return if binding_keys.empty?
+
+      # optimize the case where the only binding key is '#'
+      if binding_keys.size == 1
+        bk, qs = binding_keys.first
+        if bk.size == 1
+          if bk.first == "#"
+            qs.each { |d| yield d }
+            return
+          end
+        end
+      end
+
       rk_parts = routing_key.split(".")
       binding_keys.each do |bks, dst|
         ok = false
