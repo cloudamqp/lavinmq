@@ -123,13 +123,11 @@ aliveness-test:
       enum:
       - ok
       - failed
-shovels:
+shovels: # TODO
   type: array
-  # TODO
-federation-links:
+federation-links: # TODO
   type: array
-  # TODO
-extensions:
+extensions: # TODO
   type: array
   items:
     type: object

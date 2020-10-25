@@ -3,7 +3,7 @@ openapi: 3.0.3
 info:
   version: 1.0.0
   title: AvalancheMQ Management HTTP API
-  description: CHANGEME
+  description: HTTP API to programmatically manage all aspects of AvalancheMQ.
   contact:
     name: AvalancheMQ Team
     url: https://www.avalanchemq.com/
@@ -19,8 +19,12 @@ components:
           type: string
         reason:
           type: string
+    binding:
+      "$ref": "./schemas/bindings.yaml#/binding"
     bindings:
       "$ref": "./schemas/bindings.yaml#/bindings"
+    bindings-PostBindingsExchangeQueueRequestBody:
+      "$ref": "./schemas/bindings.yaml#/PostBindingsExchangeQueueRequestBody"
     channel-with-consumer-details:
       "$ref": "./schemas/channels.yaml#/channel-with-consumer-details"
     channels:
@@ -240,30 +244,30 @@ paths:
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
 tags:
 - name: bindings
-  description: CHANGEME
+  description: Manage bindings.
 - name: channels
-  description: CHANGEME
+  description: Get information about open channels.
 - name: connections
-  description: CHANGEME
+  description: Manage open connections.
 - name: consumers
-  description: CHANGEME
+  description: Manage connected consumers.
 - name: definitions
-  description: CHANGEME
+  description: Import and export server definitions.
 - name: exchanges
-  description: CHANGEME
+  description: Manage exchanges.
 - name: main
-  description: CHANGEME
+  description: Query the server for various information (e.g. shovels, federation links, extensions).
 - name: nodes
-  description: CHANGEME
+  description: Get node statistics.
 - name: parameters
-  description: CHANGEME
+  description: Manage parameters.
 - name: policies
-  description: CHANGEME
+  description: Manage policies.
 - name: permissions
-  description: CHANGEME
+  description: Manage permissions.
 - name: queues
-  description: CHANGEME
+  description: Manage queues.
 - name: users
-  description: CHANGEME
+  description: Manage users.
 - name: vhosts
-  description: CHANGEME
+  description: Manage vhosts.

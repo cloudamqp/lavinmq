@@ -24,3 +24,13 @@ binding:
       nullable: true
     properties_key:
       type: string
+
+PostBindingsExchangeQueueRequestBody:
+  type: object
+  properties:
+    routing_key:
+      type: string
+    arguments:
+      type: object
+  required:
+  - routing_key

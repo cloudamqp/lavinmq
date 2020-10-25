@@ -4,7 +4,7 @@
     tags:
     - consumers
     description: List all consumers.
-    summary: List consumers
+    summary: List all consumers
     operationId: GetConsumers
     responses:
       '200':

@@ -3,9 +3,9 @@
   get:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetBindings
+    description: List all bindings.
+    summary: List all bindings
+    operationId: GetBindings
     responses:
       '200':
         description: OK
@@ -32,13 +32,13 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   get:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetBindings
+    description: List all bindings for a specific vhost.
+    summary: List bindings by vhost
+    operationId: GetBindingsVhost
     responses:
       '200':
         description: OK
@@ -65,25 +65,25 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   - in: path
     name: name
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of exchange.
   - in: path
     name: queue
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of queue.
   get:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetBindings
+    description: List all bindings between a specific exchange and queue.
+    summary: List queue bindings
+    operationId: GetBindingsExchangeQueue
     responses:
       '200':
         description: OK
@@ -106,16 +106,23 @@
   post:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-PostBindings
+    description: Create a binding between an exchange and a queue.
+    summary: Create queue binding
+    operationId: PostBindingsExchangeQueue
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/bindings-PostBindingsExchangeQueueRequestBody"
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
+      '201':
+        description: The binding was created successfully.
+        headers:
+          Location:
+            description: URI of the new binding.
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+              type: string
       4XX:
         description: Client Error
         content:
@@ -135,38 +142,38 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   - in: path
     name: name
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of exchange.
   - in: path
     name: queue
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of queue.
   - in: path
     name: props
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: The `properties_key` from a list bindings response.
   get:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetBindings
+    description: List a specific binding between an exchange and queue.
+    summary: List queue binding
+    operationId: GetBindingQueue
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+              "$ref": "../openapi.yaml#/components/schemas/binding"
       4XX:
         description: Client Error
         content:
@@ -182,16 +189,12 @@
   delete:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-DeleteBindings
+    description: Delete a specific binding between an exchange and queue.
+    summary: Delete queue binding
+    operationId: DeleteBindingQueue
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+      '204':
+        description: The binding was deleted successfully.
       4XX:
         description: Client Error
         content:
@@ -211,25 +214,25 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   - in: path
     name: name
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of exchange.
   - in: path
     name: destination
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of exchange (destination).
   get:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetBindings
+    description: List all bindings between two exchanges.
+    summary: List exchange bindings
+    operationId: GetBindingsExchange
     responses:
       '200':
         description: OK
@@ -252,16 +255,17 @@
   post:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-PostBindings
+    description: Create a binding between two exchanges.
+    summary: Create exchange binding
+    operationId: PostBindingsExchange
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
+      '201':
+        description: The binding was created successfully.
+        headers:
+          Location:
+            description: URI of the new binding.
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+              type: string
       4XX:
         description: Client Error
         content:
@@ -281,38 +285,38 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   - in: path
     name: name
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of exchange.
   - in: path
     name: destination
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of exchange (destination).
   - in: path
     name: props
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: The `properties_key` from a list bindings response.
   get:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-GetBindings
+    description: List a specific binding between two exchanges.
+    summary: List exchange binding
+    operationId: GetBindingExchange
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+              "$ref": "../openapi.yaml#/components/schemas/binding"
       4XX:
         description: Client Error
         content:
@@ -328,16 +332,12 @@
   delete:
     tags:
     - bindings
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    operationId: CHANGEME-DeleteBindings
+    description: Delete a specific binding between two exchanges.
+    summary: Delete exchange binding
+    operationId: DeleteBindingExchange
     responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+      '204':
+        description: The binding was deleted successfully.
       4XX:
         description: Client Error
         content:

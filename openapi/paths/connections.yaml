@@ -4,7 +4,7 @@
     tags:
     - connections
     description: Details for all open connections.
-    summary: List connections
+    summary: List all connections
     operationId: GetConnections
     responses:
       '200':

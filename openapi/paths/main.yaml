@@ -176,7 +176,7 @@
     required: true
     schema:
       type: string
-      description: CHANGEME.
+      description: Name of vhost.
   get:
     tags:
     - main

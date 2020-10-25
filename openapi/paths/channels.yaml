@@ -4,7 +4,7 @@
     tags:
     - channels
     description: Details for all open channels.
-    summary: List channels
+    summary: List all channels
     operationId: GetChannels
     responses:
       '200':

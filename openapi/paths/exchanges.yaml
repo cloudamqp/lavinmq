@@ -4,7 +4,7 @@
     tags:
     - exchanges
     description: List all exchanges.
-    summary: List exchanges
+    summary: List all exchanges
     operationId: GetExchanges
     responses:
       '200':
