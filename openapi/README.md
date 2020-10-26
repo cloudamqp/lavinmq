@@ -1,22 +1,24 @@
 # AvalancheMQ Management HTTP API OpenAPI spec
 
-The following script was used to generate the OpenAPI Spec YAML structure
-
-    ruby openapi.rb
-
-To work on the documentation
-
-1. Run `npm install` to prepare the `static/docs` directory
-1. Start AvalancheMQ (not in release mode)
-1. Open [http://localhost:15672/docs/dev-index.html](http://localhost:15672/docs/dev-index.html)
-
-To validate the spec, use [spectral](https://github.com/stoplightio/spectral)
+To validate the spec, use [Spectral](https://github.com/stoplightio/spectral).
 
     npm install -g @stoplight/spectral
 
     spectral lint openapi.yaml
 
-Serve local file and watch for updates (FIXME: browser can cache spec files even if they have changed)
+## Preview the documentation
+
+### Using [Swagger UI]
+
+1. Run `npm install` to prepare the `static/docs` directory
+1. Start AvalancheMQ (not in release mode)
+1. Open [http://localhost:15672/docs/dev-index.html](http://localhost:15672/docs/dev-index.html)
+
+### Using [Redoc]
+
+Note: Uses [Redoc Docker image].
+
+Serve local file and watch for updates (gotcha: browser caches YAML files even if they have changed, open dev console to mitigate)
 
     ./redoc-serve-and-watch
 
@@ -24,3 +26,11 @@ Serve local file and watch for updates (FIXME: browser can cache spec files even
 
 * `summary` is the short description (used in the redoc menu for instance)
 * `description` is a longer description (supports Markdown)
+
+The following script was used to generate the OpenAPI Spec YAML structure
+
+    ruby openapi.rb
+
+[Swagger UI]: https://github.com/swagger-api/swagger-ui
+[Redoc]: https://github.com/Redocly/redoc
+[Redoc Docker image]: https://github.com/Redocly/redoc/tree/master/config/docker#official-redoc-docker-image
