@@ -64,7 +64,7 @@ jobs:
         if: github.ref == 'refs/heads/master'
 
       - name: Check if Git tag exists
-        run: echo "::set-env name=HEAD_TAG::$(git tag --points-at HEAD)"
+        run: echo "HEAD_TAG=$(git tag --points-at HEAD)" >> $GITHUB_ENV
 
       - name: Upload to packagecloud release repo
         run: package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ env.ARCH }}.deb
