@@ -6,15 +6,7 @@ To validate the spec, use [Spectral](https://github.com/stoplightio/spectral).
 
     spectral lint openapi.yaml
 
-## Preview the documentation
-
-### Using [Swagger UI]
-
-1. Run `npm install` to prepare the `static/docs` directory
-1. Start AvalancheMQ (not in release mode)
-1. Open [http://localhost:15672/docs/dev-index.html](http://localhost:15672/docs/dev-index.html)
-
-### Using [Redoc]
+## Preview the documentation using [Redoc]
 
 Note: Uses [Redoc Docker image].
 
