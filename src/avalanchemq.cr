@@ -91,6 +91,14 @@ def reload_tls(context, config, log)
   end
 end
 
+def reload_log(log, config)
+  new_level = config.log_level.not_nil!
+  if log.level != new_level
+    log.info { "Log level changed from #{log.level} to #{new_level}" }
+    log.level = config.log_level.not_nil!
+  end
+end
+
 context = nil
 if !config.tls_cert_path.empty?
   context = OpenSSL::SSL::Context::Server.new
@@ -189,6 +197,7 @@ Signal::HUP.trap do
   else
     log.info { "Reloading configuration file '#{config.config_file}'" }
     config.parse(config.config_file)
+    reload_log(log, config)
     reload_tls(context, config, log)
   end
   SystemD.notify("READY=1\n")
