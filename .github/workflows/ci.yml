@@ -17,6 +17,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  lint:
+    name: Lint HTTP API documentation
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install Spectral
+        run: npm install -g @stoplight/spectral
+
+      - name: Validate OpenAPI documents for HTTP API
+        run: spectral lint openapi/openapi.yaml
+
   spec:
     name: Spec
     runs-on: ubuntu-20.04
