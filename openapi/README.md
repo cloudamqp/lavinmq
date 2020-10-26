@@ -14,12 +14,6 @@ Serve local file and watch for updates (gotcha: browser caches YAML files even i
 
     ./redoc-serve-and-watch
 
-## Build the documentation for release
-
-Running `npm install` will install the redoc CLI, build the documentation and copy it to `static/docs/index.html`.
-
-View the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/).
-
 ## OpenAPI notes
 
 * `summary` is the short description (used in the redoc menu for instance)

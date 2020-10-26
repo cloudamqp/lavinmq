@@ -8,9 +8,7 @@
     "chart.js": "^2.7.3",
     "eslint-plugin-html": "^5.0.0"
   },
-  "devDependencies": {
-    "redoc-cli": "^0.9.12"
-  },
+  "devDependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "postinstall": "./build/npm_postinstall"
