@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Install Spectral
-        run: npm install -g @stoplight/spectral
+        run: sudo npm install -g @stoplight/spectral
 
       - name: Validate OpenAPI documents for HTTP API
         run: spectral lint openapi/openapi.yaml
