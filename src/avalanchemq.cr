@@ -184,11 +184,11 @@ end
 
 Signal::HUP.trap do
   SystemD.notify("RELOADING=1\n")
-  if config_file.empty?
+  if config.config_file.empty?
     log.info { "No configuration file to reload" }
   else
-    log.info { "Reloading configuration file '#{config_file}'" }
-    config.parse(config_file)
+    log.info { "Reloading configuration file '#{config.config_file}'" }
+    config.parse(config.config_file)
     reload_tls(context, config, log)
   end
   SystemD.notify("READY=1\n")

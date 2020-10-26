@@ -3,6 +3,7 @@ require "logger"
 module AvalancheMQ
   class Config
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "")
+    property config_file = ""
     property log_level : Logger::Severity = Logger::INFO
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
