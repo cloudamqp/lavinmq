@@ -1,3 +1,11 @@
+FROM node:10 AS docbuilder
+
+WORKDIR /tmp
+
+COPY openapi ./
+RUN npm install -g redoc-cli
+RUN redoc-cli bundle openapi.yaml
+
 FROM crystallang/crystal:0.35.1 AS builder
 
 # install dependencies
@@ -11,6 +19,7 @@ RUN shards install --production
 
 # Copying the rest of the code
 COPY ./static ./static
+COPY --from=docbuilder /tmp/redoc-static.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
