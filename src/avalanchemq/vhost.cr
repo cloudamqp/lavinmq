@@ -1,7 +1,9 @@
+require "benchmark"
 require "json"
 require "logger"
 require "../stdlib/*"
 require "./segment_position"
+require "./vhost/*"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
@@ -660,38 +662,24 @@ module AvalancheMQ
       sleep Random.rand(Config.instance.gc_segments_interval)
       # save some memory if the vhost was created and deleted fast
       return if @closed
-      referenced_sps = Array(SegmentPosition).new(1_000_000)
+      referenced_sps = ReferencedSPs.new(@queues.size)
       loop do
         sleep Config.instance.gc_segments_interval
         break if @closed
         gc_log("collecting sps") do
           collect_sps(referenced_sps)
         end
-        gc_log("delete unused segs") do
-          delete_unused_segments(referenced_sps)
-        end
-
-        {% if flag?(:linux) %}
-          gc_log("hole punching") do
-            hole_punch_segments(referenced_sps)
-          end
-        {% end %}
-
-        # If less than half the capacity is used, recreate to reclaim RAM
-        current_capacity = referenced_sps.capacity
-        new_capacity = Math.max(1_000_000, referenced_sps.size)
-        if (new_capacity < current_capacity) && (current_capacity > referenced_sps.size * 2)
-          @log.debug { "Reclaim sp reference memory from #{current_capacity} to #{new_capacity}" }
-          referenced_sps = Array(SegmentPosition).new(new_capacity)
-          GC.collect
-        else
-          referenced_sps.clear
+        gc_log("garbage collecting") do
+          gc_segments(referenced_sps)
         end
       end
     end
 
     private def gc_log(desc, &blk)
-      elapsed = Time.measure(&blk)
+      elapsed = Time.measure do
+        mem = Benchmark.memory(&blk)
+        @log.info { "GC segments, #{desc} used #{mem.humanize_bytes} memory" }
+      end
       return if elapsed.total_milliseconds <= 10
       @log.info { "GC segments, #{desc} took #{elapsed.total_milliseconds} ms" }
     end
@@ -701,41 +689,28 @@ module AvalancheMQ
         ex.referenced_sps(referenced_sps)
       end
       @queues.each_value do |q|
-        q.unacked.copy_to referenced_sps
-        q.ready.copy_to referenced_sps
+        # FIXME: adapt SPQueue for unacked queue
+        referenced_sps << SPQueue.new(q.unacked)
+        referenced_sps << SPQueue.new(q.ready)
       end
-      referenced_sps.sort!
     end
 
-    private def delete_unused_segments(referenced_sps) : Nil
-      @log.debug "Garbage collecting segments"
-      deleted_bytes = 0_u64
-      @segments.delete_if do |seg, mfile|
-        next if mfile == @wfile
-        if sp = referenced_sps.bsearch { |x| x.segment >= seg }
-          if sp.segment != seg
-            @log.info { "Deleting segment #{seg}" }
-            deleted_bytes += mfile.disk_usage
-            mfile.close(truncate_to_size: false)
-            mfile.delete
-            @segment_holes.delete(mfile)
-            true
-          end
-        else
-          # means that referend sps doesn't include the a segment this large
-          # but can referenced sps now have more entries by now, that possibly references this segment?
-          # but at the same time, this segment isn't the active one so how's that possible?
-          next
+    private def gc_segments(referenced_sps) : Nil
+      @log.debug { "GC segments" }
+      collected = 0_u64
+
+      if referenced_sps.empty?
+        @segments.delete_if do |seg, mfile|
+          next if mfile == @wfile
+          collected += mfile.disk_usage
+          @log.info { "Deleting segment #{seg}" }
+          @segment_holes.delete(mfile)
+          mfile.close(truncate_to_size: false)
+          mfile.delete
+          true
         end
       end
-      @log.info { "Garbage collected #{deleted_bytes.humanize_bytes} of unused segments" } if deleted_bytes > 0
-      @log.debug { "#{@segments.size} segments on disk" }
-    end
 
-    private def hole_punch_segments(referenced_sps) : Nil
-      @log.debug { "Hole punching segments" }
-
-      punched = 0_u64
       file = nil
       prev_sp = SegmentPosition.zero
       prev_sp_end = sizeof(Int32).to_u32 # start after schema version prefix
@@ -746,22 +721,29 @@ module AvalancheMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          if f = file
-            punched += punch_hole(f, prev_sp_end, sp.position)
-          else
-            @log.info { "prev_sp: #{prev_sp} sp: #{sp.inspect}, file nil" }
-          end
+          collected += punch_hole(file.not_nil!, prev_sp_end, sp.position)
         else # dealing with a new segment
           # truncate the previous file
           if f = file
-            punched += f.truncate(prev_sp_end)
+            collected += f.truncate(prev_sp_end)
+          end
+
+          # if a segment is missing between this and previous SP
+          # means that a segment is unused, so let's delete it
+          ((prev_sp.segment + 1)...sp.segment).each do |seg|
+            if mfile = @segments.delete(seg)
+              collected += mfile.disk_usage
+              @log.info { "Deleting segment #{seg}" }
+              @segment_holes.delete(mfile)
+              mfile.close(truncate_to_size: false)
+              mfile.delete
+            end
           end
 
           file = @segments[sp.segment]
-          @log.debug { "GC seg, open #{sp.segment}, size: #{file.size}" }
 
           # punch from start of the segment (but not the version prefix)
-          punched += punch_hole(file, sizeof(Int32), sp.position)
+          collected += punch_hole(file, sizeof(Int32), sp.position)
         end
         prev_sp_end = sp.position + sp.bytesize
         prev_sp = sp
@@ -769,10 +751,10 @@ module AvalancheMQ
 
       # truncate the last opened segment to last message
       if file && file != @wfile
-        punched += file.truncate(prev_sp_end)
+        collected += file.truncate(prev_sp_end)
       end
 
-      @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
+      @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
     end
 
     # For each file we hold an array of holes where we've already punched
@@ -780,6 +762,10 @@ module AvalancheMQ
     @segment_holes = Hash(MFile, Array(Hole)).new { |h, k| h[k] = Array(Hole).new }
 
     private def punch_hole(segment, start_pos : Int, end_pos : Int) : Int
+      {% unless flag?(:linux) %}
+        # only linux supports hole punching (MADV_REMOVE)
+        return 0
+      {% end %}
       start_pos = start_pos.to_u32
       end_pos = end_pos.to_u32
       hole_size = end_pos - start_pos

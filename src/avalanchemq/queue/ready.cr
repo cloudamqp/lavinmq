@@ -154,6 +154,14 @@ module AvalancheMQ
         @ready[0]?
       end
 
+      def [](idx)
+        @ready[idx]
+      end
+
+      def []?(idx)
+        @ready[idx]?
+      end
+
       def empty?
         @ready.empty?
       end

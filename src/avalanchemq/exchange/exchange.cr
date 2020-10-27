@@ -157,10 +157,10 @@ module AvalancheMQ
 
     def referenced_sps(referenced_sps) : Nil
       if pq = @persistent_queue
-        pq.ready.copy_to referenced_sps
+        referenced_sps << VHost::SPQueue.new(pq.ready)
       end
       if dq = @delayed_queue
-        dq.ready.copy_to referenced_sps
+        referenced_sps << VHost::SPQueue.new(dq.ready)
       end
     end
 
