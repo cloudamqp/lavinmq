@@ -2,9 +2,10 @@ FROM node:10 AS docbuilder
 
 WORKDIR /tmp
 
-COPY openapi ./
-RUN npm install -g redoc-cli
-RUN redoc-cli bundle openapi.yaml
+COPY openapi ./openapi
+COPY build ./build
+COPY package.json package-lock.json ./
+RUN npm install --unsafe-perm
 
 FROM crystallang/crystal:0.35.1 AS builder
 
@@ -19,7 +20,7 @@ RUN shards install --production
 
 # Copying the rest of the code
 COPY ./static ./static
-COPY --from=docbuilder /tmp/redoc-static.html ./static/docs/index.html
+COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build

@@ -1,6 +1,10 @@
 #!/bin/sh
-cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js
+[[ -d static/js/lib ]] && cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js
 
+echo "Linting HTTP API documentation..."
+spectral lint openapi/openapi.yaml
+
+echo "Generating HTML for HTTP documentation... "
 redoc-cli bundle openapi/openapi.yaml
 mkdir -p static/docs
 mv redoc-static.html static/docs/index.html

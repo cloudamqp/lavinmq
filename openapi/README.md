@@ -1,24 +1,20 @@
 # AvalancheMQ Management HTTP API OpenAPI spec
 
-To validate the spec, use [Spectral](https://github.com/stoplightio/spectral).
+Running `npm install` will install dependencies, lint and build the documentation.
 
-    npm install -g @stoplight/spectral
+It also copies it to `static/docs/index.html` so you can view the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/) if you have AvalancheMQ running.
 
-    spectral lint openapi.yaml
+The dependencies:
 
-## Preview the documentation using [Redoc]
+* [Spectral] is used to lint the documentation. To run it manually: `spectral lint openapi.yaml`
+* [ReDoc] is to build the documentation.
+  To run it manually: `redoc-cli bundle openapi.yaml` (a file `redoc-static.html` will be created in your working directory)
 
-Note: Uses [Redoc Docker image].
+You can use the [ReDoc Docker image] to watch for updates so you can preview the documentation as you work on it. (Note the gotcha: the browser caches the YAML files even if they have changed, open dev console in the browser to mitigate.)
 
-Serve local file and watch for updates (gotcha: browser caches YAML files even if they have changed, open dev console to mitigate)
+Start it with:
 
-    ./redoc-serve-and-watch
-
-## Build the documentation for release
-
-Running `npm install` will install the redoc CLI, build the documentation and copy it to `static/docs/index.html`.
-
-View the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/).
+      ./redoc-serve-and-watch
 
 ## OpenAPI notes
 
@@ -29,6 +25,6 @@ The following script was used to generate the OpenAPI Spec YAML structure
 
     ruby openapi.rb
 
-[Swagger UI]: https://github.com/swagger-api/swagger-ui
-[Redoc]: https://github.com/Redocly/redoc
-[Redoc Docker image]: https://github.com/Redocly/redoc/tree/master/config/docker#official-redoc-docker-image
+[Spectral]: https://github.com/stoplightio/spectral
+[ReDoc]: https://github.com/Redocly/redoc
+[ReDoc Docker image]: https://github.com/Redocly/redoc/tree/master/config/docker#official-redoc-docker-image

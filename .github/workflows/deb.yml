@@ -10,22 +10,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Install Spectral and ReDoc CLI
-        run: sudo npm install -g @stoplight/spectral redoc-cli
-
-      - name: Validate OpenAPI documents for HTTP API
-        run: spectral lint openapi/openapi.yaml
-
-      - name: Build the documentation
-        run: |
-          redoc-cli bundle openapi/openapi.yaml
-          mv redoc-static.html index.html
+      - name: Validate and build the documentation
+        run: npm install
 
       - name: Upload the documentation
         uses: actions/upload-artifact@v2
         with:
           name: index.html
-          path: index.html
+          path: static/docs/index.html
 
   build_deb:
     name: Build

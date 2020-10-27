@@ -18,7 +18,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   api-lint:
-    name: Lint HTTP API documentation
+    name: Lint and build HTTP API documentation
     runs-on: ubuntu-latest
     continue-on-error: true
 
@@ -26,11 +26,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Install Spectral
-        run: sudo npm install -g @stoplight/spectral
-
-      - name: Validate OpenAPI documents for HTTP API
-        run: spectral lint openapi/openapi.yaml
+      - name: Lint and build HTTP API documentation
+        run: npm install
 
   spec:
     name: Spec
