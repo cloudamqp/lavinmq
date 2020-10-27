@@ -140,11 +140,11 @@ class MFile < IO
 
   def seek(offset, whence : IO::Seek = IO::Seek::Set)
     case whence
-    when IO::Seek::Set
+    in IO::Seek::Set
       @pos = offset
-    when IO::Seek::Current
+    in IO::Seek::Current
       @pos += offset
-    when IO::Seek::End
+    in IO::Seek::End
       @pos = @size + offset
     end
   end
