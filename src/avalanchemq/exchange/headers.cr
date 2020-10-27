@@ -1,4 +1,4 @@
-require "../exchange"
+require "./exchange"
 module AvalancheMQ
   class HeadersExchange < Exchange
     def type : String

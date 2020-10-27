@@ -1,6 +1,6 @@
 require "file_utils"
 require "./queue"
-require "./schema"
+require "../schema"
 
 module AvalancheMQ
   class DurableQueue < Queue
