@@ -669,8 +669,8 @@ module AvalancheMQ
         gc_log("collecting sps") do
           collect_sps(referenced_sps)
         end
-        gc_log("hole punching") do
-          hole_punch_segments(referenced_sps)
+        gc_log("garbage collecting") do
+          gc_segments(referenced_sps)
         end
       end
     end
@@ -695,14 +695,14 @@ module AvalancheMQ
       end
     end
 
-    private def hole_punch_segments(referenced_sps) : Nil
-      @log.debug { "Hole punching segments" }
-      punched = 0_u64
+    private def gc_segments(referenced_sps) : Nil
+      @log.debug { "GC segments" }
+      collected = 0_u64
 
       if referenced_sps.empty?
         @segments.delete_if do |seg, mfile|
           next if mfile == @wfile
-          punched += mfile.disk_usage
+          collected += mfile.disk_usage
           @log.info { "Deleting segment #{seg}" }
           @segment_holes.delete(mfile)
           mfile.close(truncate_to_size: false)
@@ -721,18 +721,18 @@ module AvalancheMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          punched += punch_hole(file.not_nil!, prev_sp_end, sp.position)
+          collected += punch_hole(file.not_nil!, prev_sp_end, sp.position)
         else # dealing with a new segment
           # truncate the previous file
           if f = file
-            punched += f.truncate(prev_sp_end)
+            collected += f.truncate(prev_sp_end)
           end
 
           # if a segment is missing between this and previous SP
           # means that a segment is unused, so let's delete it
           ((prev_sp.segment + 1)...sp.segment).each do |seg|
             if mfile = @segments.delete(seg)
-              punched += mfile.disk_usage
+              collected += mfile.disk_usage
               @log.info { "Deleting segment #{seg}" }
               @segment_holes.delete(mfile)
               mfile.close(truncate_to_size: false)
@@ -743,7 +743,7 @@ module AvalancheMQ
           file = @segments[sp.segment]
 
           # punch from start of the segment (but not the version prefix)
-          punched += punch_hole(file, sizeof(Int32), sp.position)
+          collected += punch_hole(file, sizeof(Int32), sp.position)
         end
         prev_sp_end = sp.position + sp.bytesize
         prev_sp = sp
@@ -751,10 +751,10 @@ module AvalancheMQ
 
       # truncate the last opened segment to last message
       if file && file != @wfile
-        punched += file.truncate(prev_sp_end)
+        collected += file.truncate(prev_sp_end)
       end
 
-      @log.info { "Garbage collected #{punched.humanize_bytes} by hole punching" } if punched > 0
+      @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
     end
 
     # For each file we hold an array of holes where we've already punched
