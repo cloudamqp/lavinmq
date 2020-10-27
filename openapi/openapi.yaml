@@ -53,6 +53,8 @@ components:
       "$ref": "./schemas/exchanges.yaml#/exchanges"
     exchanges-publish:
       "$ref": "./schemas/exchanges.yaml#/publish"
+    exchanges-type-field:
+      "$ref": "./schemas/exchanges.yaml#/type-field"
     exchanges-PutExchangeRequestBody:
       "$ref": "./schemas/exchanges.yaml#/PutExchangeRequestBody"
     exchanges-PublishRequestBody:

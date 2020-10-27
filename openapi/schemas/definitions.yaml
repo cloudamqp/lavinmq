@@ -70,27 +70,29 @@ queues:
 exchanges:
   type: array
   items:
-    type: object
-    properties:
-      name:
-        type: string
-      vhost:
-        type: string
-      type:
-        type: string
-        enum:
-        - direct
-        - fanout
-        - topic
-        - headers
-      durable:
-        type: boolean
-      auto_delete:
-        type: boolean
-      internal:
-        type: boolean
-      arguments:
-        type: object
+    allOf:
+    - "$ref": "../openapi.yaml#/components/schemas/exchanges-type-field"
+    - type: object
+      properties:
+        name:
+          type: string
+        vhost:
+          type: string
+        type:
+          type: string
+          enum:
+          - direct
+          - fanout
+          - topic
+          - headers
+        durable:
+          type: boolean
+        auto_delete:
+          type: boolean
+        internal:
+          type: boolean
+        arguments:
+          type: object
 
 PostDefinitionsRequestBody:
   type: object

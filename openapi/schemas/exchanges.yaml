@@ -4,49 +4,44 @@ exchanges:
   items:
     "$ref": "#/exchange"
 exchange:
-  type: object
-  properties:
-    arguments:
-      type: object
-    auto_delete:
-      type: boolean
-    durable:
-      type: boolean
-    effective_policy_definition:
-      type: object
-      nullable: true
-    internal:
-      type: boolean
-      description: If the exchange is internal (meaning clients can't publish directly to it).
-    message_stats:
-      type: object
-      properties:
-        publish_in:
-          type: integer
-        publish_in_details:
-          "$ref": "#/stats_details"
-        publish_out:
-          type: integer
-        publish_out_details:
-          "$ref": "#/stats_details"
-        unroutable:
-          type: integer
-        unroutable_details:
-          "$ref": "#/stats_details"
-    name:
-      type: string
-    policy:
-      type: object
-      nullable: true
-    type:
-      type: string
-      enum:
-      - direct
-      - fanout
-      - topic
-      - headers
-    vhost:
-      type: string
+  allOf:
+  - "$ref": "#/type-field"
+  - type: object
+    properties:
+      arguments:
+        type: object
+      auto_delete:
+        type: boolean
+      durable:
+        type: boolean
+      effective_policy_definition:
+        type: object
+        nullable: true
+      internal:
+        type: boolean
+        description: If the exchange is internal (meaning clients can't publish directly to it).
+      message_stats:
+        type: object
+        properties:
+          publish_in:
+            type: integer
+          publish_in_details:
+            "$ref": "#/stats_details"
+          publish_out:
+            type: integer
+          publish_out_details:
+            "$ref": "#/stats_details"
+          unroutable:
+            type: integer
+          unroutable_details:
+            "$ref": "#/stats_details"
+      name:
+        type: string
+      policy:
+        type: object
+        nullable: true
+      vhost:
+        type: string
 
 stats_details:
   type: object
@@ -68,7 +63,7 @@ publish:
     routed:
       type: boolean
 
-PutExchangeRequestBody:
+type-field:
   type: object
   properties:
     type:
@@ -78,19 +73,28 @@ PutExchangeRequestBody:
       - fanout
       - topic
       - headers
-    durable:
-      type: boolean
-      default: false
-    auto_delete:
-      type: boolean
-      default: false
-    internal:
-      type: boolean
-      default: false
-    delayed:
-      type: boolean
-    arguments:
-      type: object
+      - x-delayed-message
+      - x-federation-upstream
+      - x-consistent-hash
+
+PutExchangeRequestBody:
+  allOf:
+  - "$ref": "#/type-field"
+  - type: object
+    properties:
+      durable:
+        type: boolean
+        default: false
+      auto_delete:
+        type: boolean
+        default: false
+      internal:
+        type: boolean
+        default: false
+      delayed:
+        type: boolean
+      arguments:
+        type: object
   required:
   - type
 
