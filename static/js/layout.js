@@ -51,6 +51,9 @@
           <li><a href="/federation#createUpstream">Add Upstream</a></li>
         </ul>
       </li>
+      <li>
+        <a href="/docs/" target="_blank">HTTP API</a>
+      </li>
     </ul>
   `
 
