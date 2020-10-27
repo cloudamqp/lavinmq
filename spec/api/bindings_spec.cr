@@ -71,6 +71,19 @@ describe AvalancheMQ::HTTP::BindingsController do
       s.vhosts["/"].delete_queue("bindings_q1")
     end
 
+    it "should inform about required fields" do
+      s.vhosts["/"].declare_exchange("be1", "topic", false, false)
+      s.vhosts["/"].declare_queue("bindings_q1", false, false)
+
+      response = post("/api/bindings/%2f/e/be1/q/bindings_q1", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field .+ is required/)
+    ensure
+      s.vhosts["/"].delete_exchange("be1")
+      s.vhosts["/"].delete_queue("bindings_q1")
+    end
+
     it "should return 404 if exchange does not exist" do
       response = get("/api/bindings/%2f/e/404/q/404")
       response.status_code.should eq 404

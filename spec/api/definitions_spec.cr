@@ -173,6 +173,11 @@ describe AvalancheMQ::HTTP::Server do
     ensure
       s.delete_parameter(nil, "global_p1")
     end
+
+    it "handles empty body" do
+      response = post("/api/definitions", body: "")
+      response.status_code.should eq 200
+    end
   end
 
   describe "GET /api/definitions" do
@@ -412,6 +417,11 @@ describe AvalancheMQ::HTTP::Server do
       s.vhosts["/"].policies.has_key?("import_p1").should be_true
     ensure
       s.vhosts["/"].delete_policy("import_p1")
+    end
+
+    it "handles empty body" do
+      response = post("/api/definitions/%2f", body: "")
+      response.status_code.should eq 200
     end
   end
 end

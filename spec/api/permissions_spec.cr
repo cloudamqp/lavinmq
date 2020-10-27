@@ -40,6 +40,15 @@ describe AvalancheMQ::HTTP::PermissionsController do
       })
       response = put("/api/permissions/test/guest", body: body)
       response.status_code.should eq 204
+    ensure
+      s.vhosts.delete("test")
+    end
+
+    it "should handle request with empty body" do
+      response = put("/api/permissions/%2f/guest", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Fields .+ are required/)
     end
   end
 

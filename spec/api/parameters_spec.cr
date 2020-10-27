@@ -77,6 +77,13 @@ describe AvalancheMQ::HTTP::ParametersController do
     ensure
       s.vhosts["/"].delete_parameter("test", "name")
     end
+
+    it "should handle request with empty body" do
+      response = put("/api/parameters/test/%2f/name", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field .+ is required/)
+    end
   end
 
   describe "DELETE /api/parameters/component/vhost/name" do
@@ -126,6 +133,13 @@ describe AvalancheMQ::HTTP::ParametersController do
       response.status_code.should eq 204
     ensure
       s.delete_parameter(nil, "name")
+    end
+
+    it "should handle request with empty body" do
+      response = put("/api/global-parameters/name", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field .+ is required/)
     end
   end
 
@@ -200,6 +214,13 @@ describe AvalancheMQ::HTTP::ParametersController do
       response.status_code.should eq 204
     ensure
       s.vhosts["/"].delete_policy("name")
+    end
+
+    it "should handle request with empty body" do
+      response = put("/api/policies/%2f/name", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Fields .+ are required/)
     end
   end
 

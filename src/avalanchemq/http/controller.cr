@@ -106,7 +106,11 @@ module AvalancheMQ
         raise Server::ExpectedBodyError.new if context.request.body.nil?
         ct = context.request.headers["Content-Type"]? || nil
         if ct.nil? || ct.empty? || ct == "application/json"
-          JSON.parse(context.request.body.not_nil!)
+          if context.request.content_length == 0
+            JSON.parse(%({}))
+          else
+            JSON.parse(context.request.body.not_nil!)
+          end
         else
           raise Server::UnknownContentType.new("Unknown Content-Type: #{ct}")
         end

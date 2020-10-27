@@ -46,6 +46,13 @@ describe AvalancheMQ::HTTP::UsersController do
       delete("/api/users/alan1")
       delete("/api/users/alan2")
     end
+
+    it "should handle request with empty body" do
+      response = put("/api/users/bulk-delete", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field .+ is required/)
+    end
   end
 
   describe "GET /api/users/name" do
@@ -95,6 +102,13 @@ describe AvalancheMQ::HTTP::UsersController do
       response.status_code.should eq 401
     ensure
       delete("/api/users/alan")
+    end
+
+    it "should handle request with empty body" do
+      response = put("/api/users/alice", body: "")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field .+ is required/)
     end
   end
 
