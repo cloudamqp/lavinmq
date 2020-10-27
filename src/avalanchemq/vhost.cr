@@ -211,8 +211,8 @@ module AvalancheMQ
         if wfile.capacity < wfile.size + msg.bytesize
           wfile = open_new_segment(msg.bytesize)
         end
-        wfile.seek(0, IO::Seek::End)
-        sp = SegmentPosition.make(@segments.last_key, wfile.pos.to_u32, msg)
+        pos = wfile.seek(0, IO::Seek::End)
+        sp = SegmentPosition.make(@segments.last_key, pos.to_u32, msg)
         if store_offset
           headers = msg.properties.headers || AMQP::Table.new
           headers["x-offset"] = sp.to_i64
