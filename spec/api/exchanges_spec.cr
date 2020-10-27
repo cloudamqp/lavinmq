@@ -59,6 +59,22 @@ describe AvalancheMQ::HTTP::ExchangesController do
       body["reason"].as_s.should match(/Field 'type' is required/)
     end
 
+    it "should require a known type" do
+      body = %({ "type": "tut" })
+      response = put("/api/exchanges/%2f/faulty", body: body)
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Unknown exchange type/)
+    end
+
+    it "should require arguments if the type demands it" do
+      body = %({ "type": "x-delayed-message" })
+      response = put("/api/exchanges/%2f/faulty", body: body)
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Missing required argument/)
+    end
+
     it "should require durable to be the same when overwriting" do
       body = %({
         "type": "topic",

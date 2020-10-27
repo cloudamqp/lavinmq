@@ -841,14 +841,14 @@ module AvalancheMQ
         HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "x-delayed-message"
         type = arguments.delete("x-delayed-type")
-        raise "Missing required argument 'x-delayed-type'" unless type
+        raise Error::ExchangeTypeError.new("Missing required argument 'x-delayed-type'") unless type
         arguments["x-delayed-message"] = true
         make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       when "x-federation-upstream"
         FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
         ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      else raise "Cannot make exchange type #{type}"
+      else raise Error::ExchangeTypeError.new("Unknown exchange type #{type}")
       end
     end
   end

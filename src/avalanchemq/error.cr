@@ -24,5 +24,8 @@ module AvalancheMQ
 
     class PreconditionFailed < Error
     end
+
+    class ExchangeTypeError < Error
+    end
   end
 end
