@@ -1,3 +1,12 @@
+FROM node:10 AS docbuilder
+
+WORKDIR /tmp
+
+COPY openapi ./openapi
+COPY build ./build
+COPY package.json package-lock.json ./
+RUN npm install --unsafe-perm
+
 FROM crystallang/crystal:0.35.1 AS builder
 
 # install dependencies
@@ -11,6 +20,7 @@ RUN shards install --production
 
 # Copying the rest of the code
 COPY ./static ./static
+COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build

@@ -1,0 +1,114 @@
+---
+"/permissions":
+  get:
+    tags:
+    - permissions
+    description: List permissions for each vhost in the server.
+    summary: List all permissions
+    operationId: GetPermissions
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/permissions/{vhost}/{user}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: user
+    required: true
+    schema:
+      type: string
+      description: Name of the user.
+  get:
+    tags:
+    - permissions
+    description: List permissions by vhost and user.
+    summary: List permissions by vhost and user
+    operationId: GetPermissionsVhostUser
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/permission"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - permissions
+    description: Create or update permissions by vhost and user.
+    summary: Create/update permissions
+    operationId: PutPermissions
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/permissions-PutPermissionsRequestBody"
+    responses:
+      '204':
+        description: The permissions were created successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - permissions
+    description: Delete permissions by vhost and user.
+    summary: Delete permissions
+    operationId: DeletePermissions
+    responses:
+      '204':
+        description: The permissions were created successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

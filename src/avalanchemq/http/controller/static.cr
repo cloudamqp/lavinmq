@@ -47,17 +47,27 @@ module AvalancheMQ
         {% end %}
         return nil unless file && etag
         context.response.content_type = mime_type(file_path)
-        if context.request.headers["If-None-Match"]? == etag
+        if context.request.headers["If-None-Match"]? == etag && cache?(context.request.path)
           context.response.status_code = 304
         else
-          context.response.headers.add("Cache-Control", "public,max-age=300")
-          context.response.headers.add("ETag", etag)
+          if cache?(context.request.path)
+            context.response.headers.add("Cache-Control", "public,max-age=300")
+            context.response.headers.add("ETag", etag)
+          end
           context.response.content_length = file.size
           IO.copy(file, context.response)
         end
         context
       ensure
         file.try &.close
+      end
+
+      private def cache?(request_path)
+        {% if flag?(:release) %}
+          true
+        {% else %}
+          !request_path.starts_with?("/docs/")
+        {% end %}
       end
 
       private def mime_type(path)

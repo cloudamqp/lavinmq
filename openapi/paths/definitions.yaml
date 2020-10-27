@@ -1,0 +1,152 @@
+---
+"/definitions":
+  get:
+    tags:
+    - definitions
+    description: Get all server definitions (vhosts, users, queues, bindings, etc.).
+    summary: Definitions
+    operationId: GetDefinitions
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/definitions"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  post:
+    tags:
+    - definitions
+    description: Import server definitions. Merged with existing definitions on the server.
+    summary: Import definitions
+    operationId: PostDefinitions
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/definitions-PostDefinitionsRequestBody"
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/definitions"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/definitions/upload":
+  post:
+    tags:
+    - definitions
+    description: Upload file with server definitions. Merged with existing definitions on the server.
+    summary: Upload definitions
+    operationId: UploadDefinitions
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/definitions-UploadDefinitionsRequestBody"
+    responses:
+      # FIXME: should be 200 OK when used outside the UI
+      # to address "Operation must have at least one `2xx` response." warning
+      '302':
+        description: Found.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/definitions/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  get:
+    tags:
+    - definitions
+    description: Get definitions for a specifc vhost.
+    summary: Definitions by vhost
+    operationId: GetDefinitionsVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/definitions-vhost"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  post:
+    tags:
+    - definitions
+    description: Import definitions for a specifc vhost. Merged with existing definitions on the server.
+    summary: Import definitions by vhost
+    operationId: PostDefinitionsVhost
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/definitions-PostDefinitionsVhostRequestBody"
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/definitions"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

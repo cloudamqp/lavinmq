@@ -1,0 +1,107 @@
+---
+"/consumers":
+  get:
+    tags:
+    - consumers
+    description: List all consumers.
+    summary: List all consumers
+    operationId: GetConsumers
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/consumers"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/consumers/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  get:
+    tags:
+    - consumers
+    description: List all consumers for a specific vhost.
+    summary: List consumers by vhost
+    operationId: GetConsumersVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/consumers"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/consumers/{vhost}/{connection}/{channel}/{consumer_tag}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: connection
+    required: true
+    schema:
+      type: string
+      description: Name of connection.
+  - in: path
+    name: channel
+    required: true
+    schema:
+      type: integer
+      description: The channel (number) ID.
+  - in: path
+    name: consumer_tag
+    required: true
+    schema:
+      type: string
+      description: The consumer tag.
+  delete:
+    tags:
+    - consumers
+    description: Cancel a specific consumer (unsubscribe).
+    summary: Cancel consumer
+    operationId: DeleteConsumer
+    responses:
+      '204':
+        description: The consumer was successfully canceled.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

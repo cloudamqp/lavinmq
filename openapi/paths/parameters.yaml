@@ -1,0 +1,299 @@
+---
+"/parameters":
+  get:
+    tags:
+    - parameters
+    description: List all parameters.
+    summary: List all parameters
+    operationId: GetParameters
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/parameters/{component}":
+  parameters:
+  - in: path
+    name: component
+    required: true
+    schema:
+      type: string
+      description: Name of component.
+  get:
+    tags:
+    - parameters
+    description: List all parameters for a specific component.
+    summary: List parameters by component
+    operationId: GetParametersComponent
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/parameters/{component}/{vhost}":
+  parameters:
+  - in: path
+    name: component
+    required: true
+    schema:
+      type: string
+      description:  Name of component.
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description:  Name of vhost.
+  get:
+    tags:
+    - parameters
+    description: List all parameters for a specific component and vhost.
+    summary: List parameters by component and vhost
+    operationId: GetParametersComponentVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/parameters"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/parameters/{component}/{vhost}/{name}":
+  parameters:
+  - in: path
+    name: component
+    required: true
+    schema:
+      type: string
+      description:  Name of component.
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description:  Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of parameter.
+  get:
+    tags:
+    - parameters
+    description: List a specific parameter.
+    summary: List parameter
+    operationId: GetParameter
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/parameter"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - parameters
+    description: Create or update a parameter.
+    summary: Create/update parameter
+    operationId: PutParameter
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
+    responses:
+      '204':
+        description: The parameter were created/updated successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - parameters
+    description: Remove a specific parameter.
+    summary: Delete parameter
+    operationId: DeleteParameter
+    responses:
+      '204':
+        description: The parameter were deleted successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/global-parameters":
+  get:
+    tags:
+    - parameters
+    description: List all global parameters.
+    summary: List global parameters
+    operationId: GetGlobalParameters
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/global-parameters"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/global-parameters/{name}":
+  parameters:
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of global parameter.
+  get:
+    tags:
+    - parameters
+    description: List specific global parameter.
+    summary: List global parameter
+    operationId: GetGlobalParameter
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/global-parameter"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - parameters
+    description: Create or update a global parameter.
+    summary: Create/update global parameter
+    operationId: PutGlobalParameter
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
+    responses:
+      '204':
+        description: The global parameter were created/updated successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - parameters
+    description: Remove a specific global parameter.
+    summary: Delete global parameter
+    operationId: DeleteGlobalParameter
+    responses:
+      '204':
+        description: The global parameter were deleted successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

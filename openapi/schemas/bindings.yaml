@@ -1,0 +1,36 @@
+---
+bindings:
+  type: array
+  items:
+    "$ref": "#/binding"
+binding:
+  type: object
+  properties:
+    source:
+      type: string
+    vhost:
+      type: string
+    destination:
+      type: string
+    destination_type:
+      type: string
+      enum:
+      - exchange
+      - queue
+    routing_key:
+      type: string
+    arguments:
+      type: object
+      nullable: true
+    properties_key:
+      type: string
+
+PostBindingsExchangeQueueRequestBody:
+  type: object
+  properties:
+    routing_key:
+      type: string
+    arguments:
+      type: object
+  required:
+  - routing_key

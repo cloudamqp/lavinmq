@@ -2,8 +2,26 @@ name: Deb
 on: [push]
 
 jobs:
+  build_docs:
+    name: Build HTTP API documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Validate and build the documentation
+        run: npm install
+
+      - name: Upload the documentation
+        uses: actions/upload-artifact@v2
+        with:
+          name: index.html
+          path: static/docs/index.html
+
   build_deb:
     name: Build
+    needs: build_docs
     strategy:
       matrix:
         os: [ubuntu-18.04, ubuntu-20.04]
@@ -22,6 +40,12 @@ jobs:
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
+
+      - name: Download the HTTP API documentation
+        uses: actions/download-artifact@v2
+        with:
+          name: index.html
+          path: static/docs/
 
       - name: Get Ubuntu release name
         run: echo "CODENAME=$(lsb_release -cs)" >> $GITHUB_ENV

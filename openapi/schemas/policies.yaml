@@ -1,0 +1,47 @@
+policies:
+  type: array
+  items:
+    "$ref": "#/policy"
+policy:
+  type: object
+  properties:
+    name:
+      type: string
+    vhost:
+      type: string
+    pattern:
+      type: string
+      description: Regular expression matching queue/exchange name(s)
+    apply-to:
+      type: string
+      enum:
+      - all
+      - queues
+      - exchanges
+    priority:
+      type: integer
+    definition:
+      type: object
+      description: Optional queue/exchange arguments
+PutPolicyRequestBody:
+  type: object
+  properties:
+    pattern:
+      type: string
+      description: Regular expression matching queue/exchange name(s)
+    definition:
+      type: object
+      description: Optional queue/exchange arguments
+    priority:
+      type: integer
+      default: 0
+    apply-to:
+      type: string
+      default: all
+      enum:
+      - all
+      - queues
+      - exchanges
+  required:
+  - pattern
+  - definition
