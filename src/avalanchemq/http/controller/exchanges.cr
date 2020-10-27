@@ -79,6 +79,8 @@ module AvalancheMQ
                 .declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
               context.response.status_code = 204
             end
+          rescue ex : Error::ExchangeTypeError
+            bad_request(context, ex.message)
           end
         end
 
