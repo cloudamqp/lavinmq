@@ -217,7 +217,7 @@ module AvalancheMQ
       proxyheader = ProxyProtocol::V1.parse(client)
       handle_connection(client, proxyheader.src, proxyheader.dst)
     rescue ex
-      @log.info { "Error accepting UNIX socket: #{ex.inspect}" }
+      @log.info { "Error accepting proxied socket: #{ex.inspect}" }
       client.close rescue nil
     end
 
