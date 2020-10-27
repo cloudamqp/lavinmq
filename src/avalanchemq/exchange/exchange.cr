@@ -1,13 +1,10 @@
 require "logger"
-require "./policy"
-require "./stats"
-require "./amqp"
-require "./sortable_json"
-require "./observable"
-require "./queue"
-require "./durable_queue"
-require "./persistent_exchange_queue"
-require "./delayed_exchange_queue"
+require "../policy"
+require "../stats"
+require "../amqp"
+require "../sortable_json"
+require "../observable"
+require "../queue"
 
 module AvalancheMQ
   alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)

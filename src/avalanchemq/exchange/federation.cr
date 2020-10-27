@@ -1,4 +1,4 @@
-require "../exchange"
+require "./topic"
 
 module AvalancheMQ
   class FederationExchange < TopicExchange
