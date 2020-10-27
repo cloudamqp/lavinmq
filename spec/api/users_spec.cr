@@ -110,6 +110,13 @@ describe AvalancheMQ::HTTP::UsersController do
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Field .+ is required/)
     end
+
+    it "should handle unexpected input" do
+      response = put("/api/users/foo", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field .+ is required/)
+    end
   end
 
   describe "GET /api/users/user/permissions" do
