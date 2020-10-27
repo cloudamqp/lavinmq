@@ -762,6 +762,10 @@ module AvalancheMQ
     @segment_holes = Hash(MFile, Array(Hole)).new { |h, k| h[k] = Array(Hole).new }
 
     private def punch_hole(segment, start_pos : Int, end_pos : Int) : Int
+      {% unless flag?(:linux) %}
+        # only linux supports hole punching (MADV_REMOVE)
+        return 0
+      {% end %}
       start_pos = start_pos.to_u32
       end_pos = end_pos.to_u32
       hole_size = end_pos - start_pos
