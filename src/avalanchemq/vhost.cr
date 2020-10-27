@@ -3,6 +3,7 @@ require "json"
 require "logger"
 require "../stdlib/*"
 require "./segment_position"
+require "./vhost/*"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
@@ -654,125 +655,6 @@ module AvalancheMQ
         segments[seg] = file
       end
       segments
-    end
-
-    abstract class SPQueue
-      include Comparable(self)
-      @pos = 0
-
-      def self.new(ready : Queue::ReadyQueue)
-        SPReadyQueue.new(ready)
-      end
-
-      def self.new(unack : Queue::UnackQueue)
-        SPUnackQueue.new(unack)
-      end
-
-      def <=>(other : self)
-        if p = peek
-          if o = other.peek
-            p <=> o
-          else
-            1
-          end
-        else
-          -1
-        end
-      end
-
-      abstract def peek : SegmentPosition?
-      abstract def shift : SegmentPosition
-      abstract def empty? : Bool
-    end
-
-    class SPReadyQueue < SPQueue
-      def initialize(@ready : Queue::ReadyQueue)
-      end
-
-      def peek : SegmentPosition?
-        @ready[@pos]?
-      end
-
-      def shift : SegmentPosition
-        v = @ready[@pos]
-        @pos += 1
-        v
-      end
-
-      def empty? : Bool
-        @pos == @ready.size
-      end
-    end
-
-    class SPUnackQueue < SPQueue
-      def initialize(@unack : Queue::UnackQueue)
-      end
-
-      def peek : SegmentPosition?
-        @unack[@pos]?.try &.sp
-      end
-
-      def shift : SegmentPosition
-        v = @unack[@pos].sp
-        @pos += 1
-        v
-      end
-
-      def empty? : Bool
-        @pos == @unack.size
-      end
-    end
-
-    class PriorityQueue(T)
-      def initialize(initial_capacity)
-        @queue = Deque(T).new(initial_capacity)
-      end
-
-      def empty?
-        @queue.empty?
-      end
-
-      def shift
-        @queue.shift
-      end
-
-      def push(item : T)
-        q = @queue
-        if idx = q.bsearch_index { |e| e > item }
-          q.insert(idx, item)
-        else
-          q.push item
-        end
-      end
-
-      def <<(item : T)
-        push(item)
-      end
-    end
-
-    class ReferencedSPs
-      include Enumerable(SegmentPosition)
-
-      def initialize(initial_capacity = 128)
-        @pq = PriorityQueue(SPQueue).new(initial_capacity)
-      end
-
-      def <<(q : SPQueue)
-        @pq << q unless q.empty?
-      end
-
-      def empty?
-        @pq.empty?
-      end
-
-      def each
-        pq = @pq
-        until pq.empty?
-          q = pq.shift
-          yield q.shift
-          pq.push q unless q.empty?
-        end
-      end
     end
 
     private def gc_segments_loop
