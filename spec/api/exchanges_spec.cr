@@ -53,11 +53,10 @@ describe AvalancheMQ::HTTP::ExchangesController do
     end
 
     it "should require type" do
-      body = %({})
-      response = put("/api/exchanges/%2f/faulty", body: body)
+      response = put("/api/exchanges/%2f/faulty", body: "")
       response.status_code.should eq 400
-    ensure
-      s.vhosts["/"].delete_exchange("faulty")
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Field 'type' is required/)
     end
 
     it "should require durable to be the same when overwriting" do
@@ -186,9 +185,10 @@ describe AvalancheMQ::HTTP::ExchangesController do
 
     it "should require all args" do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      body = %({})
-      response = post("/api/exchanges/%2f/spechange/publish", body: body)
+      response = post("/api/exchanges/%2f/spechange/publish", body: "")
       response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should match(/Fields .+ are required/)
     ensure
       s.vhosts["/"].delete_exchange("spechange")
     end
