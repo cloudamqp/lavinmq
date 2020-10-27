@@ -15,18 +15,10 @@ module AvalancheMQ
       end
 
       def <=>(other : self)
-        if p = peek
-          if o = other.peek
-            p <=> o
-          else
-            1
-          end
-        else
-          -1
-        end
+        peek <=> other.peek
       end
 
-      abstract def peek : SegmentPosition?
+      abstract def peek : SegmentPosition
       abstract def shift : SegmentPosition
       abstract def empty? : Bool
     end
@@ -35,8 +27,8 @@ module AvalancheMQ
       def initialize(@ready : Queue::ReadyQueue)
       end
 
-      def peek : SegmentPosition?
-        @ready[@pos]?
+      def peek : SegmentPosition
+        @ready[@pos]
       end
 
       def shift : SegmentPosition
@@ -54,8 +46,8 @@ module AvalancheMQ
       def initialize(@unack : Queue::UnackQueue)
       end
 
-      def peek : SegmentPosition?
-        @unack[@pos]?.try &.sp
+      def peek : SegmentPosition
+        @unack[@pos].sp
       end
 
       def shift : SegmentPosition
