@@ -109,8 +109,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/policies-PutPolicyRequestBody"
     responses:
+      '201':
+        description: The policy was created successfully.
       '204':
-        description: The policy was created or updated successfully.
+        description: The policy was updated successfully.
       4XX:
         description: Client Error
         content:

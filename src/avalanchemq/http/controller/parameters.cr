@@ -164,9 +164,10 @@ module AvalancheMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
+            is_update = @amqp_server.vhosts[vhost].policies[name]?
             @amqp_server.vhosts[vhost]
               .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
-            context.response.status_code = 204
+            context.response.status_code = is_update ? 204 : 201
           end
         end
 
