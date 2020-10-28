@@ -29,7 +29,8 @@ module AvalancheMQ
               import_definitions(body)
             end
           end
-          redirect_back(context)
+          redirect_back(context) if context.request.headers["Referer"]?
+          context
         end
 
         get "/api/definitions/:vhost" do |context, params|

@@ -424,4 +424,43 @@ describe AvalancheMQ::HTTP::Server do
       response.status_code.should eq 200
     end
   end
+
+  describe "POST /api/definitions/upload" do
+    it "imports definitions from uploaded file (no Referer)" do
+      file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
+      io = IO::Memory.new
+      builder = HTTP::FormData::Builder.new(io)
+      builder.file("file", IO::Memory.new(file_content))
+      builder.finish
+
+      headers = {"Content-Type" => builder.content_type}
+      body = io.to_s
+
+      response = post("/api/definitions/upload", headers: headers, body: body)
+      response.status_code.should eq 200
+      s.vhosts["uploaded_vhost"]?.should_not be_nil
+      s.vhosts["uploaded_vhost"].should be_a(AvalancheMQ::VHost)
+    ensure
+      s.vhosts.delete("uploaded_vhost")
+    end
+
+    it "imports definitions from uploaded file" do
+      file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
+      io = IO::Memory.new
+      builder = HTTP::FormData::Builder.new(io)
+      builder.file("file", IO::Memory.new(file_content))
+      builder.finish
+
+      headers = {"Content-Type" => builder.content_type, "Referer" => "/foo"}
+      body = io.to_s
+
+      response = post("/api/definitions/upload", headers: headers, body: body)
+      response.status_code.should eq 302
+      response.headers["Location"].should eq "/foo"
+      s.vhosts["uploaded_vhost"]?.should_not be_nil
+      s.vhosts["uploaded_vhost"].should be_a(AvalancheMQ::VHost)
+    ensure
+      s.vhosts.delete("uploaded_vhost")
+    end
+  end
 end
