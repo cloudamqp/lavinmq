@@ -243,3 +243,26 @@ jobs:
         run: |
           cd rabbit-hole
           go test -v ./...
+
+  release-mode-test:
+    name: Test in release mode
+    runs-on: ubuntu-20.04
+    needs: compile
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
+          path: bin
+
+      - name: Run avalanchemq in background
+        run: |
+          chmod +x bin/avalanchemq
+          bin/avalanchemq --data-dir /tmp/amqp &
+
+      - name: Test the static HTTP controller
+        run: ./extras/static_requests.sh
