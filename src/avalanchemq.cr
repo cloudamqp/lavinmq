@@ -91,6 +91,13 @@ def reload_tls(context, config, log)
   end
 end
 
+def reload_log(log, config)
+  new_level = config.log_level || AvalancheMQ::Config::DEFAULT_LOG_LEVEL
+  return if log.level == new_level
+  log.info { "Log level changed from #{log.level} to #{new_level}" }
+  log.level = config.log_level.not_nil!
+end
+
 context = nil
 if !config.tls_cert_path.empty?
   context = OpenSSL::SSL::Context::Server.new
@@ -184,11 +191,12 @@ end
 
 Signal::HUP.trap do
   SystemD.notify("RELOADING=1\n")
-  if config_file.empty?
+  if config.config_file.empty?
     log.info { "No configuration file to reload" }
   else
-    log.info { "Reloading configuration file '#{config_file}'" }
-    config.parse(config_file)
+    log.info { "Reloading configuration file '#{config.config_file}'" }
+    config.parse(config.config_file)
+    reload_log(log, config)
     reload_tls(context, config, log)
   end
   SystemD.notify("READY=1\n")

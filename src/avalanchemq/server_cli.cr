@@ -56,7 +56,10 @@ module AvalancheMQ
 
     def parse
       @parser.parse
-      @config.parse(@config_file) unless @config_file.empty?
+      unless @config_file.empty?
+        @config.config_file = @config_file # Remember file for reloads
+        @config.parse(@config_file)
+      end
       if @config.data_dir.empty?
         STDERR.puts "No data directory specified"
         STDERR.puts @parser
