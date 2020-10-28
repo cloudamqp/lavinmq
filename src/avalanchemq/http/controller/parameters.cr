@@ -74,8 +74,9 @@ module AvalancheMQ
               bad_request(context, "Field 'value' is required")
             end
             p = Parameter.new(component, name, value)
+            is_update = @amqp_server.vhosts[vhost].parameters[{component, name}]?
             @amqp_server.vhosts[vhost].add_parameter(p)
-            context.response.status_code = 204
+            context.response.status_code = is_update ? 204 : 201
           end
         end
 
@@ -112,8 +113,9 @@ module AvalancheMQ
             bad_request(context, "Field 'value' is required")
           end
           p = Parameter.new(nil, name, value)
+          is_update = @amqp_server.parameters[{nil, name}]?
           @amqp_server.add_parameter(p)
-          context.response.status_code = 204
+          context.response.status_code = is_update ? 204 : 201
           context
         end
 

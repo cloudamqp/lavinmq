@@ -70,10 +70,24 @@ describe AvalancheMQ::HTTP::ParametersController do
   describe "PUT /api/parameters/component/vhost/name" do
     it "should create parameters for a component on vhost" do
       body = %({
-        "value": {}
+        "value": { "key": "value" }
+      })
+      response = put("/api/parameters/test/%2f/name", body: body)
+      response.status_code.should eq 201
+      s.vhosts["/"].parameters[{"test", "name"}].value.should eq({"key" => "value"})
+    ensure
+      s.vhosts["/"].delete_parameter("test", "name")
+    end
+
+    it "should update parameters for a component on vhost" do
+      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new(%({ "key": "old value" })))
+      s.vhosts["/"].add_parameter(p)
+      body = %({
+        "value": { "key": "new value" }
       })
       response = put("/api/parameters/test/%2f/name", body: body)
       response.status_code.should eq 204
+      s.vhosts["/"].parameters[{"test", "name"}].value.should eq({"key" => "new value"})
     ensure
       s.vhosts["/"].delete_parameter("test", "name")
     end
@@ -130,7 +144,20 @@ describe AvalancheMQ::HTTP::ParametersController do
         "value": {}
       })
       response = put("/api/global-parameters/name", body: body)
+      response.status_code.should eq 201
+    ensure
+      s.delete_parameter(nil, "name")
+    end
+
+    it "should update global parameter" do
+      p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new(%({ "key": "old value" })))
+      s.add_parameter(p)
+      body = %({
+        "value": { "key": "new value" }
+      })
+      response = put("/api/global-parameters/name", body: body)
       response.status_code.should eq 204
+      s.parameters[{nil, "name"}].value.should eq({"key" => "new value"})
     ensure
       s.delete_parameter(nil, "name")
     end
