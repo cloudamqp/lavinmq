@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/bin/bash
+
+set -e
 
 PORT=${PORT:-15672}
 FAILURES=0
@@ -7,7 +9,7 @@ request() {
   local path=$1
   local body_size=$(curl --silent --output /dev/null --write-out "%{size_download}\n" "http://127.0.0.1:${PORT}${path}")
 
-  [[ $body_size -eq 0 ]] && echo "FAIL: $path" && ((FAILURES += 1))
+  [[ $body_size -eq 0 ]] && echo "FAIL: $path" && ((FAILURES += 1)) || :
 }
 
 request /
