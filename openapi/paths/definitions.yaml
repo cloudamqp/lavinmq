@@ -70,10 +70,8 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/definitions-UploadDefinitionsRequestBody"
     responses:
-      # FIXME: should be 200 OK when used outside the UI
-      # to address "Operation must have at least one `2xx` response." warning
-      '302':
-        description: Found.
+      '200':
+        description: OK
       4XX:
         description: Client Error
         content:
