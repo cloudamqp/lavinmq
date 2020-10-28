@@ -35,18 +35,17 @@ module AvalancheMQ
         etag = nil
         {% if flag?(:release) %}
           file = Release.get?(file_path)
-          unless file
-            file_path = "#{file_path}.html"
-            file = Release.get?(file_path)
-          end
-          etag = Digest::MD5.hexdigest(file_path + BUILD_TIME) if file
+          file = Release.get?("#{file_path}.html") unless file
+          file = Release.get?("#{file_path}/index.html") unless file
+          etag = Digest::MD5.hexdigest(file.path + BUILD_TIME) if file
         {% else %}
           file_path = File.join(PUBLIC_DIR, file_path)
+          file_path = "#{file_path}/index.html" if File.directory?(file_path)
           file_path = "#{file_path}.html" unless File.exists?(file_path)
           file, etag = static(context, file_path) if File.exists?(file_path)
         {% end %}
         return nil unless file && etag
-        context.response.content_type = mime_type(file_path)
+        context.response.content_type = mime_type(file.path)
         if context.request.headers["If-None-Match"]? == etag && cache?(context.request.path)
           context.response.status_code = 304
         else
