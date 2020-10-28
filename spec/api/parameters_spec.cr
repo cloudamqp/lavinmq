@@ -238,9 +238,26 @@ describe AvalancheMQ::HTTP::ParametersController do
         "pattern": ".*"
       })
       response = put("/api/policies/%2f/name", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
+      s.vhosts["/"].policies["name"].definition["max-length"].as_i.should eq 10
     ensure
       s.vhosts["/"].delete_policy("name")
+    end
+
+    it "should update policy" do
+      policy_name = "test"
+      definitions = {"max-length" => JSON::Any.new(10_i64)}
+      s.vhosts["/"].add_policy(policy_name, /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+
+      body = %({
+        "pattern": ".*",
+        "definition": { "max-length": 20 }
+      })
+      response = put("/api/policies/%2f/#{policy_name}", body: body)
+      response.status_code.should eq 204
+      s.vhosts["/"].policies[policy_name].definition["max-length"].as_i.should eq 20
+    ensure
+      s.vhosts["/"].delete_policy(policy_name)
     end
 
     it "should handle request with empty body" do
