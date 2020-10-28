@@ -155,8 +155,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
     responses:
+      '201':
+        description: The parameter was created successfully.
       '204':
-        description: The parameter were created/updated successfully.
+        description: The parameter was updated successfully.
       4XX:
         description: Client Error
         content:
@@ -262,8 +264,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
     responses:
+      '201':
+        description: The global parameter was created successfully.
       '204':
-        description: The global parameter were created/updated successfully.
+        description: The global parameter was updated successfully.
       4XX:
         description: Client Error
         content:
