@@ -45,7 +45,7 @@ describe AvalancheMQ::HTTP::ExchangesController do
         }
       })
       response = put("/api/exchanges/%2f/spechange", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       response = get("/api/exchanges/%2f/spechange")
       response.status_code.should eq 200
     ensure
@@ -84,7 +84,7 @@ describe AvalancheMQ::HTTP::ExchangesController do
         }
       })
       response = put("/api/exchanges/%2f/spechange", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       body = %({
         "type": "topic",
         "durable": false,
