@@ -71,13 +71,13 @@ module AvalancheMQ
               if e.internal
                 bad_request(context, "Not allowed to publish to internal exchange")
               end
-              context.response.status_code = 200
+              context.response.status_code = 204
             elsif name.starts_with? "amq."
               bad_request(context, "Not allowed to use the amq. prefix")
             else
               @amqp_server.vhosts[vhost]
                 .declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
-              context.response.status_code = 204
+              context.response.status_code = 201
             end
           rescue ex : Error::ExchangeTypeError
             bad_request(context, ex.message)

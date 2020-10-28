@@ -110,8 +110,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/exchanges-PutExchangeRequestBody"
     responses:
+      '201':
+        description: The resource was created successfully.
       '204':
-        description: The resource was created or updated successfully.
+        description: The resource was updated successfully.
       4XX:
         description: Client Error
         content:
