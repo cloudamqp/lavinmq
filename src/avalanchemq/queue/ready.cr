@@ -189,8 +189,8 @@ module AvalancheMQ
         @ready.capacity
       end
 
-      def sum(&blk : SegmentPosition -> _)
-        @ready.sum(&blk)
+      def sum(&blk : SegmentPosition -> _) : UInt64
+        @ready.sum(0_u64, &blk)
       end
 
       def compact
