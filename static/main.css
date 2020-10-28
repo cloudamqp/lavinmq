@@ -616,6 +616,11 @@ a, a:visited {
   color: yellow;
 }
 
+.state-paused:after {
+  content: '||';
+  color: red;
+}
+
 .state-closed:after {
   content: '●';
   color: red;
