@@ -92,11 +92,10 @@ def reload_tls(context, config, log)
 end
 
 def reload_log(log, config)
-  new_level = config.log_level || DEFAULT_LOG_LEVEL
-  if log.level != new_level
-    log.info { "Log level changed from #{log.level} to #{new_level}" }
-    log.level = config.log_level.not_nil!
-  end
+  new_level = config.log_level || AvalancheMQ::Config::DEFAULT_LOG_LEVEL
+  return if log.level == new_level
+  log.info { "Log level changed from #{log.level} to #{new_level}" }
+  log.level = config.log_level.not_nil!
 end
 
 context = nil

@@ -1,4 +1,3 @@
-
 require "./spec_helper"
 require "../src/avalanchemq/server_cli"
 
