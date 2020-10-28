@@ -64,8 +64,8 @@ module AvalancheMQ
         @unacked[index]?
       end
 
-      def sum(&blk : Unack -> _)
-        @unacked.sum(&blk)
+      def sum(&blk : Unack -> _) : UInt64
+        @unacked.sum(0_u64, &blk)
       end
 
       def capacity
