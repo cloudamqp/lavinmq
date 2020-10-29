@@ -390,7 +390,8 @@ module AvalancheMQ
           end
           # @log.debug { "Delivery done" }
         else
-          @log.debug { "Delivery failed" }
+          @ready.insert(sp)
+          @log.debug { "Delivery failed, returning message to ready" }
         end
       else
         @log.debug { "Consumer found, but not a message" }
