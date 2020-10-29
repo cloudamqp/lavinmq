@@ -51,6 +51,11 @@ describe AvalancheMQ::HTTP::VHostsController do
   describe "PUT /api/vhosts/vhost" do
     it "should create vhost" do
       response = put("/api/vhosts/test")
+      response.status_code.should eq 201
+    end
+
+    it "should update vhost" do
+      response = put("/api/vhosts/test")
       response.status_code.should eq 204
     end
 
@@ -70,7 +75,7 @@ describe AvalancheMQ::HTTP::VHostsController do
       user = s.users.create(username, "pw", [AvalancheMQ::Tag::Administrator])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/#{vhost}", headers: hdrs)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       p = user.permissions[vhost]
       p[:config].should eq /.*/
       p[:read].should eq /.*/
