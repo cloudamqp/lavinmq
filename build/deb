@@ -5,10 +5,19 @@ which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
 which help2man > /dev/null || (echo "help2man required"; exit 1)
 pkg_version=${1:-$(git describe --tags | cut -c2- )}
 pkg_revision=${2:-1}
-root=builds/debian/$(lsb_release -cs)/avalanchemq_${pkg_version}-${pkg_revision}_$(dpkg --print-architecture)
+architecture=${3:-$(dpkg --print-architecture)}
 
-shards build --production --release --no-debug --stats
+if [ "$architecture" != "$(dpkg --print-architecture)" ]
+then
+  shards install --production
+  build/cross-compile-with-docker src/avalanchemq.cr ubuntu:$(lsb_release -rs)
+  build/cross-compile-with-docker src/avalanchemqperf.cr ubuntu:$(lsb_release -rs)
+  build/cross-compile-with-docker src/avalanchemqctl.cr ubuntu:$(lsb_release -rs)
+else
+  shards build --production --release --stats
+fi
 
+root=builds/debian/$(lsb_release -cs)/avalanchemq_${pkg_version}-${pkg_revision}_$architecture
 rm -rf $root
 mkdir -p $root/DEBIAN
 mkdir -p $root/usr/bin
@@ -44,6 +53,10 @@ Files: *
 Copyright: 2019, 84codes AB
 License: Apache-2.0
 EOF
+# build native binaries for help2man if building foregin arch
+if [ "$architecture" != "$(dpkg --print-architecture)" ]
+then shards build --production
+fi
 help2man -Nn "fast and advanced message queue server" bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
 help2man -Nn "control utility for avalanchemq server" bin/avalanchemqctl > $root/usr/share/man/man1/avalanchemqctl.1
 help2man -Nn "performance testing tool for amqp servers" bin/avalanchemqperf > $root/usr/share/man/man1/avalanchemqperf.1
@@ -65,7 +78,7 @@ Version: $pkg_version-$pkg_revision
 Homepage: https://github.com/84codes/avalanchemq
 Section: net
 Priority: optional
-Architecture: $(dpkg --print-architecture)
+Architecture: $architecture
 Depends: openssl, systemd, libc6, adduser
 Installed-Size: $(du -ks $root/usr | cut -f 1)
 Maintainer: 84codes <contact@84codes.com>

@@ -1,12 +1,12 @@
 #!/bin/bash
 set -eux
-pkg_version=$(shards version)
+pkg_version=$(git describe --tags | cut -c2- | tr - .)
 pkg_revision=${1:-1}
 root=~/rpmbuild
 
 mkdir -p $root/{RPMS,SRPMS,SOURCES,SPECS,tmp}
 
-git archive --format=tar.gz -o $root/SOURCES/avalanchemq.tar.gz --prefix=avalanchemq-$pkg_version/ master
+git archive --format=tar.gz -o $root/SOURCES/avalanchemq.tar.gz --prefix=avalanchemq-$pkg_version/ HEAD
 
 cat > $root/SPECS/avalanchemq.spec << EOF
 Name:    avalanchemq
@@ -77,5 +77,6 @@ EOF
 rpmlint $root/SPECS/avalanchemq.spec
 rpmbuild -bb $root/SPECS/avalanchemq.spec
 rm -rf builds/rpm
+mkdir -p builds
 mv $root/RPMS builds/rpm
 #rpmlint $root/RPMS/avalanchemq-$pkg_version*
