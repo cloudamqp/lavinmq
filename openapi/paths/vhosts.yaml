@@ -65,8 +65,10 @@
     summary: Create/update vhost
     operationId: PutVhost
     responses:
+      '201':
+        description: The vhost was created successfully.
       '204':
-        description: The resource was created or updated successfully.
+        description: The vhost already exists.
       4XX:
         description: Client Error
         content:
