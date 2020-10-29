@@ -125,8 +125,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/users-PutUserRequestBody"
     responses:
+      '201':
+        description: The user was created successfully.
       '204':
-        description: The resource was created or updated successfully.
+        description: The user was updated successfully.
       4XX:
         description: Client Error
         content:

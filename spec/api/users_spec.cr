@@ -71,7 +71,7 @@ describe AvalancheMQ::HTTP::UsersController do
         "password": "test"
       })
       response = put("/api/users/alan", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       u = s.users["alan"]
       ok = u.not_nil!.password.try &.verify("test")
       ok.should be_true
@@ -84,7 +84,7 @@ describe AvalancheMQ::HTTP::UsersController do
         "password_hash": "kI3GCqW5JLMJa4iX1lo7X4D6XbYqlLgxIs30+P6tENUV2POR"
       })
       response = put("/api/users/alan", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       u = s.users["alan"]
       u.not_nil!.password.not_nil!.verify("test12").should be_true
     ensure
@@ -96,10 +96,23 @@ describe AvalancheMQ::HTTP::UsersController do
         "password_hash": ""
       })
       response = put("/api/users/alan", body: body)
-      response.status_code.should eq 204
+      response.status_code.should eq 201
       hrds = HTTP::Headers{"Authorization" => "Basic YWxhbjo="} # alan:
       response = get("/api/users/alan", headers: hrds)
       response.status_code.should eq 401
+    ensure
+      delete("/api/users/alan")
+    end
+
+    it "should update user" do
+      s.users.create("alan", "pw")
+      body = %({
+        "password": "test",
+        "tags": "http"
+      })
+      response = put("/api/users/alan", body: body)
+      response.status_code.should eq 204
+      s.users["alan"].tags.should eq([AvalancheMQ::Tag::Http])
     ensure
       delete("/api/users/alan")
     end
