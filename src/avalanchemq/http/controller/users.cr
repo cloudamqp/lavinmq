@@ -89,14 +89,15 @@ module AvalancheMQ
             end
             u.tags = tags if body["tags"]?
             @amqp_server.users.save!
+            context.response.status_code = 204
           else
             if password_hash
               @amqp_server.users.add(name, password_hash, hashing_alogrithm, tags)
             elsif password
               @amqp_server.users.create(name, password, tags)
             end
+            context.response.status_code = 201
           end
-          context.response.status_code = 204
           context
         rescue ex : Base64::Error
           bad_request(context, ex.message)
