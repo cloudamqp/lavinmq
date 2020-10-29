@@ -1,4 +1,4 @@
-name: Deb
+name: RPM
 on:
   push:
     branches:
@@ -22,27 +22,30 @@ jobs:
           name: index.html
           path: static/docs/index.html
 
-  build_deb:
-    name: Build
+  build_rpm:
+    name: Build RPM
     needs: build_docs
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
-        os: [ubuntu-20.04]
-    runs-on: ${{ matrix.os }}
+        os: ['centos:8']
+    runs-on: ubuntu-20.04
+    container: ${{ matrix.os }}
     steps:
-      - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian build-essential gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev
-
-      - name: Install Crystal
+      - name: Install crystal
         run: |
-          wget https://crystal-lang.org/install.sh
+          curl -fsSLO https://crystal-lang.org/install.sh
           chmod +x install.sh
-          sudo ./install.sh --crystal=0.35.1
+          ./install.sh --crystal=0.35.1
+
+      - name: Install dependencies
+        run: |
+          yum install dnf-plugins-core
+          yum config-manager --set-enabled PowerTools
+          yum install -y git rpmlint rpm-build openssl-devel zlib-devel help2man systemd-devel
 
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v1
         with:
           fetch-depth: 0
 
@@ -52,13 +55,27 @@ jobs:
           name: index.html
           path: static/docs/
 
-      - name: Set ENVs
-        run: |
-          echo "CODENAME=$(lsb_release -cs)" >> $GITHUB_ENV
-          echo "VERSION=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
+      - name: Build RPM package
+        run: build/rpm
 
-      - name: Build deb package
-        run: build/deb ${{ env.VERSION }} 1 ${{ matrix.arch }}
+      - name: Upload packages
+        uses: actions/upload-artifact@v2
+        with:
+          name: rpms
+          path: builds/rpm
+
+  upload_packages:
+    name: Upload to Packagecloud
+    needs: build_rpm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v2
+        with:
+          name: rpms
+
+      - name: Display folder structure
+        run: ls -R
 
       - uses: actions/setup-ruby@v1
         with:
@@ -68,13 +85,13 @@ jobs:
         run: gem install package_cloud
 
       - name: Upload to packagecloud head repo
-        run: package_cloud push cloudamqp/avalanchemq-head/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ matrix.arch }}.deb
+        run: package_cloud push cloudamqp/avalanchemq-head/el/8 **/*.rpm
         env:
           PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
         if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
 
       - name: Upload to packagecloud release repo
-        run: package_cloud push cloudamqp/avalanchemq/ubuntu/${{ env.CODENAME }} builds/debian/${{ env.CODENAME }}/avalanchemq_${{ env.VERSION }}-1_${{ matrix.arch }}.deb
+        run: package_cloud push cloudamqp/avalanchemq/el/8 **/*.rpm
         env:
           PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
         if: startsWith(github.ref, 'refs/tags/v')

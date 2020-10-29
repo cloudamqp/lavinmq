@@ -1,0 +1,34 @@
+#!/bin/bash -eux
+srcfile=$1
+image=${2:-ubuntu:20.04}
+buildcmd=$(env CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --no-debug --release "$srcfile")
+
+if ! (grep -q '"experimental": true' /etc/docker/daemon.json)
+then
+  echo '{"experimental": true}' | sudo tee /etc/docker/daemon.json
+  sudo systemctl restart docker
+  sudo apt-get install -y --no-install-recommends qemu-user-static
+fi
+
+docker run --name builder --platform arm64 -v "$PWD":/work -it -d "$image" bash || true
+docker exec -i builder bash << EOF
+set -eux
+[ -f /usr/share/crystal/src/ext/libcrystal.a ] && exit 0
+apt-get update
+apt-get install -y wget clang libssl-dev libpcre3-dev libgc-dev libevent-dev zlib1g-dev libsystemd-dev
+wget https://raw.githubusercontent.com/crystal-lang/crystal/master/src/ext/sigfault.c
+cc -c -o sigfault.o sigfault.c
+ar -rcs libcrystal.a sigfault.o
+mkdir -p /usr/share/crystal/src/ext
+cp libcrystal.a /usr/share/crystal/src/ext/
+EOF
+
+mkdir -p bin/
+
+docker exec -i builder bash << EOF
+set -eux
+cd /work
+$buildcmd
+rm $(basename "$srcfile" .cr).o
+mv $(basename "$srcfile" .cr) bin/
+EOF
