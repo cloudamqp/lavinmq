@@ -113,9 +113,9 @@
             "$ref": "../openapi.yaml#/components/schemas/queues-PutQueueRequestBody"
     responses:
       '201':
-        description: The resource was created successfully.
+        description: The queue was created successfully.
       '204':
-        description: The resource was updated successfully.
+        description: The queue was updated successfully.
       4XX:
         description: Client Error
         content:
@@ -136,7 +136,7 @@
     operationId: DeleteQueue
     responses:
       '204':
-        description: The resource was deleted successfully.
+        description: The queue was deleted successfully.
       4XX:
         description: Client Error
         content:

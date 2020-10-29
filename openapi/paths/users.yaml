@@ -149,7 +149,7 @@
     operationId: DeleteUser
     responses:
       '204':
-        description: The resource were deleted successfully.
+        description: The user was deleted successfully.
       4XX:
         description: Client Error
         content:

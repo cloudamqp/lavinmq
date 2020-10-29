@@ -89,7 +89,7 @@
     operationId: DeleteVhost
     responses:
       '204':
-        description: The resource was deleted successfully.
+        description: The vhosts was deleted successfully.
       4XX:
         description: Client Error
         content:
