@@ -77,8 +77,10 @@
           schema:
             "$ref": "../openapi.yaml#/components/schemas/permissions-PutPermissionsRequestBody"
     responses:
-      '204':
+      '201':
         description: The permissions were created successfully.
+      '204':
+        description: The permissions were updated successfully.
       4XX:
         description: Client Error
         content:

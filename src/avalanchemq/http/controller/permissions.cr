@@ -48,9 +48,10 @@ module AvalancheMQ
             unless config && read && write
               bad_request(context, "Fields 'configure', 'read' and 'write' are required")
             end
+            is_update = @amqp_server.users[u.name].permissions[vhost]?
             @amqp_server.users
               .add_permission(u.name, vhost, Regex.new(config), Regex.new(read), Regex.new(write))
-            context.response.status_code = 204
+            context.response.status_code = is_update ? 204 : 201
           rescue ex : ArgumentError
             bad_request(context, "Permissions must be valid Regex")
           end
