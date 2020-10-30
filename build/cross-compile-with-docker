@@ -1,7 +1,13 @@
 #!/bin/bash -eux
 srcfile=$1
 image=${2:-ubuntu:20.04}
-buildcmd=$(env CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --no-debug --release "$srcfile")
+# cross-compile often fails in crystal 0.35, so retry
+set +e
+while true
+do
+  buildcmd=$(env CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --no-debug --release "$srcfile") && break
+done
+set -e
 
 if ! (grep -q '"experimental": true' /etc/docker/daemon.json)
 then
