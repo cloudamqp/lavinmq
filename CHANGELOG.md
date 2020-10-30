@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.13] - 2020-10-30
+
+### Fixed
+- Messages that can't be delivered to client is properly requeued now
+- Support for uploading definitions via the HTTP API (earlier only UI)
+- Fixed a counter could overflow when there was more than 2GB of messages in the queues
+- Many API calls are more robust when it's fed erroneous input data
+
+### Changes
+- Consistent HTTP status responses
+- Smarter segment GC where we iterate the existing ready/unack queues instead of creating a new array
+- Increase systemd max start time to 5min
+- Optimize two cases in topic exchanges
+
+### Added
+- Building and distributing ARM64 debian and AMD64 RPM packages (via packagecloud.io)
+- HTTP API documentation
+- Log level is updated on SIGUP if changed in config
+
 ## [1.0.0-alpha.12] - 2020-10-25
 
 ### Added
