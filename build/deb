@@ -79,7 +79,7 @@ Homepage: https://github.com/84codes/avalanchemq
 Section: net
 Priority: optional
 Architecture: $architecture
-Depends: openssl, systemd, libc6, adduser
+Depends: openssl, systemd, libc6, adduser, libgc1c2
 Installed-Size: $(du -ks $root/usr | cut -f 1)
 Maintainer: 84codes <contact@84codes.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
