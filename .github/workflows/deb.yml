@@ -59,6 +59,9 @@ jobs:
           echo "CODENAME=$(lsb_release -cs)" >> $GITHUB_ENV
           echo "VERSION=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
 
+      - name: Increase vm.max_map_count
+        run: sudo sysctl -w vm.max_map_count=262144
+
       - name: Build deb package
         run: build/deb ${{ env.VERSION }} 1 ${{ matrix.arch }}
 
