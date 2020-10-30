@@ -55,8 +55,11 @@ describe AvalancheMQ::HTTP::VHostsController do
     end
 
     it "should update vhost" do
+      s.vhosts.create("test")
       response = put("/api/vhosts/test")
       response.status_code.should eq 204
+    ensure
+      s.vhosts.delete("test")
     end
 
     it "should only allow administrators to create vhost" do
