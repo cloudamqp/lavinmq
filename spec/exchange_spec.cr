@@ -60,4 +60,21 @@ describe AvalancheMQ::Exchange do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "auto delete exchange" do
+    it "should delete the exhchange when the last binding is removed" do
+      with_channel do |ch|
+        x = ch.exchange("ad", "topic", auto_delete: true)
+        q = ch.queue
+        q.bind(x.name, q.name)
+        q2 = ch.queue
+        q2.bind(x.name, q2.name)
+        q.unbind(x.name, q.name)
+        q2.unbind(x.name, q2.name)
+        expect_raises(AMQP::Client::Channel::ClosedException) do
+          ch.exchange("ad", "topic", passive: true)
+        end
+      end
+    end
+  end
 end
