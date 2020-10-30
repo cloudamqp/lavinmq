@@ -71,8 +71,8 @@
     document.getElementById('tr-disk').textContent = (
       (nodeStats.disk_total - nodeStats.disk_free) / 10 ** 9
     ).toFixed(2) + ' GB (' + (
-      (nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total
-    ).toFixed(2) * 100 + '%)'
+      ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total) * 100
+    ).toFixed(2) + '%)'
   }
 
   const stats = [
