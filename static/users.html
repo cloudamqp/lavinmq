@@ -13,6 +13,7 @@
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/helpers.js"></script>
   </head>
   <body>
     <header>
@@ -109,14 +110,7 @@
       })
 
       document.querySelector('#dataTags').onclick = e => {
-        val = e.target.getAttribute('data-tag')
-        if (val) {
-          currentVal = document.querySelector('[name=tags]').value
-          document.querySelector('[name=tags]').value = currentVal ? currentVal + ', ' + val : val
-        }
-        else if (val === "") {
-          document.querySelector('[name=tags]').value = ""
-        }
+        window.avalanchemq.helpers.argumentHelper("tags", e)
       }
     </script>
   </body>
