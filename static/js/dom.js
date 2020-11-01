@@ -63,9 +63,10 @@
     return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '')
   }
 
-  function toast (text) {
+  function toast (text, type = "success") {
     removeNodes('.toast')
     const d = document.createElement('div')
+    d.classList.add(type)
     d.classList.add('toast')
     d.textContent = text
     document.body.appendChild(d)
