@@ -339,12 +339,14 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 
 ## Contributors
 
-* [Carl Hörberg](carl@84codes.com)
-* [Anders Bälter](anders@84codes.com)
-* [Magnus Landerblom](mange@cloudamqp.com)
-* [Magnus Hörberg](magnus@cloudamqp.com)
-* [Johan Eckerström](johan.e@cloudamqp.com)
-* [Anton Dalgren](anton@cloudamqp.com)
+* [Carl Hörberg](mailto:carl@84codes.com)
+* [Anders Bälter](mailto:anders@84codes.com)
+* [Magnus Landerblom](mailto:mange@cloudamqp.com)
+* [Magnus Hörberg](mailto:magnus@cloudamqp.com)
+* [Johan Eckerström](mailto:johan.e@cloudamqp.com)
+* [Anton Dalgren](mailto:anton@cloudamqp.com)
+* [Patrik Ragnarsson](mailto:patrik@84codes.com)
+* [Oskar Gustafsson](mailto:oskar@84codes.com)
 
 ## License
 
