@@ -68,7 +68,6 @@ module AvalancheMQ
           name = params["name"]
           bad_request(context, "Illegal user name") if UserStore.hidden?(name)
           body = parse_body(context)
-          bad_request(context) unless body.as_h?
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s)

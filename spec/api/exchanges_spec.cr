@@ -75,6 +75,20 @@ describe AvalancheMQ::HTTP::ExchangesController do
       body["reason"].as_s.should match(/Missing required argument/)
     end
 
+    it "should handle unexpected input" do
+      response = put("/api/exchanges/%2f/faulty", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/exchanges/%2f/faulty", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
+    end
+
     it "should require durable to be the same when overwriting" do
       body = %({
         "type": "topic",
