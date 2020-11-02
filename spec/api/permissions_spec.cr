@@ -70,6 +70,20 @@ describe AvalancheMQ::HTTP::PermissionsController do
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Fields .+ are required/)
     end
+
+    it "should handle unexpected input" do
+      response = put("/api/permissions/%2f/guest", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/permissions/%2f/guest", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
+    end
   end
 
   describe "DELETE /api/permissions/vhost/user" do

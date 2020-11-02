@@ -98,6 +98,20 @@ describe AvalancheMQ::HTTP::ParametersController do
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Field .+ is required/)
     end
+
+    it "should handle unexpected input" do
+      response = put("/api/parameters/test/%2f/name", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/parameters/test/%2f/name", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
+    end
   end
 
   describe "DELETE /api/parameters/component/vhost/name" do
@@ -167,6 +181,20 @@ describe AvalancheMQ::HTTP::ParametersController do
       response.status_code.should eq 400
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Field .+ is required/)
+    end
+
+    it "should handle unexpected input" do
+      response = put("/api/global-parameters/name", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/global-parameters/name", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
     end
   end
 
@@ -265,6 +293,20 @@ describe AvalancheMQ::HTTP::ParametersController do
       response.status_code.should eq 400
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Fields .+ are required/)
+    end
+
+    it "should handle unexpected input" do
+      response = put("/api/policies/%2f/name", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/policies/%2f/name", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
     end
   end
 

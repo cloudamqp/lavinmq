@@ -174,9 +174,23 @@ describe AvalancheMQ::HTTP::Server do
       s.delete_parameter(nil, "global_p1")
     end
 
-    it "handles empty body" do
+    it "should handle request with empty body" do
       response = post("/api/definitions", body: "")
       response.status_code.should eq 200
+    end
+
+    it "should handle unexpected input" do
+      response = post("/api/definitions", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = post("/api/definitions", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
     end
   end
 
@@ -419,9 +433,23 @@ describe AvalancheMQ::HTTP::Server do
       s.vhosts["/"].delete_policy("import_p1")
     end
 
-    it "handles empty body" do
+    it "should handle request with empty body" do
       response = post("/api/definitions/%2f", body: "")
       response.status_code.should eq 200
+    end
+
+    it "should handle unexpected input" do
+      response = post("/api/definitions/%2f", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = post("/api/definitions/%2f", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
     end
   end
 

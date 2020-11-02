@@ -53,6 +53,20 @@ describe AvalancheMQ::HTTP::UsersController do
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Field .+ is required/)
     end
+
+    it "should handle unexpected input" do
+      response = put("/api/users/bulk-delete", body: "\"{}\"")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/users/bulk-delete", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
+    end
   end
 
   describe "GET /api/users/name" do
@@ -125,10 +139,17 @@ describe AvalancheMQ::HTTP::UsersController do
     end
 
     it "should handle unexpected input" do
-      response = put("/api/users/foo", body: "\"{}\"")
+      response = put("/api/users/alice", body: "\"{}\"")
       response.status_code.should eq 400
       body = JSON.parse(response.body)
-      body["reason"].as_s.should eq "Bad request"
+      body["reason"].as_s.should eq "Input needs to be a JSON object."
+    end
+
+    it "should handle invalid JSON" do
+      response = put("/api/users/alice", body: "a")
+      response.status_code.should eq 400
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Malformed JSON.")
     end
   end
 
