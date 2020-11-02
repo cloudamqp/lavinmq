@@ -535,10 +535,6 @@ module AvalancheMQ
           end
         end
       end
-      # In 0.8.4 and older amq.default was a DirectExchange
-      unless @exchanges[""].is_a? DefaultExchange
-        @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
-      end
     rescue IO::Error
       load_default_definitions
       compact!
@@ -812,7 +808,11 @@ module AvalancheMQ
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"
-        DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        if name.empty?
+          DefaultExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        else
+          DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        end
       when "fanout"
         FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "topic"
