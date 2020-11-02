@@ -541,6 +541,7 @@ module AvalancheMQ
       end
     rescue IO::Error
       load_default_definitions
+      compact!
     end
 
     private def load_default_definitions
