@@ -13,6 +13,7 @@
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/helpers.js"></script>
   </head>
   <body>
     <header>
@@ -67,6 +68,39 @@
         <label>
           <span>Definition</span>
           <textarea name="definition" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="max-length">Max length
+              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them. Dropping strategy decided by overflow arg.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="max-length-bytes">Max length bytes
+              <span class="tooltiptext">The max length of a queue in bytes.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="message-ttl">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="overflow">Overflow behaviour
+              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is reached. Valid value are: drop-head (default) or reject-publish.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="expires">Auto expire
+              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="dead-letter-exchange">Dead letter exchange
+              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are rejected or expire.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="dead-letter-routing-key">Dead letter routing key
+              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not set, the message's original routing key will be used.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="federation-upstream">Federation upstream
+              <span class="tooltiptext">Chooses a specific upstream set to use for federation. Incompatible with federation-upstream-set.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="federation-upstream-set">Federation upstream set
+              <span class="tooltiptext">Chooses the name of a set of upstreams to use with federation, or "all" to use all upstreams. Incompatible with federation-upstream.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="delivery-limit">Delivery limit
+              <span class="tooltiptext">The number of times a message can be redelivered before dropped or dead-lettered</span>
+            </a>
+
+          </div>
         </label>
         <label>
           <span>Priority</span>
@@ -139,6 +173,9 @@
             evt.target.reset()
           }).catch(avalanchemq.http.standardErrorHandler)
       })
+      document.querySelector('#dataTags').onclick = e => {
+        window.avalanchemq.helpers.argumentHelperJSON("definition",e)
+      }
     </script>
   </body>
 </html>

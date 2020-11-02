@@ -644,14 +644,22 @@ fieldset.inline {
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
   color: #fff;
-  background-color: #2a9463;
   animation: fadeIn 0.5s, fadeOut 0.5s ease-in 5s forwards;
   opacity: 0.9;
 }
+.success {
+  background-color: #2a9463;
+}
+.error {
+  background-color: #c46868;
+}
+.warn {
+  background-color: #e2b149
+}
 
 @keyframes fadeIn {
-  0% {background-color: #fff;}
-  100% {background-color: #2a9463;}
+  from {opacity: 0;}
+  to {opacity: 0.9;}
 }
 
 @keyframes fadeOut {

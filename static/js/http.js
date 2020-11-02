@@ -72,6 +72,7 @@
       console.warn(`Not found: ${e.message}`)
     } else if (e.status === 401) {
       testLoggedIn()
+      window.avalanchemq.dom.toast("Access Refused: You don't have the permission to perform this action", "error")
     } else if (e.body) {
       alertErrorHandler(e)
     } else {

@@ -111,6 +111,7 @@
     <script src="/js/dom.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
+    <script src="/js/helpers.js"></script>
     <script>
       /* globals avalanchemq */
       const user = new URLSearchParams(window.location.search).get('name')
@@ -202,14 +203,7 @@
       })
 
       document.querySelector('#dataTags').onclick = e => {
-        val = e.target.getAttribute('data-tag')
-        if (val) {
-          currentVal = document.querySelector('[name=tags]').value
-          document.querySelector('[name=tags]').value = currentVal ? currentVal + ', ' + val : val
-        }
-        else if (val === "") {
-          document.querySelector('[name=tags]').value = ""
-        }
+        window.avalanchemq.helpers.argumentHelper("tags", e)
       }
 
       document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
