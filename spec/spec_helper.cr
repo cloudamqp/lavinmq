@@ -64,6 +64,7 @@ module TestHelpers
       Fiber.yield
       raise "Execuction expired" if Time.monotonic - sec > timeout
     end
+    Fiber.yield
     res
   end
 

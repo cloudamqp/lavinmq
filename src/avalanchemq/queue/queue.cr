@@ -617,8 +617,8 @@ module AvalancheMQ
       headers.delete("x-dead-letter-routing-key")
 
       # there's a performance advantage to do `has_key?` over `||=`
-      headers["x-first-death-reason"]   = reason.to_s        unless headers.has_key? "x-first-death-reason"
-      headers["x-first-death-queue"]    = @name              unless headers.has_key? "x-first-death-queue"
+      headers["x-first-death-reason"] = reason.to_s unless headers.has_key? "x-first-death-reason"
+      headers["x-first-death-queue"] = @name unless headers.has_key? "x-first-death-queue"
       headers["x-first-death-exchange"] = meta.exchange_name unless headers.has_key? "x-first-death-exchange"
 
       routing_keys = [meta.routing_key.as(AMQP::Field)]

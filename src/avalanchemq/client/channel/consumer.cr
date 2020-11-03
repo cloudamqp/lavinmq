@@ -27,8 +27,11 @@ module AvalancheMQ
         end
 
         def accepts?
-          (prefetch_count.zero? || (@unacked < prefetch_count)) &&
-            @channel.client_flow?
+          ch = @channel
+          return false unless ch.client_flow?
+          return true if prefetch_count.zero?
+          unacked = ch.global_prefetch? ? ch.consumers.sum(&.unacked) : @unacked
+          unacked < prefetch_count
         end
 
         def deliver(msg, sp, redelivered = false, recover = false)

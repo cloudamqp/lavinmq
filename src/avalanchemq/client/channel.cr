@@ -12,10 +12,10 @@ module AvalancheMQ
       include Stats
       include SortableJSON
 
-      getter id, client, prefetch_size, prefetch_count, global_prefetch,
+      getter id, client, prefetch_size, prefetch_count,
         confirm, log, consumers, name
       property? running = true
-      getter? client_flow
+      getter? client_flow, global_prefetch
 
       @next_publish_mandatory = false
       @next_publish_immediate = false
