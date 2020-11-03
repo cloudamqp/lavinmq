@@ -334,7 +334,7 @@ module AvalancheMQ
       Fiber.yield if (@apply_count += 1) % 128 == 0
       case f
       when AMQP::Frame::Exchange::Declare
-        exchange_name = f.exchange_name.gsub(/\n|\t|\r/, "")
+        exchange_name = Exchange.trim_name(f.exchange_name)
         return false if @exchanges.has_key? exchange_name
         e = @exchanges[exchange_name] =
           make_exchange(self, exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)

@@ -486,7 +486,7 @@ module AvalancheMQ
     end
 
     private def declare_exchange(frame)
-      exchange_name = frame.exchange_name.gsub(/\n|\t|\r/, "")
+      exchange_name = Exchange.trim_name(frame.exchange_name)
       if !valid_entity_name(exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
       elsif frame.exchange_name.empty?

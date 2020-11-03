@@ -29,6 +29,10 @@ module AvalancheMQ
     rate_stats(%w(publish_in publish_out unroutable))
     property publish_in_count, publish_out_count, unroutable_count
 
+    def self.trim_name(name)
+      name.gsub(/\n|\r/, "")
+    end
+
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
                    @arguments = Hash(String, AMQP::Field).new)
