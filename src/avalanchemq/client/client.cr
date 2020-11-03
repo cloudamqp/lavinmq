@@ -486,27 +486,28 @@ module AvalancheMQ
     end
 
     private def declare_exchange(frame)
-      if !valid_entity_name(frame.exchange_name)
+      exchange_name = frame.exchange_name.gsub(/\n|\t|\r/, "")
+      if !valid_entity_name(exchange_name)
         send_precondition_failed(frame, "Exchange name isn't valid")
       elsif frame.exchange_name.empty?
         send_access_refused(frame, "Not allowed to declare the default exchange")
-      elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+      elsif e = @vhost.exchanges.fetch(exchange_name, nil)
         if frame.passive || e.match?(frame)
           unless frame.no_wait
             send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
           end
         else
-          send_precondition_failed(frame, "Existing exchange '#{frame.exchange_name}' declared with other arguments")
+          send_precondition_failed(frame, "Existing exchange '#{exchange_name}' declared with other arguments")
         end
       elsif frame.passive
-        send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
-      elsif frame.exchange_name.starts_with? "amq."
+        send_not_found(frame, "Exchange '#{exchange_name}' doesn't exists")
+      elsif exchange_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       else
         ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
-        ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
-        unless @user.can_config?(@vhost.name, frame.exchange_name) && ae_ok
-          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
+        ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, exchange_name))
+        unless @user.can_config?(@vhost.name, exchange_name) && ae_ok
+          send_access_refused(frame, "User doesn't have permissions to declare exchange '#{exchange_name}'")
           return
         end
         @vhost.apply(frame)

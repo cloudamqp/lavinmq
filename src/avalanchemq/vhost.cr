@@ -334,9 +334,10 @@ module AvalancheMQ
       Fiber.yield if (@apply_count += 1) % 128 == 0
       case f
       when AMQP::Frame::Exchange::Declare
-        return false if @exchanges.has_key? f.exchange_name
-        e = @exchanges[f.exchange_name] =
-          make_exchange(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
+        exchange_name = f.exchange_name.gsub(/\n|\t|\r/, "")
+        return false if @exchanges.has_key? exchange_name
+        e = @exchanges[exchange_name] =
+          make_exchange(self, exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
         apply_policies([e] of Exchange) unless loading
       when AMQP::Frame::Exchange::Delete
         if x = @exchanges.delete f.exchange_name
