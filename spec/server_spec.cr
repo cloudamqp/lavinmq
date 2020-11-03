@@ -100,36 +100,6 @@ describe AvalancheMQ::Server do
     s.vhosts["/"].delete_queue("q5")
   end
 
-  it "respects prefetch" do
-    with_channel do |ch|
-      ch.prefetch 2
-      pmsg = "m1"
-      q = ch.queue
-      q.publish pmsg
-      q.publish pmsg
-      q.publish pmsg
-      msgs = [] of AMQP::Client::Message
-      q.subscribe(no_ack: false) { |msg| msgs << msg }
-      wait_for { msgs.size == 2 }
-      msgs.size.should eq 2
-    end
-  end
-
-  it "respects prefetch and acks" do
-    with_channel do |ch|
-      ch.prefetch 1
-      q = ch.queue
-      4.times { q.publish "m1" }
-      c = 0
-      q.subscribe(no_ack: false) do |msg|
-        c += 1
-        msg.ack
-      end
-      wait_for { c == 4 }
-      c.should eq 4
-    end
-  end
-
   it "can delete exchange" do
     with_channel do |ch|
       x = ch.exchange("test_delete_exchange", "topic", durable: true)
@@ -393,7 +363,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "should persist exchange-exchange binding"  do
+  it "should persist exchange-exchange binding" do
     hdrs = AMQP::Client::Arguments.new
     hdrs["x-match"] = "all"
     hdrs["org"] = "84codes"
