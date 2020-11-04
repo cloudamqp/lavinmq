@@ -187,7 +187,7 @@
           const name = encodeURIComponent(item.name)
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/parameters/shovel/' + vhost + '/' + name
-          if(window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
+          if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
             avalanchemq.http.request('DELETE', url)
               .then(() => {
                 avalanchemq.dom.removeNodes(tr)
