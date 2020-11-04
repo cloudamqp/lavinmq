@@ -317,6 +317,20 @@
     return tr.cells[tr.cells.length - 1]
   }
 
+  function columnSelectorCacheKey (table) {
+    return `hiddenTableCols${window.location.pathname}${table.id}`
+  }
+
+  function setHiddenState (table, state) {
+    const cacheKey = columnSelectorCacheKey(table)
+    window.sessionStorage.setItem(cacheKey, JSON.stringify(Array.from(state)))
+  }
+
+  function getHiddenState (table) {
+    const cacheKey = columnSelectorCacheKey(table)
+    return new Set(JSON.parse(window.sessionStorage.getItem(cacheKey) || '[]'))
+  }
+
   function toggleCol (table, colIndex) {
     const allCol = table.querySelectorAll(`tr > *:nth-child(${colIndex + 1})`)
     for (let i = 0; i < allCol.length; i++) {
@@ -327,6 +341,12 @@
   function renderColumnSelector (table) {
     const container = table.parentElement
     container.insertAdjacentHTML('afterbegin', '<a class="col-toggle" id="col-toggle">+/-</a>')
+
+    const hiddenState = getHiddenState(table)
+    hiddenState.forEach(i => {
+      console.log('Toggle', i)
+      toggleCol(table, i)
+    })
 
     function close () {
       container.parentElement.querySelectorAll('.tooltip').forEach(el => {
@@ -342,6 +362,9 @@
       const allCol = table.getElementsByTagName('th')
       for (let i = 0; i < allCol.length; i++) {
         const col = allCol[i]
+        if (col.innerHTML.length === 0) {
+          continue
+        }
         const checked = !col.classList.contains('hide') ? 'checked' : ''
         str += `<label>
                   <span>${col.innerHTML}</span>
@@ -357,6 +380,13 @@
         if (!e.target.classList.contains('col-toggle-checkbox')) return true
         const i = parseInt(e.target.dataset.index)
         toggleCol(table, i)
+        const hiddenState = getHiddenState(table)
+        if (hiddenState.has(i)) {
+          hiddenState.delete(i)
+        } else {
+          hiddenState.add(i)
+        }
+        setHiddenState(table, hiddenState)
       })
       document.addEventListener('keyup', e => {
         if (e.key === 'Escape') close()
