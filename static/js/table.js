@@ -321,12 +321,12 @@
     return `hiddenTableCols${window.location.pathname}${table.id}`
   }
 
-  function setHiddenState (table, state) {
+  function setHiddenColumns (table, state) {
     const cacheKey = columnSelectorCacheKey(table)
     window.sessionStorage.setItem(cacheKey, JSON.stringify(Array.from(state)))
   }
 
-  function getHiddenState (table) {
+  function getHiddenColumns (table) {
     const cacheKey = columnSelectorCacheKey(table)
     return new Set(JSON.parse(window.sessionStorage.getItem(cacheKey) || '[]'))
   }
@@ -342,9 +342,8 @@
     const container = table.parentElement
     container.insertAdjacentHTML('afterbegin', '<a class="col-toggle" id="col-toggle">+/-</a>')
 
-    const hiddenState = getHiddenState(table)
-    hiddenState.forEach(i => {
-      console.log('Toggle', i)
+    const hiddenColumns = getHiddenColumns(table)
+    hiddenColumns.forEach(i => {
       toggleCol(table, i)
     })
 
@@ -380,13 +379,13 @@
         if (!e.target.classList.contains('col-toggle-checkbox')) return true
         const i = parseInt(e.target.dataset.index)
         toggleCol(table, i)
-        const hiddenState = getHiddenState(table)
-        if (hiddenState.has(i)) {
-          hiddenState.delete(i)
+        const hiddenColumns = getHiddenColumns(table)
+        if (hiddenColumns.has(i)) {
+          hiddenColumns.delete(i)
         } else {
-          hiddenState.add(i)
+          hiddenColumns.add(i)
         }
-        setHiddenState(table, hiddenState)
+        setHiddenColumns(table, hiddenColumns)
       })
       document.addEventListener('keyup', e => {
         if (e.key === 'Escape') close()
