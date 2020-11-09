@@ -29,28 +29,28 @@
           <table id="table" class="table">
             <thead>
               <tr>
-                <td>Virtual host</td>
-                <td data-sort-key="name">Name</td>
+                <td></td>
+                <td></td>
                 <td colspan="3" class="table-multihead">Source</td>
                 <td colspan="2" class="table-multihead">Destination</td>
-                <td>Reconnect delay</td>
-                <td>Ack mode</td>
-                <td>Delete after</td>
-                <td>State</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
                 <td></td>
               </tr>
               <tr>
-                <th></th>
-                <th></th>
+                <th>Virtual host</th>
+                <th data-sort-key="name">Name</th>
                 <th class="left">Uri</th>
                 <th class="left">Endpoint</th>
                 <th class="left table-multihead">Prefetch</th>
                 <th class="left">Uri</th>
                 <th class="left table-multihead">Endpoint</th>
-                <th></th>
-                <th></th>
-                <th></th>
-                <th></th>
+                <th>Reconnect delay</th>
+                <th>Ack mode</th>
+                <th>Delete after</th>
+                <th>State</th>
                 <th></th>
               </tr>
             </thead>
@@ -187,7 +187,7 @@
           const name = encodeURIComponent(item.name)
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/parameters/shovel/' + vhost + '/' + name
-          if(window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
+          if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
             avalanchemq.http.request('DELETE', url)
               .then(() => {
                 avalanchemq.dom.removeNodes(tr)
