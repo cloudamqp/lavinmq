@@ -199,6 +199,7 @@ module AvalancheMQ
 
       private def finish_publish(body_io, ts)
         @publish_count += 1
+        @events.send(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
         props.timestamp ||= ts if Config.instance.set_timestamp
         msg = Message.new(ts.to_unix * 1000,
@@ -292,7 +293,19 @@ module AvalancheMQ
       end
 
       def deliver(frame, msg)
-        @client.deliver(frame, msg)
+        success = @client.deliver(frame, msg)
+        @events.send(EventType::ClientDeliver) if success
+        success
+      end
+
+      def increment_deliver
+        @deliver_count += 1
+        @events.send(EventType::ClientDeliver)
+      end
+
+      def increment_redeliver
+        @redeliver_count += 1
+        @events.send(EventType::ClientRedeliver)
       end
 
       def consume(frame)
@@ -354,7 +367,8 @@ module AvalancheMQ
                 env.message.routing_key, q.message_count)
               deliver(get_ok, env.message)
               @get_count += 1
-              @redeliver_count += 1 if env.redelivered
+              @events.send(EventType::ClientGet)
+              increment_redeliver if env.redelivered
             else
               send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
             end
@@ -434,6 +448,7 @@ module AvalancheMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp, persistent: unack.persistent)
+        @events.send(EventType::ClientAck)
         @ack_count += 1
       end
 
@@ -474,6 +489,7 @@ module AvalancheMQ
         end
         unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
+        @events.send(EventType::ClientReject)
       end
 
       def basic_qos(frame) : Nil

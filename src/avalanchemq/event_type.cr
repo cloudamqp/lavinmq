@@ -6,5 +6,11 @@ module AvalancheMQ
     ConnectionClosed
     QueueDeclared
     QueueDeleted
+    ClientAck
+    ClientDeliver
+    ClientGet
+    ClientPublish
+    ClientRedeliver
+    ClientReject
   end
 end

@@ -37,8 +37,8 @@ describe AvalancheMQ::HTTP::Server do
       TestHelpers.setup
 
       with_channel do |ch|
-        q1 = ch.queue("stats_q1")
-        q2 = ch.queue("stats_q2")
+        q1 = ch.queue("stats_q1", exclusive: true)
+        q2 = ch.queue("stats_q2", exclusive: true)
         5.times do
           q1.publish_confirm "m"
           q2.publish_confirm "m"
@@ -48,6 +48,94 @@ describe AvalancheMQ::HTTP::Server do
       response = get("/api/overview")
       count = JSON.parse(response.body).dig("message_stats", "publish")
       count.should eq 10
+    end
+
+    it "should return the number of published messages" do
+      close_servers
+      TestHelpers.setup
+
+      with_channel do |ch|
+        x = ch.fanout_exchange
+        q1 = ch.queue("stats_q1", exclusive: true)
+        q2 = ch.queue("stats_q2", exclusive: true)
+        q3 = ch.queue("stats_q3", exclusive: true)
+        ch.queue_bind(q1.name, x.name, "#")
+        ch.queue_bind(q2.name, x.name, "#")
+        ch.queue_bind(q3.name, x.name, "#")
+        5.times do
+          x.publish_confirm("m","stats")
+        end
+      end
+
+      response = get("/api/overview")
+      count = JSON.parse(response.body).dig("message_stats", "publish")
+      count.should eq 5
+    end
+
+    it "should return the number of acked and delivered messages" do
+      close_servers
+      TestHelpers.setup
+
+      with_channel do |ch|
+        q1 = ch.queue("stats_q1", exclusive: true)
+        5.times do
+          q1.publish_confirm("m")
+        end
+        c = 0
+        q1.subscribe(no_ack: false) do |msg|
+          ch.basic_ack(msg.delivery_tag)
+          c += 1
+        end
+        wait_for { c == 5 }
+      end
+
+      response = get("/api/overview")
+      count = JSON.parse(response.body).dig("message_stats", "ack")
+      count.should eq 5
+      count = JSON.parse(response.body).dig("message_stats", "deliver")
+      count.should eq 5
+    end
+
+    it "should return the number of rejected and redelivered messages" do
+      close_servers
+      TestHelpers.setup
+      rejected = false
+
+      with_channel do |ch|
+        q1 = ch.queue("stats_q1", exclusive: true)
+        q1.publish_confirm("m")
+        q1.subscribe(no_ack: false) do |msg|
+          msg.reject(requeue: true) unless rejected
+          msg.ack if rejected
+          rejected = true
+        end
+        wait_for { ch.queue_declare("stats_q1", passive: true)[:message_count] == 0 }
+      end
+
+      response = get("/api/overview")
+      count = JSON.parse(response.body).dig("message_stats", "redeliver")
+      count.should eq 1
+      count = JSON.parse(response.body).dig("message_stats", "reject")
+      count.should eq 1
+    end
+
+    it "should return the number of message gets" do
+      close_servers
+      TestHelpers.setup
+
+      with_channel do |ch|
+        q1 = ch.queue("stats_q1", exclusive: true)
+        5.times do
+          q1.publish_confirm("m")
+        end
+        5.times do
+          q1.get().not_nil!
+        end
+      end
+
+      response = get("/api/overview")
+      count = JSON.parse(response.body).dig("message_stats", "get")
+      count.should eq 5
     end
   end
 

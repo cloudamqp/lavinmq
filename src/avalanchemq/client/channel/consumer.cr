@@ -50,9 +50,9 @@ module AvalancheMQ
           ok = @channel.client.deliver(deliver, msg)
           if ok
             if redelivered
-              @channel.redeliver_count += 1
+              @channel.increment_redeliver
             else
-              @channel.deliver_count += 1
+              @channel.increment_deliver
             end
           end
           ok

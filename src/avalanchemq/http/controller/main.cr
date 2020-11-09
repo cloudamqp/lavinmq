@@ -24,7 +24,7 @@ module AvalancheMQ
 
     class MainController < Controller
       include StatsHelpers
-      QUEUE_STATS = %w(ack deliver get publish redeliver reject)
+      OVERVIEW_STATS = %w(ack deliver get publish redeliver reject)
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -35,7 +35,7 @@ module AvalancheMQ
           unacked_log = Deque(UInt32).new(AvalancheMQ::Config.instance.stats_log_size)
           recv_rate_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
           send_rate_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
-          {% for name in QUEUE_STATS %}
+          {% for name in OVERVIEW_STATS %}
           {{name.id}}_count = 0_u64
           {{name.id}}_rate = 0_f64
           {{name.id}}_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
@@ -59,14 +59,15 @@ module AvalancheMQ
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
-              details = q.stats_details
-              {% for name in QUEUE_STATS %}
-                {{name.id}}_count += details[:{{name.id}}]
-                {{name.id}}_rate += details[:{{name.id}}_details][:rate]
-                add_logs!({{name.id}}_log, details[:{{name.id}}_details][:log])
-              {% end %}
             end
           end
+
+          details = @amqp_server.stats_details
+          {% for name in OVERVIEW_STATS %}
+            {{name.id}}_count = details[:{{name.id}}]
+            {{name.id}}_rate = details[:{{name.id}}_details][:rate]
+            add_logs!({{name.id}}_log, details[:{{name.id}}_details][:log])
+          {% end %}
 
           {
             avalanchemq_version: AvalancheMQ::VERSION,
@@ -96,7 +97,7 @@ module AvalancheMQ
               log:  send_rate_log,
             },
             message_stats: {% begin %} {
-              {% for name in QUEUE_STATS %}
+              {% for name in OVERVIEW_STATS %}
               {{name.id}}: {{name.id}}_count,
               {{name.id}}_details: {
                 rate: {{name.id}}_rate,
