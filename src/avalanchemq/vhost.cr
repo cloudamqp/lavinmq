@@ -37,6 +37,7 @@ module AvalancheMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @fsync = false
+    @dirty = false
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
     EXCHANGE_TYPES = %w(direct fanout topic headers
@@ -332,6 +333,7 @@ module AvalancheMQ
     # ameba:disable Metrics/CyclomaticComplexity
     def apply(f, loading = false) : Bool
       Fiber.yield if (@apply_count += 1) % 128 == 0
+      @dirty = true
       case f
       when AMQP::Frame::Exchange::Declare
         return false if @exchanges.has_key? f.exchange_name
@@ -662,6 +664,7 @@ module AvalancheMQ
       referenced_sps = ReferencedSPs.new(@queues.size)
       loop do
         sleep Config.instance.gc_segments_interval
+        next unless @dirty
         break if @closed
         gc_log("collecting sps") do
           collect_sps(referenced_sps)
@@ -675,6 +678,7 @@ module AvalancheMQ
         gc_log("GC collect") do
           GC.collect
         end
+        @dirty = false
       end
     end
 
