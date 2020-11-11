@@ -224,7 +224,6 @@ module AvalancheMQ
         if copied != msg.size
           raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
         end
-        wfile.flush if msg.persistent?
         sp
       end
     end
