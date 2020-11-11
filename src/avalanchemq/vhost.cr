@@ -202,6 +202,7 @@ module AvalancheMQ
     end
 
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
+      @dirty = true
       @write_lock.synchronize do
         wfile = @wfile
         if wfile.capacity < wfile.size + msg.bytesize
