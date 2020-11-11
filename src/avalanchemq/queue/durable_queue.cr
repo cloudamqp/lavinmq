@@ -21,12 +21,14 @@ module AvalancheMQ
         Dir.mkdir @index_dir
       end
       File.write(File.join(@index_dir, ".queue"), @name)
-      @enq = File.open(File.join(@index_dir, "enq"), "a+")
+      @enq = File.open(File.join(@index_dir, "enq"), "W+")
       @enq.buffer_size = Config.instance.file_buffer_size
       SchemaVersion.verify_or_prefix(@enq, :index)
-      @ack = File.open(File.join(@index_dir, "ack"), "a+")
+      @enq.seek 0, IO::Seek::End
+      @ack = File.open(File.join(@index_dir, "ack"), "W+")
       @ack.buffer_size = Config.instance.file_buffer_size
       SchemaVersion.verify_or_prefix(@ack, :index)
+      @ack.seek 0, IO::Seek::End
     end
 
     private def compact_index! : Nil
@@ -62,6 +64,7 @@ module AvalancheMQ
       @enq.fsync(flush_metadata: true)
 
       @ack.truncate
+      @ack.seek 0
       SchemaVersion.prefix(@ack, :index)
       @acks = 0_u32
     ensure
@@ -117,11 +120,13 @@ module AvalancheMQ
       @log.info "Purging"
       @enq_lock.synchronize do
         @enq.truncate
+        @enq.seek 0
         SchemaVersion.prefix(@enq, :index)
         @enq.fsync(flush_metadata: true)
       end
       @ack_lock.synchronize do
         @ack.truncate
+        @ack.seek 0
         SchemaVersion.prefix(@ack, :index)
         @acks = 0_u32
       end
