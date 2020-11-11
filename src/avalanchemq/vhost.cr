@@ -231,14 +231,15 @@ module AvalancheMQ
 
     private def open_new_segment(next_msg_size = 0) : MFile
       fsync
-      next_id = @segments.empty? ? 1_u32 : @segments.last_key + 1
+      segments = @segments
+      next_id = segments.empty? ? 1_u32 : segments.last_key + 1
       @log.debug { "Opening message store segment #{next_id}" }
       filename = "msgs.#{next_id.to_s.rjust(10, '0')}"
       path = File.join(@data_dir, filename)
       capacity = Config.instance.segment_size + next_msg_size
       wfile = MFile.new(path, capacity)
       SchemaVersion.prefix(wfile, :message)
-      @wfile = @segments[next_id] = wfile
+      @wfile = segments[next_id] = wfile
     end
 
     def segment_file(id : UInt32) : MFile
