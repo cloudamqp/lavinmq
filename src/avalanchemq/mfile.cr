@@ -129,8 +129,9 @@ class MFile < IO
   end
 
   def read(slice : Bytes)
-    (@buffer + @pos).copy_to(slice.to_unsafe, slice.size)
-    @pos += slice.size
+    pos = @pos
+    (@buffer + pos).copy_to(slice.to_unsafe, slice.size)
+    @pos = pos + slice.size
     slice.size
   end
 
