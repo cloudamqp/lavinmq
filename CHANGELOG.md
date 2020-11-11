@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.14] - 2020-11-11
+
+### Fixed
+- Write default definitions to disk immediately on start, don't wait for compaction
+- Decreased memory usage when queues are long (~25%) and ~10% higher throughput performance
+- Don't do unnecessary async msync syscalls
+
+### Changed
+- UI improvements
+- Prefetch global now accounts for all consumers on the channel
+- Improved HTTP API compatibility
+
+### Added
+- A lot more commands added to avalanchemqctl
+
 ## [1.0.0-alpha.13] - 2020-10-30
 
 ### Fixed
