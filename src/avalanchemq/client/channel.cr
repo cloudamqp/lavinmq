@@ -44,11 +44,12 @@ module AvalancheMQ
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
-        @next_msg_body = File.open(tmp_path, "w+")
-        @next_msg_body.sync = true
-        @next_msg_body.read_buffering = false
-        @next_msg_body.delete
+        @next_msg_body_file = File.open(tmp_path, "w+")
+        @next_msg_body_file.sync = true
+        @next_msg_body_file.read_buffering = false
+        @next_msg_body_file.delete
         @events.send(EventType::ChannelCreated)
+        @next_msg_body_tmp = IO::Memory.new
       end
 
       record Unack,
@@ -142,7 +143,7 @@ module AvalancheMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish(@next_msg_body, ts) if frame.body_size.zero?
+        finish_publish(@next_msg_body_tmp, ts) if frame.body_size.zero?
       end
 
       def add_content(frame, ts)
@@ -151,21 +152,27 @@ module AvalancheMQ
           raise Error::UnexpectedFrame.new(frame)
         end
         if frame.body_size == @next_msg_size
-          finish_publish(frame.body, ts)
+          IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
+          @next_msg_body_tmp.rewind
+          begin
+            finish_publish(@next_msg_body_tmp, ts)
+          ensure
+            @next_msg_body_tmp.clear
+          end
         else
-          copied = IO.copy(frame.body, @next_msg_body, frame.body_size)
+          copied = IO.copy(frame.body, @next_msg_body_file, frame.body_size)
           @next_msg_body_pos += copied
           if copied != frame.body_size
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
           if @next_msg_body_pos == @next_msg_size
-            @next_msg_body.rewind
+            @next_msg_body_file.rewind
             begin
-              finish_publish(@next_msg_body, ts)
+              finish_publish(@next_msg_body_file, ts)
             ensure
-              @next_msg_body.truncate
-              @next_msg_body.rewind
-              @next_msg_body_pos = 0
+              @next_msg_body_file.truncate
+              @next_msg_body_file.rewind
+              @next_msg_body_file_pos = 0
             end
           end
         end
@@ -506,7 +513,7 @@ module AvalancheMQ
           @log.debug { "Requeing unacked msg #{unack.sp}" }
           unack.queue.reject(unack.sp, true)
         end
-        @next_msg_body.close
+        @next_msg_body_file.close
         @events.send(EventType::ChannelClosed)
         @log.debug { "Closed" }
       end
