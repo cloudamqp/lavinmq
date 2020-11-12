@@ -692,7 +692,6 @@ module AvalancheMQ
         ex.referenced_sps(referenced_sps)
       end
       @queues.each_value do |q|
-        # FIXME: adapt SPQueue for unacked queue
         referenced_sps << SPQueue.new(q.unacked)
         referenced_sps << SPQueue.new(q.ready)
       end
