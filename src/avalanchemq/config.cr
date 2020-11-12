@@ -24,7 +24,7 @@ module AvalancheMQ
     property http_systemd_socket_name = "avalanchemq-http.socket"
     property amqp_systemd_socket_name = "avalanchemq-amqp.socket"
     property heartbeat = 0_u16                   # second
-    property frame_max = 1048576_u32             # bytes
+    property frame_max = 131_072_u32             # bytes
     property channel_max = 2048_u16              # number
     property segment_size : Int32 = 1024**3      # byte
     property gc_segments_interval = 60           # second
