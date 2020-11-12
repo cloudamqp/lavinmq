@@ -85,6 +85,12 @@ module AvalancheMQ
           end
         end
       end
+
+      def compact
+        @lock.synchronize do
+          @unacked = Deque(Unack).new(@unacked.size) { |i| @unacked[i] }
+        end
+      end
     end
   end
 end

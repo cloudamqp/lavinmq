@@ -669,6 +669,12 @@ module AvalancheMQ
         gc_log("garbage collecting") do
           gc_segments(referenced_sps)
         end
+        gc_log("compact internal queues") do
+          @queues.each_value &.compact
+        end
+        gc_log("GC collect") do
+          GC.collect
+        end
       end
     end
 

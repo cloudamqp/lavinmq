@@ -196,7 +196,6 @@ module AvalancheMQ
       def compact
         @lock.synchronize do
           @ready = Deque(SegmentPosition).new(@ready.size) { |i| @ready[i] }
-          GC.collect
         end
       end
 

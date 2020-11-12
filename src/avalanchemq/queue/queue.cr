@@ -754,11 +754,22 @@ module AvalancheMQ
 
     protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       @deliveries.delete(sp) if @delivery_limit
-      if @ready.capacity > 10_000 && @ready.capacity > @ready.size * 2
+    end
+
+    def compact
+      ready = @ready
+      if ready.capacity > 1024 && ready.capacity > ready.size * 2
         elapsed = Time.measure do
-          @ready.compact
+          ready.compact
         end
         @log.info { "Compacting ready queue took #{elapsed.total_milliseconds} ms" }
+      end
+      unacked = @unacked
+      if unacked.capacity > 1024 && unacked.capacity > unacked.size * 2
+        elapsed = Time.measure do
+          unacked.compact
+        end
+        @log.info { "Compacting unacked queue took #{elapsed.total_milliseconds} ms" }
       end
     end
 
