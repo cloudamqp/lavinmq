@@ -833,9 +833,9 @@ module AvalancheMQ
     end
 
     def save_transient_state(json)
-      # TODO: move this into Client instead
       json.object do
         json.field "remote_address", @remote_address.to_s
+        json.field "local_address", @local_address.to_s
         json.field "user", @user.name
         json.field "channel_max", @channel_max
         json.field "frame_max", @max_frame_size

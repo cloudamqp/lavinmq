@@ -122,11 +122,21 @@ SystemD.listen_fds_with_names.each do |fd, name|
       raise "Unsupported http socket type"
     end
   else
-    # TODO: support resuming client connections
-    # io = TCPSocket.new(fd: fd)
-    # load_parameters_such_as_username_etc
-    # Client.new(io, ...)
-    puts "unexpected socket from systemd '#{name}' (#{fd})"
+    if md = /^vhost=(.*)/.match(name)
+      vhost = md[1]
+      socket =
+        case
+        when SystemD.is_tcp_socket? fd
+          TCPSocket.new(fd: fd)
+        when SystemD.is_unix_stream_socket? fd
+          UNIXSocket.new(fd: fd)
+        else
+          raise "Unsupported client socket type"
+        end
+      amqp_server.vhosts[vhost]?.try &.restore_connection(socket)
+    else
+      puts "unexpected socket from systemd '#{name}' (#{fd})"
+    end
   end
 end
 
