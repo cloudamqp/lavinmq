@@ -856,5 +856,19 @@ module AvalancheMQ
       else raise Error::ExchangeTypeError.new("Unknown exchange type #{type}")
       end
     end
+
+    def save_transient_state : Nil
+      File.open(File.join(@data_dir, "transient.state"), "w") do |f|
+        JSON.build(f) do |json|
+          json.field("connections") do
+            json.array do
+              @connections.each do |conn|
+                conn.save_transient_state(json)
+              end
+            end
+          end
+        end
+      end
+    end
   end
 end
