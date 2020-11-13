@@ -44,6 +44,16 @@ class MFile < IO
     self.new(path)
   end
 
+  # Opens an existing file in readonly mode
+  def self.open(path)
+    mfile = self.new(path)
+    begin
+      yield mfile
+    ensure
+      mfile.close
+    end
+  end
+
   private def open_fd
     flags = @readonly ? LibC::O_RDWR : LibC::O_CREAT | LibC::O_RDWR
     perms = 0o644
@@ -122,7 +132,7 @@ class MFile < IO
 
   def write(slice : Bytes) : Nil
     pos = @pos
-    raise IO::Error.new("Out of capacity") if @capacity < pos + slice.size
+    raise IO::EOFError.new if pos + slice.size > @capacity
     slice.copy_to(@buffer + pos)
     @pos = pos += slice.size
     @size = pos if pos > @size
@@ -130,8 +140,10 @@ class MFile < IO
 
   def read(slice : Bytes)
     pos = @pos
+    len = pos + slice.size
+    raise IO::EOFError.new if len > @capacity
     (@buffer + pos).copy_to(slice.to_unsafe, slice.size)
-    @pos = pos + slice.size
+    @pos = len
     slice.size
   end
 
@@ -180,6 +192,20 @@ class MFile < IO
     {% else %}
       return 0u32 # only linux supports MADV_REMOVE/hole punching
     {% end %}
+  end
+
+  def advise(advice : Advice)
+    if LibC.madvise(@buffer, @capacity, advice) != 0
+      raise IO::Error.from_errno("madvise")
+    end
+  end
+
+  enum Advice
+    Normal
+    Random
+    Sequential
+    WillNeed
+    DontNeed
   end
 
   def truncate(new_size : Int) : Int32
