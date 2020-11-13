@@ -23,7 +23,7 @@ class File
     {% end %}
   end
 
-  def advise(advice)
+  def advise(advice : Advice)
     {% if flag?(:linux) %}
       if LibC.posix_fadvise(fd, 0, 0, advice) != 0
         raise File::Error.from_errno("fadvise", file: @path)
