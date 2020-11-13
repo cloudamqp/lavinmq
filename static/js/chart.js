@@ -4,7 +4,7 @@
   const helpers = window.avalanchemq.helpers
 
   const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
-    '#EE6868', '#2F6497', '#6C8893' ]
+    '#EE6868', '#2F6497', '#6C8893']
 
   function ticks (ctx) {
     return ctx.clientWidth / 10
