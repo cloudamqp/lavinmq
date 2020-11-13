@@ -25,6 +25,7 @@ module AvalancheMQ
       log, shovels, direct_reply_channels, upstreams, default_user,
       connections, dir
     property? flow = true
+    property? dirty = false
     getter? closed = false
 
     @exchanges = Hash(String, Exchange).new
@@ -37,7 +38,6 @@ module AvalancheMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @fsync = false
-    @dirty = false
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
     EXCHANGE_TYPES = %w(direct fanout topic headers
@@ -202,7 +202,6 @@ module AvalancheMQ
     end
 
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
-      @dirty = true
       @write_lock.synchronize do
         wfile = @wfile
         if wfile.capacity < wfile.size + msg.bytesize
@@ -334,7 +333,6 @@ module AvalancheMQ
     # ameba:disable Metrics/CyclomaticComplexity
     def apply(f, loading = false) : Bool
       Fiber.yield if (@apply_count += 1) % 128 == 0
-      @dirty = true
       case f
       when AMQP::Frame::Exchange::Declare
         return false if @exchanges.has_key? f.exchange_name
