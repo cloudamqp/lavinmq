@@ -48,10 +48,7 @@ module AvalancheMQ
     end
 
     def connections
-      count = @vhosts.sum { |_, v| v.connections.size }
-      arr = Array(Client).new(count)
-      @vhosts.each_value { |v| arr.concat(v.connections) }
-      arr
+      Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
     def vhost_connections(vhost_name)

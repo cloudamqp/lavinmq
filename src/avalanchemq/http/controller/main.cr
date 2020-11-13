@@ -43,8 +43,7 @@ module AvalancheMQ
 
           vhosts(user(context)).each do |vhost|
             next unless x_vhost.nil? || vhost.name == x_vhost
-            @amqp_server.connections.each do |c|
-              next unless c.vhost.name == vhost.name
+            @amqp_server.vhost_connections(vhost.name).each do |c|
               connections += 1
               channels += c.channels.size
               consumers += c.channels.each_value.sum &.consumers.size
