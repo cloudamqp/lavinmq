@@ -149,23 +149,17 @@ module AvalancheMQ
 
     private def restore_index : Nil
       @log.info "Restoring index"
-      SchemaVersion.migrate(File.join(@index_dir, "enq"), :index)
-      SchemaVersion.migrate(File.join(@index_dir, "ack"), :index)
-      File.open(File.join(@index_dir, "enq")) do |enq|
-        File.open(File.join(@index_dir, "ack")) do |ack|
-          enq.buffer_size = Config.instance.file_buffer_size
-          ack.buffer_size = Config.instance.file_buffer_size
-          enq.advise(File::Advice::Sequential)
-          ack.advise(File::Advice::Sequential)
-          SchemaVersion.verify(enq, :index)
-          SchemaVersion.verify(ack, :index)
+      MFile.open(File.join(@index_dir, "enq")) do |enq|
+        MFile.open(File.join(@index_dir, "ack")) do |ack|
+          enq.advise(MFile::Advice::Sequential)
+          ack.advise(MFile::Advice::Sequential)
+          SchemaVersion.verify_or_migrate(enq, :index)
+          SchemaVersion.verify_or_migrate(ack, :index)
 
           @acks = ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
           acked = Array(SegmentPosition).new(ack_count)
-          loop do
+          @acks.times do
             acked << SegmentPosition.from_io ack
-          rescue IO::EOFError
-            break
           end
           acked.sort!
           # to avoid repetetive allocations in Dequeue#increase_capacity
@@ -173,12 +167,10 @@ module AvalancheMQ
           enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
           capacity = Math.max(enq_count, 1024)
           @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
-          loop do
+          enq_count.times do
             sp = SegmentPosition.from_io enq
             next if acked.bsearch { |asp| asp >= sp } == sp
             ready << sp
-          rescue IO::EOFError
-            break
           end
           @log.info { "#{message_count} messages" }
           message_available if message_count > 0
