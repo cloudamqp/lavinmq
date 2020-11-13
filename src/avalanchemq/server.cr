@@ -39,7 +39,7 @@ module AvalancheMQ
       Dir.mkdir_p @data_dir
       @listeners = Array(Socket::Server).new(3)
       @users = UserStore.instance(@data_dir, @log)
-      @events = Event.new(1000)
+      @events = Event.new(4096)
       spawn events_loop, name: "Server#events"
       @vhosts = VHostStore.new(@data_dir, @log, @users, @events)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
