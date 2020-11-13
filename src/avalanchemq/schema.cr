@@ -30,6 +30,14 @@ module AvalancheMQ
       version
     end
 
+    def self.verify_or_migrate(file, type) : Int32
+      version = file.read_bytes Int32
+      if version != VERSIONS[type]
+        self.migrate(file, type, version)
+      end
+      version
+    end
+
     def self.prefix(file, type) : Int32
       version = VERSIONS[type]
       file.write_bytes version
@@ -43,24 +51,28 @@ module AvalancheMQ
       prefix(file, type)
     end
 
-    def self.migrate(path, type)
+    def self.migrate(path : String, type)
       File.open(path) do |file|
         begin
           self.verify(file, type)
         rescue ex : OutdatedSchemaVersion
-          case type
-          when :index
-            case ex.version
-            when 1
-              MigrateIndexV1toV2.run(file)
-              return
-            when 2
-              return
-            end
-          end
-          raise UnsupportedSchemaVersion.new ex.version, type
+          self.migrate(file, type, ex.version)
         end
       end
+    end
+
+    def self.migrate(file, type, current_version)
+      case type
+      when :index
+        case current_version
+        when 1
+          MigrateIndexV1toV2.run(file)
+          return
+        when 2
+          return
+        end
+      end
+      raise UnsupportedSchemaVersion.new current_version, type
     end
 
     class MigrateIndexV1toV2
