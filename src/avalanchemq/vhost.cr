@@ -25,6 +25,7 @@ module AvalancheMQ
       log, shovels, direct_reply_channels, upstreams, default_user,
       connections, dir
     property? flow = true
+    property? dirty = false
     getter? closed = false
 
     @exchanges = Hash(String, Exchange).new
@@ -662,6 +663,7 @@ module AvalancheMQ
       referenced_sps = ReferencedSPs.new(@queues.size)
       loop do
         sleep Config.instance.gc_segments_interval
+        next unless @dirty
         break if @closed
         gc_log("collecting sps") do
           collect_sps(referenced_sps)
@@ -675,6 +677,7 @@ module AvalancheMQ
         gc_log("GC collect") do
           GC.collect
         end
+        @dirty = false
       end
     end
 

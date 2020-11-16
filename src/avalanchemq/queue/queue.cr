@@ -754,6 +754,7 @@ module AvalancheMQ
 
     protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       @deliveries.delete(sp) if @delivery_limit
+      @vhost.dirty = true
     end
 
     def compact
