@@ -6,8 +6,11 @@
   const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
     '#EE6868', '#2F6497', '#6C8893']
 
-  function ticks (ctx) {
-    return ctx.clientWidth / 10
+  const LOGGING_RATE = 5000
+
+  //Allows for 10 mins of data
+  function maxDataLength (logRate) {
+    return 600000/logRate
   }
 
   function render (id, unit, options = {}, stacked = false) {
@@ -63,7 +66,7 @@
             },
             ticks: {
               min: 0,
-              max: ticks(ctx),
+              max: maxDataLength(LOGGING_RATE),
               source: 'auto'
             }
           }],
@@ -166,12 +169,12 @@
     }
   }
 
-  function addToDataset (dataset, data, date, maxY) {
+  function addToDataset (dataset, data, date) {
     const point = {
       x: date,
       y: value(data)
     }
-    if (dataset.data.length >= maxY) {
+    if (dataset.data.length >= maxDataLength(LOGGING_RATE)) {
       dataset.data.shift()
     }
     dataset.data.push(point)
@@ -179,7 +182,6 @@
 
   function update (chart, data, filled = false) {
     const date = new Date()
-    const maxY = ticks(chart.ctx.canvas)
     let keys = Object.keys(data)
     const hasDetails = keys.find(key => key.match(/_details$/))
     if (hasDetails) { keys = keys.filter(key => key.match(/_details$/)) }
@@ -196,11 +198,11 @@
         legend.innerHTML = chart.generateLegend()
         const log = data[`${key}_log`] || data[key].log || []
         log.forEach((p, i) => {
-          const pDate = new Date(date.getTime() - 5000 * (log.length - i))
-          addToDataset(dataset, p, pDate, maxY)
+          const pDate = new Date(date.getTime() - LOGGING_RATE * (log.length - i))
+          addToDataset(dataset, p, pDate)
         })
       }
-      addToDataset(dataset, data[key], date, maxY)
+      addToDataset(dataset, data[key], date)
       setTimeout(() => {
         legend.children[i].querySelector('.legend-value').innerHTML = helpers.formatNumber(dataset.data.slice(-1)[0].y)
       }, 50)
