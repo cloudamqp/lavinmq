@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.16] - 2020-11-17
+
+### Fixed
+- Bug where messages larger than frame_max didn't get published properly
+
 ## [1.0.0-alpha.15] - 2020-11-17
 
 ### Changed
