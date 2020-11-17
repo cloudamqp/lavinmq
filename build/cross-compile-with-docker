@@ -5,7 +5,7 @@ image=${2:-ubuntu:20.04}
 set +e
 while true
 do
-  buildcmd=$(env CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --no-debug --release "$srcfile") && break
+  buildcmd=$(env CFLAGS="-fPIC" crystal build --cross-compile --target=aarch64-unknown-linux-gnu --release "$srcfile") && break
 done
 set -e
 
