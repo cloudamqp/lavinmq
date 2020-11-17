@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.15] - 2020-11-17
+
+### Changed
+- Debug symbols for ARM builds
+- Only perform segment GC if messages has been consumed/deleted
+- Copy message bodies (that fit in a single frame) to RAM before writing to msg store so that slow clients don't block
+- frame_max lowered to 128kb
+
+### Fixed
+- Message rate stats count messages in and out, not messages routed
+- Charts now shows all the data it got, not limited
+
 ## [1.0.0-alpha.14] - 2020-11-11
 
 ### Fixed
