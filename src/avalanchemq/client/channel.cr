@@ -22,7 +22,7 @@ module AvalancheMQ
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
-      @next_msg_body_pos = 0
+      @next_msg_body_file_pos = 0
       @next_msg_props : AMQP::Properties?
       @log : Logger
       @client_flow = true
@@ -161,11 +161,11 @@ module AvalancheMQ
           end
         else
           copied = IO.copy(frame.body, @next_msg_body_file, frame.body_size)
-          @next_msg_body_pos += copied
+          @next_msg_body_file_pos += copied
           if copied != frame.body_size
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
-          if @next_msg_body_pos == @next_msg_size
+          if @next_msg_body_file_pos == @next_msg_size
             @next_msg_body_file.rewind
             begin
               finish_publish(@next_msg_body_file, ts)
