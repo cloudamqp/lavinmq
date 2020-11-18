@@ -722,19 +722,24 @@ module AvalancheMQ
 
       file = nil
       prev_sp = SegmentPosition.zero
-      prev_sp_end = sizeof(Int32).to_u32 # start after schema version prefix
       referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
+        if prev_sp > sp
+          @log.error { "ReferencedSPs not in order!! prev_sp=#{prev_sp} sp=#{sp}" }
+        end
         # if the last segment was the same as this
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          collected += punch_hole(file.not_nil!, prev_sp_end, sp.position)
+          if prev_sp.end_position > sp.position
+            @log.error { "ReferencedSPs not in order!! prev_sp=#{prev_sp} sp=#{sp}" }
+          end
+          collected += punch_hole(file.not_nil!, prev_sp.end_position, sp.position)
         else # dealing with a new segment
           # truncate the previous file
           if f = file
-            collected += f.truncate(prev_sp_end)
+            collected += f.truncate(prev_sp.end_position)
           end
 
           # if a segment is missing between this and previous SP
@@ -754,13 +759,12 @@ module AvalancheMQ
           # punch from start of the segment (but not the version prefix)
           collected += punch_hole(file, sizeof(Int32), sp.position)
         end
-        prev_sp_end = sp.position + sp.bytesize
         prev_sp = sp
       end
 
       # truncate the last opened segment to last message
       if file && file != @wfile
-        collected += file.truncate(prev_sp_end)
+        collected += file.truncate(prev_sp.end_position)
       end
 
       @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0

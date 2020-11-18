@@ -24,6 +24,10 @@ module AvalancheMQ
       self.new(0_u32, 0_u32)
     end
 
+    def end_position
+      @position + @bytesize
+    end
+
     def to_io(io : IO, format)
       buf = uninitialized UInt8[BYTESIZE]
       slice = buf.to_slice
