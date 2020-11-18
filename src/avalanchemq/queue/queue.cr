@@ -459,6 +459,9 @@ module AvalancheMQ
       end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
+    rescue Channel::ClosedError
+      # if message_availabe channel is closed then abort
+      false
     end
 
     private def reject_on_overflow(sp : SegmentPosition) : Nil
