@@ -6,13 +6,8 @@ require "systemd"
 require "./avalanchemq/server_cli"
 require "./avalanchemq/reporter"
 
-config_dir = ENV.fetch("ConfigurationDirectory", "/etc/avalanchemq")
-config_file = File.join(config_dir, "avalanchemq.ini")
-config_file = "" unless File.exists?(config_file)
-
 config = AvalancheMQ::Config.instance
-
-AvalancheMQ::ServerCLI.new(config, config_file).parse
+AvalancheMQ::ServerCLI.new(config).parse
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./avalanchemq/server"
@@ -27,6 +22,7 @@ puts "AvalancheMQ #{AvalancheMQ::VERSION}"
   puts "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
 {% end %}
 puts "Pid: #{Process.pid}"
+puts "Config file: #{config.config_file}" unless config.config_file.empty?
 puts "Data directory: #{config.data_dir}"
 
 # Maximize FD limit

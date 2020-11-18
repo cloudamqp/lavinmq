@@ -6,15 +6,15 @@ module AvalancheMQ
   class ServerCLI
     getter parser
 
-    def initialize(@config : Config, @config_file : String)
+    def initialize(@config : Config)
       @parser = OptionParser.parse do |parser|
         parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
+        parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config.config_file = v }
+        parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
         parser.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
           config.amqp_bind = v
           config.http_bind = v
         end
-        parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
-        parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
         parser.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
           config.amqp_port = v.to_i
         end
@@ -55,11 +55,9 @@ module AvalancheMQ
     end
 
     def parse
-      @parser.parse
-      unless @config_file.empty?
-        @config.config_file = @config_file # Remember file for reloads
-        @config.parse(@config_file)
-      end
+      @parser.parse # only parse args to get config_file
+      @config.parse(@config.config_file) unless @config.config_file.empty?
+      @parser.parse # then override any config_file parameters with the cmd line args
       if @config.data_dir.empty?
         STDERR.puts "No data directory specified"
         STDERR.puts @parser
