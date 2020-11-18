@@ -13,7 +13,8 @@ describe "AvalancheMQ::ServerCLI" do
       CONFIG
     end
     config = AvalancheMQ::Config.instance
-    AvalancheMQ::ServerCLI.new(config, config_file.path).parse
+    config.config_file = config_file.path
+    AvalancheMQ::ServerCLI.new(config).parse
 
     config.config_file.should eq(config_file.path)
   end
