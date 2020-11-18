@@ -464,12 +464,16 @@ module AvalancheMQ
           break if @connections.empty?
           sleep 0.1
         end
+        # then force close the remaining (close tcp socket)
+        @connections.each &.force_close
+        Fiber.yield # yield so that CLient read_loops can shutdown
       end
-      @queues.each_value &.close
-      Fiber.yield
+      @write_lock.synchronize do
+        @queues.each_value &.close
+        @segments.each_value &.close
+      end
       @save.close
       Fiber.yield
-      @segments.each_value &.close
       compact!(include_transient: seamless_restart)
     end
 

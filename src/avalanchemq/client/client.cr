@@ -416,6 +416,10 @@ module AvalancheMQ
       @running = false
     end
 
+    def force_close
+      close_socket
+    end
+
     def closed?
       !@running
     end
