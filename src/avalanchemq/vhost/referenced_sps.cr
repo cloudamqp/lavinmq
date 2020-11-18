@@ -10,7 +10,10 @@ module AvalancheMQ
       end
 
       def <<(q : SPQueue)
-        @pq << q unless q.empty?
+        unless q.empty?
+          q.lock
+          @pq << q
+        end
       end
 
       def empty?
@@ -22,7 +25,11 @@ module AvalancheMQ
         until pq.empty?
           q = pq.shift
           yield q.shift
-          pq.push q unless q.empty?
+          if q.empty?
+            q.unlock
+          else
+            pq.push q
+          end
         end
       end
     end

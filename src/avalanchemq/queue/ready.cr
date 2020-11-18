@@ -206,6 +206,14 @@ module AvalancheMQ
           end
         end
       end
+
+      def lock
+        @lock.lock
+      end
+
+      def unlock
+        @lock.unlock
+      end
     end
 
     class SortedReadyQueue < ReadyQueue

@@ -91,6 +91,14 @@ module AvalancheMQ
           @unacked = Deque(Unack).new(@unacked.size) { |i| @unacked[i] }
         end
       end
+
+      def lock
+        @lock.lock
+      end
+
+      def unlock
+        @lock.unlock
+      end
     end
   end
 end

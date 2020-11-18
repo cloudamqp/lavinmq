@@ -21,6 +21,8 @@ module AvalancheMQ
       abstract def peek : SegmentPosition
       abstract def shift : SegmentPosition
       abstract def empty? : Bool
+      abstract def lock : Nil
+      abstract def unlock : Nil
     end
 
     class SPReadyQueue < SPQueue
@@ -40,6 +42,14 @@ module AvalancheMQ
       def empty? : Bool
         @pos == @ready.size
       end
+
+      def lock : Nil
+        @ready.lock
+      end
+
+      def unlock : Nil
+        @ready.unlock
+      end
     end
 
     class SPUnackQueue < SPQueue
@@ -58,6 +68,14 @@ module AvalancheMQ
 
       def empty? : Bool
         @pos == @unack.size
+      end
+
+      def lock : Nil
+        @unack.lock
+      end
+
+      def unlock : Nil
+        @unack.unlock
       end
     end
   end
