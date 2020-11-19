@@ -725,16 +725,10 @@ module AvalancheMQ
       referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
-        if prev_sp > sp
-          @log.error { "ReferencedSPs not in order!! prev_sp=#{prev_sp} sp=#{sp}" }
-        end
         # if the last segment was the same as this
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          if prev_sp.end_position > sp.position
-            @log.error { "ReferencedSPs not in order!! prev_sp=#{prev_sp} sp=#{sp}" }
-          end
           collected += punch_hole(file.not_nil!, prev_sp.end_position, sp.position)
         else # dealing with a new segment
           # truncate the previous file
