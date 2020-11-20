@@ -199,14 +199,6 @@ module AvalancheMQ
         end
       end
 
-      def copy_to(set)
-        @lock.synchronize do
-          @ready.each do |sp|
-            set << sp
-          end
-        end
-      end
-
       def lock
         @lock.lock
       end
@@ -247,8 +239,6 @@ module AvalancheMQ
     end
 
     class PriorityReadyQueue < SortedReadyQueue
-      setter insert_position : Int32? = 0
-
       private def insert_sorted(sp)
         idx = @ready.bsearch_index do |rsp|
           sp.priority > rsp.priority

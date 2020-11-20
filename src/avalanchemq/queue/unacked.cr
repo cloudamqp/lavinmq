@@ -78,14 +78,6 @@ module AvalancheMQ
         end
       end
 
-      def copy_to(set)
-        @lock.synchronize do
-          @unacked.each do |unack|
-            set << unack.sp
-          end
-        end
-      end
-
       def compact
         @lock.synchronize do
           @unacked = Deque(Unack).new(@unacked.size) { |i| @unacked[i] }
