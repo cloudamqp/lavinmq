@@ -82,7 +82,7 @@ module AvalancheMQ
           if i = @ready.bsearch_index { |rsp| rsp > sp }
             @ready.insert(i, sp)
           else
-            @ready.unshift(sp)
+            @ready.push(sp)
           end
           @ready.size
         end
@@ -95,7 +95,7 @@ module AvalancheMQ
             if i = @ready.bsearch_index { |rsp| rsp > sp }
               @ready.insert(i, sp)
             else
-              @ready.unshift(sp)
+              @ready.push(sp)
             end
           end
           @ready.size
@@ -242,7 +242,7 @@ module AvalancheMQ
         idx = @ready.bsearch_index do |rsp|
           rsp.expiration_ts >= sp.expiration_ts || rsp >= sp
         end
-        idx ? @ready.insert(idx, sp) : @ready.unshift(sp)
+        idx ? @ready.insert(idx, sp) : @ready.push(sp)
       end
     end
 
