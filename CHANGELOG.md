@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.17] - 2020-11-20
+
+### Fixed
+- Requeued messages wasn't always inserted back in correct order into the Ready queue
+- Report correct disk usage for mmap:ed files
+- Force close AMQP connections on shutdown after 10s timeout
+
+### Changed
+- Arguments given on command line overrides config file settings
+
 ## [1.0.0-alpha.16] - 2020-11-17
 
 ### Fixed
