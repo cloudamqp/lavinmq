@@ -30,14 +30,6 @@ module AvalancheMQ
       version
     end
 
-    def self.verify_or_migrate(file, type) : Int32
-      version = file.read_bytes Int32
-      if version != VERSIONS[type]
-        self.migrate(file, type, version)
-      end
-      version
-    end
-
     def self.prefix(file, type) : Int32
       version = VERSIONS[type]
       file.write_bytes version
