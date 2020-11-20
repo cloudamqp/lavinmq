@@ -725,6 +725,9 @@ module AvalancheMQ
       referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
+        if prev_sp > sp
+          raise ReferencedSPs::NotInOrderError.new(prev_sp, sp)
+        end
         # if the last segment was the same as this
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp

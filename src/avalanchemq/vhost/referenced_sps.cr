@@ -1,3 +1,5 @@
+require "./priority_queue"
+require "./spqueue"
 require "../segment_position"
 
 module AvalancheMQ
@@ -30,6 +32,12 @@ module AvalancheMQ
           else
             pq.push q
           end
+        end
+      end
+
+      class NotInOrderError < Exception
+        def initialize(prev_sp : SegmentPosition, sp : SegmentPosition)
+          super("SPs not in order. prev_sp=#{prev_sp} sp=#{sp}")
         end
       end
     end
