@@ -15,20 +15,25 @@ module AvalancheMQ
         @unacked = Deque(Unack).new(capacity)
       end
 
-      def includes?(sp)
-        @unacked.includes?(sp)
-      end
-
       def push(sp : SegmentPosition, persistent : Bool, consumer : Client::Channel::Consumer?)
         @lock.synchronize do
-          @unacked << Unack.new(sp, persistent, consumer)
+          unacked = @unacked
+          unack = Unack.new(sp, persistent, consumer)
+          if idx = unacked.bsearch_index { |u| u.sp > sp }
+            unacked.insert(idx, unack)
+          else
+            unacked << unack
+          end
         end
       end
 
       def delete(sp : SegmentPosition)
         @lock.synchronize do
-          if idx = @unacked.index { |u| u.sp == sp }
-            @unacked.delete_at(idx)
+          unacked = @unacked
+          if idx = unacked.bsearch_index { |u| u.sp >= sp }
+            if unacked[idx].sp == sp
+              unacked.delete_at(idx)
+            end
           end
         end
       end

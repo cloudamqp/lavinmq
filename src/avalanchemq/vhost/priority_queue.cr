@@ -13,6 +13,10 @@ module AvalancheMQ
         @queue.shift
       end
 
+      def size
+        @queue.size
+      end
+
       def push(item : T)
         q = @queue
         if idx = q.bsearch_index { |e| e > item }
