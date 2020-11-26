@@ -33,6 +33,11 @@ module AvalancheMQ
             pq.push q
           end
         end
+      ensure
+        pq = @pq
+        pq.size.times do
+          pq.shift.unlock
+        end
       end
 
       class NotInOrderError < Exception
