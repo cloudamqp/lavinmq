@@ -1,6 +1,7 @@
 require "logger"
 require "./channel/consumer"
 require "../queue"
+require "../exchange"
 require "../amqp"
 require "../stats"
 require "../sortable_json"
