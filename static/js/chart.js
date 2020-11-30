@@ -6,11 +6,11 @@
   const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
     '#EE6868', '#2F6497', '#6C8893']
 
-  const LOGGING_RATE = 5000
+  const POLLING_RATE = 5000
+  const X_AXIS_LENGTH = 600000 //10 min
 
-  //Allows for 10 mins of data
-  function maxDataLength (logRate) {
-    return 600000/logRate
+  function maxDataLength () {
+    return X_AXIS_LENGTH/POLLING_RATE
   }
 
   function render (id, unit, options = {}, stacked = false) {
@@ -66,7 +66,7 @@
             },
             ticks: {
               min: 0,
-              max: maxDataLength(LOGGING_RATE),
+              max: maxDataLength(),
               source: 'auto'
             }
           }],
@@ -174,10 +174,34 @@
       x: date,
       y: value(data)
     }
-    if (dataset.data.length >= maxDataLength(LOGGING_RATE)) {
+    if (dataset.data.length >= maxDataLength()) {
       dataset.data.shift()
     }
     dataset.data.push(point)
+    fillDatasetVoids(dataset)
+    fixDatasetLength(dataset)
+  }
+
+  function fillDatasetVoids(dataset) {
+    prevPoint = dataset.data[0]
+    moreIter = false
+    dataset.data.forEach((point,i) => {
+      timeDiff = point.x.getTime() - prevPoint.x.getTime()
+      if ( timeDiff >= POLLING_RATE*2) {
+        dataset.data.splice(i ,0 ,{"x": new Date(point.x.getTime() - POLLING_RATE), y: null})
+        moreIter = timeDiff >= POLLING_RATE*3
+      }
+      prevPoint = point
+    })
+    moreIter && fillDatasetVoids(dataset)
+  }
+
+  function fixDatasetLength(dataset) {
+    if (dataset.data.length <= maxDataLength()) return;
+    const now = new Date()
+    dataset.data.forEach((point) => {
+      now > point.x.getTime() + X_AXIS_LENGTH && dataset.data.shift()
+    })
   }
 
   function update (chart, data, filled = false) {
@@ -198,7 +222,7 @@
         legend.innerHTML = chart.generateLegend()
         const log = data[`${key}_log`] || data[key].log || []
         log.forEach((p, i) => {
-          const pDate = new Date(date.getTime() - LOGGING_RATE * (log.length - i))
+          const pDate = new Date(date.getTime() - POLLING_RATE * (log.length - i))
           addToDataset(dataset, p, pDate)
         })
       }
