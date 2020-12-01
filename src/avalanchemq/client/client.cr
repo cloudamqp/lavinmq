@@ -571,7 +571,7 @@ module AvalancheMQ
 
     private def valid_entity_name(name)
       return true if name.empty?
-      name.matches?(/\A[a-zA-Z0-9-_.:<> \/#%]*\z/)
+      name.matches?(/\A[a-zA-Z0-9-_.:<> \/#%@]*\z/)
     end
 
     def queue_exclusive_to_other_client?(q)
