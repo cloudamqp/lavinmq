@@ -8,10 +8,7 @@
 
   const POLLING_RATE = 5000
   const X_AXIS_LENGTH = 600000 //10 min
-
-  function maxDataLength () {
-    return X_AXIS_LENGTH/POLLING_RATE
-  }
+  const MAX_TICKS = X_AXIS_LENGTH/POLLING_RATE
 
   function render (id, unit, options = {}, stacked = false) {
     const el = document.getElementById(id)
@@ -66,7 +63,7 @@
             },
             ticks: {
               min: 0,
-              max: maxDataLength(),
+              max: MAX_TICKS,
               source: 'auto'
             }
           }],
@@ -174,7 +171,7 @@
       x: date,
       y: value(data)
     }
-    if (dataset.data.length >= maxDataLength()) {
+    if (dataset.data.length >= MAX_TICKS) {
       dataset.data.shift()
     }
     dataset.data.push(point)
