@@ -197,7 +197,6 @@
   }
 
   function fixDatasetLength(dataset) {
-    if (dataset.data.length <= maxDataLength()) return;
     const now = new Date()
     dataset.data.forEach((point) => {
       now > point.x.getTime() + X_AXIS_LENGTH && dataset.data.shift()
