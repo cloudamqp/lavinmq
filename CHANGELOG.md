@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.18] - 2020-12-01
+
+### Fixed
+- Keep unacked messages sorted, as the merge sort in segment GC expects
+
 ## [1.0.0-alpha.17] - 2020-11-20
 
 ### Fixed
