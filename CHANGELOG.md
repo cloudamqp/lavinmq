@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.19] - 2020-12-01
+
+### Changed
+- Allow all printable ASCII characters in entity (queue and exchnage) names.
+
+### Fixed
+- Improved rendering of charts
+
 ## [1.0.0-alpha.18] - 2020-12-01
 
 ### Fixed
