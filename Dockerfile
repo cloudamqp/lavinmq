@@ -29,13 +29,16 @@ RUN strip bin/avalanchemq
 
 # start from scratch and only copy the built binary
 FROM ubuntu:18.04
-RUN mkdir /data && chown daemon:daemon /data
+
+LABEL org.opencontainers.image.licenses='Apache-2.0'
+EXPOSE 5672 15672
+VOLUME /data
+WORKDIR /data
+
 RUN apt-get update && \
     apt-get install -y libssl1.1 libevent-2.1-* && \
     apt-get clean && \
-    rm -rf /var/cache/apt/* /var/lib/apt/lists/*
-COPY --from=builder /tmp/bin/avalanchemq /usr/sbin/
-VOLUME ["/data"]
-EXPOSE 15672 5672
-USER daemon:daemon
-ENTRYPOINT ["/usr/sbin/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]
+    rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
+
+COPY --from=builder /tmp/bin/avalanchemq /usr/bin/
+ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]
