@@ -82,7 +82,6 @@ module AvalancheMQ
       while client = s.accept?
         client.sync = false
         client.read_buffering = true
-        client.write_timeout = 15
         client.buffer_size = Config.instance.socket_buffer_size
         if Config.instance.unix_proxy_protocol
           spawn(handle_proxied_connection(client), name: "Server#handle_proxied_connection(unix)")
@@ -223,7 +222,6 @@ module AvalancheMQ
       socket.tcp_keepalive_interval = 10
       socket.tcp_nodelay = Config.instance.tcp_nodelay
       socket.buffer_size = Config.instance.socket_buffer_size
-      socket.write_timeout = 15
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
