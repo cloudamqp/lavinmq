@@ -30,6 +30,11 @@ RUN strip bin/avalanchemq
 # start from scratch and only copy the built binary
 FROM ubuntu:18.04
 
+LABEL org.opencontainers.image.title='AvalancheMQ'
+LABEL org.opencontainers.image.url='https://www.avalanchemq.com/'
+LABEL org.opencontainers.image.documentation='https://www.avalanchemq.com/docs'
+LABEL org.opencontainers.image.source='https://github.com/cloudamqp/avalanchemq'
+LABEL org.opencontainers.image.description='A very fast and lean AMQP server'
 LABEL org.opencontainers.image.licenses='Apache-2.0'
 EXPOSE 5672 15672
 VOLUME /data
