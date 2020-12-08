@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
   <head>
     <title>Policies | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
@@ -7,7 +8,7 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png" />
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
@@ -15,6 +16,7 @@
     <script src="/js/http.js"></script>
     <script src="/js/helpers.js"></script>
   </head>
+
   <body>
     <header>
       <h2>
@@ -47,7 +49,7 @@
         <h3>Add/update policy</h3>
         <label>
           <span>Virtual host</span>
-          <select name="vhost" required></select>
+          <select id="addPolicyVhost" name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
@@ -59,7 +61,7 @@
         </label>
         <label>
           <span>Apply to</span>
-          <select name="apply-to" required>
+          <select id="addPolicyApplyTo" name="apply-to" required>
             <option value="all">Exchanges & Queues</option>
             <option value="exchanges">Exchanges</option>
             <option value="queues">Queues</option>
@@ -70,34 +72,44 @@
           <textarea name="definition" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
             <a class="arg-tooltip" data-tag="max-length">Max length
-              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them. Dropping strategy decided by overflow arg.</span>
+              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them.
+                Dropping strategy decided by overflow arg.</span>
             </a> |
             <a class="arg-tooltip" data-tag="max-length-bytes">Max length bytes
               <span class="tooltiptext">The max length of a queue in bytes.</span>
             </a> |
             <a class="arg-tooltip" data-tag="message-ttl">Message TTL
-              <span class="tooltiptext">How long a message published to a queue can live before it is discarded (milliseconds).</span>
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
             </a> |
             <a class="arg-tooltip" data-tag="overflow">Overflow behaviour
-              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is reached. Valid value are: drop-head (default) or reject-publish.</span>
+              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is
+                reached. Valid value are: drop-head (default) or reject-publish.</span>
             </a> |
             <a class="arg-tooltip" data-tag="expires">Auto expire
-              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted (milliseconds).</span>
+              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+                (milliseconds).</span>
             </a> |
             <a class="arg-tooltip" data-tag="dead-letter-exchange">Dead letter exchange
-              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are rejected or expire.</span>
+              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
+                rejected or expire.</span>
             </a> |
             <a class="arg-tooltip" data-tag="dead-letter-routing-key">Dead letter routing key
-              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not set, the message's original routing key will be used.</span>
+              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
+                set, the message's original routing key will be used.</span>
             </a> |
             <a class="arg-tooltip" data-tag="federation-upstream">Federation upstream
-              <span class="tooltiptext">Chooses a specific upstream set to use for federation. Incompatible with federation-upstream-set.</span>
+              <span class="tooltiptext">Chooses a specific upstream set to use for federation. Incompatible with
+                federation-upstream-set.</span>
             </a> |
             <a class="arg-tooltip" data-tag="federation-upstream-set">Federation upstream set
-              <span class="tooltiptext">Chooses the name of a set of upstreams to use with federation, or "all" to use all upstreams. Incompatible with federation-upstream.</span>
+              <span class="tooltiptext">Chooses the name of a set of upstreams to use with federation, or "all" to use
+                all
+                upstreams. Incompatible with federation-upstream.</span>
             </a> |
             <a class="arg-tooltip" data-tag="delivery-limit">Delivery limit
-              <span class="tooltiptext">The number of times a message can be redelivered before dropped or dead-lettered</span>
+              <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+                dead-lettered</span>
             </a>
 
           </div>
@@ -117,7 +129,9 @@
     <script src="/js/table.js"></script>
     <script>
       /* globals avalanchemq */
-      avalanchemq.vhosts.addVhostOptions('createPolicy')
+      avalanchemq.vhosts.addVhostOptions('createPolicy').then(() => {
+        autofill_editpolicy(policiesTable.getData())
+      })
 
       let url = '/api/policies'
       const vhost = window.sessionStorage.getItem('vhost')
@@ -134,10 +148,13 @@
       const policiesTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item) => {
         avalanchemq.table.renderCell(tr, 0, item.vhost)
         avalanchemq.table.renderCell(tr, 1, item.name)
+        tr.cells[1].classList.add('self-link')
+        tr.cells[1].onclick = () => { autofill_editpolicy(item, false) }
         avalanchemq.table.renderCell(tr, 2, item.pattern)
         avalanchemq.table.renderCell(tr, 3, item['apply-to'])
         avalanchemq.table.renderCell(tr, 4, JSON.stringify(item.definition))
         avalanchemq.table.renderCell(tr, 5, item.priority)
+
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
@@ -174,8 +191,32 @@
           }).catch(avalanchemq.http.standardErrorHandler)
       })
       document.querySelector('#dataTags').onclick = e => {
-        window.avalanchemq.helpers.argumentHelperJSON("definition",e)
+        window.avalanchemq.helpers.argumentHelperJSON("definition", e)
+      }
+
+      function autofill_editpolicy(policies, otherOrigin = true) {
+        if (otherOrigin) {
+          const urlParams = new URLSearchParams(window.location.search);
+          pname = urlParams.get('name')
+          pvhost = urlParams.get('vhost');
+          if (!(pname && pvhost)) {
+            return
+          }
+          policy = policies.filter(item => {
+            return item.name === pname && item.vhost === pvhost
+          })[0]
+        } else {
+          policy = policies
+        }
+
+        document.getElementById('addPolicyVhost').value = policy.vhost
+        document.getElementsByName('name')[0].value = policy.name
+        document.getElementById('addPolicyApplyTo').value = policy["apply-to"]
+        document.getElementsByName('pattern')[0].value = policy.pattern
+        document.getElementsByName('definition')[0].value = JSON.stringify(policy.definition)
+        document.getElementsByName('priority')[0].value = policy.priority
       }
     </script>
   </body>
+
 </html>

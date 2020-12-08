@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
   <head>
     <title>Queues | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
@@ -7,11 +8,12 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png" />
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
   </head>
+
   <body>
     <header>
       <h2>
@@ -68,25 +70,32 @@
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
             <a class="arg-tooltip" data-tag="x-expires">Auto Expire
-              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted (milliseconds).</span>
+              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+                (milliseconds).</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-max-length">Max Length
-              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts to drop them from its head.</span>
+              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts to drop them from
+                its head.</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-message-ttl">Message TTL
-              <span class="tooltiptext">How long a message published to a queue can live before it is discarded (milliseconds).</span>
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-delivery-limit">Delivery limit
-              <span class="tooltiptext">The number of times a message can be redelivered before dropped or dead-lettered</span>
+              <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+                dead-lettered</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-overflow">Overflow behaviour
-              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is reached. Valid value are reject-publish.</span>
+              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is
+                reached. Valid value are reject-publish.</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-dead-letter-exchange">Dead letter exchange
-              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are rejected or expire.</span>
+              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
+                rejected or expire.</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-dead-letter-routing-key">Dead letter routing key
-              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not set, the message's original routing key will be used.</span>
+              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
+                set, the message's original routing key will be used.</span>
             </a>
           </div>
         </label>
@@ -138,7 +147,7 @@
         let policyLink = ''
         if (item.policy) {
           policyLink = document.createElement('a')
-          policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
+          policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
           policyLink.textContent = item.policy
         }
         avalanchemq.table.renderCell(tr, 3, policyLink, 'center')
@@ -176,4 +185,5 @@
       }
     </script>
   </body>
+
 </html>
