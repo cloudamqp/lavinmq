@@ -112,6 +112,10 @@
       return q
     }
 
+    function getData () {
+      return JSON.parse(window.sessionStorage.getItem(`${url}?${buildQuery(currentPage)}`)).items
+    }
+
     function fetchAndUpdate () {
       const fullUrl = `${url}?${buildQuery(currentPage)}`
       const tableError = document.getElementById(id + '-error')
@@ -276,7 +280,7 @@
       return str
     }
 
-    return { updateTable, fetchAndUpdate }
+    return { updateTable, fetchAndUpdate, getData }
   }
 
   function renderCell (tr, column, value, classList = '') {

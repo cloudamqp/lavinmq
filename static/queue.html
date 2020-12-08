@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
   <head>
     <title>Queue | AvalancheMQ</title>
     <link href="/main.css" rel="stylesheet">
@@ -7,13 +8,14 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png" />
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
   </head>
+
   <body>
     <header>
       <h2>
@@ -138,7 +140,8 @@
       <form method="post" id="publishMessage" class="form card cols-6">
         <h3>Publish message</h3>
         <p>
-          Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to this queue.
+          Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
+          this queue.
         </p>
         <label>
           <span>Delivery mode</span>
@@ -214,7 +217,9 @@
           </tr>
           <tr>
             <th>Properties</th>
-            <td><pre class="message-properties"></pre></td>
+            <td>
+              <pre class="message-properties"></pre>
+            </td>
           </tr>
           <tr>
             <th>
@@ -222,7 +227,9 @@
               <div><small><span class="message-size"></span> bytes</small></div>
               <div><small>Encoding: <span class="message-encoding"></span></small></div>
             </th>
-            <td><pre class="message-payload"></pre></td>
+            <td>
+              <pre class="message-payload"></pre>
+            </td>
           </tr>
         </table>
       </div>
@@ -348,7 +355,7 @@
             document.querySelector('.queue').textContent = queue
             if (item.policy) {
               const policyLink = document.createElement('a')
-              policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
+              policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
               policyLink.textContent = item.policy
               avalanchemq.dom.setChild('#q-policy', policyLink)
             }
@@ -550,4 +557,5 @@
       })
     </script>
   </body>
+
 </html>
