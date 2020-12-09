@@ -17,6 +17,7 @@ module AvalancheMQ
       return routing_key unless @arguments["x-hash-on"]?.as?(String)
       return "" if headers.nil?
       hash_on = @arguments["x-hash-on"].as(String)
+      return "" unless headers[hash_on]?
       headers[hash_on].as?(String) || raise Error::PreconditionFailed.new("Routing header must be string")
     end
 
