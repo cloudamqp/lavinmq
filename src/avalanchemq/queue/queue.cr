@@ -59,7 +59,8 @@ module AvalancheMQ
       %w(ack deliver confirm get get_no_ack publish redeliver reject return_unroutable),
       %w(message_count unacked_count))
 
-    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready, unacked
+    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready,
+      unacked, last_get_time
     getter policy : Policy?
     getter? closed
     property? internal = false
@@ -113,6 +114,7 @@ module AvalancheMQ
         when "overflow"
           @reject_on_overflow = v.as_s == "reject-publish"
         when "expires"
+          @last_get_time = Time.monotonic
           @expires = v.as_i64
         when "dead-letter-exchange"
           @dlx = v.as_s
