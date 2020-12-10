@@ -113,6 +113,22 @@ describe AvalancheMQ::VHost do
     vhost.delete_queue("qttl")
   end
 
+  it "should refresh queue last_get_time when expire policy applied" do
+    definitions = {"expires" => JSON::Any.new(50_i64)} of String => JSON::Any
+    with_channel do |ch|
+      ch.queue("qttl")
+      queue = s.vhosts["/"].queues["qttl"]
+      first = queue.last_get_time
+      s.vhosts["/"].add_policy("qttl", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
+      sleep 0.01
+      last = queue.last_get_time
+      (last > first).should be_true
+    ensure
+      s.vhosts["/"].delete_policy("qttl")
+      vhost.delete_queue("qttl")
+    end
+  end
+
   it "should apply max-length-bytes on existing queue" do
     definitions = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
     with_channel do |ch|
