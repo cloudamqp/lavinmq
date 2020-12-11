@@ -5,6 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Remember table sorting option until session ends + correct sorting on page refresh
 - Bugfix - Refresh last used time on queue when policy with expire applies to it
 - Autofill of update policy form when click on policy name in the queue, exchange or policies views.
 

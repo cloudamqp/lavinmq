@@ -14,7 +14,12 @@
 
   function renderTable (id, options = {}, renderRow) {
     let sortKey = getQueryVariable('sort')
-    let reverseOrder = getQueryVariable('sort_reverse')
+    let reverseOrder = strToBool(getQueryVariable('reverseOrder'))
+    const view = window.location.pathname.split("/").pop()
+    if (!sortKey || reverseOrder === null) {
+      sortKey = window.sessionStorage.getItem(view + '-sortkey')
+      reverseOrder = strToBool(window.sessionStorage.getItem(view + '-reverseorder'))
+    }
     const url = options.url
     const table = document.getElementById(id)
     const container = table.parentElement
@@ -63,6 +68,10 @@
       }
     }
 
+    function strToBool(str){
+      return str === 'true' ? true : false
+    }
+
     function makeHeadersSortable () {
       const sortHeader = table.querySelector(`th[data-sort-key="${sortKey}"]`)
       if (sortHeader) {
@@ -87,6 +96,8 @@
             e.target.classList.add('sorting_desc')
             e.target.classList.remove('sorting_asc')
           }
+          window.sessionStorage.setItem(view + '-sortkey', sortKey)
+          window.sessionStorage.setItem(view + '-reverseorder', reverseOrder)
           updateQueryState({ sort: sortKey, reverseOrder })
           const t = table.tBodies[0]
           clearRows(t)
