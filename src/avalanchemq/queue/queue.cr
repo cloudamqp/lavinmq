@@ -451,7 +451,7 @@ module AvalancheMQ
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
       was_empty = @ready.push(sp) == 1
-      drop_overflow if @consumers.empty?
+      drop_overflow unless @consumers.any? &.accepts?
       @publish_count += 1
       if was_empty
         message_available
