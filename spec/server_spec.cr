@@ -265,6 +265,33 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "should still drop_overflow even with slow consumers" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-max-length"] = 2
+      q = ch.queue "", durable: false, exclusive: true, args: args
+      mch = Channel(AMQP::Client::Message).new(10)
+      ch.prefetch 1
+      q.subscribe(no_ack: false) do |msg|
+        mch.send msg
+        sleep 0.2
+        msg.ack
+      end
+      10.times do |i|
+        q.publish_confirm i.to_s
+      end
+      if m = mch.receive?
+        m.body_io.to_s.should eq "0"
+      end
+      if m = mch.receive?
+        m.body_io.to_s.should eq "8"
+      end
+      if m = mch.receive?
+        m.body_io.to_s.should eq "9"
+      end
+    end
+  end
+
   it "msgs publish to queue w/o consumers with max-length 0 will be dropped" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
