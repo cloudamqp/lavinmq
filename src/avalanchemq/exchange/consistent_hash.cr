@@ -14,10 +14,14 @@ module AvalancheMQ
     end
 
     private def hash_key(routing_key : String, headers : AMQP::Table?)
-      return routing_key unless @arguments["x-hash-on"]?.as?(String)
+      hash_on = @arguments["x-hash-on"]?
+      return routing_key unless hash_on.is_a?(String)
       return "" if headers.nil?
-      hash_on = @arguments["x-hash-on"].as(String)
-      headers[hash_on].as?(String) || raise Error::PreconditionFailed.new("Routing header must be string")
+      case value = headers[hash_on.as(String)]?
+      when String then value.as(String)
+      when Nil then ""
+      else raise Error::PreconditionFailed.new("Routing header must be string")
+      end
     end
 
     def bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)

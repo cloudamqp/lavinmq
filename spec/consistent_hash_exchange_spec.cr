@@ -156,6 +156,42 @@ describe "Consistent Hash Exchange" do
       q_names = [] of String
     end
 
+    it "should route on empty string is header isn't set", focus: true do
+      with_channel do |ch|
+        x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
+        x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
+        q_names << "1"
+        q0 = ch.queue(q_names[0])
+        q0.bind(x.name, "3")
+
+        q_names << "2"
+        q1 = ch.queue(q_names[1])
+        q1.bind(x.name, "3")
+
+        hdrs1 = AMQP::Client::Arguments.new()
+        hdrs2 = AMQP::Client::Arguments.new({ "cluster" => "1"})
+        hdrs3 = AMQP::Client::Arguments.new({ "cluster" => ""})
+
+        x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
+        x.publish_confirm "test message 1", "abc", props: AMQP::Client::Properties.new(headers: hdrs2)
+        x.publish_confirm "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
+
+        q0.get(no_ack: true)
+          .try { |msg| msg.body_io.to_s }
+          .should eq("test message 0")
+        q0.get(no_ack: true)
+          .try { |msg| msg.body_io.to_s }
+          .should eq("test message 2")
+        q1.get(no_ack: true)
+          .try { |msg| msg.body_io.to_s }
+          .should eq("test message 1")
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
+      q_names = [] of String
+    end
+
     it "should route on header key" do
       with_channel do |ch|
         x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
