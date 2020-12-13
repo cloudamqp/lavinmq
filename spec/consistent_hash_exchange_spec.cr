@@ -156,7 +156,7 @@ describe "Consistent Hash Exchange" do
       q_names = [] of String
     end
 
-    it "should route on empty string is header isn't set", focus: true do
+    it "should route on empty string is header isn't set" do
       with_channel do |ch|
         x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
         x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
