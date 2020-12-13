@@ -208,7 +208,7 @@ module AvalancheMQ
     end
 
     private def perm_match?(perm, name)
-      perm != /^$/ && perm != // && !!perm.match name
+      perm != /^$/ && perm != // && perm.matches? name
     end
 
     private def hash_algorithm(hash)
