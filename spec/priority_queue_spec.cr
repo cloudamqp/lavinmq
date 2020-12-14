@@ -24,4 +24,35 @@ describe AvalancheMQ::PriorityQueue do
       q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("prio00")
     end
   end
+
+  it "should only accept int32 as priority" do
+    with_channel do |ch|
+      expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+        q_args = AMQP::Client::Arguments.new({"x-max-priority" => "a"})
+        ch.queue("", args: q_args)
+      end
+    end
+  end
+
+  it "should only accept priority >= 0" do
+    with_channel do |ch|
+      q_args = AMQP::Client::Arguments.new({"x-max-priority" => 0})
+      ch.queue("", args: q_args)
+      expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+        q_args = AMQP::Client::Arguments.new({"x-max-priority" => -1})
+        ch.queue("", args: q_args)
+      end
+    end
+  end
+
+  it "should only accept priority <= 255" do
+    with_channel do |ch|
+      q_args = AMQP::Client::Arguments.new({"x-max-priority" => 255})
+      ch.queue("", args: q_args)
+      expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+        q_args = AMQP::Client::Arguments.new({"x-max-priority" => 256})
+        ch.queue("", args: q_args)
+      end
+    end
+  end
 end
