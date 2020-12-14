@@ -1,8 +1,12 @@
+require "openssl"
+
 module AvalancheMQ
   class User
     abstract class Password
+      SALT_SIZE = 4
+
       def self.create(password : String) : self
-        salt = Random::Secure.random_bytes(32)
+        salt = Random::Secure.random_bytes(SALT_SIZE)
         dgst = OpenSSL::Digest.new(self.hash_algorithm)
         dgst.update salt
         dgst.update password
@@ -26,9 +30,9 @@ module AvalancheMQ
         case bytes.size
         when self.digest_size
           @hash = bytes
-        when self.digest_size + 4
-          @salt = bytes[0, 4]
-          @hash = bytes + 4
+        when SALT_SIZE + self.digest_size
+          @salt = bytes[0, SALT_SIZE]
+          @hash = bytes + SALT_SIZE
         else raise InvalidPasswordHash.new("Invalid digest size #{bytes.size} for #{self.hash_algorithm}, raw size #{@raw_hash.size}")
         end
       end
