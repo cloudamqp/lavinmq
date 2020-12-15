@@ -257,6 +257,7 @@
           .then(() => {
             updateShovelsTable()
             evt.target.reset()
+            avalanchemq.dom.toast('Shovel ' + name + ' created')
           }).catch(avalanchemq.http.standardErrorHandler)
       })
     </script>
