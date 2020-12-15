@@ -663,6 +663,10 @@ fieldset.inline {
   background-color: #e2b149
 }
 
+#error-msg {
+  color: red;
+}
+
 @keyframes fadeIn {
   from {opacity: 0;}
   to {opacity: 0.9;}

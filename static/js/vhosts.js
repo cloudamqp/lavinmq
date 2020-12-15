@@ -5,23 +5,14 @@
   function fetch (cb) {
     const vhost = window.sessionStorage.getItem('vhost')
     const url = '/api/vhosts'
-    const raw = window.sessionStorage.getItem(url)
-    if (raw) {
-      var vhosts = JSON.parse(raw)
-      cb(vhosts)
-    }
     return avalanchemq.http.request('GET', url).then(function (vhosts) {
       if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
         window.sessionStorage.removeItem('vhost')
       }
-      try {
-        window.sessionStorage.setItem('/api/vhosts', JSON.stringify(vhosts))
-      } catch (e) {
-        console.error('Saving sessionStorage', e)
-      }
       cb(vhosts)
     }).catch(function (e) {
-      console.error(e.message)
+      console.error(e)
+      cb(null)
     })
   }
 
@@ -31,6 +22,18 @@
       while (select.options.length) {
         select.remove(0)
       }
+
+      if (!vhosts) {
+        if (formId === 'user-vhost') {
+          return
+        }
+        const err = document.createElement('span')
+        err.id = 'error-msg'
+        err.textContent = "Error fetching data: Please try to refresh the page!"
+        select.parentElement.insertAdjacentElement('beforebegin',err)
+        return
+      }
+
       for (let i = 0; i < vhosts.length; i++) {
         const opt = document.createElement('option')
         opt.text = vhosts[i].name
