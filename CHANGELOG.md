@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bugfix - Refresh last used time on queue when policy with expire applies to it
 - Autofill of update policy form when click on policy name in the queue, exchange or policies views.
 
+## [1.0.0-alpha.20] - 2021-01-11
+
+### Added
+- Webhook shovel
+
+### Fixed
+- x-max-length is always repected
+- Validate x-max-priority
+- Better handling in UI on server errors
+
+### Changed
+- Allow all printable ASCII characters in entity (queue and exchnage) names.
+
+### Fixed
+- Improved rendering of charts
+
+
 ## [1.0.0-alpha.19] - 2020-12-01
 
 ### Changed
