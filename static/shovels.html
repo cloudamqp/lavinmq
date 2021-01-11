@@ -107,16 +107,16 @@
             <span>URI</span>
             <input type="text" name="dest-uri" required value="amqp://">
           </label>
-          <label>
+          <label class="amqp-dest-field">
             <span>Type</span>
             <select name="dest-type" required>
               <option value="queue">Queue</option>
               <option value="exchange">Exchange</option>
             </select>
           </label>
-          <label>
+          <label class="amqp-dest-field">
             <span>Endpoint</span>
-            <input type="text" name="dest-endpoint" required>
+            <input type="text" name="dest-endpoint">
           </label>
         </fieldset>
         <label>
@@ -171,9 +171,11 @@
         if (item.value['dest-queue']) {
           destEndpoint = escapeHTML(item.value['dest-queue'])
           destEndpointType = 'queue'
-        } else {
+        } else if (item.value['dest-exchange']) {
           destEndpoint = escapeHTML(item.value['dest-exchange'])
           destEndpointType = 'exchange'
+        } else {
+            destEndpoint = 'http'
         }
         avalanchemq.table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')
         avalanchemq.table.renderCell(tr, 7, item.value['reconnect-delay'])
@@ -224,6 +226,13 @@
 
       document.querySelector('[name=src-type]').addEventListener('change', function () {
         document.getElementById('srcRoutingKey').classList.toggle('hide', this.value === 'queue')
+      })
+
+      document.querySelector('[name=dest-uri]').addEventListener('change', function () {
+        let is_http = this.value.startsWith("http")
+        document.querySelectorAll('.amqp-dest-field').forEach(e => {
+          e.classList.toggle('hide', is_http)
+        })
       })
 
       document.querySelector('#createShovel').addEventListener('submit', function (evt) {
