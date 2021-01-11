@@ -37,6 +37,8 @@ module AvalancheMQ
       @q : NamedTuple(queue_name: String, message_count: UInt32, consumer_count: UInt32)?
       @last_unacked : UInt64?
 
+      getter :delete_after
+
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
           @exchange_key : String? = nil,
           @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
@@ -252,11 +254,8 @@ module AvalancheMQ
           sleep @reconnect_delay.seconds
         end
       ensure
-        @log.info { "stopping..." }
-        @source.stop
-        @destination.stop
-        @log.info { "stopped..." }
-        @state = State::Terminated
+        terminate
+        @vhost.delete_parameter("shovel", @name) if @source.delete_after
       end
 
       def details_tuple
@@ -272,15 +271,17 @@ module AvalancheMQ
       # Does not trigger reconnect, but a graceful close
       def terminate
         return if terminated?
+        @log.info { "stopping..." }
         @source.stop
         @destination.stop
+        @log.info { "stopped" }
         @state = State::Terminated
-        @log.info { "Terminated" }
+        @log.info { "terminated" }
       end
 
       def delete
         terminate
-        @vhost.delete_parameter("shovel", @name)
+
       end
 
       def terminated?
