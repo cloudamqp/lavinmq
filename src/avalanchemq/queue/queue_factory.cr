@@ -30,11 +30,11 @@ module AvalancheMQ
 
     private def self.prio_queue?(frame)
       if value = frame.arguments["x-max-priority"]?
-        p_value = value.as?(Int)
-        raise Error::PreconditionFailed.new("x-max-priority must be an int32") unless p_value
-        ok = p_value >= 0 && p_value <= 255
-        raise Error::PreconditionFailed.new("x-max-priority must be between 0 and 255") unless ok
-        ok
+        p_value = value.as?(Int) || raise Error::PreconditionFailed.new("x-max-priority must be an int")
+        unless p_value >= 0 && p_value <= 255
+          raise Error::PreconditionFailed.new("x-max-priority must be between 0 and 255")
+        end
+        true
       end
     end
   end
