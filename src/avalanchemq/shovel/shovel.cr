@@ -90,6 +90,7 @@ module AvalancheMQ
         ch.basic_consume(q[:queue_name],
                          no_ack: !should_ack,
                          block: true,
+                         exclusive: true,
                          tag: tag) do |msg|
           blk.call(msg)
 
