@@ -201,13 +201,7 @@ module AvalancheMQ
         users.as_a.each do |u|
           name = u["name"].as_s
           pass_hash = u["password_hash"].as_s
-          hash_algo =
-            case u["hashing_algorithm"]?.try(&.as_s) || nil
-            when /sha512$/   then "SHA512"
-            when /sha256$/   then "SHA256"
-            when /^bcrypt$/i then "Bcrypt"
-            else                  "MD5"
-            end
+          hash_algo = u["hashing_algorithm"]?.try(&.as_s)
           tags = u["tags"]?.try(&.as_s).to_s.split(",").map { |t| Tag.parse?(t) }.compact
           @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
         end

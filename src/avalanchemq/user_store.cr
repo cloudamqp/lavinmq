@@ -36,7 +36,7 @@ module AvalancheMQ
       if user = @users[name]?
         return user
       end
-      user = User.create(name, password, "Bcrypt", tags)
+      user = User.create(name, password, "SHA256", tags)
       @users[name] = user
       @log.info { "user=#{name} Created" }
       save! if save
