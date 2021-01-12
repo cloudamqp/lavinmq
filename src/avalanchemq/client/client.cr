@@ -141,7 +141,11 @@ module AvalancheMQ
           send_precondition_failed(frame, e.message)
         end
       rescue IO::TimeoutError
-        send_heartbeat || break
+        unless send_heartbeat
+          cleanup
+          close_socket
+          break
+        end
       rescue ex : AMQP::Error::NotImplemented
         @log.error { ex.inspect }
         send_not_implemented(ex)
@@ -151,6 +155,8 @@ module AvalancheMQ
         return
       rescue ex : IO::Error | OpenSSL::SSL::Error
         @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+        cleanup
+        close_socket
         return
       rescue ex : Exception
         @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
@@ -158,8 +164,6 @@ module AvalancheMQ
         return
       end
     ensure
-      cleanup
-      close_socket
       @log.info "Connection (#{@name}) disconnected for user=#{@user.name} "
     end
 
@@ -195,14 +199,11 @@ module AvalancheMQ
       end
       @last_sent_frame = RoughTime.utc
       @send_oct_count += 8_u64 + frame.bytesize
-      case frame
-      when AMQP::Frame::Connection::CloseOk
+      if frame.is_a?(AMQP::Frame::Connection::CloseOk)
         @log.debug "Disconnected"
         cleanup
         close_socket
         return false
-      when AMQP::Frame::Connection::Close
-        cleanup
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
