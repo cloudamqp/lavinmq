@@ -8,17 +8,12 @@ require "option_parser"
 class AvalancheMQCtl
   @@cfg = AvalancheMQ::Config.instance
   @options = {} of String => String
+  @args  = {} of String => JSON::Any
   @cmd : String?
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
   @http : HTTP::Client?
   @socket : UNIXSocket?
-
-  # Subcommands
-  REMOVE        = "remove"
-  CREATE        = "create"
-  LIST          = "list"
-  ENTITIES = %w[queues exchanges vhosts policies users]
 
   COMPAT_CMDS = {
     {"add_user",                "Creates a new user", "<username> <password>"},
@@ -36,44 +31,21 @@ class AvalancheMQCtl
     {"purge_queue",             "Purges a queue (removes all messages in it)", "<queue>"},
     {"pause_queue",             "Pause all consumers on a queue", "<queue>"},
     {"resume_queue",            "Resume all consumers on a queue", "<queue>"},
+    {"delete_queue",            "Delete queue", "<queue>"},
     {"export_definitions",      "Exports definitions in JSON", ""},
     {"import_definitions",      "Import definitions in JSON", "<file>"},
     {"close_all_connections",   "Instructs the broker to close all connections for the specified vhost or entire node", "<reason>"},
     {"close_connection",        "Instructs the broker to close a connection by pid", "<pid> <reason>"},
     {"stop_app",                "Stop the AMQP broker", ""},
     {"start_app",               "Starts the AMQP broker", ""},
-    # {auth_user,               "Attempts to authenticate a user. Exits with a non-zero code if authentication fails.", "<username> <password>"},
-    # {"clear_permissions",     "Revokes user permissions for a vhost", ""},
-    # {"list_permissions",      "Lists user permissions in a virtual host", ""},
-    # {"list_user_permissions", "Lists permissions of a user across all virtual hosts", ""},
-    # {"set_permissions",       "Sets user permissions for a vhost", ""},
-    # {"list_bindings",         "Lists all bindings on a vhost", ""},
-    # {"list_channels",         "Lists all channels in the node", ""},
-    # {"list_ciphers",          "Lists cipher suites supported by encoding commands", ""},
-    # {"list_consumers",        "Lists all consumers for a vhost", ""},
-    # {"list_exchanges",        "Lists exchanges", ""},
-    # {"list_hashes",           "Lists hash functions supported by encoding commands", ""},
-    # {"clear_parameter",       "Clears a runtime parameter.", ""},
-    # {"list_parameters",       "Lists runtime parameters for a virtual host", ""},
-    # {"set_parameter",         "Sets a runtime parameter.", ""},
-  }
 
+    {"list_exchanges",          "Lists exchanges", ""},
+    {"delete_exchange",         "Delete exchange", "<name>"},
+  }
 
   def initialize
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
     global_options
-    @parser.on(CREATE, "Create entity (#{ENTITIES.join(", ")}), data is json") do
-      @cmd = CREATE
-      self.banner = "Usage: #{PROGRAM_NAME} #{CREATE} <data.json>"
-    end
-    @parser.on(REMOVE, "Remove entity (#{ENTITIES.join(", ")})") do
-      @cmd = REMOVE
-      self.banner = "Usage: #{PROGRAM_NAME} #{REMOVE} <entity> <name>"
-    end
-    @parser.on(LIST, "List entity (#{ENTITIES.join(", ")})") do
-      @cmd = LIST
-      self.banner = "Usage: #{PROGRAM_NAME} #{LIST} <entity> [name]"
-    end
     COMPAT_CMDS.each do |cmd|
       @parser.on(cmd[0], cmd[1]) do
         @cmd = cmd[0]
@@ -88,6 +60,62 @@ class AvalancheMQCtl
       end
       @parser.on("--apply-to=apply-to", "Apply-to") do |v|
         @options["apply-to"] = v
+      end
+    end
+    @parser.on("create_queue", "Create queue") do
+      @cmd = "create_queue"
+      self.banner = "Usage: #{PROGRAM_NAME} create_queue <name>"
+      @parser.on("--auto-delete", "Auto delete queue when last consumer is removed") do
+        @options["auto_delete"] = "true"
+      end
+      @parser.on("--durable", "Make the queue durable") do
+        @options["durable"] = "true"
+      end
+      @parser.on("--expires", "") do |v|
+        @args["x-expires"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--max-length", "Set a max length for the queue") do |v|
+        @args["x-max-length"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--message-ttl", "Message time to live") do |v|
+        @args["x-message-ttl"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--delivery-limit", "How many time a message will be delivered before dead lettered") do |v|
+        @args["x-delivery-limit"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped") do
+        @args["x-overflow"] = JSON::Any.new("reject-publish")
+      end
+      @parser.on("--dead-letter-exchange", "To which exchange to dead letter messages") do |v|
+        @args["x-dead-letter-exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--dead-letter-routing-key", "Which routing key to use when dead lettering") do |v|
+        @args["x-dead-letter-routing-key"] = JSON::Any.new(v)
+      end
+    end
+    @parser.on("create_exchange", "Create exchange") do
+      @cmd = "create_exchange"
+      self.banner = "Usage: #{PROGRAM_NAME} create_exchange <type> <name>"
+      @parser.on("--auto-delete", "Auto delete exchange") do
+        @options["auto_delete"] = "true"
+      end
+      @parser.on("--durable", "Make the exchange durable") do
+        @options["durable"] = "true"
+      end
+      @parser.on("--internal", "Make the exchange internal") do
+        @options["durable"] = "true"
+      end
+      @parser.on("--delayed", "Make the exchange delayed") do
+        @options["delayed"] = "true"
+      end
+      @parser.on("--alternate-exchange", "Exchange to route all unroutable messages to") do |v|
+        @args["x-alternate-exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--persist-messages", "Number of messages to persist in the exchange") do |v|
+        @args["x-persist-messages"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--persist-ms", "Persist messages in the exchange for this amount of time") do |v|
+        @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
     @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
@@ -106,9 +134,8 @@ class AvalancheMQCtl
   def run_cmd
     @parser.parse
     case @cmd
-    when REMOVE then remove
-    when CREATE then create
-    when LIST then list
+    when "create_queue" then create_queue
+    when "delete_queue" then delete_queue
     when "import_definitions" then import_definitions
     when "export_definitions" then export_definitions
     when "set_user_tags" then set_user_tags
@@ -127,6 +154,9 @@ class AvalancheMQCtl
     when "list_connections" then list_connections
     when "close_connection" then close_connection
     when "close_all_connections" then close_all_connections
+    when "list_exchanges" then list_exchanges
+    when "create_exchange" then create_exchange
+    when "delete_exchange" then delete_exchange
     when "stop_app" then
     when "start_app" then
     else
@@ -183,15 +213,24 @@ class AvalancheMQCtl
     entity
   end
 
-  private def handle_response(resp, ok = 200)
-    if resp.status_code == ok
+  private def handle_response(resp, *ok)
+    if ok.includes? resp.status_code
       exit 0
     else
       case resp.status_code
       when 404
         puts "Not found"
       else
-        puts "Command failed: #{resp.body}"
+        case resp.headers["Content-type"]?
+        when "application/json"
+          begin
+            body = JSON.parse(resp.body)
+            puts body["reason"]?
+          rescue e : JSON::ParseException # Body can be empty
+          end
+        else
+          puts resp.body
+        end
       end
       exit 1
     end
@@ -228,8 +267,8 @@ class AvalancheMQCtl
   private def list_users
     resp = http.get "/api/users", @headers
     return resp.body.to_s unless resp.status_code == 200
-    puts "Listing users ..."
-    columns = %w[user tags]
+    puts "Listing users ..." unless quiet?
+    columns = %w[name tags]
     puts columns.join("\t")
     if users = JSON.parse(resp.body).as_a?
       users.each do |u|
@@ -244,7 +283,7 @@ class AvalancheMQCtl
     password = ARGV.shift?
     abort @banner unless username && password
     resp = http.put "/api/users/#{username}", @headers, { password: password }.to_json
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def delete_user
@@ -273,7 +312,7 @@ class AvalancheMQCtl
   private def list_queues
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing queues for vhost #{vhost} ..."
+    puts "Listing queues for vhost #{vhost} ..." unless quiet?
     return resp.body.to_s unless resp.status_code == 200
     return unless queues = JSON.parse(resp.body).as_a?
     puts "name\tmessages"
@@ -380,7 +419,7 @@ class AvalancheMQCtl
   private def list_policies
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing policies for vhost #{vhost} ..."
+    puts "Listing policies for vhost #{vhost} ..." unless quiet?
     return resp.body.to_s unless resp.status_code == 200
     return unless policies = JSON.parse(resp.body).as_a?
     puts "vhost\tname\tpattern\tapply-to\tdefinition\tpriority"
@@ -406,39 +445,71 @@ class AvalancheMQCtl
     handle_response(resp, 204)
   end
 
-  private def remove
+  private def create_queue
     name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
     abort @banner unless name
-    entity = entity_arg
-    resp = http.delete "/api/#{entity}", @headers,
-      {name: name.to_s, vhost: @options["vhost"]?}.to_json
-    handle_response(resp)
+    url = "/api/queues/#{URI.encode_www_form(vhost)}/#{name}"
+    body = {
+      "auto_delete": @options.has_key?("auto_delete"),
+      "durable": @options.has_key?("durable"),
+      "arguments": @args
+    }
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
   end
 
-  private def create
+  private def delete_queue
     name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
     abort @banner unless name
-    entity = entity_arg
-    resp = http.post "/api/#{entity}", @headers,
-      {name: name.to_s, vhost: @options["vhost"]?}.to_json
-    handle_response(resp)
+    url = "/api/queues/#{URI.encode_www_form(vhost)}/#{name}"
+    resp = http.delete url
+    handle_response(resp, 204)
   end
 
-  private def list
-    name = ARGV.size == 2 ? ARGV.shift : nil
-    entity = entity_arg
-    url = "/api/#{entity}"
-    url += "/#{url_encoded_vhost}" if @options["vhost"]?
-    url += "/#{name}" if name
-    resp = http.get url
-    puts "GET #{url} status=#{resp.status}"
-    unless resp.status_code == 200
-      puts resp.body
-      exit 1
+  private def list_exchanges
+    vhost = @options["vhost"]? || "/"
+    resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
+    puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
+    return resp.body.to_s unless resp.status_code == 200
+    columns = %w[name type]
+    puts columns.join("\t")
+    if exchanges = JSON.parse(resp.body).as_a?
+      exchanges.each do |e|
+        next unless ex = e.as_h?
+        columns.each { |c| print ex[c]; print "\t" }
+      end
     end
-    JSON.parse(resp.body).to_pretty_json(STDOUT)
-    exit 0
   end
+
+  private def create_exchange
+    etype = ARGV.shift?
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name && etype
+    url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{name}"
+    body = {
+      "type": etype,
+      "auto_delete": @options.has_key?("auto_delete"),
+      "durable": @options.has_key?("durable"),
+      "internal": @options.has_key?("internal"),
+      "delayed": @options.has_key?("delayed"),
+      "arguments": @args
+    }
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_exchange
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{name}"
+    resp = http.delete url
+    handle_response(resp, 204)
+  end
+
 end
 
 cli = AvalancheMQCtl.new
