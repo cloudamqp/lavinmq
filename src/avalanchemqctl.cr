@@ -480,7 +480,7 @@ class AvalancheMQCtl
     if exchanges = JSON.parse(resp.body).as_a?
       exchanges.each do |e|
         next unless ex = e.as_h?
-        puts columns.map { |c| ex[c] }.join("\t")
+        columns.each { |c| print ex[c]; print "\t" }
       end
     end
   end
