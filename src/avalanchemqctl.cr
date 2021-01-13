@@ -75,7 +75,6 @@ class AvalancheMQCtl
         @args["x-expires"] = JSON::Any.new(v.to_i64)
       end
       @parser.on("--max-length", "Set a max length for the queue") do |v|
-        puts v
         @args["x-max-length"] = JSON::Any.new(v.to_i64)
       end
       @parser.on("--message-ttl", "Message time to live") do |v|
@@ -268,7 +267,7 @@ class AvalancheMQCtl
   private def list_users
     resp = http.get "/api/users", @headers
     return resp.body.to_s unless resp.status_code == 200
-    puts "Listing users ..."
+    puts "Listing users ..." unless quiet?
     columns = %w[name tags]
     puts columns.join("\t")
     if users = JSON.parse(resp.body).as_a?
@@ -313,7 +312,7 @@ class AvalancheMQCtl
   private def list_queues
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing queues for vhost #{vhost} ..."
+    puts "Listing queues for vhost #{vhost} ..." unless quiet?
     return resp.body.to_s unless resp.status_code == 200
     return unless queues = JSON.parse(resp.body).as_a?
     puts "name\tmessages"
@@ -420,7 +419,7 @@ class AvalancheMQCtl
   private def list_policies
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing policies for vhost #{vhost} ..."
+    puts "Listing policies for vhost #{vhost} ..." unless quiet?
     return resp.body.to_s unless resp.status_code == 200
     return unless policies = JSON.parse(resp.body).as_a?
     puts "vhost\tname\tpattern\tapply-to\tdefinition\tpriority"
@@ -472,8 +471,7 @@ class AvalancheMQCtl
   private def list_exchanges
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing exchanges for vhost #{vhost} ..."
-    puts resp.body
+    puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
     return resp.body.to_s unless resp.status_code == 200
     columns = %w[name type]
     puts columns.join("\t")
