@@ -125,7 +125,8 @@
         <h3>Add a binding to this queue</h3>
         <label>
           <span>From exchange</span>
-          <input name="source" type="text" required>
+          <input name="source" type="text" required list="exchange-list">
+          <datalist id="exchange-list"></datalist>
         </label>
         <label>
           <span>Routing key</span>
@@ -195,7 +196,9 @@
         <h3>Move messages</h3>
         <label>
           <span>Destination queue</span>
-          <input type="text" name="shovel-destination">
+          <input type="text" name="shovel-destination" list="queue-list">
+          <datalist id="queue-list">
+          </datalist>
         </label>
         <button type="submit" class="btn-primary">Move messages</button>
       </form>
@@ -555,6 +558,9 @@
             .catch(avalanchemq.http.standardErrorHandler)
         }
       })
+
+      avalanchemq.helpers.autoCompleteDatalist("exchange-list", 'exchanges')
+      avalanchemq.helpers.autoCompleteDatalist("queue-list", 'queues')
     </script>
   </body>
 

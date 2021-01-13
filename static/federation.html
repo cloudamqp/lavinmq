@@ -13,6 +13,7 @@
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/helpers.js"></script>
   </head>
   <body>
     <header>
@@ -106,7 +107,8 @@
           <legend>Federated exchange parameters</legend>
           <label>
             <span>Exchange</span>
-            <input type="text" name="exchange">
+            <input type="text" name="exchange" list="exchange-datalist">
+            <datalist id="exchange-datalist"></datalist>
           </label>
           <!-- <label>
             <span>Max hops</span>
@@ -125,7 +127,8 @@
           <legend>Federated queue parameters</legend>
           <label>
             <span>Queue</span>
-            <input type="text" name="queue">
+            <input type="text" name="queue" list="queue-datalist">
+            <datalist id="queue-datalist"></datalist>
           </label>
           <label>
             <span>Consumer tag</span>
@@ -220,6 +223,8 @@
             evt.target.reset()
           }).catch(avalanchemq.http.standardErrorHandler)
       })
+      avalanchemq.helpers.autoCompleteDatalist("queue-datalist", "queues")
+      avalanchemq.helpers.autoCompleteDatalist("exchange-datalist", "exchanges")
     </script>
   </body>
 </html>

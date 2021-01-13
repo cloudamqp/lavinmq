@@ -13,6 +13,7 @@
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
     <script src="/js/auth.js"></script>
     <script src="/js/http.js"></script>
+    <script src="/js/helpers.js"></script>
   </head>
   <body>
     <header>
@@ -76,14 +77,15 @@
           </label>
           <label>
             <span>Type</span>
-            <select name="src-type" required>
+            <select name="src-type" required onchange="updateAutocomplete(this.value,'shovel-src-list')">
               <option value="queue">Queue</option>
               <option value="exchange">Exchange</option>
             </select>
           </label>
           <label>
             <span>Endpoint</span>
-            <input type="text" name="src-endpoint" required>
+            <input type="text" name="src-endpoint" required list="shovel-src-list">
+            <datalist id="shovel-src-list"></datalist>
           </label>
           <label id="srcRoutingKey" class="hide">
             <span>Routing key</span>
@@ -109,14 +111,15 @@
           </label>
           <label class="amqp-dest-field">
             <span>Type</span>
-            <select name="dest-type" required>
+            <select name="dest-type" required onchange="updateAutocomplete(this.value,'shovel-dest-list')">
               <option value="queue">Queue</option>
               <option value="exchange">Exchange</option>
             </select>
           </label>
           <label class="amqp-dest-field">
             <span>Endpoint</span>
-            <input type="text" name="dest-endpoint">
+            <input type="text" name="dest-endpoint" list="shovel-dest-list">
+            <datalist id="shovel-dest-list"></datalist>
           </label>
         </fieldset>
         <label>
@@ -269,6 +272,13 @@
             avalanchemq.dom.toast('Shovel ' + name + ' created')
           }).catch(avalanchemq.http.standardErrorHandler)
       })
+
+      function updateAutocomplete(e, id) {
+        type = e === 'queue' ? 'queues' : 'exchanges'
+        avalanchemq.helpers.autoCompleteDatalist(id, type)
+      }
+      updateAutocomplete('queue',"shovel-src-list")
+      updateAutocomplete('queue',"shovel-dest-list")
     </script>
   </body>
 </html>

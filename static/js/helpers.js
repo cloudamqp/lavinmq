@@ -73,6 +73,25 @@
     }
   }
 
+  /**
+  * @param datalistID id of the datalist element linked to input
+  * @param type input content, accepts: queues, exchanges, vhosts, users
+  */
+  function autoCompleteDatalist(datalistID, type) {
+    avalanchemq.http.request('GET',`/api/${type}`).then(res => {
+      datalist = document.getElementById(datalistID);
+      while (datalist.firstChild) {
+        datalist.removeChild(datalist.lastChild);
+      }
+      values = res.map(val => val.name)
+      uniqValues = [...new Set(values)];
+      uniqValues.forEach(val => {
+        option = document.createElement("option")
+        option.value = val
+        datalist.appendChild(option)
+      });
+    })
+  }
 
   Object.assign(window.avalanchemq, {
     helpers: {
@@ -80,7 +99,8 @@
       nFormatter,
       duration,
       argumentHelper,
-      argumentHelperJSON
+      argumentHelperJSON,
+      autoCompleteDatalist
     }
   })
 })()
