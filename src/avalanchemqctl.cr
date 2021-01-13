@@ -84,7 +84,7 @@ class AvalancheMQCtl
       @parser.on("--delivery-limit", "How many time a message will be delivered before dead lettered") do |v|
         @args["x-delivery-limit"] = JSON::Any.new(v.to_i64)
       end
-      @parser.on("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped") do |v|
+      @parser.on("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped") do
         @args["x-overflow"] = JSON::Any.new("reject-publish")
       end
       @parser.on("--dead-letter-exchange", "To which exchange to dead letter messages") do |v|
