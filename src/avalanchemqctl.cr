@@ -229,7 +229,7 @@ class AvalancheMQCtl
     resp = http.get "/api/users", @headers
     return resp.body.to_s unless resp.status_code == 200
     puts "Listing users ..."
-    columns = %w[user tags]
+    columns = %w[name tags]
     puts columns.join("\t")
     if users = JSON.parse(resp.body).as_a?
       users.each do |u|
