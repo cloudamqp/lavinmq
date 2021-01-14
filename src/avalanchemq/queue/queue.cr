@@ -450,8 +450,20 @@ module AvalancheMQ
       return false if @state == QueueState::Closed
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
-      was_empty = @ready.push(sp) == 1
-      drop_overflow unless @consumers.any? &.accepts?
+
+      if @max_length == 0
+        if @consumers.none? &.accepts?
+          drop_overflow(sp)
+        else
+          was_empty = @ready.push(sp) == 1
+        end
+      else
+        if @consumers.none? &.accepts?
+          drop_overflow(sp)
+        end
+        was_empty = @ready.push(sp) == 1
+      end
+
       @publish_count += 1
       if was_empty
         message_available
@@ -482,16 +494,18 @@ module AvalancheMQ
       end
     end
 
-    private def drop_overflow : Nil
+    private def drop_overflow(new_sp : SegmentPosition? = nil) : Nil
       if ml = @max_length
-        @ready.limit_size(ml) do |sp|
+        length = ml - (new_sp.nil? ? 0 : 1)
+        @ready.limit_size(length) do |sp|
           @log.debug { "Overflow drop head sp=#{sp}" }
           expire_msg(sp, :maxlen)
         end
       end
 
       if mlb = @max_length_bytes
-        @ready.limit_byte_size(mlb) do |sp|
+        bytes = mlb - (new_sp.nil? ? 0 : new_sp.bytesize)
+        @ready.limit_byte_size(bytes) do |sp|
           @log.debug { "Overflow drop head sp=#{sp}" }
           expire_msg(sp, :maxlenbytes)
         end
