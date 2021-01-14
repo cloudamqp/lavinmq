@@ -152,6 +152,10 @@ describe AvalancheMQ::HTTP::Server do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
+      # Because we run shovels in a new Fiber we have to make sure the shovel is not started
+      # after this spec has finished
+      Fiber.yield # Start the shovel
+      wait_for { s.vhosts["/"].shovels.not_nil!.first.terminated? }
       s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
         .should be_true
     ensure
