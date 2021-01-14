@@ -8,7 +8,7 @@ module AvalancheMQ
     DEFAULT_ACK_MODE        = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER    = DeleteAfter::Never
     DEFAULT_PREFETCH        = 1000_u16
-    DEFAULT_RECONNECT_DELAY = 5
+    DEFAULT_RECONNECT_DELAY =        5
 
     enum State
       Starting
@@ -28,8 +28,7 @@ module AvalancheMQ
       NoAck
     end
 
-    class FailedDeliveryError <  Exception
-    end
+    class FailedDeliveryError < Exception; end
 
     class AMQPSource
       @conn : ::AMQP::Client::Connection?
@@ -37,11 +36,11 @@ module AvalancheMQ
       @q : NamedTuple(queue_name: String, message_count: UInt32, consumer_count: UInt32)?
       @last_unacked : UInt64?
 
-      getter :delete_after
+      getter delete_after
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-          @exchange_key : String? = nil,
-          @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
+                     @exchange_key : String? = nil,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
@@ -90,10 +89,10 @@ module AvalancheMQ
         return if limited && queue_length.zero?
         tag = "Shovel[#{@name}]"
         ch.basic_consume(q[:queue_name],
-                         no_ack: !should_ack,
-                         block: true,
-                         exclusive: true,
-                         tag: tag) do |msg|
+          no_ack: !should_ack,
+          block: true,
+          exclusive: true,
+          tag: tag) do |msg|
           blk.call(msg)
 
           # We batch ack for faster shovel
@@ -128,8 +127,8 @@ module AvalancheMQ
       @ch : ::AMQP::Client::Channel?
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-          @exchange_key : String? = nil,
-          @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
+                     @exchange_key : String? = nil,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
@@ -221,7 +220,7 @@ module AvalancheMQ
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
-          @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
+                     @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
         @log = @vhost.log.dup
         @log.progname += " shovel=#{@name}"
       end

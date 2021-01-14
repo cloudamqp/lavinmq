@@ -17,20 +17,19 @@ module ShovelSpecHelpers
 end
 
 describe AvalancheMQ::Shovel do
-
   describe "AMQP" do
     vhost = s.vhosts.create("x")
 
     it "should shovel and stop when queue length is met" do
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "ql_q1",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "ql_q2",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
       )
@@ -56,15 +55,11 @@ describe AvalancheMQ::Shovel do
     it "should shovel large messages" do
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "lm_q1",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
-        "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
-        "lm_q2"
-      )
+      dest = AvalancheMQ::Shovel::AMQPDestination.new("spec", URI.parse(AMQP_BASE_URL), "lm_q2")
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "lm_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
@@ -79,16 +74,8 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel forever" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
-        "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
-        "sf_q1"
-      )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
-        "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
-        "sf_q2"
-      )
+      source = AvalancheMQ::Shovel::AMQPSource.new("spec", URI.parse(AMQP_BASE_URL), "sf_q1")
+      dest = AvalancheMQ::Shovel::AMQPDestination.new("spec", URI.parse(AMQP_BASE_URL), "sf_q2")
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "sf_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
@@ -111,14 +98,14 @@ describe AvalancheMQ::Shovel do
       ack_mode = AvalancheMQ::Shovel::AckMode::OnPublish
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "ap_q1",
         prefetch: 1_u16,
         ack_mode: ack_mode
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "ap_q2",
         ack_mode: ack_mode
       )
@@ -140,13 +127,13 @@ describe AvalancheMQ::Shovel do
       ack_mode = AvalancheMQ::Shovel::AckMode::NoAck
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "na_q1",
         ack_mode: ack_mode
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "na_q2",
         ack_mode: ack_mode
       )
@@ -167,14 +154,14 @@ describe AvalancheMQ::Shovel do
     it "should shovel past prefetch" do
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "prefetch_q1",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
         prefetch: 21_u16
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "prefetch_q2",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
         prefetch: 21_u16
@@ -199,12 +186,12 @@ describe AvalancheMQ::Shovel do
     it "should shovel once qs are declared" do
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "od_q1"
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "od_q2"
       )
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "od_shovel", vhost)
@@ -223,11 +210,11 @@ describe AvalancheMQ::Shovel do
 
     it "should reconnect and continue" do
       config = %({
-"src-uri": "#{AMQP_BASE_URL}",
-"src-queue": "rc_q1",
-"dest-uri": "#{AMQP_BASE_URL}",
-"dest-queue": "rc_q2",
-"src-prefetch-count": 2})
+        "src-uri": "#{AMQP_BASE_URL}",
+        "src-queue": "rc_q1",
+        "dest-uri": "#{AMQP_BASE_URL}",
+        "dest-queue": "rc_q2",
+        "src-prefetch-count": 2})
       p = AvalancheMQ::Parameter.new("shovel", "rc_shovel", JSON.parse(config))
       s.vhosts["/"].add_parameter(p)
       with_channel do |ch|
@@ -287,13 +274,13 @@ describe AvalancheMQ::Shovel do
       prefetch = 9_u16
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "prefetch2_q1",
         prefetch: prefetch
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "prefetch2_q2",
         prefetch: prefetch
       )
@@ -315,7 +302,6 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.cleanup("prefetch2_")
       shovel.try &.delete
     end
-
 
     describe "authentication error" do
       it "should be stopped until terminated" do
@@ -343,12 +329,12 @@ describe AvalancheMQ::Shovel do
     it "should count messages shoveled" do
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "c_q1"
       )
       dest = AvalancheMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "c_q2"
       )
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "c_shovel", vhost)
@@ -366,13 +352,11 @@ describe AvalancheMQ::Shovel do
       ShovelSpecHelpers.cleanup "c_"
       shovel.try &.delete
     end
-
-
   end
 
   describe "HTTP" do
     it "should shovel" do
-      ## Setup HTTP server
+      # # Setup HTTP server
       http_port = 16778
       h = Hash(String, String).new
       body = "<no body>"
@@ -391,10 +375,10 @@ describe AvalancheMQ::Shovel do
       spawn { server.not_nil!.listen }
 
       vhost = s.vhosts.create("x")
-      ## Setup shovel source and destination
+      # # Setup shovel source and destination
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "ql_q1",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
       )
@@ -416,8 +400,8 @@ describe AvalancheMQ::Shovel do
         # Check that we have sent one message successfully
         path.should eq "/pp"
         h["User-Agent"].should eq "AvalancheMQ"
-        h["Content-Type"].should eq  "text/plain"
-        h["Authorization"].should eq  "Basic YTpi" # base64 encoded "a:b"
+        h["Content-Type"].should eq "text/plain"
+        h["Authorization"].should eq "Basic YTpi" # base64 encoded "a:b"
         h["X-a"].should eq "b"
         body.should eq "shovel me"
 
@@ -430,7 +414,7 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should set path for URI from headers" do
-      ## Setup HTTP server
+      # # Setup HTTP server
       http_port = 16778
       path = "<no path>"
       server = HTTP::Server.new do |context|
@@ -443,10 +427,10 @@ describe AvalancheMQ::Shovel do
       spawn { server.not_nil!.listen }
 
       vhost = s.vhosts.create("x")
-      ## Setup shovel source and destination
+      # # Setup shovel source and destination
       source = AvalancheMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQP_BASE_URL}"),
+        URI.parse(AMQP_BASE_URL),
         "ql_q1",
         delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
       )
