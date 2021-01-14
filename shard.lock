@@ -2,11 +2,11 @@ version: 2.0
 shards:
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 0.13.2
+    version: 0.13.3
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
-    version: 0.3.20
+    version: 0.3.21
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
