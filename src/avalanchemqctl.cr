@@ -252,7 +252,7 @@ class AvalancheMQCtl
              STDERR.puts "ERROR: File not found"
              abort @banner
            end
-    handle_response(resp)
+    handle_response(resp, 200)
   end
 
   private def export_definitions
@@ -260,7 +260,7 @@ class AvalancheMQCtl
     if resp.status_code == 200
       print resp.body
     else
-      handle_response(resp)
+      handle_response(resp, 200)
     end
   end
 
