@@ -55,11 +55,11 @@ module AvalancheMQ
         Shovel::HTTPDestination.new(name, uri)
       else
         Shovel::AMQPDestination.new(name, uri,
-                                    config["dest-queue"]?.try &.as_s?,
-                                    config["dest-exchange"]?.try &.as_s?,
-                                    config["dest-exchange-key"]?.try &.as_s?,
-                                    delete_after: delete_after,
-                                    prefetch: prefetch)
+          config["dest-queue"]?.try &.as_s?,
+          config["dest-exchange"]?.try &.as_s?,
+          config["dest-exchange-key"]?.try &.as_s?,
+          delete_after: delete_after,
+          prefetch: prefetch)
       end
     end
   end
