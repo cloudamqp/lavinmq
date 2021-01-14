@@ -35,6 +35,7 @@ module AvalancheMQ
       @ch : ::AMQP::Client::Channel?
       @q : NamedTuple(queue_name: String, message_count: UInt32, consumer_count: UInt32)?
       @last_unacked : UInt64?
+      @conn_lock = Mutex.new(:unchecked)
 
       getter delete_after
 
@@ -48,39 +49,52 @@ module AvalancheMQ
           @uri.user = direct_user.name
           @uri.password = direct_user.plain_text_password
         end
+        params = @uri.query_params
+        params["name"] = "Shovel #{@name}"
+        @uri.query = params.to_s
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
         end
       end
 
       def start
-        @conn = conn = ::AMQP::Client.new(@uri).connect
-        @ch = ch = conn.channel
-        ch.prefetch @prefetch
-        q_name = @queue || ""
-        @q = q = begin
-              ch.queue_declare(q_name, passive: true)
-            rescue ::AMQP::Client::Channel::ClosedException
-              ch = conn.channel
-              ch.queue_declare(q_name, passive: false)
-            end
-        if @exchange || @exchange_key
-          ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
+        @conn_lock.synchronize do
+          @conn = conn = ::AMQP::Client.new(@uri).connect
+          @ch = ch = conn.channel
+          ch.prefetch @prefetch
+          q_name = @queue || ""
+          @q = q = begin
+            ch.queue_declare(q_name, passive: true)
+          rescue ::AMQP::Client::Channel::ClosedException
+            ch = conn.channel
+            ch.queue_declare(q_name, passive: false)
+          end
+          if @exchange || @exchange_key
+            ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
+          end
+          "#{@name} #{object_id} source started"
         end
       end
 
       def stop
-        # If we have any outstanding messages when closing, ack them first.
-        @ch.try do |ch|
-          # Might end up with channel closed
-          next if ch.closed?
-          @last_unacked.try { |t| ch.basic_ack(t, multiple: true) }
+        @conn_lock.synchronize do
+          # If we have any outstanding messages when closing, ack them first.
+          @ch.try do |ch|
+            # Might end up with channel closed
+            next if ch.closed?
+            @last_unacked.try { |t| ch.basic_ack(t, multiple: true) }
+          end
+          @conn.try &.close(no_wait: false)
+          "#{@name} #{object_id} source stopped"
         end
-        @conn.try &.close
+      end
+
+      def started? : Bool
+        !@q.nil?
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
-        raise "Not started" unless @q
+        return unless started?
         q = @q.not_nil!
         ch = @ch.not_nil!
         queue_length = q[:message_count]
@@ -109,8 +123,6 @@ module AvalancheMQ
         rescue e : FailedDeliveryError
           msg.reject
         end
-      ensure
-        ch.try &.close
       end
     end
 
@@ -120,11 +132,14 @@ module AvalancheMQ
       abstract def stop
 
       abstract def push(msg)
+
+      abstract def started? : Bool
     end
 
     class AMQPDestination < Destination
       @conn : ::AMQP::Client::Connection?
       @ch : ::AMQP::Client::Channel?
+      @conn_lock = Mutex.new(:unchecked)
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
@@ -136,6 +151,9 @@ module AvalancheMQ
           @uri.user = direct_user.name
           @uri.password = direct_user.plain_text_password
         end
+        params = @uri.query_params
+        params["name"] = "Shovel #{@name}"
+        @uri.query = params.to_s
         if queue
           @exchange = ""
           @exchange_key = queue
@@ -146,17 +164,27 @@ module AvalancheMQ
       end
 
       def start
-        conn = ::AMQP::Client.new(@uri).connect
-        @conn = conn
-        @ch = conn.channel
+        @conn_lock.synchronize do
+          conn = ::AMQP::Client.new(@uri).connect
+          @conn = conn
+          @ch = conn.channel
+          "#{@name} #{object_id} destination started"
+        end
       end
 
       def stop
-        @conn.try &.close
+        @conn_lock.synchronize do
+          @conn.try &.close(no_wait: false)
+          "#{@name} #{object_id} destination stopped"
+        end
+      end
+
+      def started? : Bool
+        !@ch.nil?
       end
 
       def push(msg)
-        raise "Not started" if @ch.nil?
+        return unless started?
         ch = @ch.not_nil!
         ch.confirm_select if @ack_mode == AckMode::OnConfirm
         msgid = ch.basic_publish(
@@ -169,24 +197,33 @@ module AvalancheMQ
 
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
+      @conn_lock = Mutex.new(:unchecked)
 
       def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE)
       end
 
       def start
-        client = ::HTTP::Client.new @uri
-        client.connect_timeout = 10
-        client.read_timeout = 30
-        client.basic_auth(@uri.user, @uri.password || "") if @uri.user
-        @client = client
+        @conn_lock.synchronize do
+          client = ::HTTP::Client.new @uri
+          client.connect_timeout = 10
+          client.read_timeout = 30
+          client.basic_auth(@uri.user, @uri.password || "") if @uri.user
+          @client = client
+        end
       end
 
       def stop
-        @client.try &.close
+        @conn_lock.synchronize do
+          @client.try &.close
+        end
+      end
+
+      def started? : Bool
+        !@client.nil?
       end
 
       def push(msg)
-        raise "Not started" unless @client
+        return unless started?
         c = @client.not_nil!
         headers = ::HTTP::Headers{"User-Agent" => "AvalancheMQ"}
         headers["X-Shovel"] = @name
@@ -213,7 +250,7 @@ module AvalancheMQ
     class Runner
       include SortableJSON
       @log : Logger
-      @state = State::Terminated
+      @state = State::Starting
       @error : String?
       @message_count : UInt64 = 0
 
@@ -230,61 +267,70 @@ module AvalancheMQ
       end
 
       def run
+        return unless @state == State::Starting
         loop do
+          return if terminated?
           @state = State::Starting
-          @log.info { "starting..." }
-          @source.start
-          @destination.start
-          @log.info { "started..." }
+          @source.start unless @source.started?
+          @destination.start unless @destination.started?
+          @log.info { "started" }
           @state = State::Running
           @source.each do |msg|
             @message_count += 1
             @destination.push(msg)
           end
-          break
-        rescue ex : ::AMQP::Client::Connection::ClosedException
-          @log.error { ex.message }
-          @error = ex.message
+          @vhost.delete_parameter("shovel", @name) if @source.delete_after == DeleteAfter::QueueLength
+          return
+        rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
+          return if terminated?
           @state = State::Stopped
-          sleep
+          # Shoveled queue was deleted
+          if ex.message.to_s.starts_with?("404")
+            return
+          end
+          @log.error ex.message
+          @error = ex.message
+          sleep @reconnect_delay.seconds
         rescue ex
-          @log.error { ex.message }
+          return if terminated?
+          @state = State::Stopped
+          @log.error ex.inspect_with_backtrace
           @error = ex.message
           sleep @reconnect_delay.seconds
         end
       ensure
         terminate
-        @vhost.delete_parameter("shovel", @name) if @source.delete_after
       end
 
       def details_tuple
         {
-          name:  @name,
-          vhost: @vhost.name,
-          state: @state.to_s,
-          error: @error,
-          message_count: @message_count
+          name:          @name,
+          vhost:         @vhost.name,
+          state:         @state.to_s,
+          error:         @error,
+          message_count: @message_count,
         }
       end
 
       # Does not trigger reconnect, but a graceful close
       def terminate
         return if terminated?
-        @log.info { "stopping..." }
+        @state = State::Terminated
         @source.stop
         @destination.stop
-        @log.info { "stopped" }
-        @state = State::Terminated
         @log.info { "terminated" }
       end
 
       def delete
         terminate
-
       end
 
       def terminated?
         @state == State::Terminated
+      end
+
+      def running?
+        @state == State::Running
       end
     end
   end

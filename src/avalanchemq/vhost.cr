@@ -417,6 +417,7 @@ module AvalancheMQ
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
     def add_parameter(p : Parameter)
+      @log.debug { "Add parameter #{p.name}" }
       @parameters.delete(p.name)
       @parameters.create(p)
       apply_parameters(p)
@@ -424,6 +425,7 @@ module AvalancheMQ
     end
 
     def delete_parameter(component_name, parameter_name)
+      @log.debug { "Delete parameter #{parameter_name}" }
       @parameters.delete({component_name, parameter_name})
       case component_name
       when SHOVEL
@@ -479,6 +481,10 @@ module AvalancheMQ
       close
       Fiber.yield
       FileUtils.rm_rf @data_dir
+    end
+
+    def consumers
+      @connections.flat_map { |conn| conn.channels.each_value.flat_map &.consumers }
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)

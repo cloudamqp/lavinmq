@@ -39,12 +39,12 @@ describe AvalancheMQ::Shovel do
         x.publish "shovel me 1", "ql_q1"
         x.publish "shovel me 2", "ql_q1"
         shovel.run
-        sleep 1
+        sleep 10.milliseconds
         x.publish "shovel me 3", "ql_q1"
-        sleep 1
-        q2.get(no_ack: true).try { |m| m.body_io.to_s}.should eq "shovel me 1"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s}.should eq "shovel me 2"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s}.should be_nil
+        sleep 10.milliseconds
+        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 1"
+        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 2"
+        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should be_nil
         s.vhosts["/"].shovels.not_nil!.empty?.should be_true
       end
     ensure
@@ -65,7 +65,7 @@ describe AvalancheMQ::Shovel do
         x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
         x.publish_confirm "a" * 200_000, "lm_q1"
         shovel.run
-        sleep 1
+        sleep 10.milliseconds
         q2.get(no_ack: true).not_nil!.body_io.to_s.bytesize.should eq 200_000
       end
     ensure
@@ -79,19 +79,20 @@ describe AvalancheMQ::Shovel do
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "sf_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
+        x.publish "shovel me 1", "sf_q1"
+        x.publish "shovel me 2", "sf_q1"
         spawn { shovel.not_nil!.run }
-        x.publish_confirm "shovel me", "sf_q1"
-        rmsg = 10.times do
-          msg = q2.get(no_ack: true)
-          break msg if msg
-          sleep 0.1
-        end
-        rmsg.not_nil!.body_io.to_s.should eq "shovel me"
+        wait_for { shovel.not_nil!.running? }
+        sleep 0.1
+        x.publish "shovel me 3", "sf_q1"
+        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 1"
+        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 2"
+        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 3"
+        shovel.not_nil!.running?.should be_true
       end
-      shovel.not_nil!.state.should eq "Running"
     ensure
       ShovelSpecHelpers.cleanup "sf_"
-      shovel.try &.delete
+      shovel.not_nil!.delete
     end
 
     it "should shovel with ack mode on-publish" do
@@ -221,20 +222,20 @@ describe AvalancheMQ::Shovel do
         q1 = ch.queue("rc_q1", durable: true)
         ch.queue("rc_q2", durable: true)
         props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
-        q1.publish_confirm "shovel me", props: props
+        q1.publish_confirm "shovel me 1", props: props
       end
       close_servers
       TestHelpers.setup
+      wait_for { s.vhosts["/"].shovels.not_nil!["rc_shovel"]?.try(&.running?) }
       with_channel do |ch|
         q1 = ch.queue("rc_q1", durable: true)
         q2 = ch.queue("rc_q2", durable: true)
         props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
-        q1.publish_confirm "shovel me", props: props
-        q1.publish_confirm "shovel me", props: props
-        q1.publish_confirm "shovel me", props: props
-        sleep 1
-        4.times do
-          q2.get(no_ack: true).try { |m| m.body_io.to_s}.should eq "shovel me"
+        q1.publish_confirm "shovel me 2", props: props
+        q1.publish_confirm "shovel me 3", props: props
+        q1.publish_confirm "shovel me 4", props: props
+        4.times do |i|
+          q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me #{i + 1}"
         end
         s.vhosts["/"].queues["rc_q1"].message_count.should eq 0
       end
@@ -293,7 +294,7 @@ describe AvalancheMQ::Shovel do
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
-        sleep 1
+        sleep 10.milliseconds
         shovel.not_nil!.terminate
         s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
         s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
@@ -447,7 +448,7 @@ describe AvalancheMQ::Shovel do
         props = AMQP::Client::Properties.new("text/plain", nil, headers)
         x.publish_confirm "shovel me", "ql_q1", props: props
         shovel.run
-        sleep 1 # better when than sleep?
+        sleep 10.milliseconds # better when than sleep?
         path.should eq "/some_path"
       end
     ensure
