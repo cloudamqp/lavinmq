@@ -256,7 +256,9 @@ class AvalancheMQCtl
   end
 
   private def export_definitions
-    resp = http.get "/api/definitions", @headers
+    url = "/api/definitions"
+    url += "/#{URI.encode_www_form(@options["vhost"])}" if @options.has_key?("vhost")
+    resp = http.get url, @headers
     if resp.status_code == 200
       print resp.body
     else

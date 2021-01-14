@@ -123,7 +123,7 @@
     const body = new window.FormData(this)
     let url = '/api/definitions'
     if (body.get('vhost') !== '_all') {
-      url += '/' + body.get('vhost')
+      url += '/' + encodeURIComponent(body.get('vhost'))
     }
     avalanchemq.http.request('GET', url).then(function (data) {
       const a = document.createElement('a')
