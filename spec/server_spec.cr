@@ -80,6 +80,7 @@ describe AvalancheMQ::Server do
       end
       timeout.should be_false
     end
+    wait_for { s.connections.empty? }
   ensure
     s.vhosts["/"].delete_queue("reject")
   end
