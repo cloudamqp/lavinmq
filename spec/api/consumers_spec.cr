@@ -29,7 +29,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
       with_channel do |ch|
         q = ch.queue("")
         q.subscribe { }
-        sleep 0.1
+        sleep 0.01
         response = get("/api/consumers/%2f")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -50,11 +50,11 @@ describe AvalancheMQ::HTTP::ConsumersController do
       with_channel do |ch|
         q = ch.queue("")
         consumer = q.subscribe { }
-        sleep 0.1
+        sleep 0.01
         conn = s.connections.to_a.last.name
         response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/#{consumer}")
         response.status_code.should eq 204
-        sleep 0.1
+        sleep 0.01
         ch.has_subscriber?(consumer).should be_false
       end
     end
@@ -63,7 +63,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
       with_channel do |ch|
         q = ch.queue("")
         consumer = q.subscribe { }
-        sleep 0.1
+        sleep 0.01
         response = delete("/api/consumers/%2f/#{URI.encode("abc")}/#{ch.id}/#{consumer}")
         response.status_code.should eq 404
       end
@@ -74,7 +74,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
         conn = s.connections.first.name
         q = ch.queue("")
         consumer = q.subscribe { }
-        sleep 0.1
+        sleep 0.01
         response = delete("/api/consumers/%2f/#{URI.encode(conn)}/123/#{consumer}")
         response.status_code.should eq 404
       end
@@ -85,7 +85,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
         conn = s.connections.first.name
         q = ch.queue("")
         q.subscribe { }
-        sleep 0.1
+        sleep 0.01
         response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/test")
         response.status_code.should eq 404
       end
