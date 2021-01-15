@@ -173,7 +173,9 @@ class AvalancheMQCtl
   private def connect
     if host = @options["host"]?
       uri = URI.parse(host)
-      HTTP::Client.new(uri.host.not_nil!, uri.port.not_nil!)
+      c = HTTP::Client.new(uri)
+      c.basic_auth(uri.user, uri.password) if uri.user
+      c
     else
       socket = UNIXSocket.new(AvalancheMQ::HTTP::INTERNAL_UNIX_SOCKET)
       @socket = socket
@@ -218,6 +220,8 @@ class AvalancheMQCtl
       exit 0
     else
       case resp.status_code
+      when 401
+        puts "Access denied"
       when 404
         puts "Not found"
       else
@@ -315,13 +319,14 @@ class AvalancheMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing queues for vhost #{vhost} ..." unless quiet?
-    return resp.body.to_s unless resp.status_code == 200
+    return handle_response(resp) unless resp.status_code == 200
     return unless queues = JSON.parse(resp.body).as_a?
     puts "name\tmessages"
     queues.each do |u|
       next unless q = u.as_h?
       puts "#{q["name"]}\t#{q["messages"]}"
     end
+
   end
 
   private def purge_queue
@@ -353,7 +358,7 @@ class AvalancheMQCtl
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
     resp = http.get "/api/connections", @headers
     puts "Listing connections ..." unless quiet?
-    return unless resp.status_code == 200
+    return handle_response(resp) unless resp.status_code == 200
     return unless conns = JSON.parse(resp.body).as_a?
     puts columns.join("\t")
     conns.each do |u|
@@ -373,7 +378,7 @@ class AvalancheMQCtl
 
   private def close_all_connections
     resp = http.get "/api/connections", @headers
-    return unless resp.status_code == 200
+    return handle_response(resp) unless resp.status_code == 200
     return unless conns = JSON.parse(resp.body).as_a?
     @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via avalanchemqctl"
     conns.each do |u|
@@ -387,7 +392,7 @@ class AvalancheMQCtl
   private def list_vhosts
     resp = http.get "/api/vhosts", @headers
     puts "Listing vhosts ..." unless quiet?
-    return resp.body.to_s unless resp.status_code == 200
+    return handle_response(resp) unless resp.status_code == 200
     return unless vhosts = JSON.parse(resp.body).as_a?
     puts "name"
     vhosts.each do |u|
@@ -422,7 +427,7 @@ class AvalancheMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing policies for vhost #{vhost} ..." unless quiet?
-    return resp.body.to_s unless resp.status_code == 200
+    return handle_response(resp) unless resp.status_code == 200
     return unless policies = JSON.parse(resp.body).as_a?
     puts "vhost\tname\tpattern\tapply-to\tdefinition\tpriority"
     policies.each do |u|
@@ -474,7 +479,7 @@ class AvalancheMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
-    return resp.body.to_s unless resp.status_code == 200
+    return handle_response(resp) unless resp.status_code == 200
     columns = %w[name type]
     puts columns.join("\t")
     if exchanges = JSON.parse(resp.body).as_a?
