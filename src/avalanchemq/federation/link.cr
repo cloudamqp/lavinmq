@@ -127,6 +127,14 @@ module AvalancheMQ
           {headers, received_from}
         end
 
+        private def named_uri(uri)
+          named_uri = uri.dup
+          params = named_uri.query_params
+          params["name"] ||= "Federation link: #{@upstream.name}/#{name}"
+          named_uri.query = params.to_s
+          named_uri
+        end
+
         abstract def name : String
         abstract def on(event : Symbol, data : Object)
         private abstract def start_link
@@ -181,8 +189,10 @@ module AvalancheMQ
 
         private def start_link
           return if terminated?
-          ::AMQP::Client.start(@upstream.uri) do |c|
-            ::AMQP::Client.start(@local_uri) do |p|
+          upstream_uri = named_uri(@upstream.uri)
+          local_uri = named_uri(@local_uri)
+          ::AMQP::Client.start(upstream_uri) do |c|
+            ::AMQP::Client.start(local_uri) do |p|
               cch, q = setup_queue(c)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
@@ -261,7 +271,11 @@ module AvalancheMQ
         end
 
         private def cleanup
-          ::AMQP::Client.start(@upstream.uri) do |c|
+          upstream_uri = @upstream.uri.dup
+          params = upstream_uri.query_params
+          params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
+          upstream_uri.query = params.to_s
+          ::AMQP::Client.start(upstream_uri) do |c|
             ch = c.channel
             ch.queue_delete(@upstream_q)
           end
@@ -305,8 +319,10 @@ module AvalancheMQ
 
         private def start_link
           return if terminated?
-          ::AMQP::Client.start(@upstream.uri) do |c|
-            ::AMQP::Client.start(@local_uri) do |p|
+          upstream_uri = named_uri(@upstream.uri)
+          local_uri = named_uri(@local_uri)
+          ::AMQP::Client.start(upstream_uri) do |c|
+            ::AMQP::Client.start(local_uri) do |p|
               cch, @consumer_q = setup(c)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel

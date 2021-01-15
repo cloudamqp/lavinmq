@@ -25,8 +25,14 @@ AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
 HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
 
+class CustomFormatter < Spec::VerboseFormatter
+  def current_spec
+    @last_description
+  end
+end
+
 unless ENV["CI"]?
-  Spec.override_default_formatter(Spec::VerboseFormatter.new)
+  Spec.override_default_formatter(CustomFormatter.new)
 end
 
 module TestHelpers
@@ -47,7 +53,11 @@ module TestHelpers
   end
 
   def with_channel(**args)
-    conn = AMQP::Client.new(**args.merge(port: AvalancheMQ::Config.instance.amqp_port)).connect
+    name = nil
+    if formatter = Spec.formatters[0].as?(CustomFormatter)
+      name = formatter.current_spec
+    end
+    conn = AMQP::Client.new(**args.merge(port: AvalancheMQ::Config.instance.amqp_port, name: name)).connect
     ch = conn.channel
     yield ch
   ensure

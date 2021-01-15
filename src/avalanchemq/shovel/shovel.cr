@@ -49,7 +49,7 @@ module AvalancheMQ
           @uri.password = direct_user.plain_text_password
         end
         params = @uri.query_params
-        params["name"] = "Shovel #{@name}"
+        params["name"] ||= "Shovel #{@name}"
         @uri.query = params.to_s
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
@@ -146,7 +146,7 @@ module AvalancheMQ
           @uri.password = direct_user.plain_text_password
         end
         params = @uri.query_params
-        params["name"] = "Shovel #{@name}"
+        params["name"] ||= "Shovel #{@name}"
         @uri.query = params.to_s
         if queue
           @exchange = ""
