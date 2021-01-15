@@ -682,6 +682,10 @@ module AvalancheMQ
         end
         @dirty = false
       end
+    rescue ex
+      @log.fatal("Unhandled exception in #gc_segments_loop, killing process")
+      @log.fatal(ex)
+      exit 1
     end
 
     private def gc_log(desc, &blk)
