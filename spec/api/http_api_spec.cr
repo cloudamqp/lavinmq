@@ -33,8 +33,8 @@ describe AvalancheMQ::HTTP::Server do
     end
 
     it "should return sum of all published messages" do
-      close_servers
-      TestHelpers.setup
+      response = get("/api/overview")
+      before_count = JSON.parse(response.body).dig("message_stats", "publish")
 
       with_channel do |ch|
         q1 = ch.queue("stats_q1", exclusive: true)
@@ -47,12 +47,12 @@ describe AvalancheMQ::HTTP::Server do
 
       response = get("/api/overview")
       count = JSON.parse(response.body).dig("message_stats", "publish")
-      count.should eq 10
+      count.should eq(before_count.as_i + 10)
     end
 
     it "should return the number of published messages" do
-      close_servers
-      TestHelpers.setup
+      response = get("/api/overview")
+      before_count = JSON.parse(response.body).dig("message_stats", "publish")
 
       with_channel do |ch|
         x = ch.fanout_exchange
@@ -63,18 +63,19 @@ describe AvalancheMQ::HTTP::Server do
         ch.queue_bind(q2.name, x.name, "#")
         ch.queue_bind(q3.name, x.name, "#")
         5.times do
-          x.publish_confirm("m","stats")
+          x.publish_confirm("m", "stats")
         end
       end
 
       response = get("/api/overview")
       count = JSON.parse(response.body).dig("message_stats", "publish")
-      count.should eq 5
+      count.should eq(before_count.as_i + 5)
     end
 
     it "should return the number of acked and delivered messages" do
-      close_servers
-      TestHelpers.setup
+      response = get("/api/overview")
+      before_ack_count = JSON.parse(response.body).dig("message_stats", "ack")
+      before_deliver_count = JSON.parse(response.body).dig("message_stats", "deliver")
 
       with_channel do |ch|
         q1 = ch.queue("stats_q1", exclusive: true)
@@ -91,14 +92,15 @@ describe AvalancheMQ::HTTP::Server do
 
       response = get("/api/overview")
       count = JSON.parse(response.body).dig("message_stats", "ack")
-      count.should eq 5
+      count.should eq(before_ack_count.as_i + 5)
       count = JSON.parse(response.body).dig("message_stats", "deliver")
-      count.should eq 5
+      count.should eq(before_deliver_count.as_i + 5)
     end
 
     it "should return the number of rejected and redelivered messages" do
-      close_servers
-      TestHelpers.setup
+      response = get("/api/overview")
+      before_redeliver_count = JSON.parse(response.body).dig("message_stats", "redeliver")
+      before_reject_count = JSON.parse(response.body).dig("message_stats", "reject")
       rejected = false
 
       with_channel do |ch|
@@ -114,14 +116,14 @@ describe AvalancheMQ::HTTP::Server do
 
       response = get("/api/overview")
       count = JSON.parse(response.body).dig("message_stats", "redeliver")
-      count.should eq 1
+      count.should eq(before_redeliver_count.as_i + 1)
       count = JSON.parse(response.body).dig("message_stats", "reject")
-      count.should eq 1
+      count.should eq(before_reject_count.as_i + 1)
     end
 
     it "should return the number of message gets" do
-      close_servers
-      TestHelpers.setup
+      response = get("/api/overview")
+      before_count = JSON.parse(response.body).dig("message_stats", "get")
 
       with_channel do |ch|
         q1 = ch.queue("stats_q1", exclusive: true)
@@ -129,13 +131,13 @@ describe AvalancheMQ::HTTP::Server do
           q1.publish_confirm("m")
         end
         5.times do
-          q1.get().not_nil!
+          q1.get.not_nil!
         end
       end
 
       response = get("/api/overview")
       count = JSON.parse(response.body).dig("message_stats", "get")
-      count.should eq 5
+      count.should eq(before_count.as_i + 5)
     end
   end
 

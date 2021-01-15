@@ -181,9 +181,9 @@ describe AvalancheMQ::Server do
     with_channel do |ch|
       q = ch.queue
       q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-      sleep 0.5
+      sleep 0.2
       q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-      sleep 0.5
+      sleep 0.2
       msg = q.get(no_ack: true)
       msg.should be_nil
     end
@@ -299,9 +299,7 @@ describe AvalancheMQ::Server do
       q = ch.queue "", durable: false, exclusive: true, args: args
       q.publish_confirm "1"
       q.publish_confirm "2"
-      sleep 0.1
       q.get.should be_nil
-      sleep 0.1
       q.get.should be_nil
     end
   end
@@ -328,7 +326,7 @@ describe AvalancheMQ::Server do
       msgs = [] of AMQP::Client::Message
       tag = q.subscribe { |msg| msgs << msg }
       q.unsubscribe(tag)
-      sleep 0.1
+      sleep 0.01
       ch.has_subscriber?(tag).should eq false
     end
   end

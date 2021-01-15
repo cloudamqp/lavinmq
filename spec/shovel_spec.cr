@@ -83,8 +83,7 @@ describe AvalancheMQ::Shovel do
         x.publish "shovel me 2", "sf_q1"
         spawn { shovel.not_nil!.run }
         wait_for { shovel.not_nil!.running? }
-        sleep 0.1
-        x.publish "shovel me 3", "sf_q1"
+        x.publish_confirm "shovel me 3", "sf_q1"
         q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 1"
         q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 2"
         q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 3"
@@ -115,13 +114,14 @@ describe AvalancheMQ::Shovel do
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
         x.publish "shovel me", "ap_q1"
         spawn { shovel.not_nil!.run }
-        sleep 0.5
+        wait_for { shovel.not_nil!.running? }
+        sleep 0.1 # Give time for message to be shoveled
         s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
         q2.get(no_ack: false).try { |m| m.body_io.to_s }.should eq "shovel me"
       end
     ensure
       ShovelSpecHelpers.cleanup "ap_"
-      shovel.try &.delete
+      shovel.not_nil!.delete
     end
 
     it "should shovel with ack mode no-ack" do
@@ -143,13 +143,14 @@ describe AvalancheMQ::Shovel do
         x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
         x.publish "shovel me", "na_q1"
         spawn { shovel.not_nil!.run }
-        sleep 0.5
+        wait_for { shovel.not_nil!.running? }
+        sleep 0.1 # Give time for message to be shoveled
         s.vhosts["/"].queues["na_q1"].message_count.should eq 0
         q2.get(no_ack: false).try { |m| m.body_io.to_s }.should eq "shovel me"
       end
     ensure
       ShovelSpecHelpers.cleanup "na_"
-      shovel.try &.delete
+      shovel.not_nil!.delete
     end
 
     it "should shovel past prefetch" do
@@ -206,7 +207,7 @@ describe AvalancheMQ::Shovel do
       end
     ensure
       ShovelSpecHelpers.cleanup "od_"
-      shovel.try &.delete
+      shovel.not_nil!.delete
     end
 
     it "should reconnect and continue" do
@@ -268,7 +269,7 @@ describe AvalancheMQ::Shovel do
       end
     ensure
       ShovelSpecHelpers.cleanup "ssl_"
-      shovel.try &.delete
+      shovel.not_nil!.delete
     end
 
     it "should ack all messages that has been moved" do
@@ -301,11 +302,11 @@ describe AvalancheMQ::Shovel do
       end
     ensure
       ShovelSpecHelpers.cleanup("prefetch2_")
-      shovel.try &.delete
+      shovel.not_nil!.delete
     end
 
     describe "authentication error" do
-      it "should be stopped until terminated" do
+      it "should be stopped" do
         source = AvalancheMQ::Shovel::AMQPSource.new(
           "spec",
           URI.parse("amqp://foo:bar@localhost:5672"),
@@ -318,11 +319,9 @@ describe AvalancheMQ::Shovel do
         )
         shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
         spawn { shovel.run }
-        sleep 0.1
-        shovel.state.should eq "Stopped"
+        wait_for { shovel.details_tuple[:error] }
         shovel.details_tuple[:error].should eq "403 - ACCESS_REFUSED"
         shovel.terminate
-        sleep 0.1
         shovel.state.should eq "Terminated"
       end
     end
@@ -396,7 +395,7 @@ describe AvalancheMQ::Shovel do
         props = AMQP::Client::Properties.new("text/plain", nil, headers)
         x.publish "shovel me", "ql_q1", props: props
         shovel.run
-        sleep 1 # better when than sleep?
+        wait_for { shovel.running? || shovel.terminated? }
 
         # Check that we have sent one message successfully
         path.should eq "/pp"

@@ -11,7 +11,6 @@ module AvalancheMQ
     DEFAULT_RECONNECT_DELAY =        5
 
     enum State
-      Initialized
       Starting
       Running
       Stopped
@@ -236,7 +235,7 @@ module AvalancheMQ
     class Runner
       include SortableJSON
       @log : Logger
-      @state = State::Initialized
+      @state = State::Stopped
       @error : String?
       @message_count : UInt64 = 0
       @conn_lock = Mutex.new(:unchecked)
@@ -254,7 +253,6 @@ module AvalancheMQ
       end
 
       def run
-        return unless @state == State::Initialized
         loop do
           break if terminated?
           @state = State::Starting
