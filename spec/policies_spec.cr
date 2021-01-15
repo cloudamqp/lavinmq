@@ -170,8 +170,8 @@ describe AvalancheMQ::VHost do
   end
 
   it "should not enqueue messages that make the queue to large" do
-    definitions = { "max-length-bytes" => JSON::Any.new(100_i64),
-                    "overflow": JSON::Any.new("reject-publish") } of String => JSON::Any
+    definitions = {"max-length-bytes" => JSON::Any.new(100_i64),
+                   "overflow":           JSON::Any.new("reject-publish")} of String => JSON::Any
     with_channel do |ch|
       q = ch.queue("max-length-bytes", exclusive: true)
       s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
