@@ -14,7 +14,7 @@ module AvalancheMQ
         @consumer_available = Channel(Nil).new
         @last_changed : Int64?
         @state = State::Terminated
-        @stop = ::Channel(Exception).new
+        @stop = ::Channel(Exception?).new
         @error : String?
         @scrubbed_uri : String
 
@@ -66,8 +66,10 @@ module AvalancheMQ
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if terminated?
-          @stop.close
+          @stop.send(nil)
           @log.info { "Terminated" }
+        ensure
+          @stop.close
         end
 
         private def run_loop
@@ -203,7 +205,13 @@ module AvalancheMQ
               @log.debug { "Running" }
               unless @federated_q.immediate_delivery?
                 @log.debug { "Waiting for consumers" }
-                @consumer_available.receive?
+                select
+                when @consumer_available.receive?
+                # continue
+                when ex = @stop.receive?
+                  raise ex unless ex.nil?
+                  return
+                end
               end
               q_name = q[:queue_name]
               cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
