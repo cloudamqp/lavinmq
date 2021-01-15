@@ -27,7 +27,7 @@ describe AvalancheMQ::HTTP::Server do
       })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.users.select("sha256", "sha512", "bcrypt", "md5").all? do |_, u|
+      s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
         u.should be_a(AvalancheMQ::User)
         ok = u.not_nil!.password.not_nil!.verify "hej"
         {u.name, ok}.should(eq({u.name, true}))
@@ -491,4 +491,39 @@ describe AvalancheMQ::HTTP::Server do
       s.vhosts.delete("uploaded_vhost")
     end
   end
+
+  it "should update existing user on import" do
+    name = "bcryptuser"
+    body = %({
+      "users":[{
+        "name":"#{name}",
+        "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
+        "hashing_algorithm":"Bcrypt","tags":""
+      }]
+    })
+
+    response = post("/api/definitions", body: body)
+    response.status_code.should eq 200
+
+    u = s.users[name]
+    u.should be_a(AvalancheMQ::User)
+    ok = u.not_nil!.password.not_nil!.verify "hej"
+    {u.name, ok}.should eq({name, true})
+
+    update_body = %({
+      "users":[{
+        "name":"#{name}",
+        "password_hash":"$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
+        "hashing_algorithm":"Bcrypt","tags":""
+      }]
+    })
+    response = post("/api/definitions", body: update_body)
+    response.status_code.should eq 200
+
+    u = s.users[name]
+    u.should be_a(AvalancheMQ::User)
+    ok = u.not_nil!.password.not_nil!.verify "test"
+    {u.name, ok}.should eq({name, true})
+  end
+
 end

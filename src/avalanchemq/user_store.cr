@@ -44,7 +44,6 @@ module AvalancheMQ
     end
 
     def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
-      return if has_key?(name)
       user = User.new(name, password_hash, password_algorithm, tags)
       @users[name] = user
       save! if save
