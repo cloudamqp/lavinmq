@@ -791,8 +791,8 @@ module AvalancheMQ
         hole_end = hole.end_pos
 
         case
-        when start_pos == hole_start && hole_end == end_pos
-          # we got the exact same hole
+        when start_pos == hole_start && hole_end >= end_pos
+          # we got the exact same hole or a smaller hole
           return 0
         when start_pos == hole_start && hole_end < end_pos
           # we got a hole that's not as long, then expand the hole
