@@ -46,6 +46,7 @@ describe AvalancheMQ::HTTP::NodesController do
     end
 
     it "should not delete stats when connection is closed" do
+      wait_for { s.connections.sum { |c| c.channels.size }.zero? }
       s.update_stats_rates
 
       response = get("/api/nodes")

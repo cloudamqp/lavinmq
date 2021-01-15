@@ -4,14 +4,14 @@ require "../src/avalanchemq/federation/upstream"
 module UpstreamSpecHelpers
   def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}
     x = ch.exchange("", "direct", passive: true)
-    ch.queue("q1")
-    q2 = ch.queue("q2")
+    ch.queue("federation_q1")
+    q2 = ch.queue("federation_q2")
     {x, q2}
   end
 
   def self.cleanup
-    s.vhosts["/"].delete_queue("q1")
-    s.vhosts["/"].delete_queue("q2")
+    s.vhosts["/"].delete_queue("federation_q1")
+    s.vhosts["/"].delete_queue("federation_q2")
   end
 end
 
@@ -21,89 +21,89 @@ describe AvalancheMQ::Federation::Upstream do
 
   it "should federate queue" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "test", AMQP_BASE_URL, nil, "q1")
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream", AMQP_BASE_URL, nil, "federation_q1")
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
-      x.publish "federate me", "q1"
-      upstream.link(vhost.queues["q2"])
+      x.publish "federate me", "federation_q1"
+      upstream.link(vhost.queues["federation_q2"])
       msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
-      vhost.queues["q1"].message_count.should eq 0
+      vhost.queues["federation_q1"].message_count.should eq 0
     end
   ensure
     UpstreamSpecHelpers.cleanup
-    upstream.not_nil!.close
+    upstream.not_nil!.close(sync: true)
   end
 
   it "should not federate queue if no downstream consumer" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "test", AMQP_BASE_URL, nil, "q1")
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", AMQP_BASE_URL, nil, "federation_q1")
 
     with_channel do |ch|
       x = UpstreamSpecHelpers.setup_qs(ch).first
-      x.publish "federate me", "q1"
-      upstream.link(vhost.queues["q2"])
-      sleep 0.05
-      vhost.queues["q1"].message_count.should eq 1
-      vhost.queues["q2"].message_count.should eq 0
+      x.publish "federate me", "federation_q1"
+      link = upstream.link(vhost.queues["federation_q2"])
+      wait_for { link.running? }
+      vhost.queues["federation_q1"].message_count.should eq 1
+      vhost.queues["federation_q2"].message_count.should eq 0
     end
   ensure
+    upstream.not_nil!.close(sync: true)
     UpstreamSpecHelpers.cleanup
-    upstream.not_nil!.close
   end
 
   it "should federate queue with ack mode no-ack" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "test", AMQP_BASE_URL, nil, "q1",
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", AMQP_BASE_URL, nil, "federation_q1",
       ack_mode: AvalancheMQ::Federation::AckMode::NoAck)
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
-      x.publish "federate me", "q1"
-      upstream.link(vhost.queues["q2"])
+      x.publish "federate me", "federation_q1"
+      upstream.link(vhost.queues["federation_q2"])
       msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
-      vhost.queues["q1"].message_count.should eq 0
+      vhost.queues["federation_q1"].message_count.should eq 0
     end
   ensure
     UpstreamSpecHelpers.cleanup
-    upstream.not_nil!.close
+    upstream.not_nil!.close(sync: true)
   end
 
   it "should federate queue with ack mode on-publish" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "test", AMQP_BASE_URL, nil, "q1",
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", AMQP_BASE_URL, nil, "federation_q1",
       ack_mode: AvalancheMQ::Federation::AckMode::OnPublish)
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
-      x.publish "federate me", "q1"
-      upstream.link(vhost.queues["q2"])
+      x.publish "federate me", "federation_q1"
+      upstream.link(vhost.queues["federation_q2"])
       msgs = [] of AMQP::Client::Message
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
-      vhost.queues["q1"].message_count.should eq 0
+      vhost.queues["federation_q1"].message_count.should eq 0
     end
   ensure
     UpstreamSpecHelpers.cleanup
-    upstream.not_nil!.close
+    upstream.not_nil!.close(sync: true)
   end
 
   it "should resume federation after downstream reconnects" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "test", AMQP_BASE_URL, nil, "q1")
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", AMQP_BASE_URL, nil, "federation_q1")
     msgs = [] of AMQP::Client::Message
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
-      x.publish "federate me", "q1"
-      upstream.link(vhost.queues["q2"])
+      x.publish "federate me", "federation_q1"
+      upstream.link(vhost.queues["federation_q2"])
       q2.subscribe do |msg|
         msgs << msg
       end
@@ -113,22 +113,22 @@ describe AvalancheMQ::Federation::Upstream do
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
-      x.publish "federate me", "q1"
+      x.publish "federate me", "federation_q1"
       q2.subscribe do |msg|
         msgs << msg
       end
       wait_for { msgs.size == 2 }
       msgs.size.should eq 2
-      vhost.queues["q1"].message_count.should eq 0
+      vhost.queues["federation_q1"].message_count.should eq 0
     end
   ensure
     UpstreamSpecHelpers.cleanup
-    upstream.not_nil!.close
+    upstream.not_nil!.close(sync: true)
   end
 
   it "should federate exchange" do
     vhost = s.vhosts["/"]
-    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "test", AMQP_BASE_URL, "upstream_ex")
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "ef test upstream", AMQP_BASE_URL, "upstream_ex")
 
     with_channel do |ch|
       downstream_ex = ch.exchange("downstream_ex", "topic")
@@ -147,6 +147,6 @@ describe AvalancheMQ::Federation::Upstream do
     s.vhosts["/"].delete_queue("downstream_q")
     s.vhosts["/"].delete_queue("downstream_ex")
     s.vhosts["/"].delete_queue("upstream_ex")
-    upstream.try &.close
+    upstream.try &.close(sync: true)
   end
 end
