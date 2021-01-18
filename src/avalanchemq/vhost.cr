@@ -202,8 +202,13 @@ module AvalancheMQ
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
       @write_lock.synchronize do
         wfile = @wfile
-        if wfile.capacity < wfile.size + msg.bytesize
-          wfile = open_new_segment(msg.bytesize)
+        next_write = msg.bytesize
+        if store_offset
+          next_write += 8 + sizeof(Int64) + 2            # "x-offset".bytesize + i64 + struct cost
+          next_write += 4 if msg.properties.headers.nil? # Unaccounted Table cost
+        end
+        if wfile.capacity < wfile.size + next_write
+          wfile = open_new_segment(next_write)
         end
         pos = wfile.seek(0, IO::Seek::End)
         sp = SegmentPosition.make(@segments.last_key, pos.to_u32, msg)
@@ -218,7 +223,7 @@ module AvalancheMQ
         wfile.write_bytes AMQP::ShortString.new(msg.exchange_name)
         wfile.write_bytes AMQP::ShortString.new(msg.routing_key)
         wfile.write_bytes msg.properties
-        wfile.write_bytes msg.size
+        wfile.write_bytes msg.size # rename to bodysize
         copied = IO.copy(msg.body_io, wfile, msg.size)
         if copied != msg.size
           raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
