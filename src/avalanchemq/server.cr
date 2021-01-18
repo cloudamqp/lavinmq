@@ -194,9 +194,7 @@ module AvalancheMQ
       client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log, @events)
       if client.nil?
         socket.close
-        @log.info {"Connection failed for remote_address=#{remote_address}"}
-      else
-        @log.debug { "Accepting AMQP connection (#{client.name})"}
+        @log.info { "Connection failed for remote_address=#{remote_address}" }
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
