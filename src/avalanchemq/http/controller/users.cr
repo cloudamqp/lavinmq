@@ -71,10 +71,10 @@ module AvalancheMQ
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s)
-          hashing_alogrithm = body["hashing_alogrithm"]?.try &.as_s? || "SHA256"
+          hashing_algorithm = body["hashing_algorithm"]?.try &.as_s? || "SHA256"
           if u = @amqp_server.users[name]?
             if password_hash
-              u.update_password_hash(password_hash, hashing_alogrithm)
+              u.update_password_hash(password_hash, hashing_algorithm)
             elsif password
               u.update_password(password)
             end
@@ -83,7 +83,7 @@ module AvalancheMQ
             context.response.status_code = 204
           else
             if password_hash
-              @amqp_server.users.add(name, password_hash, hashing_alogrithm, tags)
+              @amqp_server.users.add(name, password_hash, hashing_algorithm, tags)
             elsif password
               @amqp_server.users.create(name, password, tags)
             else
