@@ -202,20 +202,19 @@ module AvalancheMQ
     private def write_to_disk(msg, store_offset = false) : SegmentPosition
       @write_lock.synchronize do
         wfile = @wfile
-        next_write = msg.bytesize
+        # Set x-offset before we have a SP so that the Message#bytesize is correct
         if store_offset
-          next_write += 8 + sizeof(Int64) + 2            # "x-offset".bytesize + i64 + struct cost
-          next_write += 4 if msg.properties.headers.nil? # Unaccounted Table cost
+          headers = msg.properties.headers || AMQP::Table.new
+          headers["x-offset"] = 0_i64
+          msg.properties.headers = headers
         end
-        if wfile.capacity < wfile.size + next_write
-          wfile = open_new_segment(next_write)
+        if wfile.capacity < wfile.size + msg.bytesize
+          wfile = open_new_segment(msg.bytesize)
         end
         pos = wfile.seek(0, IO::Seek::End)
         sp = SegmentPosition.make(@segments.last_key, pos.to_u32, msg)
         if store_offset
-          headers = msg.properties.headers || AMQP::Table.new
-          headers["x-offset"] = sp.to_i64
-          msg.properties.headers = headers
+          msg.properties.headers.not_nil!["x-offset"] = sp.to_i64
         end
         @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
                       size=#{msg.bytesize} sp=#{sp}" }
