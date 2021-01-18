@@ -104,7 +104,6 @@ module AvalancheMQ
     # should be Acks, apart from Exceptions.
     # As long as at least one queue reject the publish due to overflow a Nack should be sent,
     # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
-    # Method returns nil if the message hasn't been written to disk
     # True if it also succesfully wrote to one or more queues
     # False if no queue was able to receive the message because they're
     # closed
