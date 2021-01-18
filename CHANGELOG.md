@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bugfix - Refresh last used time on queue when policy with expire applies to it
 - Autofill of update policy form when click on policy name in the queue, exchange or policies views.
 
+
+## [1.0.0-alpha.21] - 2021-01-18
+
+### Added
+- Autocomplete queues and exchanges in UI
+- Create and delete queues and exchanges from avalanchemqctl
+
+### Fixed
+- Make sure client connections are cleanuped correctly
+- Bug when creating and listing users in avalanchemqctl
+- Kill process if segment GC loop fails unexpectedly
+- SegmentPosition is requeued if not expired
+- Writes to `ack` file is always flushed to disk
+
 ## [1.0.0-alpha.20] - 2021-01-11
 
 ### Added
