@@ -26,6 +26,7 @@ module AvalancheMQ
       SchemaVersion.verify_or_prefix(@enq, :index)
       @enq.seek 0, IO::Seek::End
       @ack = File.open(File.join(@index_dir, "ack"), "W+")
+      @ack.sync = true
       @ack.buffer_size = Config.instance.file_buffer_size
       SchemaVersion.verify_or_prefix(@ack, :index)
       @ack.seek 0, IO::Seek::End
@@ -105,7 +106,6 @@ module AvalancheMQ
       @ack_lock.synchronize do
         @log.debug { "writing #{sp} to ack" }
         @ack.write_bytes sp
-        @ack.flush if persistent
         @acks += 1
       end
       if @acks > @ready.size && @acks >= Config.instance.queue_max_acks
