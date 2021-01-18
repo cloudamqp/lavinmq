@@ -10,6 +10,7 @@ require "../sortable_json"
 require "../rough_time"
 require "../error"
 require "./amqp_connection"
+require "../config"
 
 module AvalancheMQ
   class Client
@@ -99,9 +100,9 @@ module AvalancheMQ
         peer_port:         @remote_address.port,
         name:              @name,
         pid:               @name,
-        ssl:               @socket.is_a?(OpenSSL::SSL::Socket),
-        tls_version:       @socket.is_a?(OpenSSL::SSL::Socket) ? @socket.as(OpenSSL::SSL::Socket).tls_version : nil,
-        cipher:            @socket.is_a?(OpenSSL::SSL::Socket) ? @socket.as(OpenSSL::SSL::Socket).cipher : nil,
+        ssl:               tls_terminated?,
+        tls_version:       tls_version,
+        cipher:            cipher,
         state:             state,
       }.merge(stats_details)
     end
@@ -815,6 +816,23 @@ module AvalancheMQ
       # yield so that msg expiration, consumer delivery etc gets priority
       Fiber.yield
       with_channel frame, &.basic_get(frame)
+    end
+
+    private def tls_terminated?()
+      @socket.is_a?(OpenSSL::SSL::Socket) ||
+      (@socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated)
+    end
+
+    private def tls_version()
+      return @socket.as(OpenSSL::SSL::Socket).tls_version if @socket.is_a?(OpenSSL::SSL::Socket)
+      return "Unknown" if @socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated
+      nil
+    end
+
+    private def cipher()
+      return @socket.as(OpenSSL::SSL::Socket).cipher if @socket.is_a?(OpenSSL::SSL::Socket)
+      return "Unknown" if @socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated
+      nil
     end
   end
 end
