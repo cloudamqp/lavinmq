@@ -25,13 +25,13 @@ module AvalancheMQ
     include ParameterTarget
     include Stats
     getter channel_closed_log, channel_created_log, connection_closed_log, connection_created_log,
-           queue_declared_log, queue_deleted_log
+      queue_declared_log, queue_deleted_log
 
     @start = Time.monotonic
     @closed = false
     @flow = true
     rate_stats(%w(channel_closed channel_created connection_closed connection_created
-                  queue_declared queue_deleted ack deliver get publish redeliver reject))
+      queue_declared queue_deleted ack deliver get publish redeliver reject))
 
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
