@@ -508,10 +508,15 @@ module AvalancheMQ
       @segment_file = IO::Memory.new(mfile.to_slice, writeable: false)
     end
 
-    def metadata(sp) : MessageMetadata
+    def metadata(sp) : MessageMetadata?
       seg = segment_file(sp.segment)
       seg.seek(sp.position.to_i32, IO::Seek::Set)
       MessageMetadata.from_io(seg)
+    rescue e : KeyError
+      @log.error { "Segment file not found for #{sp}, removing index" }
+      @ready.delete(sp)
+      delete_message sp
+      nil
     end
 
     private def time_to_message_expiration : Time::Span?
@@ -530,6 +535,7 @@ module AvalancheMQ
     private def expire_at(sp : SegmentPosition) : Int64?
       if message_ttl = @message_ttl
         meta = metadata(sp)
+        return nil unless meta
         expire_at = meta.timestamp + message_ttl
         if sp.expiration_ts > 0
           Math.min(expire_at, sp.expiration_ts)
@@ -739,10 +745,13 @@ module AvalancheMQ
       msg = BytesMessage.from_io(seg)
       redelivered = @requeued.includes?(sp)
       Envelope.new(sp, msg, redelivered)
-    rescue ex
-      @log.error { "Message #{sp} not found, possible message loss. #{ex.inspect}" }
+    rescue ex : KeyError
+      @log.error { "Segment file not found for #{sp}, removing index" }
       @ready.delete(sp)
       delete_message sp
+      raise ex
+    rescue ex
+      @log.error { "Error reading message #{sp}, possible message loss. #{ex.inspect}" }
       raise ex
     ensure
       @requeued.delete(sp) if redelivered
