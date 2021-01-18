@@ -68,8 +68,6 @@ module AvalancheMQ
           return if terminated?
           @stop.send(nil)
           @log.info { "Terminated" }
-        ensure
-          @stop.close
         end
 
         private def run_loop
@@ -91,6 +89,7 @@ module AvalancheMQ
           end
           @log.info { "Federation link stopped" }
         ensure
+          @stop.close
           @last_changed = nil
           @state = State::Terminated
         end
