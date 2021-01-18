@@ -11,7 +11,7 @@ module AvalancheMQ
     forward_missing_to @shovels
 
     def create(name, config)
-      delete(name)
+      @shovels[name]?.try &.terminate
       delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
