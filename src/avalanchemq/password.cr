@@ -53,7 +53,7 @@ module AvalancheMQ
         @salt = bytes[0, salt_size]
         @hash = bytes + salt_size
         if @hash.bytesize != digest_size
-          raise InvalidPasswordHash.new("Invalid digest size #{@hash.bytesize}, expected #{digest_size}")
+          raise InvalidPasswordHash.new("Invalid digest size #{@hash.bytesize} for #{hash_algorithm}, expected #{digest_size}")
         end
       end
 
