@@ -144,9 +144,9 @@ describe AvalancheMQ::HTTP::Server do
           "vhost": "/",
           "value": {
             "src-uri": "#{AMQP_BASE_URL}",
-            "src-queue": "q1",
+            "src-queue": "shovel_will_declare_q1",
             "dest-uri": "#{AMQP_BASE_URL}",
-            "dest-queue": "q2"
+            "dest-queue": "shovel_will_declare_q1"
           }
         }
       ]})
@@ -154,13 +154,17 @@ describe AvalancheMQ::HTTP::Server do
       response.status_code.should eq 200
       # Because we run shovels in a new Fiber we have to make sure the shovel is not started
       # after this spec has finished
-      Fiber.yield # Start the shovel
-      wait_for { s.vhosts["/"].shovels.not_nil!.first.terminated? }
+      sleep 0.1 # Start the shovel
+      wait_for do
+        shovels = s.vhosts["/"].shovels.not_nil!
+        shovels.each_value.all? &.running?
+      end
       s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
         .should be_true
     ensure
-      s.stop_shovels
       s.vhosts["/"].delete_parameter("shovel", "import_shovel_param")
+      s.vhosts["/"].delete_queue("shovel_will_declare_q1")
+      s.vhosts["/"].delete_queue("shovel_will_declare_q2")
     end
 
     it "imports global parameters" do
