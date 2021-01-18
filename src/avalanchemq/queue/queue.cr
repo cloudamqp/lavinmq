@@ -550,9 +550,10 @@ module AvalancheMQ
         @log.debug { "Checking if next message #{sp} has to be expired" }
         if expire_at = expire_at(sp)
           expire_in = expire_at - now
+          @log.debug { "expire sp=#{sp} expire_in=#{expire_in}" }
           if expire_in > 0
             @log.debug { "No more message to expire" }
-            return
+            break
           end
 
           expire_msg(sp, :expired)
@@ -562,7 +563,7 @@ module AvalancheMQ
           end
           true
         else
-          return
+          break
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
