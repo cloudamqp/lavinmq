@@ -1,8 +1,8 @@
 lib LibC
   MS_ASYNC = 0x0001
   {% if flag?(:linux) %}
-    MS_SYNC = 0x0004
-    MADV_REMOVE = 9
+    MS_SYNC     = 0x0004
+    MADV_REMOVE =      9
   {% else %}
     MS_SYNC = 0x0010
   {% end %}
