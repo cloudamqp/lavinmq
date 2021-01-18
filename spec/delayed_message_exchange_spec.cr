@@ -68,7 +68,7 @@ describe "Delayed Message Exchange" do
       x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
       queue = s.vhosts["/"].queues[q_name]
       queue.message_count.should eq 0
-      wait_for(5.milliseconds) { queue.message_count == 1 }
+      wait_for(15.milliseconds) { queue.message_count == 1 }
       queue.message_count.should eq 1
     end
   ensure
