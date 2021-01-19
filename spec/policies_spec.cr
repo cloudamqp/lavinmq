@@ -189,4 +189,29 @@ describe AvalancheMQ::VHost do
     s.vhosts["/"].delete_policy("max-length-bytes")
     vhost.delete_queue("max-length-bytes")
   end
+
+  describe "with max-length-bytes policy applied" do
+    it "should replace with max-length" do
+      definitions = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
+      with_channel do |ch|
+        q = ch.queue("max-length-bytes", exclusive: true)
+        s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 12_i8)
+        q.publish_confirm "short1"
+        q.publish_confirm "short2"
+        q.publish_confirm "long"
+        ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
+
+        definitions = {"max-length" => JSON::Any.new(10_i64)} of String => JSON::Any
+        s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 12_i8)
+        10.times do
+          q.publish_confirm "msg"
+        end
+        ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 10
+        s.vhosts["/"].delete_policy("max-length-bytes")
+      end
+    ensure
+      s.vhosts["/"].delete_policy("max-length-bytes")
+      vhost.delete_queue("max-length-bytes")
+    end
+  end
 end

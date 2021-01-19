@@ -181,6 +181,8 @@ module AvalancheMQ
       validate_gt_zero("x-expires", @expires)
       @max_length = parse_header("x-max-length", ArgumentNumber)
       validate_positive("x-max-length", @max_length)
+      @max_length_bytes = parse_header("x-max-length-bytes", ArgumentNumber)
+      validate_positive("x-max-length-bytes", @max_length_bytes)
       @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
       validate_positive("x-message-ttl", @message_ttl)
       @delivery_limit = parse_header("x-delivery-limit", ArgumentNumber)
