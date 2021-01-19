@@ -298,16 +298,16 @@ module AvalancheMQ
             uch.exchange(@upstream_exchange, type: @federated_ex.type,
               args: args, passive: passive)
           end
-          args = ::AMQP::Client::Arguments.new({
+          args2 = ::AMQP::Client::Arguments.new({
             "x-downstream-name"  => System.hostname,
             "x-internal-purpose" => "federation",
             "x-max-hops"         => @upstream.max_hops,
           })
           ch, _ = try_passive(upstream_client, ch) do |uch, passive|
             uch.exchange(@upstream_q, type: "x-federation-upstream",
-              args: args, passive: passive)
+              args: args2, passive: passive)
           end
-          q_args = {"x-internal-purpose" => "federation"}
+          q_args = Hash(String, AMQP::Field){"x-internal-purpose" => "federation"}
           if expires = @upstream.expires
             q_args["x-expires"] = expires
           end

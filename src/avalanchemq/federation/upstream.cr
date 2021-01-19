@@ -23,8 +23,8 @@ module AvalancheMQ
       @ex_links = Hash(String, ExchangeLink).new
       @queue : String?
       @exchange : String?
-      @expires : String?
-      @msg_ttl : String?
+      @expires : Int64?
+      @msg_ttl : Int64?
       getter name, log, vhost, type, consumer_tag
       property uri, prefetch, reconnect_delay, ack_mode, exchange,
         max_hops, expires, msg_ttl, queue
