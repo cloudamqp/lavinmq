@@ -95,7 +95,7 @@ module AvalancheMQ
         end
 
         private def federate(msg, pch, exchange, routing_key)
-          msgid = pch.basic_publish(msg.body_io, exchange, routing_key)
+          msgid = pch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
           @log.debug { "Federating msgid=#{msgid} routing_key=#{routing_key}" }
           should_multi_ack = msgid % (@upstream.prefetch / 2).ceil.to_i == 0
           if should_multi_ack

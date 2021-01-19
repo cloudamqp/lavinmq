@@ -190,7 +190,8 @@ module AvalancheMQ
         msgid = ch.basic_publish(
           msg.body_io,
           @exchange || msg.exchange,
-          @exchange_key || msg.routing_key)
+          @exchange_key || msg.routing_key,
+          props: msg.properties)
         ch.wait_for_confirm(msgid) if @ack_mode == AckMode::OnConfirm
       end
     end
