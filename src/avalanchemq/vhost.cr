@@ -222,7 +222,7 @@ module AvalancheMQ
         wfile.write_bytes AMQP::ShortString.new(msg.exchange_name)
         wfile.write_bytes AMQP::ShortString.new(msg.routing_key)
         wfile.write_bytes msg.properties
-        wfile.write_bytes msg.size # rename to bodysize
+        wfile.write_bytes msg.size # bodysize
         copied = IO.copy(msg.body_io, wfile, msg.size)
         if copied != msg.size
           raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
