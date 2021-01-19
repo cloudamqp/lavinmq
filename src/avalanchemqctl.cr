@@ -449,7 +449,7 @@ class AvalancheMQCtl
       "priority": @options["priority"]?.try &.to_i? || 0,
     }
     resp = http.put "/api/policies/#{URI.encode_www_form(vhost)}/#{name}", @headers, body.to_json
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def create_queue
