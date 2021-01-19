@@ -286,6 +286,8 @@ module AvalancheMQ
             ch = c.channel
             ch.queue_delete(@upstream_q)
           end
+        rescue e : Socket::ConnectError
+          @log.warn "cleanup interrupted with #{e.inspect}"
         end
 
         private def unregister_observer
