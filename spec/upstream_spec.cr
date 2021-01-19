@@ -149,4 +149,22 @@ describe AvalancheMQ::Federation::Upstream do
     s.vhosts["/"].delete_queue("upstream_ex")
     upstream.try &.close(sync: true)
   end
+
+  it "should keep message properties" do
+    vhost = s.vhosts["/"]
+    upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream props", AMQP_BASE_URL, nil, "federation_q1")
+
+    with_channel do |ch|
+      x, q2 = UpstreamSpecHelpers.setup_qs ch
+      x.publish "federate me", "federation_q1", props: AMQP::Client::Properties.new(content_type: "application/json")
+      upstream.link(vhost.queues["federation_q2"])
+      msgs = [] of AMQP::Client::Message
+      q2.subscribe { |msg| msgs << msg }
+      wait_for { msgs.size == 1 }
+      msgs.first.properties.content_type.should eq "application/json"
+    end
+  ensure
+    UpstreamSpecHelpers.cleanup
+    upstream.not_nil!.close(sync: true)
+  end
 end
