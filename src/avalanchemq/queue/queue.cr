@@ -335,6 +335,7 @@ module AvalancheMQ
         when @refresh_ttl_timeout.receive
           @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
         when timeout ttl
+          return true if @state == QueueState::Closed
           case ttl
           when q_ttl
             expire_queue && return false
