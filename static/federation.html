@@ -210,9 +210,9 @@
             'reconnect-delay': parseInt(data.get('reconnect-delay')),
             'ack-mode': data.get('ack-mode'),
             exchange: data.get('exchange'),
-            // 'max-hops': data.get('max-hops'),
-            expires: data.get('expires'),
-            'message-ttl': data.get('message-ttl'),
+            'max-hops': parseInt(data.get('max-hops')),
+            expires: parseInt(data.get('expires')),
+            'message-ttl': parseInt(data.get('message-ttl')),
             queue: data.get('queue'),
             'consumer-tag': data.get('consumer-tag')
           }
