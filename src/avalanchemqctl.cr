@@ -446,7 +446,7 @@ class AvalancheMQCtl
       pattern: pattern,
       definition: JSON.parse(definition),
       "apply-to": @options["apply-to"]? || "all",
-      "priority": @options["priority"]? || 0,
+      "priority": @options["priority"]?.try &.to_i? || 0,
     }
     resp = http.put "/api/policies/#{URI.encode_www_form(vhost)}/#{name}", @headers, body.to_json
     handle_response(resp, 204)
