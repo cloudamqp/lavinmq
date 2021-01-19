@@ -642,7 +642,6 @@ module AvalancheMQ
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def bind_queue(frame)
       if frame.queue_name.empty? && @last_queue_name
         frame.queue_name = @last_queue_name.not_nil!
