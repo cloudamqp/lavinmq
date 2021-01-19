@@ -54,6 +54,10 @@ module AvalancheMQ
         when "delayed-message"
           @delayed = v.as?(Bool) == true
           init_delayed_queue if @delayed
+        when "federation-upstream"
+          @vhost.upstreams.try &.link(v.as_s, self)
+        when "federation-upstream-set"
+          @vhost.upstreams.try &.link_set(v.as_s, self)
         else nil
         end
       end
