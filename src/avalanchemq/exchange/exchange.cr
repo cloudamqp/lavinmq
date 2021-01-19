@@ -43,7 +43,6 @@ module AvalancheMQ
       handle_arguments
     end
 
-
     def apply_policy(policy : Policy)
       handle_arguments
       policy.not_nil!.definition.each do |k, v|
@@ -81,7 +80,6 @@ module AvalancheMQ
         message_stats: stats_details,
       }
     end
-
 
     def match?(frame : AMQP::Frame)
       type == frame.exchange_type &&
