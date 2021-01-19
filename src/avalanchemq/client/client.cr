@@ -34,6 +34,7 @@ module AvalancheMQ
     @last_recv_frame = RoughTime.utc
     @last_sent_frame = RoughTime.utc
     rate_stats(%w(send_oct recv_oct))
+    DEFAULT_EX = "amq.default"
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket,
                    @remote_address : Socket::IPAddress,
@@ -651,13 +652,7 @@ module AvalancheMQ
           frame.routing_key = @last_queue_name.not_nil!
         end
       end
-      if !valid_entity_name(frame.queue_name)
-        send_precondition_failed(frame, "Queue name isn't valid")
-      elsif !valid_entity_name(frame.exchange_name)
-        send_precondition_failed(frame, "Exchange name isn't valid")
-      elsif frame.exchange_name.empty?
-        send_access_refused(frame, "Not allowed to bind to the default exchange")
-      end
+      return unless valid_q_bind_unbind?(frame)
 
       q = @vhost.queues.fetch(frame.queue_name, nil)
       if q.nil?
@@ -682,13 +677,7 @@ module AvalancheMQ
       if frame.queue_name.empty? && @last_queue_name
         frame.queue_name = @last_queue_name.not_nil!
       end
-      if !valid_entity_name(frame.queue_name)
-        send_precondition_failed(frame, "Queue name isn't valid")
-      elsif !valid_entity_name(frame.exchange_name)
-        send_precondition_failed(frame, "Exchange name isn't valid")
-      elsif frame.exchange_name.empty?
-        send_access_refused(frame, "Not allowed to unbind from the default exchange")
-      end
+      return unless valid_q_bind_unbind?(frame)
 
       q = @vhost.queues.fetch(frame.queue_name, nil)
       if q.nil?
@@ -709,6 +698,20 @@ module AvalancheMQ
         @vhost.apply(frame)
         send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
       end
+    end
+
+    private def valid_q_bind_unbind?(frame) : Bool
+      if !valid_entity_name(frame.queue_name)
+        send_precondition_failed(frame, "Queue name isn't valid")
+        return false
+      elsif !valid_entity_name(frame.exchange_name)
+        send_precondition_failed(frame, "Exchange name isn't valid")
+        return false
+      elsif frame.exchange_name.empty? || frame.exchange_name == DEFAULT_EX
+        send_access_refused(frame, "Not allowed to unbind from the default exchange")
+        return false
+      end
+      true
     end
 
     private def bind_exchange(frame)
@@ -745,7 +748,7 @@ module AvalancheMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
       elsif !@user.can_write?(@vhost.name, frame.destination)
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
-      elsif frame.source.empty? || frame.destination.empty?
+      elsif frame.source.empty? || frame.destination.empty? || frame.source == DEFAULT_EX || frame.destination == DEFAULT_EX
         send_access_refused(frame, "Not allowed to unbind from the default exchange")
       else
         @vhost.apply(frame)
