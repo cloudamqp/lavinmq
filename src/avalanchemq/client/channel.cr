@@ -340,7 +340,12 @@ module AvalancheMQ
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive)
+          priority = 0
+          if value = frame.arguments["x-priority"]?
+            priority = value.as?(Int32) || raise Error::PreconditionFailed.new("x-priority must be an int")
+            raise Error::PreconditionFailed.new("x-priority must be 0 or greater") unless priority >= 0
+          end
+          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
           @consumers.push(c)
           q.add_consumer(c)
         else

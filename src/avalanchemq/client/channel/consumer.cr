@@ -7,13 +7,13 @@ module AvalancheMQ
       class Consumer
         include SortableJSON
 
-        getter no_ack, queue, unacked, tag, exclusive, channel
+        getter no_ack, queue, unacked, tag, exclusive, channel, priority
 
         @log : Logger
         @unacked = 0_u32
 
         def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool)
+                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
           @log = @channel.log.dup
           @log.progname += " consumer=#{@tag}"
         end
@@ -95,6 +95,7 @@ module AvalancheMQ
             exclusive:       @exclusive,
             ack_required:    !@no_ack,
             prefetch_count:  prefetch_count,
+            priority:        @priority,
             channel_details: {
               peer_host:       channel_details[:connection_details][:peer_host]?,
               peer_port:       channel_details[:connection_details][:peer_port]?,

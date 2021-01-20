@@ -11,6 +11,7 @@ require "./unacked"
 require "../client/channel"
 require "../message"
 require "../error"
+require "../consumer_store"
 
 module AvalancheMQ
   enum QueueState
@@ -45,8 +46,7 @@ module AvalancheMQ
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
     @read_lock = Mutex.new(:reentrant)
-    @consumers = Deque(Client::Channel::Consumer).new
-    @consumers_lock = Mutex.new(:unchecked)
+    @consumers = ConsumerStore.new
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
@@ -209,9 +209,7 @@ module AvalancheMQ
     end
 
     def immediate_delivery?
-      @consumers_lock.synchronize do
-        @consumers.any? { |c| c.accepts? }
-      end
+      @consumers.immediate_delivery?
     end
 
     def message_count
@@ -277,7 +275,7 @@ module AvalancheMQ
           i = 0
           receive_or_expire || break
         end
-        if @state == QueueState::Running && (c = find_consumer(i))
+        if @state == QueueState::Running && (c = @consumers.next_consumer(i))
           deliver_to_consumer(c)
           # deliver 4096 msgs to a consumer then change consumer
           i = 0 if (i += 1) == 4096
@@ -352,30 +350,6 @@ module AvalancheMQ
       true
     end
 
-    private def find_consumer(i)
-      # @log.debug { "Looking for available consumers" }
-      case @consumers.size
-      when 0
-        nil
-      when 1
-        c = @consumers[0]
-        c.accepts? ? c : nil
-      else
-        if i > 0 # reuse same consumer for a while if we're delivering fast
-          c = @consumers[0]
-          return c if c.accepts?
-        end
-        @consumers_lock.synchronize do
-          @consumers.size.times do
-            c = @consumers.shift
-            @consumers.push c
-            return c if c.accepts?
-          end
-        end
-        nil
-      end
-    end
-
     private def deliver_to_consumer(c)
       # @log.debug { "Getting a new message" }
       if env = get(c.no_ack)
@@ -407,10 +381,8 @@ module AvalancheMQ
       @closed = true
       @message_available.close
       @consumer_available.close
-      @consumers_lock.synchronize do
-        @consumers.each &.cancel
-        @consumers.clear
-      end
+      @consumers.cancel_consumers
+      @consumers.clear
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
@@ -455,7 +427,7 @@ module AvalancheMQ
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
       was_empty = @ready.push(sp) == 1
-      drop_overflow unless @consumers.any? &.accepts?
+      drop_overflow unless immediate_delivery?
       @publish_count += 1
       if was_empty
         message_available
@@ -820,9 +792,7 @@ module AvalancheMQ
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = Time.monotonic
-      @consumers_lock.synchronize do
-        @consumers.push consumer
-      end
+      @consumers.add_consumer(consumer)
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       consumer_available
@@ -832,7 +802,7 @@ module AvalancheMQ
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
-      deleted = @consumers_lock.synchronize { @consumers.delete consumer }
+      deleted = @consumers.delete_consumer consumer
       consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
       unless basic_cancel
         requeue_many(@unacked.delete(consumer))
