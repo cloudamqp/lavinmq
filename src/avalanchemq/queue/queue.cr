@@ -849,6 +849,7 @@ module AvalancheMQ
     def purge : UInt32
       count = @ready.purge
       @log.debug { "Purged #{count} messages" }
+      @vhost.dirty = true
       count.to_u32
     end
 
