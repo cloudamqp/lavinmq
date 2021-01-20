@@ -35,7 +35,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install dependencies
-        run: sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian build-essential gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian build-essential gcc pkg-config git tzdata libpcre3-dev libevent-dev libyaml-dev libgmp-dev libssl-dev libxml2-dev
 
       - name: Install Crystal
         run: |
