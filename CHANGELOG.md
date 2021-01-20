@@ -11,9 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bug where we tried to write beyond segment capacity
+- Missing return when bind/unbind precondictions failed
+- Restore Queue@max_length_bytes when policy changes
+- Start federation links when exchange policy is applied
+- Don't expire messages when the queue has been closed
+- Mark vhost as dirty when deleting or purging queues
+
 ### Changed
 
-### Added
+- Overwrite user on import definitions if used already exist
+- Passwords are exported in RabbitMQ compatible format
+- Message properties are included in shoveled and federated messages
 
 ## [1.0.0-alpha.21] - 2021-01-18
 
