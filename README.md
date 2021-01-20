@@ -87,6 +87,7 @@ consumers and deliver a message to each.
 * Policies
 * Shovels
 * Queue federation
+* Exchange federation
 * Dead-lettering
 * TTL support on queue, message, and policy level
 * CC/BCC
@@ -106,7 +107,6 @@ consumers and deliver a message to each.
 
 Currently missing features
 
-* Exchange federation
 * WebSockets
 * Clustering
 * Plugins
