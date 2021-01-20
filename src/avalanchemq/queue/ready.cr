@@ -123,16 +123,20 @@ module AvalancheMQ
       end
 
       def limit_size(size, &blk : SegmentPosition -> Nil)
-        while @ready.size > size
-          sp = @ready.shift? || break
-          yield sp
+        @lock.synchronize do
+          while @ready.size > size
+            sp = @ready.shift? || break
+            yield sp
+          end
         end
       end
 
       def limit_byte_size(bytesize, &blk : SegmentPosition -> Nil)
-        while @ready.sum {|sp| sp.bytesize } > bytesize
-          sp = @ready.shift? || break
-          yield sp
+        @lock.synchronize do
+          while @ready.sum(&.sp.bytesize) > bytesize
+            sp = @ready.shift? || break
+            yield sp
+          end
         end
       end
 
