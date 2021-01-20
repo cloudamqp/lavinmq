@@ -7,16 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Remember table sorting option until session ends + correct sorting on page refresh
-- Bugfix - Refresh last used time on queue when policy with expire applies to it
-- Autofill of update policy form when click on policy name in the queue, exchange or policies views.
+## [1.0.0-alpha.22] - 2021-01-20
 
-## [1.0.0-alpha.21] - 2021-01-18
+### Fixed
+
+### Changed
 
 ### Added
 
-- Autocomplete queues and exchanges in UI
-- Create and delete queues and exchanges from avalanchemqctl
+## [1.0.0-alpha.21] - 2021-01-18
 
 ### Fixed
 
@@ -26,35 +25,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SegmentPosition is requeued if not expired
 - Writes to `ack` file is always flushed to disk
 
-## [1.0.0-alpha.20] - 2021-01-11
-
 ### Added
 
-- Webhook shovel
+- Autocomplete queues and exchanges in UI
+- Create and delete queues and exchanges from avalanchemqctl
+
+## [1.0.0-alpha.20] - 2021-01-11
 
 ### Fixed
 
 - x-max-length is always repected
 - Validate x-max-priority
 - Better handling in UI on server errors
+- Remember table sorting option until session ends + correct sorting on page refresh
+- Refresh last used time on queue when policy with expire applies to it
+- Improved rendering of charts
 
 ### Changed
 
 - Allow all printable ASCII characters in entity (queue and exchnage) names.
 
-### Fixed
+### Added
 
-- Improved rendering of charts
+- Webhook shovel
+- Autofill of update policy form when click on policy name in the queue, exchange or policies views.
 
 ## [1.0.0-alpha.19] - 2020-12-01
 
-### Changed
-
-- Allow all printable ASCII characters in entity (queue and exchnage) names.
-
 ### Fixed
 
 - Improved rendering of charts
+
+### Changed
+
+- Allow all printable ASCII characters in entity (queue and exchnage) names.
 
 ## [1.0.0-alpha.18] - 2020-12-01
 
@@ -82,17 +86,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0-alpha.15] - 2020-11-17
 
+### Fixed
+
+- Message rate stats count messages in and out, not messages routed
+- Charts now shows all the data it got, not limited
+
 ### Changed
 
 - Debug symbols for ARM builds
 - Only perform segment GC if messages has been consumed/deleted
 - Copy message bodies (that fit in a single frame) to RAM before writing to msg store so that slow clients don't block
 - frame_max lowered to 128kb
-
-### Fixed
-
-- Message rate stats count messages in and out, not messages routed
-- Charts now shows all the data it got, not limited
 
 ## [1.0.0-alpha.14] - 2020-11-11
 
@@ -121,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a counter could overflow when there was more than 2GB of messages in the queues
 - Many API calls are more robust when it's fed erroneous input data
 
-### Changes
+### Changed
 
 - Consistent HTTP status responses
 - Smarter segment GC where we iterate the existing ready/unack queues instead of creating a new array
@@ -152,16 +156,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0-alpha.10] - 2020-10-23
 
+### Fixed
+
+- Lower IOPS usage when messages are expired and all data doesn't fit in disk cache
+- Churn metrics correctly reported from closed connections/channels
+
 ### Changed
 
 - UI: Display more connection properties such as max_frame, TLS version and cipher
 - UI: Nicer charts
 - UI: Default sort order is now descending
-
-### Fixed
-
-- Lower IOPS usage when messages are expired and all data doesn't fit in disk cache
-- Churn metrics correctly reported from closed connections/channels
 
 ### Added
 
@@ -169,9 +173,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0-alpha.9] - 2020-10-20
 
-### Added
+### Fixed
 
-- Support for systemd socket activation, both of the HTTP and AMQP sockets
+- Bug where segment files could be truncated at boot
 
 ### Changed
 
@@ -181,9 +185,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Looks for a config file at /etc/avalanchemq
 - Uses ENV["StateDirectory"] as data dir if set
 
-### Fixed
+### Added
 
-- Bug where segment files could be truncated at boot
+- Support for systemd socket activation, both of the HTTP and AMQP sockets
 
 ## [1.0.0-alpha.8] - 2020-10-14
 
@@ -238,14 +242,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Considerably faster garbage collection of segments and hole punching
 
+### Changed
+
 ### Added
 
 - tls_min_version configuration option, default is 1.2, but 1.0, 1.1 and 1.3 is are also allowed options
 - tls_ciphers configuration option that sets enabled TLS ciphers (config and cmd line)
 - Log IP when TLS connection fails
 - Limit syscalls server is allowed to call, in systemd service file
-
-### Changed
 
 - Don't log HTTP error when client disconnects
 
@@ -282,6 +286,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validates the expiration field on publish
 - Semantic comparison of headers when declaring queues/exchanges
 
+### Changed
+
+- On-disk file formats has changed so previous data directories are incompatible with this version
+- Decreased memory usage and increased performance by reimplemented segment GC
+- Only listen on localhost by default
+- DEB packages are distributed via packagecloud.io
+- Log less on shutdown
+- Higher throughput due to revamped segment GC algorithm
+- Validate x-match headers
+- Don't allow declaring or deleting the default exchange
+- avalanchemqctl now uses a private unix socket for communication
+- Make queue/exchange delete and unbind idempotent
+
 ### Added
 
 - Support for consistent hash exchange
@@ -303,19 +320,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Queue bind now substitutes empty queue and routing key values with last declared queue
 - UserID header is now validate
 - Better server properties sent on connection establishment
-
-### Changed
-
-- On-disk file formats has changed so previous data directories are incompatible with this version
-- Decreased memory usage and increased performance by reimplemented segment GC
-- Only listen on localhost by default
-- DEB packages are distributed via packagecloud.io
-- Log less on shutdown
-- Higher throughput due to revamped segment GC algorithm
-- Validate x-match headers
-- Don't allow declaring or deleting the default exchange
-- avalanchemqctl now uses a private unix socket for communication
-- Make queue/exchange delete and unbind idempotent
 
 ## [0.11.0] - 2020-07-01
 
@@ -353,14 +357,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.5] - 2020-06-18
 
-### Changed
-
-- fsyncing on publish confirm as soon as possible (previously only every 200ms)
-
 ### Fixed
 
 - Crystal 0.35 compatibility
 - Decrease segment position counter on queue delete
+
+### Changed
+
+- fsyncing on publish confirm as soon as possible (previously only every 200ms)
 
 ### Added
 
@@ -369,26 +373,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.4] - 2020-06-09
 
+### Fixed
+
+- Only use `copy_file_range` when the glibc version supports it
+
 ### Added
 
 - Display message rates in queues list in mgmt UI
 - Config for changing endianess of on-disk data
 
-### Fixed
-
-- Only use `copy_file_range` when the glibc version supports it
-
 ## [0.10.3] - 2020-05-26
-
-### Changed
-
-- Faster segment GC
-- Using zero-copy syscall `copy_file_range` between temp file and segment
 
 ### Fixed
 
 - XSS in shovel UI
 - Echo incoming heartbeat if we didn't send one recently
+
+### Changed
+
+- Faster segment GC
+- Using zero-copy syscall `copy_file_range` between temp file and segment
 
 ## [0.10.2] - 2020-05-01
 
@@ -404,6 +408,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - 2020-04-26
 
+### Fixed
+
+- All settings in the file config is respected now, not just a few
+
 ### Changed
 
 - Partial GC of segments by hole punching, disk usage is much lower now
@@ -415,10 +423,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Does now notify systemd when properly started
-
-### Fixed
-
-- All settings in the file config is respected now, not just a few
 
 ## [0.9.16] - 2020-04-13
 
@@ -489,11 +493,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.11] - 2020-03-20
 
-### Added
-
-- More stats in the /api/nodes endpoint, including CPU, diskspace, IOPS etc
-- Structure the output of USR1 signal better
-
 ### Fixed
 
 - Bug when publishing to a queue that has reach its max-length
@@ -504,6 +503,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No logging of GC of segments, except in debug mode
 - Message bodies smaller than a frame is written directly to disk
 - Message bodies spread out over several frames to temporarily written to disk
+
+### Added
+
+- More stats in the /api/nodes endpoint, including CPU, diskspace, IOPS etc
+- Structure the output of USR1 signal better
 
 ## [0.9.10] - 2020-03-12
 
@@ -534,15 +538,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removing a policy removes its effect on existing queues
 - Auto-delete queues are deleted in vhost as well when closed
 
-### Added
-
-- Report accumulated message stats in the /api/overview endpoint
-
 ### Changed
 
 - Default to 0 heartbeat
 - Use socket timeout for heartbeat sending, instead of a looping fiber
 - Round message stat metrics to 1 decimal
+
+### Added
+
+- Report accumulated message stats in the /api/overview endpoint
 
 ## [0.9.7] - 2020-03-06
 
@@ -587,16 +591,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Channel#timeout is used for queue/msg expiration
 
+### Changed
+
+- Only ignore publish frames on closed channels
+- Different log message if user is missing or password is wrong
+
 ### Added
 
 - Signal USR1 prints various stats
 - Signal USR2 forces a GC collect
 - Signal HUP only reloads the config file
-
-### Changed
-
-- Only ignore publish frames on closed channels
-- Different log message if user is missing or password is wrong
 
 ## [0.9.2] - 2020-02-17
 
@@ -604,17 +608,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Changes to users (password, tags) are store to disk
 
-### Added
-
-- avalanchemqperf: --persistent flag for throughput tests
-- avalanchemqperf: queues are now bound to the exchange
-
 ### Changed
 
 - Crystal 0.33.0
 - avalanchemqperf: use fibers, don't fork
 - Only ack:ing persistent messages are now written to the queue index
 - Mutexes around the unacked dequeue in Consumer, for thread safety
+
+### Added
+
+- avalanchemqperf: --persistent flag for throughput tests
+- avalanchemqperf: queues are now bound to the exchange
 
 ## [0.9.1] - 2020-02-13
 
@@ -750,6 +754,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.10] - 2019-06-19
 
+### Fixed
+
+- AMQPLAIN support in shovels is implemented correctly
+
 ### Added
 
 ShortStrings are now added to StringPool for reduced GC pressure, the pool size is printed on HUP
@@ -759,10 +767,6 @@ ShortStrings are now added to StringPool for reduced GC pressure, the pool size 
 - Make setting the timestamp property optional through a config setting (set_timestamp), default to false
 - Optimized topic exchange and fanout routing, giving ~5% and ~30% throughput boost respectively
 - Using a Channel to communicate between Client and Vhost when publishing, removed the need for a lock
-
-### Fixed
-
-- AMQPLAIN support in shovels is implemented correctly
 
 ## [0.7.9] - 2019-06-10
 
