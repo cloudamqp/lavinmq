@@ -33,14 +33,10 @@ module AvalancheMQ
       def shift(&blk : SegmentPosition -> Bool)
         @lock.synchronize do
           while sp = @ready.shift?
-            ok = false
-            begin
-              ok = yield sp
-            ensure
-              unless ok
-                @ready.unshift sp
-                break
-              end
+            ok = yield sp
+            unless ok
+              @ready.unshift sp
+              break
             end
           end
         end
