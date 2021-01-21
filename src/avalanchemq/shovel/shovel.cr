@@ -76,13 +76,20 @@ module AvalancheMQ
       end
 
       def stop
+        ack_outstanding
+        @conn.try &.close(no_wait: false)
+      end
+
+      private def ack_outstanding
         # If we have any outstanding messages when closing, ack them first.
         @ch.try do |ch|
           # Might end up with channel closed
           next if ch.closed?
-          @last_unacked.try { |t| ch.basic_ack(t, multiple: true) }
+          @last_unacked.try do |t|
+            @last_unacked = nil
+            ch.basic_ack(t, multiple: true)
+          end
         end
-        @conn.try &.close(no_wait: false)
       end
 
       def started? : Bool
