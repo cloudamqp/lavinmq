@@ -451,7 +451,7 @@ module AvalancheMQ
       @upstreams.not_nil!.stop_all
     end
 
-    def close(seamless_restart = false)
+    def close(seamless_restart = false, reason = "Broker shutdown")
       @closed = true
       stop_shovels
       Fiber.yield
@@ -462,7 +462,7 @@ module AvalancheMQ
         SystemD.store_fds(@connections.map &.fd, "vhost=#{@name}")
       else
         @log.debug "Closing connections"
-        @connections.each &.close("Broker shutdown")
+        @connections.each &.close(reason)
         # wait up to 10s for clients to gracefully close
         100.times do
           break if @connections.empty?
@@ -482,7 +482,7 @@ module AvalancheMQ
     end
 
     def delete
-      close
+      close(reason: "VHost deleted")
       Fiber.yield
       FileUtils.rm_rf @data_dir
     end
