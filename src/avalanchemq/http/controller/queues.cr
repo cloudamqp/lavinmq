@@ -151,11 +151,12 @@ module AvalancheMQ
             end
             body = parse_body(context)
             get_count = body["count"]?.try(&.as_i) || 1
-            ack_mode = body["ack_mode"]?.try(&.as_s) || "ack_requeue_true"
+            ack_mode = body["ack_mode"]?.try(&.as_s) || "ack"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
-            requeue = body["requeue"]?.try(&.as_bool) || ack_mode.ends_with?("requeue_true")
-            ack = ack_mode.starts_with?(/(ack_|get)/)
+            requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
+            ack = {"ack", "get"}.includes? ack_mode
+            bad_request(context, "Cannot requeue message on ack") if ack && requeue
             JSON.build(context.response) do |j|
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
@@ -192,7 +193,6 @@ module AvalancheMQ
                 sps.each do |sp|
                   if ack
                     q.ack(sp, true)
-                    q.publish(sp) if requeue
                   else
                     q.reject(sp, requeue)
                   end
