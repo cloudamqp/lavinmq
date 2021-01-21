@@ -202,7 +202,6 @@ module AvalancheMQ
       @last_sent_frame = RoughTime.utc
       @send_oct_count += 8_u64 + frame.bytesize
       if frame.is_a?(AMQP::Frame::Connection::CloseOk)
-        @log.debug "Disconnected"
         cleanup
         close_socket
         return false
@@ -393,7 +392,6 @@ module AvalancheMQ
 
     private def cleanup
       @running = false
-      @log.debug "Cleaning up"
       @exclusive_queues.each(&.close)
       @exclusive_queues.clear
       @channels.each_value &.close
@@ -404,7 +402,6 @@ module AvalancheMQ
     end
 
     private def close_socket
-      @log.debug { "Closing socket" }
       @socket.close
       @log.debug { "Socket closed" }
     rescue ex

@@ -37,9 +37,9 @@ module AvalancheMQ
 
     def delete(name) : Nil
       if vhost = @vhosts.delete name
+        @log.info { "Deleting vhost=#{name}" }
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        @log.info { "vhost=#{name} deleted" }
         save!
       end
     ensure
