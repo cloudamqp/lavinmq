@@ -470,7 +470,7 @@ module AvalancheMQ
         end
         # then force close the remaining (close tcp socket)
         @connections.each &.force_close
-        Fiber.yield # yield so that CLient read_loops can shutdown
+        Fiber.yield # yield so that Client read_loops can shutdown
       end
       @write_lock.synchronize do
         @queues.each_value &.close
