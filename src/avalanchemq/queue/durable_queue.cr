@@ -42,21 +42,22 @@ module AvalancheMQ
       @enq.buffer_size = Config.instance.file_buffer_size
       SchemaVersion.prefix(@enq, :index)
       @ready.locked_each do |all_ready|
-        unacked = @unacked.all_segment_positions.sort!.each
-        next_unacked = unacked.next.as?(SegmentPosition)
-        while sp = all_ready.next.as?(SegmentPosition)
-          while next_unacked && next_unacked < sp
+        @unacked.locked_each do |all_unacked|
+          next_unacked = all_unacked.next.as?(UnackQueue::Unack).try &.sp
+          while sp = all_ready.next.as?(SegmentPosition)
+            while next_unacked && next_unacked < sp
+              @enq.write_bytes next_unacked
+              i += 1
+              next_unacked = all_unacked.next.as?(UnackQueue::Unack).try &.sp
+            end
+            @enq.write_bytes sp
+            i += 1
+          end
+          while next_unacked
             @enq.write_bytes next_unacked
             i += 1
-            next_unacked = unacked.next.as?(SegmentPosition)
+            next_unacked = all_unacked.next.as?(UnackQueue::Unack).try &.sp
           end
-          @enq.write_bytes sp
-          i += 1
-        end
-        while next_unacked
-          @enq.write_bytes next_unacked
-          i += 1
-          next_unacked = unacked.next.as?(SegmentPosition)
         end
       end
 

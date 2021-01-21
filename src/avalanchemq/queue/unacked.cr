@@ -51,12 +51,6 @@ module AvalancheMQ
         consumer_unacked
       end
 
-      def all_segment_positions : Array(SegmentPosition)
-        @lock.synchronize do
-          @unacked.map &.sp
-        end
-      end
-
       def size
         @unacked.size
       end
@@ -75,6 +69,12 @@ module AvalancheMQ
 
       def capacity
         @unacked.capacity
+      end
+
+      def locked_each
+        @lock.synchronize do
+          yield @unacked.each
+        end
       end
 
       def each_sp(&blk)
