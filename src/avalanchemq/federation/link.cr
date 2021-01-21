@@ -10,13 +10,13 @@ module AvalancheMQ
         include SortableJSON
         getter last_changed, error
 
-        @state = 0_u8
         @consumer_available = Channel(Nil).new
         @last_changed : Int64?
         @state = State::Terminated
         @stop = ::Channel(Exception?).new
         @error : String?
         @scrubbed_uri : String
+        @last_unacked : UInt64?
 
         def initialize(@upstream : Upstream, @log : Logger)
           user = UserStore.instance.direct_user
@@ -35,7 +35,7 @@ module AvalancheMQ
         end
 
         def running?
-          @state == State::Running
+          @state.running?
         end
 
         def details_tuple
@@ -60,7 +60,7 @@ module AvalancheMQ
         end
 
         def terminated?
-          @state == State::Terminated
+          @state.terminated?
         end
 
         # Does not trigger reconnect, but a graceful close
@@ -97,20 +97,42 @@ module AvalancheMQ
         private def federate(msg, pch, exchange, routing_key)
           msgid = pch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
           @log.debug { "Federating msgid=#{msgid} routing_key=#{routing_key}" }
-          should_multi_ack = msgid % (@upstream.prefetch / 2).ceil.to_i == 0
-          if should_multi_ack
-            case @upstream.ack_mode
-            when AckMode::OnConfirm
-              pch.wait_for_confirm(msgid)
-              msg.ack(multiple: true)
-            when AckMode::OnPublish
-              msg.ack(multiple: true)
-            when AckMode::NoAck
-              nil
-            end
+          pch.wait_for_confirm(msgid) if @upstream.ack_mode.on_confirm?
+
+          # We batch ack for faster federation
+          batch_full = msg.delivery_tag % (@upstream.prefetch / 2).ceil.to_i == 0
+          should_ack = !@upstream.ack_mode.no_ack?
+          if batch_full && should_ack
+            msg.ack(multiple: true)
+            @last_unacked = nil
+          else
+            @last_unacked = msg.delivery_tag
           end
         rescue ex
           @stop.send ex unless @stop.closed?
+        end
+
+        private def ack_outstanding(upstream_ch)
+          if ch = upstream_ch
+            # Might end up with channel closed
+            return if ch.closed?
+            if delivery_tag = @last_unacked
+              @last_unacked = nil
+              ch.basic_ack(delivery_tag, multiple: true)
+            end
+          end
+        end
+
+        private def ack_timeout_loop(upstream_ch)
+          loop do
+            select
+            when ex = @stop.receive?
+              raise ex unless ex.nil?
+              return
+            when timeout(@upstream.ack_timeout)
+              ack_outstanding(upstream_ch)
+            end
+          end
         end
 
         private def try_passive(client, ch = nil)
@@ -197,8 +219,8 @@ module AvalancheMQ
               cch, q = setup_queue(c)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
-              pch.confirm_select if @upstream.ack_mode == AckMode::OnConfirm
-              no_ack = @upstream.ack_mode == AckMode::NoAck
+              pch.confirm_select if @upstream.ack_mode.on_confirm?
+              no_ack = @upstream.ack_mode.no_ack?
               @state = State::Running
               @last_changed = Time.utc.to_unix_ms
               @log.debug { "Running" }
@@ -224,11 +246,10 @@ module AvalancheMQ
                 msg.properties.headers = headers
                 federate(msg, pch, EXCHANGE, @federated_q.name)
               end
-
-              if ex = @stop.receive?
-                raise ex
-              end
+              ack_timeout_loop(cch)
               return
+            ensure
+              ack_outstanding(cch)
             end
           end
         end
@@ -286,7 +307,7 @@ module AvalancheMQ
             ch = c.channel
             ch.queue_delete(@upstream_q)
           end
-        rescue e : Socket::ConnectError
+        rescue e
           @log.warn "cleanup interrupted with #{e.inspect}"
         end
 
@@ -335,8 +356,8 @@ module AvalancheMQ
               cch, @consumer_q = setup(c)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
-              pch.confirm_select if @upstream.ack_mode == AckMode::OnConfirm
-              no_ack = @upstream.ack_mode == AckMode::NoAck
+              pch.confirm_select if @upstream.ack_mode.on_confirm?
+              no_ack = @upstream.ack_mode.no_ack?
               @state = State::Running
               @last_changed = Time.utc.to_unix_ms
               @log.debug { "Running" }
@@ -352,11 +373,10 @@ module AvalancheMQ
                 msg.properties.headers = headers
                 federate(msg, pch, @federated_ex.name, msg.routing_key)
               end
-
-              if ex = @stop.receive?
-                raise ex
-              end
+              ack_timeout_loop(cch)
               return
+            ensure
+              ack_outstanding(cch)
             end
           end
         end
