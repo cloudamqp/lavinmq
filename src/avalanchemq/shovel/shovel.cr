@@ -101,8 +101,8 @@ module AvalancheMQ
         q = @q.not_nil!
         ch = @ch.not_nil!
         queue_length = q[:message_count]
-        limited = @delete_after == DeleteAfter::QueueLength
-        should_ack = @ack_mode != AckMode::NoAck
+        limited = @delete_after.queue_length?
+        should_ack = !@ack_mode.no_ack?
         return if limited && queue_length.zero?
         tag = "Shovel[#{@name}]"
         ch.basic_consume(q[:queue_name],
@@ -193,13 +193,13 @@ module AvalancheMQ
       def push(msg)
         raise "Not started" unless started?
         ch = @ch.not_nil!
-        ch.confirm_select if @ack_mode == AckMode::OnConfirm
+        ch.confirm_select if @ack_mode.on_confirm?
         msgid = ch.basic_publish(
           msg.body_io,
           @exchange || msg.exchange,
           @exchange_key || msg.routing_key,
           props: msg.properties)
-        ch.wait_for_confirm(msgid) if @ack_mode == AckMode::OnConfirm
+        ch.wait_for_confirm(msgid) if @ack_mode.on_confirm?
       end
     end
 
@@ -246,7 +246,7 @@ module AvalancheMQ
                  "/"
                end
         response = c.post(path, headers: headers, body: msg.body_io)
-        raise FailedDeliveryError.new if @ack_mode == AckMode::OnConfirm && !response.success?
+        raise FailedDeliveryError.new if @ack_mode.on_confirm? && !response.success?
       end
     end
 
@@ -282,7 +282,7 @@ module AvalancheMQ
             @message_count += 1
             @destination.push(msg)
           end
-          @vhost.delete_parameter("shovel", @name) if @source.delete_after == DeleteAfter::QueueLength
+          @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
           return if terminated?
@@ -329,11 +329,11 @@ module AvalancheMQ
       end
 
       def terminated?
-        @state == State::Terminated
+        @state.terminated?
       end
 
       def running?
-        @state == State::Running
+        @state.running?
       end
     end
   end
