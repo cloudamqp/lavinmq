@@ -167,4 +167,41 @@ describe AvalancheMQ::Federation::Upstream do
     UpstreamSpecHelpers.cleanup
     upstream.not_nil!.close(sync: true)
   end
+
+  it "should federate exchange even with no downstream consumer" do
+    upstream_vhost = s.vhosts.create("upstream")
+    downstream_vhost = s.vhosts.create("downstream")
+    upstream_name = "ef test upstream wo downstream"
+    upstream = AvalancheMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
+      "#{AMQP_BASE_URL}/upstream", "upstream_ex")
+    upstream.ack_timeout = 1.milliseconds
+    downstream_vhost.upstreams.not_nil!.add(upstream)
+    definitions = {"federation-upstream" => JSON::Any.new(upstream_name)} of String => JSON::Any
+    downstream_vhost.add_policy("FE", /downstream_ex/, AvalancheMQ::Policy::Target::Exchanges,
+      definitions, 12_i8)
+
+    with_channel(vhost: "upstream") do |upstream_ch|
+      with_channel(vhost: "downstream") do |downstream_ch|
+        upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
+        _downstream_ex = downstream_ch.exchange("downstream_ex", "topic")
+        wait_for { downstream_vhost.exchanges["downstream_ex"].policy.try(&.name) == "FE" }
+        # Assert setup is correct
+        wait_for { upstream.links.first?.try(&.running?) }
+        downstream_q = downstream_ch.queue("downstream_q")
+        downstream_q.bind("downstream_ex", "#")
+        upstream_ex.publish_confirm "federate me", "rk"
+        downstream_q.get.should_not be_nil
+        msgs = [] of AMQP::Client::Message
+        downstream_q.subscribe { |msg| msgs << msg }
+        upstream_ex.publish_confirm "federate me", "rk"
+        wait_for { msgs.size == 1 }
+        msgs.first.not_nil!.body_io.to_s.should eq("federate me")
+      end
+    end
+    sleep 0.01 # Wait for acks
+    upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+  ensure
+    s.vhosts.delete("downstream")
+    s.vhosts.delete("upstream")
+  end
 end
