@@ -85,7 +85,7 @@
       }
       values = res.map(val => val.name)
       uniqValues = [...new Set(values)];
-      uniqValues.forEach(val => {
+      uniqValues.sort().forEach(val => {
         option = document.createElement("option")
         option.value = val
         datalist.appendChild(option)
