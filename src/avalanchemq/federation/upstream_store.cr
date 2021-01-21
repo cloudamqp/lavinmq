@@ -17,7 +17,7 @@ module AvalancheMQ
       end
 
       def create_upstream(name, config)
-        delete_upstream(name)
+        _delete_upstream(name)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || Upstream::DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?) || Upstream::DEFAULT_RECONNECT_DELAY
@@ -36,7 +36,17 @@ module AvalancheMQ
         @upstreams[name]
       end
 
+      def add(upstream : Upstream)
+        @upstreams[upstream.name]?.try &.close
+        @upstreams[upstream.name] = upstream
+      end
+
       def delete_upstream(name)
+        _delete_upstream(name)
+        @vhost.log.info { "Upstream '#{name}' deleted" }
+      end
+
+      private def _delete_upstream(name)
         @upstreams.delete(name).try(&.close)
         @upstream_sets.each do |_, set|
           set.reject! do |upstream|
@@ -45,7 +55,6 @@ module AvalancheMQ
             true
           end
         end
-        @vhost.log.info { "Upstream '#{name}' deleted" }
       end
 
       def link(name, resource : Queue | Exchange)
@@ -59,7 +68,7 @@ module AvalancheMQ
       end
 
       def create_upstream_set(name, config)
-        delete_upstream_set(name)
+        @upstream_sets.delete(name)
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
           upstream = @upstreams[cfg["upstream"].as_s]
