@@ -818,18 +818,18 @@ module AvalancheMQ
       with_channel frame, &.basic_get(frame)
     end
 
-    private def tls_terminated?()
+    private def tls_terminated?
       @socket.is_a?(OpenSSL::SSL::Socket) ||
-      (@socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated)
+        (@socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated)
     end
 
-    private def tls_version()
+    private def tls_version
       return @socket.as(OpenSSL::SSL::Socket).tls_version if @socket.is_a?(OpenSSL::SSL::Socket)
       return "Unknown" if @socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated
       nil
     end
 
-    private def cipher()
+    private def cipher
       return @socket.as(OpenSSL::SSL::Socket).cipher if @socket.is_a?(OpenSSL::SSL::Socket)
       return "Unknown" if @socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated
       nil

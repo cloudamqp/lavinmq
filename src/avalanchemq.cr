@@ -202,9 +202,9 @@ shutdown = ->(_s : Signal) do
   if first_shutdown_attempt
     first_shutdown_attempt = false
     SystemD.notify("STOPPING=1\n")
-    #amqp_server.vhosts.each do |_, vh|
+    # amqp_server.vhosts.each do |_, vh|
     #  SystemD.store_fds(vh.connections.map(&.fd), "vhost=#{vh.dir}")
-    #end
+    # end
     puts "Shutting down gracefully..."
     amqp_server.close
     http_server.try &.close
