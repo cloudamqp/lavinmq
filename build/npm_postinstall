@@ -1,4 +1,7 @@
-#!/bin/sh
+#!/bin/bash
+
+set -e
+
 [[ -d static/js/lib ]] && cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js
 
 echo "Linting HTTP API documentation..."
