@@ -5,12 +5,12 @@
   "main": "",
   "directories": {},
   "dependencies": {
-    "chart.js": "^2.7.3",
-    "eslint-plugin-html": "^5.0.0"
+    "chart.js": "^2.9.4",
+    "eslint-plugin-html": "^5.0.5"
   },
   "devDependencies": {
-    "@stoplight/spectral": "^5.6.0",
-    "redoc-cli": "^0.9.12"
+    "@stoplight/spectral": "^5.8.0",
+    "redoc-cli": "^0.9.13"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
