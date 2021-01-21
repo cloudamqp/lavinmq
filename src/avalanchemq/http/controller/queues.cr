@@ -166,7 +166,10 @@ module AvalancheMQ
                   size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
                   payload = String.new(env.message.body[0, size])
                   case encoding
-                  when "auto"
+                  when "base64"
+                    content = Base64.urlsafe_encode(payload)
+                    payload_encoding = "base64"
+                  else
                     if payload.valid_encoding?
                       content = payload
                       payload_encoding = "string"
@@ -174,11 +177,6 @@ module AvalancheMQ
                       content = Base64.urlsafe_encode(payload)
                       payload_encoding = "base64"
                     end
-                  when "base64"
-                    content = Base64.urlsafe_encode(payload)
-                    payload_encoding = "base64"
-                  else
-                    bad_request(context, "Unknown encoding #{encoding}")
                   end
                   j.object do
                     j.field("payload_bytes", env.message.size)
