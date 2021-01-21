@@ -197,7 +197,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         sleep 0.05
         body = %({
           "count": 2,
-          "ack_mode": "peek",
+          "ack_mode": "ack",
           "encoding": "auto"
         })
         response = post("/api/queues/%2f/q5/get", body: body)
@@ -212,7 +212,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         ch.queue("q6")
         body = %({
           "count": 1,
-          "ack_mode": "peek",
+          "ack_mode": "ack",
           "encoding": "auto"
         })
         response = post("/api/queues/%2f/q6/get", body: body)
@@ -231,7 +231,7 @@ describe AvalancheMQ::HTTP::QueuesController do
         sleep 0.05
         body = %({
           "count": 1,
-          "ack_mode": "peek",
+          "ack_mode": "ack",
           "encoding": "base64"
         })
         response = post("/api/queues/%2f/q7/get", body: body)
@@ -241,6 +241,26 @@ describe AvalancheMQ::HTTP::QueuesController do
       end
     ensure
       s.vhosts["/"].delete_queue("q7")
+    end
+
+    it "should not allow ack and requeue" do
+      with_channel do |ch|
+        q = ch.queue("q8")
+        q.publish "m1"
+        sleep 0.05
+        body = %({
+          "count": 1,
+          "ack_mode": "ack",
+          "requeue": true,
+          "encoding": "base64"
+        })
+        response = post("/api/queues/%2f/q8/get", body: body)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Cannot requeue message on ack"
+      end
+    ensure
+      s.vhosts["/"].delete_queue("q8")
     end
   end
 
