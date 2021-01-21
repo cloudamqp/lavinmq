@@ -24,7 +24,7 @@ module AvalancheMQ
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
         ack_mode = AckMode.parse?(ack_mode_str) || Upstream::DEFAULT_ACK_MODE
         exchange = config["exchange"]?.try(&.as_s)
-        max_hops = config["max-hops"]?.try(&.as_i?) || Upstream::DEFAULT_MAX_HOPS
+        max_hops = config["max-hops"]?.try(&.as_i64?) || Upstream::DEFAULT_MAX_HOPS
         expires = config["expires"]?.try(&.as_i64?) || Upstream::DEFAULT_EXPIRES
         msg_ttl = config["message-ttl"]?.try(&.as_i64?) || Upstream::DEFAULT_MSG_TTL
         consumer_tag = config["consumer-tag"]?.try(&.as_s?) || "federation-link-#{name}"
@@ -71,7 +71,7 @@ module AvalancheMQ
             ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
             AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
             config["exchange"]?.try { |p| upstream.exchange = p.as_s }
-            config["max-hops"]?.try { |p| upstream.max_hops = p.as_i }
+            config["max-hops"]?.try { |p| upstream.max_hops = p.as_i64 }
             config["expires"]?.try { |p| upstream.expires = p.as_i64 }
             config["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_i64 }
             config["queue"]?.try { |p| upstream.queue = p.as_s }
