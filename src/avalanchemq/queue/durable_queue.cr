@@ -101,7 +101,7 @@ module AvalancheMQ
       true
     end
 
-    protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
+    protected def delete_message(sp : SegmentPosition) : Nil
       super
       @ack_lock.synchronize do
         @log.debug { "writing #{sp} to ack" }

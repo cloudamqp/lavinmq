@@ -383,7 +383,7 @@ module AvalancheMQ
         # @log.debug { "Delivering #{sp} to consumer" }
         if c.deliver(env.message, sp, env.redelivered)
           if c.no_ack
-            delete_message(sp, false)
+            delete_message(sp)
           else
             @unacked.push(sp, env.message.persistent?, c)
           end
@@ -602,7 +602,7 @@ module AvalancheMQ
           end
         end
       end
-      delete_message sp, msg.persistent?
+      delete_message sp
     end
 
     # checks if the message has been dead lettered to the same queue
@@ -706,7 +706,7 @@ module AvalancheMQ
       @get_count += 1
       if env = get(no_ack)
         if no_ack
-          delete_message(env.segment_position, false)
+          delete_message(env.segment_position)
         else
           @unacked.push(env.segment_position, env.message.persistent?, nil)
         end
@@ -761,16 +761,16 @@ module AvalancheMQ
       @requeued.delete(sp) if redelivered
     end
 
-    def ack(sp : SegmentPosition, persistent : Bool) : Nil
+    def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count += 1
       @unacked.delete(sp)
-      delete_message(sp, persistent)
+      delete_message(sp)
       consumer_available
     end
 
-    protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
+    protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
       @vhost.dirty = true
     end
