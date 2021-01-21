@@ -133,7 +133,7 @@ module AvalancheMQ
 
       def limit_byte_size(bytesize, &blk : SegmentPosition -> Nil)
         @lock.synchronize do
-          while @ready.sum(&.sp.bytesize) > bytesize
+          while @ready.sum(&.bytesize) > bytesize
             sp = @ready.shift? || break
             yield sp
           end
