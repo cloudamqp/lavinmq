@@ -14,6 +14,10 @@ module AvalancheMQ
         SPUnackQueue.new(unack)
       end
 
+      def self.new(ready : Queue::SortedReadyQueue)
+        SPUnsortedReadyQueue.new(ready)
+      end
+
       def <=>(other : self)
         peek <=> other.peek
       end
@@ -49,6 +53,32 @@ module AvalancheMQ
 
       def unlock : Nil
         @ready.unlock
+      end
+    end
+
+    class SPUnsortedReadyQueue < SPQueue
+      @list : Array(SegmentPosition)
+
+      def initialize(ready : Queue::SortedReadyQueue)
+        @list = ready.to_a.sort!
+      end
+
+      def peek : SegmentPosition
+        @list.first
+      end
+
+      def shift : SegmentPosition
+        @list.shift
+      end
+
+      def empty? : Bool
+        @list.empty?
+      end
+
+      def lock : Nil
+      end
+
+      def unlock : Nil
       end
     end
 

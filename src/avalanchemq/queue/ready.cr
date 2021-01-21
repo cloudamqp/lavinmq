@@ -240,6 +240,11 @@ module AvalancheMQ
         end
         idx ? @ready.insert(idx, sp) : @ready.push(sp)
       end
+
+      def to_a
+        @ready.to_a
+      end
+
     end
 
     class PriorityReadyQueue < SortedReadyQueue
