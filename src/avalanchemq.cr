@@ -9,6 +9,8 @@ require "./avalanchemq/reporter"
 config = AvalancheMQ::Config.instance
 AvalancheMQ::ServerCLI.new(config).parse
 
+# Log.setup("amqp.*", level: Log::Severity.parse(config.log_level.to_s))
+
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
