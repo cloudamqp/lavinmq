@@ -54,7 +54,6 @@ module AvalancheMQ
 
         def run
           @log.info { "Starting" }
-          @state = State::Starting
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
         end
@@ -71,8 +70,9 @@ module AvalancheMQ
         end
 
         private def run_loop
-          return if terminated?
+          raise "Invalid state" unless @state.stopped?
           loop do
+            break if @state.terminating?
             @state = State::Starting
             start_link
             break
