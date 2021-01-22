@@ -254,7 +254,7 @@ module AvalancheMQ
                end
         response = c.post(path, headers: headers, body: msg.body_io)
         if @ack_mode.on_confirm?
-          raise FailedDeliveryError.new if !response.success?
+          raise FailedDeliveryError.new unless response.success?
           source.ack(msg.delivery_tag)
         end
       end
