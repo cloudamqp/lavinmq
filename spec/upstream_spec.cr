@@ -183,7 +183,7 @@ describe AvalancheMQ::Federation::Upstream do
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
         upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
-        _downstream_ex = downstream_ch.exchange("downstream_ex", "topic")
+        downstream_ch.exchange("downstream_ex", "topic")
         wait_for { downstream_vhost.exchanges["downstream_ex"].policy.try(&.name) == "FE" }
         # Assert setup is correct
         wait_for { upstream.links.first?.try(&.running?) }
