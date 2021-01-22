@@ -332,9 +332,8 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 ### Release
 
 1. Update `CHANGELOG.md`
-1. Bump version in `shards.yml` & `src/avalanchemq/version.cr`
-1. Create and push tag
-1. `build/with_vagrant && build/bintray-push`
+1. Bump version in `shards.yml` and `src/avalanchemq/version.cr`
+1. Create and push an annotated tag (`git tag -a $(shards version)`), put the changelog of the version in the tagging message
 
 ## Contributors
 
