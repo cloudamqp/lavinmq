@@ -47,7 +47,7 @@ cat > $root/usr/share/doc/avalanchemq/copyright << EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: AvalancheMQ
 Upstream-Contact: contact@84codes.com
-Source: https://github.com/84codes/avalanchemq
+Source: https://github.com/cloudamqp/avalanchemq
 
 Files: *
 Copyright: 2019, 84codes AB
@@ -75,13 +75,13 @@ EOF
 cat > $root/DEBIAN/control << EOF
 Package: avalanchemq
 Version: $pkg_version-$pkg_revision
-Homepage: https://github.com/84codes/avalanchemq
+Homepage: https://github.com/cloudamqp/avalanchemq
 Section: net
 Priority: optional
 Architecture: $architecture
 Depends: openssl, systemd, libc6, adduser, libgc1c2
 Installed-Size: $(du -ks $root/usr | cut -f 1)
-Maintainer: 84codes <contact@84codes.com>
+Maintainer: AvalancheMQ Team <contact@avalanchemq.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
  Aims to be very fast, have low RAM requirements,
  handle very long queues, many connections and

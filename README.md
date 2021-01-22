@@ -1,5 +1,4 @@
-[![Build Status](https://github.com/84codes/avalanchemq/workflows/CI/badge.svg?branch=master)](https://github.com/84codes/avalanchemq/actions)
-[![Download](https://api.bintray.com/packages/cloudamqp/debian/avalanchemq/images/download.svg)](https://bintray.com/cloudamqp/debian/avalanchemq/_latestVersion)
+[![Build Status](https://github.com/cloudamqp/avalanchemq/workflows/CI/badge.svg?branch=master)](https://github.com/cloudamqp/avalanchemq/actions)
 
 # ![AvalancheMQ](static/img/logo-avalanche-mq-black.png)
 
@@ -352,6 +351,6 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 
 The software is licensed under the [Apache License 2.0](LICENSE).
 
-Copyright 2018-2020 84codes AB
+Copyright 2018-2021 84codes AB
 
 AvalancheMQ is a trademark of 84codes AB

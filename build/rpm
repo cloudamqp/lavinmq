@@ -18,7 +18,7 @@ License: ASL 2.0
 %{?systemd_requires}
 BuildRequires: systemd crystal help2man zlib-devel openssl-devel
 Requires(pre): shadow-utils
-URL: https://github.com/84codes/avalanchemq
+URL: https://github.com/cloudamqp/avalanchemq
 Source0: %{name}.tar.gz
 
 %description
@@ -70,7 +70,7 @@ exit 0
 %config(noreplace) %{_sysconfdir}/%{name}/%{name}.ini
 
 %changelog
-* Wed Jul 03 2019 AvalancheMQ Team <contact@84codes.com>
+* Wed Jul 03 2019 AvalancheMQ Team <contact@avalanchemq.com>
 - Initial version of the package
 EOF
 

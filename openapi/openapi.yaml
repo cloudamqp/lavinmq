@@ -7,7 +7,7 @@ info:
   contact:
     name: AvalancheMQ Team
     url: https://www.avalanchemq.com/
-    email: contact@84codes.com
+    email: contact@avalanchemq.com
 servers:
 - url: http://localhost:15672/api
 components:

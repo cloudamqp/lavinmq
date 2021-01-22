@@ -18,12 +18,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/84codes/avalanchemq.git"
+    "url": "git+https://github.com/cloudamqp/avalanchemq.git"
   },
   "author": "",
   "license": "SEE LICENSE IN LICENSE",
   "bugs": {
-    "url": "https://github.com/84codes/avalanchemq/issues"
+    "url": "https://github.com/cloudamqp/avalanchemq/issues"
   },
-  "homepage": "https://github.com/84codes/avalanchemq#readme"
+  "homepage": "https://github.com/cloudamqp/avalanchemq#readme"
 }
