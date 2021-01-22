@@ -104,7 +104,7 @@ describe AvalancheMQ::SegmentPosition do
         AvalancheMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64)
       ]
       ready = AvalancheMQ::Queue::ExpirationReadyQueue.new(sps.size)
-      sps.each { |sp| ready.insert(sp) }
+      ready.insert(sps)
 
       ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
       ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
