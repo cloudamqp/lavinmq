@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.23] - 2021-01-22
+
+### Fixed
+
+- Federation: improvments to how messages are acked
+- Segment positions must be in order for GC to work
+- Show queue arguments in queue list
+
+### Changed
+
+- Removed abillity to ack with requeue from HTTP API
+
 ## [1.0.0-alpha.22] - 2021-01-20
 
 ### Fixed
