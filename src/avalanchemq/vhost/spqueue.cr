@@ -59,6 +59,10 @@ module AvalancheMQ
     class SPUnsortedReadyQueue < SPQueue
       @list : Array(SegmentPosition)
 
+      # FIXME: This could be a performance issue on long queues
+      # that is using Delayed messages or Priority
+      # We need to sort the ready queue by SP for the GC as a
+      # SortedReadyQueue could be sorted on any attribute on a SP
       def initialize(ready : Queue::SortedReadyQueue)
         @list = ready.to_a.sort! { |a, b| b <=> a }
       end

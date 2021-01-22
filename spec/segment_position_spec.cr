@@ -82,29 +82,17 @@ describe AvalancheMQ::SegmentPosition do
     subject = AvalancheMQ::SegmentPosition
 
     it "it should always be sorted (ReadyQueue)" do
-      sps = [
-        AvalancheMQ::SegmentPosition.from_i64(0_i64),
-        AvalancheMQ::SegmentPosition.from_i64(2_i64),
-        AvalancheMQ::SegmentPosition.from_i64(1_i64),
-        AvalancheMQ::SegmentPosition.from_i64(3_i64),
-      ]
+      offsets = (0..4).to_a.map(&.to_i64)
+      sps = offsets.map { |i| AvalancheMQ::SegmentPosition.from_i64(i) }
+
       ready = AvalancheMQ::Queue::ReadyQueue.new(sps.size)
       ready.insert(sps)
 
       ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
       ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
 
-      i = 0_i64
-      ready.each do |sp|
-        sp.to_i64.should eq i
-        i += 1
-      end
-
-      i = 0_i64
-      ref_sps.each do |sp|
-        sp.to_i64.should eq i
-        i += 1
-      end
+      ready.to_a.map(&.to_i64).should eq offsets
+      ref_sps.to_a.map(&.to_i64).should eq offsets
     end
 
     it "should always be sorted (ExpirationReadyQueue)" do
@@ -116,29 +104,16 @@ describe AvalancheMQ::SegmentPosition do
         AvalancheMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64)
       ]
       ready = AvalancheMQ::Queue::ExpirationReadyQueue.new(sps.size)
-      ready.insert(sps)
+      sps.each { |sp| ready.insert(sp) }
 
       ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
       ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
 
-      # expected order when sorted  on SP
-      sp_sorted = [0_i64, 1_i64, 2_i64, 3_i64, 4_i64]
-      # expected order when sorted onexpiration_ts
-      expiration_sorted =[0_i64, 2_i64, 1_i64, 4_i64, 3_i64]
-
       # The ExpirationReadyQueue queue should always be ordered by expiration timestamp
-      i = 0_i64
-      ready.each do |sp|
-        sp.to_i64.should eq expiration_sorted[i]
-        i += 1
-      end
+      ready.to_a.map(&.to_i64).should eq [0, 2, 1, 4, 3].map(&.to_i64)
 
       # The same ready queue but from ReferencesSPs should be ordered by SP (segment + offset)
-      i = 0_i64
-      ref_sps.each do |sp|
-        sp.to_i64.should eq sp_sorted[i]
-        i += 1
-      end
+      ref_sps.to_a.map(&.to_i64).should eq (0..4).to_a.map(&.to_i64)
     end
 
     it "should always be sorted (PriorityReadyQueue)"  do
@@ -155,24 +130,11 @@ describe AvalancheMQ::SegmentPosition do
       ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
       ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
 
-      # expected order when sorted  on SP
-      sp_sorted = [0_i64, 1_i64, 2_i64, 3_i64, 4_i64]
-      # expected order when sorted onexpiration_ts
-      priority_sorted =[3_i64, 4_i64, 1_i64, 2_i64, 0_i64]
-
-      # The ExpirationReadyQueue queue should always be ordered by expiration timestamp
-      i = 0_i64
-      ready.each do |sp|
-        sp.to_i64.should eq priority_sorted[i]
-        i += 1
-      end
+      # The PriorityReadyQueue queue should always be ordered by priority (highest prio first)
+      ready.to_a.map(&.to_i64).should eq [3, 4, 1, 0, 2].map(&.to_i64)
 
       # The same ready queue but from ReferencesSPs should be ordered by SP (segment + offset)
-      i = 0_i64
-      ref_sps.each do |sp|
-        sp.to_i64.should eq sp_sorted[i]
-        i += 1
-      end
+      ref_sps.to_a.map(&.to_i64).should eq (0..4).to_a.map(&.to_i64)
     end
   end
 end
