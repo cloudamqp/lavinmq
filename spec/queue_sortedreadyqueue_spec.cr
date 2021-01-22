@@ -2,9 +2,9 @@ require "spec"
 require "../src/avalanchemq/segment_position"
 require "../src/avalanchemq/queue/ready"
 
-describe AvalancheMQ::Queue::SortedReadyQueue do
+describe AvalancheMQ::Queue::ExpirationReadyQueue do
   it "should insert SegmentPosition sorted" do
-    q = AvalancheMQ::Queue::SortedReadyQueue.new
+    q = AvalancheMQ::Queue::ExpirationReadyQueue.new
     sps = [
       AvalancheMQ::SegmentPosition.new(10,10,5u32),
       AvalancheMQ::SegmentPosition.new(10,10,1u32),
@@ -21,7 +21,7 @@ describe AvalancheMQ::Queue::SortedReadyQueue do
   end
 
   it "should return SegmentPosition with lowest expiration ts" do
-    q = AvalancheMQ::Queue::SortedReadyQueue.new
+    q = AvalancheMQ::Queue::ExpirationReadyQueue.new
     sps = [
       AvalancheMQ::SegmentPosition.new(10,10,5u32),
       AvalancheMQ::SegmentPosition.new(10,10,1u32),

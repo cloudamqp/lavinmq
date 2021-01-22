@@ -3,7 +3,7 @@ require "./durable_queue"
 
 module AvalancheMQ
   module DelayedExchangeQueueMixin
-    @ready : Queue::ReadyQueue = Queue::SortedReadyQueue.new
+    @ready : Queue::ReadyQueue = Queue::ExpirationReadyQueue.new
     @internal = true
   end
 
