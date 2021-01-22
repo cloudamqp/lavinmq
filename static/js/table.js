@@ -296,8 +296,6 @@
 
   function renderCell (tr, column, value, classList = '') {
     const cell = tr.cells[column] || buildCells(tr, column)
-    if (cell.classList.contains('hide')) return
-    cell.classList = classList
     if (value instanceof window.Element) {
       if (!value.isEqualNode(cell.firstChild)) {
         while (cell.lastChild) {
@@ -311,6 +309,8 @@
         cell.textContent = avalanchemq.dom.escapeHTML(text)
       }
     }
+    if (cell.classList.contains('hide')) return
+    cell.classList = classList
     return cell
   }
 
@@ -328,6 +328,11 @@
       if (tr.cells.length >= target) break
       tr.insertCell(-1)
       index--
+    }
+
+    const colHeader = table.querySelectorAll(`tr > *:nth-child(${target})`)[0]
+    if (colHeader.classList.contains("hide")) {
+      tr.cells[tr.cells.length - 1].classList.add('hide')
     }
     return tr.cells[tr.cells.length - 1]
   }
