@@ -201,6 +201,7 @@ describe AvalancheMQ::Federation::Upstream do
     sleep 0.01 # Wait for acks
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
   ensure
+    upstream.try &.close(sync: true) # Avoid error log for missing vhost
     s.vhosts.delete("downstream")
     s.vhosts.delete("upstream")
   end
