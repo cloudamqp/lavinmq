@@ -60,15 +60,15 @@ module AvalancheMQ
       @list : Array(SegmentPosition)
 
       def initialize(ready : Queue::SortedReadyQueue)
-        @list = ready.to_a.sort!
+        @list = ready.to_a.sort! { |a, b| b <=> a }
       end
 
       def peek : SegmentPosition
-        @list.first
+        @list.last
       end
 
       def shift : SegmentPosition
-        @list.shift
+        @list.pop
       end
 
       def empty? : Bool

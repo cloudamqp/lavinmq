@@ -212,7 +212,7 @@ module AvalancheMQ
       end
     end
 
-    class SortedReadyQueue < ReadyQueue
+    abstract class SortedReadyQueue < ReadyQueue
       def push(sp : SegmentPosition) : Int32
         insert(sp)
       end
@@ -234,17 +234,18 @@ module AvalancheMQ
         end
       end
 
-      private def insert_sorted(sp)
-        idx = @ready.bsearch_index do |rsp|
-          rsp.expiration_ts >= sp.expiration_ts || rsp >= sp
-        end
-        idx ? @ready.insert(idx, sp) : @ready.push(sp)
-      end
-
       def to_a
         @ready.to_a
       end
+    end
 
+    class ExpirationReadyQueue < SortedReadyQueue
+      private def insert_sorted(sp)
+        idx = @ready.bsearch_index do |rsp|
+          rsp.expiration_ts >= sp.expiration_ts
+        end
+        idx ? @ready.insert(idx, sp) : @ready.push(sp)
+      end
     end
 
     class PriorityReadyQueue < SortedReadyQueue
