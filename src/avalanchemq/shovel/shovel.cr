@@ -77,6 +77,7 @@ module AvalancheMQ
       end
 
       def stop
+        # If we have any outstanding messages when closing, ack them first.
         @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
         @conn.try &.close(no_wait: false)
       end
