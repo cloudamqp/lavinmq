@@ -41,8 +41,9 @@ module AvalancheMQ
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
+        @tag = "Shovel[#{@name}]"
         cfg = Config.instance
-        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
+        @uri.host ||= " # {cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
           direct_user = UserStore.instance.direct_user
           @uri.user = direct_user.name
@@ -76,18 +77,28 @@ module AvalancheMQ
       end
 
       def stop
-        ack_outstanding
+        @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
         @conn.try &.close(no_wait: false)
       end
 
-      private def ack_outstanding
-        # If we have any outstanding messages when closing, ack them first.
+      private def at_end?(delivery_tag)
+        @q.not_nil![:message_count] == delivery_tag
+      end
+
+      def ack(delivery_tag, close = false)
         @ch.try do |ch|
-          # Might end up with channel closed
           next if ch.closed?
-          @last_unacked.try do |t|
+
+          # We batch ack for faster shovel
+          batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
+          if batch_full || at_end?(delivery_tag) || close
             @last_unacked = nil
-            ch.basic_ack(t, multiple: true)
+            ch.basic_ack(delivery_tag, multiple: true)
+            if close || (at_end?(delivery_tag) && @delete_after.queue_length?)
+              ch.basic_cancel(@tag)
+            end
+          else
+            @last_unacked = delivery_tag
           end
         end
       end
@@ -100,29 +111,21 @@ module AvalancheMQ
         raise "Not started" unless started?
         q = @q.not_nil!
         ch = @ch.not_nil!
-        queue_length = q[:message_count]
-        limited = @delete_after.queue_length?
-        should_ack = !@ack_mode.no_ack?
-        return if limited && queue_length.zero?
-        tag = "Shovel[#{@name}]"
+        return if @delete_after.queue_length? && q[:message_count].zero?
         ch.basic_consume(q[:queue_name],
-          no_ack: !should_ack,
-          block: true,
+          no_ack: @ack_mode.no_ack?,
           exclusive: true,
-          tag: tag) do |msg|
+          block: true,
+          tag: @tag) do |msg|
           blk.call(msg)
 
-          # We batch ack for faster shovel
-          batch_full = msg.delivery_tag % (@prefetch / 2).ceil.to_i == 0
-          at_end = limited && msg.delivery_tag == queue_length
-          if (batch_full || at_end) && should_ack
-            msg.ack(multiple: true)
-          else
-            @last_unacked = msg.delivery_tag
+          if @ack_mode.on_publish?
+            ack(msg.delivery_tag)
           end
 
-          # Reached end, cancel consumer
-          ch.not_nil!.basic_cancel(tag) if at_end
+          if @ack_mode.no_ack? && at_end?(msg.delivery_tag) && @delete_after.queue_length?
+            ch.not_nil!.basic_cancel(@tag)
+          end
         rescue e : FailedDeliveryError
           msg.reject
         end
@@ -134,7 +137,7 @@ module AvalancheMQ
 
       abstract def stop
 
-      abstract def push(msg)
+      abstract def push(msg, source)
 
       abstract def started? : Bool
     end
@@ -190,7 +193,7 @@ module AvalancheMQ
         !@ch.nil?
       end
 
-      def push(msg)
+      def push(msg, source)
         raise "Not started" unless started?
         ch = @ch.not_nil!
         ch.confirm_select if @ack_mode.on_confirm?
@@ -199,7 +202,11 @@ module AvalancheMQ
           @exchange || msg.exchange,
           @exchange_key || msg.routing_key,
           props: msg.properties)
-        ch.wait_for_confirm(msgid) if @ack_mode.on_confirm?
+        if @ack_mode.on_confirm?
+          ch.on_confirm(msgid) do
+            source.ack(msg.delivery_tag)
+          end
+        end
       end
     end
 
@@ -225,7 +232,7 @@ module AvalancheMQ
         !@client.nil?
       end
 
-      def push(msg)
+      def push(msg, source)
         raise "Not started" unless started?
         c = @client.not_nil!
         headers = ::HTTP::Headers{"User-Agent" => "AvalancheMQ"}
@@ -246,7 +253,10 @@ module AvalancheMQ
                  "/"
                end
         response = c.post(path, headers: headers, body: msg.body_io)
-        raise FailedDeliveryError.new if @ack_mode.on_confirm? && !response.success?
+        if @ack_mode.on_confirm?
+          raise FailedDeliveryError.new if !response.success?
+          source.ack(msg.delivery_tag)
+        end
       end
     end
 
@@ -280,7 +290,7 @@ module AvalancheMQ
           @state = State::Running
           @source.each do |msg|
             @message_count += 1
-            @destination.push(msg)
+            @destination.push(msg, @source)
           end
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
