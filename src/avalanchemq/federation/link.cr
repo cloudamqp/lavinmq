@@ -94,33 +94,38 @@ module AvalancheMQ
           @stop.close
           @last_changed = nil
           @state = State::Terminated
+          @log.info { "Terminated" }
         end
 
-        private def federate(msg, pch, exchange, routing_key)
-          msgid = pch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
+        private def federate(msg, downstream_ch, upstream_ch, exchange, routing_key)
+          msgid = downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
           @log.debug { "Federating msgid=#{msgid} routing_key=#{routing_key}" }
-          pch.wait_for_confirm(msgid) if @upstream.ack_mode.on_confirm?
-
-          # We batch ack for faster federation
-          batch_full = msg.delivery_tag % (@upstream.prefetch / 2).ceil.to_i == 0
-          should_ack = !@upstream.ack_mode.no_ack?
-          if batch_full && should_ack
-            msg.ack(multiple: true)
-            @last_unacked = nil
+          case @upstream.ack_mode
+          when AckMode::OnConfirm
+            downstream_ch.on_confirm(msgid) do
+              ack(msg.delivery_tag, upstream_ch)
+            end
+          when AckMode::OnPublish
+            ack(msg.delivery_tag, upstream_ch)
           else
-            @last_unacked = msg.delivery_tag
+            # no ack
+            return
           end
         rescue ex
           @stop.send ex unless @stop.closed?
         end
 
-        private def ack_outstanding(upstream_ch)
+        private def ack(delivery_tag, upstream_ch, close = false)
+          return unless delivery_tag
           if ch = upstream_ch
-            # Might end up with channel closed
             return if ch.closed?
-            if delivery_tag = @last_unacked
-              @last_unacked = nil
-              ch.basic_ack(delivery_tag, multiple: true)
+
+            # We batch ack for faster federation
+            batch_full = delivery_tag % (@upstream.prefetch / 2).ceil.to_i == 0
+            if batch_full || close
+              upstream_ch.basic_ack(delivery_tag, multiple: true)
+            else
+              @last_unacked = delivery_tag
             end
           end
         end
@@ -132,7 +137,7 @@ module AvalancheMQ
               raise ex unless ex.nil?
               return
             when timeout(@upstream.ack_timeout)
-              ack_outstanding(upstream_ch)
+              ack(@last_unacked, upstream_ch)
             end
           end
         end
@@ -247,12 +252,12 @@ module AvalancheMQ
                 })
                 headers["x-received-from"] = received_from
                 msg.properties.headers = headers
-                federate(msg, pch, EXCHANGE, @federated_q.name)
+                federate(msg, pch, cch.not_nil!, EXCHANGE, @federated_q.name)
               end
               ack_timeout_loop(cch)
               return
             ensure
-              ack_outstanding(cch)
+              ack(@last_unacked, cch, close: true)
             end
           end
         end
@@ -374,12 +379,12 @@ module AvalancheMQ
                 })
                 headers["x-received-from"] = received_from
                 msg.properties.headers = headers
-                federate(msg, pch, @federated_ex.name, msg.routing_key)
+                federate(msg, pch, cch.not_nil!, @federated_ex.name, msg.routing_key)
               end
               ack_timeout_loop(cch)
               return
             ensure
-              ack_outstanding(cch)
+              ack(@last_unacked, cch, close: true)
             end
           end
         end
