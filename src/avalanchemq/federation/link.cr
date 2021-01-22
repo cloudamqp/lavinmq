@@ -12,7 +12,7 @@ module AvalancheMQ
 
         @consumer_available = Channel(Nil).new
         @last_changed : Int64?
-        @state = State::Terminated
+        @state = State::Stopped
         @stop = ::Channel(Exception?).new
         @error : String?
         @scrubbed_uri : String
@@ -66,16 +66,18 @@ module AvalancheMQ
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if terminated?
+          @state = State::Terminating
           @stop.send(nil)
-          @log.info { "Terminated" }
         end
 
         private def run_loop
+          return if terminated?
           loop do
             @state = State::Starting
             start_link
             break
           rescue ex
+            break if @state.terminating?
             @state = State::Stopped
             @last_changed = nil
             @error = ex.message
@@ -167,6 +169,7 @@ module AvalancheMQ
           Starting
           Running
           Stopped
+          Terminating
           Terminated
           Error
         end
