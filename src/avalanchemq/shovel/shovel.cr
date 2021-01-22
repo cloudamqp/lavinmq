@@ -43,7 +43,7 @@ module AvalancheMQ
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
         @tag = "Shovel[#{@name}]"
         cfg = Config.instance
-        @uri.host ||= " # {cfg.amqp_bind}:#{cfg.amqp_port}"
+        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
           direct_user = UserStore.instance.direct_user
           @uri.user = direct_user.name
