@@ -209,7 +209,7 @@ GetQueueMessagesRequestBody:
       default: 1
     ack_mode:
       type: string
-      default: ack_requeue_true
+      default: get
     encoding:
       type: string
       default: auto
