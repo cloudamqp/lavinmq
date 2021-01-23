@@ -574,7 +574,12 @@ module AvalancheMQ
         str.try { |r| r == "amq.rabbitmq.reply-to" || r.starts_with? DIRECT_REPLY_PREFIX }
       end
 
-      def save_transient_state(json)
+      def restore_from_json(json)
+        ch = json.as_h
+        id = ch["id"].as_i.to_u16
+      end
+
+      def save_to_json(json)
         json.object do
           json.field "id", @id
           json.field "prefetch_count", @prefetch_count
@@ -586,7 +591,12 @@ module AvalancheMQ
           json.field "unacked" do
             json.array do
               @unacked.each do |unack|
-                json.number unack.sp.to_i64
+                json.object do
+                  json.field "sp", unack.sp.to_i64
+                  json.field "queue", unack.queue.name
+                  json.field "persistent", unack.persistent
+                  json.field "consumer_tag", unack.consumer.try &.tag
+                end
               end
             end
           end

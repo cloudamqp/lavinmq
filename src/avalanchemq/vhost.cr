@@ -857,17 +857,23 @@ module AvalancheMQ
       end
     end
 
-    def restore_connection(socket)
-      # TODO: only load transient state once, and then delete it when we're done loading
-      state = File.open(File.join(@data_dir, "transient.state")) do |f|
+    def restore_state
+      unless File.exists? File.join(@data_dir, "transient.state")
+        @log.warn "No transient.state"
+        return
+      end
+      json = File.open(File.join(@data_dir, "transient.state")) do |f|
         JSON.parse(f)
       end
-      connections = state.as_h["connections"].as_a
-      # find connection in json
-      tune_ok = ""
-      start_ok = ""
-      c = Client.new(socket, socket.remote_address, socket.local_address, self, @events, tune_ok, start_ok)
-
+      state = json.to_h
+      connections = state["connections"].as_a
+      connections.each do |conn|
+        Client.restore_from_json(conn)
+        # find connection in json
+        tune_ok = ""
+        start_ok = ""
+        c = Client.new(socket, socket.remote_address, socket.local_address, self, @events, tune_ok, start_ok)
+      end
     end
 
     def save_transient_state : Nil
@@ -876,7 +882,7 @@ module AvalancheMQ
           json.field("connections") do
             json.array do
               @connections.each do |conn|
-                conn.save_transient_state(json)
+                conn.save_to_json(json)
               end
             end
           end
