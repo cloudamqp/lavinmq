@@ -55,7 +55,7 @@ module AvalancheMQ
         "basic.nack"                   => true,
         "consumer_cancel_notify"       => true,
         "connection.blocked"           => true,
-        "consumer_priorities"          => false,
+        "consumer_priorities"          => true,
         "authentication_failure_close" => true,
         "per_consumer_qos"             => true,
         "direct_reply_to"              => true,
