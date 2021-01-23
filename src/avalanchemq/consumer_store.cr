@@ -1,49 +1,54 @@
+require "./client"
+
 module AvalancheMQ
   class ConsumerStore
 
     @last_consumer_selected : Client::Channel::Consumer?
     getter size
 
+    record ConsumerGroup, priority : Int32, consumers : Deque(Client::Channel::Consumer)
+
     def initialize
       @lock = Mutex.new(:unchecked)
-      @store = Deque(Deque(Client::Channel::Consumer)).new
-      @size = 0_u16
+      @store = Array{ConsumerGroup.new(0, Deque(Client::Channel::Consumer).new(8))}
+      @size = 0_u32
     end
 
     def add_consumer(consumer)
       @lock.synchronize do
         @size += 1
-        @store.each_with_index do |consumer_group, idx|
-          if consumer.priority > consumer_group.first.priority
-            new_deque = Deque(Client::Channel::Consumer).new
-            new_deque.push(consumer)
-            @store.insert(idx, new_deque)
-            return
-          elsif consumer.priority == consumer_group.first.priority
-            @store[idx].push(consumer)
-            return
+        idx = @store.bsearch_index { |cg| cg.priority >= consumer.priority }
+        if idx
+          cg = @store[idx]
+          if cg.priority == consumer.priority
+            cg.consumers.push(consumer)
+          else
+            @store.insert(idx, ConsumerGroup.new(consumer.priority, Deque{consumer}))
           end
+        else
+          @store.push ConsumerGroup.new(consumer.priority, Deque{consumer})
         end
-        new_deque = Deque(Client::Channel::Consumer).new
-        new_deque.push(consumer)
-        @store.push(new_deque)
       end
     end
 
     def delete_consumer(consumer)
       @lock.synchronize do
-        @size -=1
+        @size -= 1
         @last_consumer_selected = nil if consumer == @last_consumer_selected
-        consumer_group = @store.bsearch do |cg|
-          consumer.priority >= cg.first.priority
+
+        if idx = @store.bsearch_index { |cg| cg.priority >= consumer.priority }
+          cg = @store[idx]
+          if cg.priority == consumer.priority
+            if cg.consumers.size == 1 && !cg.priority.zero?
+              # if the group only got this consumer in it
+              # then delete the whole group
+              # But don't delete the default priority group 0
+              @store.delete_at(idx)
+            else
+              cg.consumers.delete(consumer)
+            end
+          end
         end
-        return consumer unless consumer_group
-        if consumer_group.size == 1
-          @store.delete consumer_group
-        else
-          consumer_group.delete consumer
-        end
-        return consumer
       end
     end
 
@@ -55,17 +60,21 @@ module AvalancheMQ
         when 1
           c = first
           if c.accepts?
-            @last_consumer_selected = c
-            c
+            return c
           end
         else
           if i > 0 # reuse same consumer for a while if we're delivering fast
-            return @last_consumer_selected if @last_consumer_selected.try &.accepts?
+            if last = @last_consumer_selected
+              if last.accepts?
+                return last
+              end
+            end
           end
-          @store.each do |consumer_group|
-            consumer_group.size.times do
-              c = consumer_group.shift
-              consumer_group.push c
+          @store.reverse_each do |cg|
+            consumers = cg.consumers
+            consumers.size.times do
+              c = consumers.shift
+              consumers.push c
               if c.accepts?
                 @last_consumer_selected = c
                 return c
@@ -78,7 +87,8 @@ module AvalancheMQ
 
     def cancel_consumers
       @lock.synchronize do
-        @store.each { |consumer_group| consumer_group.each &.cancel }
+        @store.each { |cg| cg.consumers.each &.cancel }
+        @store.clear
       end
     end
 
@@ -87,27 +97,27 @@ module AvalancheMQ
     end
 
     def immediate_delivery?
-      @store.any? { |consumer_group| consumer_group.any? &.accepts? }
+      @store.any? { |cg| cg.consumers.any? &.accepts? }
     end
 
     def first
-      @store.first.first
+      @store.last.consumers.first
     end
 
     def first?
-      @store.first?.try &.first?
+      @store.last?.try &.consumers.first?
     end
 
     def empty?
-      @size == 0
+      @size.zero?
     end
 
     def to_a
-      @store.to_a
+      @store.flat_map &.consumers
     end
 
     def capacity
-      @store.sum &.capacity
+      @store.capacity + @store.sum &.consumers.capacity
     end
   end
 end
