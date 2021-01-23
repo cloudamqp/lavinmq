@@ -81,6 +81,7 @@ module AvalancheMQ
 
         def cancel
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, true)
+          @channel.consumers.delete self
         end
 
         def details_tuple
