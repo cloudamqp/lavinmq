@@ -340,11 +340,7 @@ module AvalancheMQ
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-          priority = 0
-          if value = frame.arguments["x-priority"]?
-            priority = value.as?(Int32) || raise Error::PreconditionFailed.new("x-priority must be an int")
-            raise Error::PreconditionFailed.new("x-priority must be 0 or greater") unless priority >= 0
-          end
+          priority = consumer_priority(frame)
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
           @consumers.push(c)
           q.add_consumer(c)
@@ -352,6 +348,19 @@ module AvalancheMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
+      end
+
+      private def consumer_priority(frame) : Int32
+        priority = 0
+        if prio_arg = frame.arguments["x-priority"]?
+          prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
+          begin
+            priority = prio_int.to_i
+          rescue OverflowError
+            raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
+          end
+        end
+        priority
       end
 
       def basic_get(frame)
