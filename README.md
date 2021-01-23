@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/cloudamqp/avalanchemq/workflows/CI/badge.svg?branch=master)](https://github.com/cloudamqp/avalanchemq/actions)
+[![Build Status](https://github.com/cloudamqp/avalanchemq/workflows/CI/badge.svg?branch=main)](https://github.com/cloudamqp/avalanchemq/actions)
 
 # ![AvalancheMQ](static/img/logo-avalanche-mq-black.png)
 
@@ -320,7 +320,7 @@ Memory garage collection can be diagnosed with [boehm-gc environment variables](
 
 1. Fork, create feature branch
 1. Build with `shards build --release`
-1. Performance test with `bin/avalanchemqperf throughput` and compare against `master`
+1. Performance test with `bin/avalanchemqperf throughput` and compare against `main`
 1. Submit pull request
 
 ### Develop
