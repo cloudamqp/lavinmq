@@ -5,9 +5,9 @@ require "../schema"
 module AvalancheMQ
   class DurableQueue < Queue
     @durable = true
-    @acks = 0_u32
     @ack_lock = Mutex.new(:unchecked)
     @enq_lock = Mutex.new(:unchecked)
+    @ack : MFile
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive : Bool, @auto_delete : Bool,
@@ -21,15 +21,14 @@ module AvalancheMQ
         Dir.mkdir @index_dir
       end
       File.write(File.join(@index_dir, ".queue"), @name)
-      @enq = File.open(File.join(@index_dir, "enq"), "W+")
-      @enq.buffer_size = Config.instance.file_buffer_size
+      @enq = MFile.new(File.join(@index_dir, "enq"), ack_max_file_size)
       SchemaVersion.verify_or_prefix(@enq, :index)
       @enq.seek 0, IO::Seek::End
-      @ack = File.open(File.join(@index_dir, "ack"), "W+")
-      @ack.sync = true
-      @ack.buffer_size = Config.instance.file_buffer_size
+      @enq.advise(MFile::Advice::DontNeed)
+      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
       SchemaVersion.verify_or_prefix(@ack, :index)
       @ack.seek 0, IO::Seek::End
+      @ack.advise(MFile::Advice::DontNeed)
     end
 
     private def compact_index! : Nil
@@ -38,8 +37,8 @@ module AvalancheMQ
       @ack_lock.lock
       i = 0
       @enq.close
-      @enq = File.new(File.join(@index_dir, "enq.tmp"), "w")
-      @enq.buffer_size = Config.instance.file_buffer_size
+      @enq = MFile.new(File.join(@index_dir, "enq.tmp"),
+                       SP_SIZE * (@ready.size + @unacked.size + 1_000_000))
       SchemaVersion.prefix(@enq, :index)
       @ready.locked_each do |all_ready|
         @unacked.locked_each do |all_unacked|
@@ -62,13 +61,14 @@ module AvalancheMQ
       end
 
       @log.info { "Wrote #{i} SPs to new enq file" }
-      File.rename File.join(@index_dir, "enq.tmp"), File.join(@index_dir, "enq")
-      @enq.fsync(flush_metadata: true)
+      @enq.move(File.join(@index_dir, "enq"))
+      @enq.advise(MFile::Advice::DontNeed)
 
-      @ack.truncate
-      @ack.seek 0
+      @ack.delete
+      @ack.close
+      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
       SchemaVersion.prefix(@ack, :index)
-      @acks = 0_u32
+      @ack.advise(MFile::Advice::DontNeed)
     ensure
       @ack_lock.unlock
       @enq_lock.unlock
@@ -96,20 +96,25 @@ module AvalancheMQ
       super || return false
       @enq_lock.synchronize do
         @log.debug { "writing #{sp} to enq" }
-        @enq.write_bytes sp
-        @enq.flush if persistent
+        begin
+          @enq.write_bytes sp
+        rescue IO::EOFError
+          @log.debug { "Out of capacity in enq file, resizeing" }
+          @enq.resize(@enq.size + ack_max_file_size)
+          @enq.write_bytes sp
+        end
       end
       true
     end
 
     protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
       super
-      @ack_lock.synchronize do
-        @log.debug { "writing #{sp} to ack" }
-        @ack.write_bytes sp
-        @acks += 1
-      end
-      if @acks > @ready.size && @acks >= Config.instance.queue_max_acks
+      begin
+        @ack_lock.synchronize do
+          @log.debug { "writing #{sp} to ack" }
+          @ack.write_bytes sp
+        end
+      rescue IO::EOFError
         time = Time.measure do
           compact_index!
         end
@@ -120,16 +125,18 @@ module AvalancheMQ
     def purge
       @log.info "Purging"
       @enq_lock.synchronize do
-        @enq.truncate
-        @enq.seek 0
+        @enq.close(truncate_to_size: false)
+        @enq = MFile.new(File.join(@index_dir, "enq.tmp"), ack_max_file_size)
         SchemaVersion.prefix(@enq, :index)
-        @enq.fsync(flush_metadata: true)
+        @enq.move(File.join(@index_dir, "enq"))
+        @enq.advise(MFile::Advice::DontNeed)
       end
       @ack_lock.synchronize do
-        @ack.truncate
-        @ack.seek 0
+        @ack.close(truncate_to_size: false)
+        @ack = MFile.new(File.join(@index_dir, "ack.tmp"), ack_max_file_size)
         SchemaVersion.prefix(@ack, :index)
-        @acks = 0_u32
+        @ack.move(File.join(@index_dir, "ack"))
+        @ack.advise(MFile::Advice::DontNeed)
       end
       super
     end
@@ -137,13 +144,13 @@ module AvalancheMQ
     def fsync_enq
       return if @closed
       # @log.debug "fsyncing enq"
-      @enq.fsync(flush_metadata: false)
+      @enq.fsync
     end
 
     def fsync_ack
       return if @closed
       # @log.debug "fsyncing ack"
-      @ack.fsync(flush_metadata: false)
+      @ack.fsync
     end
 
     SP_SIZE = SegmentPosition::BYTESIZE
@@ -161,7 +168,7 @@ module AvalancheMQ
           SchemaVersion.verify(enq, :index)
           SchemaVersion.verify(ack, :index)
 
-          @acks = ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
+          ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
           acked = Array(SegmentPosition).new(ack_count)
           loop do
             acked << SegmentPosition.from_io ack
@@ -195,6 +202,10 @@ module AvalancheMQ
 
     def ack_file_size
       @ack.size
+    end
+
+    private def ack_max_file_size
+      SP_SIZE * Config.instance.queue_max_acks
     end
   end
 end
