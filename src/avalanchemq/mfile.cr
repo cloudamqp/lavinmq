@@ -1,5 +1,6 @@
 lib LibC
-  MS_ASYNC = 0x0001
+  MS_ASYNC       = 0x0001
+  MREMAP_MAYMOVE =      1
   {% if flag?(:linux) %}
     MS_SYNC     = 0x0004
     MADV_REMOVE =      9
@@ -7,6 +8,7 @@ lib LibC
     MS_SYNC = 0x0010
   {% end %}
   fun munmap(addr : Void*, len : SizeT) : Int
+  fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   fun msync(addr : Void*, len : SizeT, flags : Int) : Int
   fun truncate(path : Char*, len : OffT) : Int
 end
@@ -17,7 +19,7 @@ end
 # `capacity` is set to the current file size.
 # If the process crashes the file will be `capacity` large,
 # not `size` large, only on graceful close is the file truncated to its `size`.
-# The file does not expand further than initial `capacity`.
+# The file does not expand further than initial `capacity`, unless manually expanded.
 class MFile < IO
   property pos = 0
   getter? closed = false
@@ -40,7 +42,7 @@ class MFile < IO
   end
 
   # Opens an existing file in readonly mode
-  def self.open(path)
+  def self.open(path) : MFile
     self.new(path)
   end
 
@@ -141,7 +143,7 @@ class MFile < IO
   def read(slice : Bytes)
     pos = @pos
     len = pos + slice.size
-    raise IO::EOFError.new if len > @capacity
+    raise IO::EOFError.new if len > @size
     (@buffer + pos).copy_to(slice.to_unsafe, slice.size)
     @pos = len
     slice.size
@@ -194,8 +196,8 @@ class MFile < IO
     {% end %}
   end
 
-  def advise(advice : Advice)
-    if LibC.madvise(@buffer, @capacity, advice) != 0
+  def advise(advice : Advice, offset = 0, length = @capacity)
+    if LibC.madvise(@buffer + offset, length, advice) != 0
       raise IO::Error.from_errno("madvise")
     end
   end
@@ -218,6 +220,26 @@ class MFile < IO
     code = LibC.truncate(@path.check_no_null_byte, new_size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     bytes
+  end
+
+  def resize(new_size : Int) : Nil
+    capacity = new_size.to_i32
+
+    # resize the file first
+    code = LibC.truncate(@path.check_no_null_byte, capacity)
+    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+
+    # then remap
+    buffer = LibC.mremap(@buffer, @capacity, capacity.to_i32, LibC::MREMAP_MAYMOVE).as(UInt8*)
+    raise RuntimeError.from_errno("mremap") if buffer == LibC::MAP_FAILED
+
+    @capacity = capacity
+    @buffer = Bytes.new(buffer, @capacity, read_only: @readonly)
+  end
+
+  def move(new_path)
+    File.rename @path, new_path
+    @path = new_path
   end
 
   PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
