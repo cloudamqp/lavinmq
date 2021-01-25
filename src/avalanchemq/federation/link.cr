@@ -299,6 +299,8 @@ module AvalancheMQ
             end
           else raise "Unexpected event '#{event}'"
           end
+        rescue ::AMQP::Client::Channel::ClosedException
+          @log.debug { "Ignoring event=#{event} data=#{data} reason=consumer_channel_closed" }
         end
 
         def terminate
@@ -385,6 +387,7 @@ module AvalancheMQ
               return
             ensure
               ack(@last_unacked, cch, close: true)
+              @consumer_q = nil
             end
           end
         end
