@@ -88,6 +88,7 @@ module AvalancheMQ
 
     def delete : Bool
       super || return false
+      @log.debug { "Deleting index directory" }
       FileUtils.rm_rf @index_dir
       true
     end

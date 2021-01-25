@@ -27,18 +27,21 @@ class MFile < IO
   getter capacity = 0
   getter path : String
   @buffer : Bytes
+  @fd : Int32
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
   def initialize(@path : String, capacity : Int? = nil)
     @readonly = capacity.nil?
-    fd = open_fd
-    @size = file_size(fd)
+    @fd = open_fd
+    @size = file_size
     @capacity = capacity ? Math.max(capacity.to_i32, @size) : @size
-    truncate(fd, @capacity) if @capacity > @size
-    @buffer = mmap(fd)
-    close_fd(fd)
+    if @capacity > @size
+      code = LibC.ftruncate(@fd, @capacity)
+      raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    end
+    @buffer = mmap
   end
 
   # Opens an existing file in readonly mode
@@ -64,28 +67,23 @@ class MFile < IO
     fd
   end
 
-  private def file_size(fd) : Int32
-    code = LibC.fstat(fd, out stat)
+  private def file_size : Int32
+    code = LibC.fstat(@fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
     stat.st_size.to_i32
   end
 
-  def disk_usage
-    code = LibC.stat(@path.check_no_null_byte, out stat)
+  def disk_usage : UInt64
+    code = LibC.fstat(@fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
     stat.st_blocks.to_u64 * 512
   end
 
-  private def truncate(fd, size)
-    code = LibC.ftruncate(fd, size)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-  end
-
-  private def mmap(fd) : Bytes
+  private def mmap : Bytes
     protection = LibC::PROT_READ
     protection |= LibC::PROT_WRITE # unless @readonly
     flags = LibC::MAP_SHARED
-    buffer = LibC.mmap(nil, @capacity, protection, flags, fd, 0).as(UInt8*)
+    buffer = LibC.mmap(nil, @capacity, protection, flags, @fd, 0).as(UInt8*)
     raise RuntimeError.from_errno("mmap") if buffer == LibC::MAP_FAILED
     Bytes.new(buffer, @capacity, read_only: @readonly)
   end
@@ -111,8 +109,9 @@ class MFile < IO
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
     return if @readonly || @deleted || !truncate_to_size
-    code = LibC.truncate(@path.check_no_null_byte, @size)
+    code = LibC.ftruncate(@fd, @size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    close_fd(@fd)
   end
 
   def flush
@@ -217,7 +216,7 @@ class MFile < IO
     code = LibC.munmap(@buffer + new_size, bytes)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
     @capacity = @size = new_size
-    code = LibC.truncate(@path.check_no_null_byte, new_size)
+    code = LibC.ftruncate(@fd, new_size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     bytes
   end
@@ -226,7 +225,7 @@ class MFile < IO
     capacity = new_size.to_i32
 
     # resize the file first
-    code = LibC.truncate(@path.check_no_null_byte, capacity)
+    code = LibC.ftruncate(@fd, capacity)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
 
     {% if flag?(:linux) %}
@@ -241,10 +240,8 @@ class MFile < IO
       raise RuntimeError.from_errno("Error unmapping file") if code == -1
 
       # mmap again
-      fd = open_fd
       @capacity = capacity
-      @buffer = mmap(fd)
-      close_fd(fd)
+      @buffer = mmap
     {% end %}
   end
 
