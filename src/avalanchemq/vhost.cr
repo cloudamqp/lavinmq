@@ -30,7 +30,7 @@ module AvalancheMQ
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @save = Channel(AMQP::Frame).new(32)
-    @write_lock = Mutex.new(:unchecked)
+    @write_lock = Mutex.new(:checked)
     @wfile : MFile
     @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
@@ -65,7 +65,7 @@ module AvalancheMQ
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    @awaiting_confirm_lock = Mutex.new(:unchecked)
+    @awaiting_confirm_lock = Mutex.new(:checked)
     @awaiting_confirm = Set(Client::Channel).new
 
     def waiting4confirm(channel)
@@ -78,7 +78,7 @@ module AvalancheMQ
       end
     end
 
-    @queues_to_fsync_lock = Mutex.new(:unchecked)
+    @queues_to_fsync_lock = Mutex.new(:checked)
     @queues_to_fsync = Set(DurableQueue).new
 
     def fsync

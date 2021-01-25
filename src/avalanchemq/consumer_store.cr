@@ -9,7 +9,7 @@ module AvalancheMQ
     record ConsumerGroup, priority : Int32, consumers : Deque(Client::Channel::Consumer)
 
     def initialize
-      @lock = Mutex.new(:unchecked)
+      @lock = Mutex.new(:checked)
       @store = Array{ConsumerGroup.new(0, Deque(Client::Channel::Consumer).new(8))}
       @size = 0_u32
     end

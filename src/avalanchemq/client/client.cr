@@ -228,7 +228,7 @@ module AvalancheMQ
       }
     end
 
-    @write_lock = Mutex.new(:unchecked)
+    @write_lock = Mutex.new(:checked)
 
     def deliver(frame, msg)
       @write_lock.synchronize do

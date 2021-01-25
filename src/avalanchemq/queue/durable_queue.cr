@@ -5,8 +5,8 @@ require "../schema"
 module AvalancheMQ
   class DurableQueue < Queue
     @durable = true
-    @ack_lock = Mutex.new(:unchecked)
-    @enq_lock = Mutex.new(:unchecked)
+    @ack_lock = Mutex.new(:checked)
+    @enq_lock = Mutex.new(:checked)
     @ack : MFile
 
     def initialize(@vhost : VHost, @name : String,
