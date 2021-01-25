@@ -258,8 +258,8 @@ module AvalancheMQ
     end
 
     def message_details
-      ready = unacked = 0
-      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = 0
+      ready = unacked = 0_u64
+      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = 0_u64
       @queues.each_value do |q|
         ready += q.message_count
         unacked += q.unacked_count
