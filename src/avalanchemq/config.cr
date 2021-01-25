@@ -27,15 +27,19 @@ module AvalancheMQ
     property heartbeat = 0_u16                   # second
     property frame_max = 131_072_u32             # bytes
     property channel_max = 2048_u16              # number
-    property segment_size : Int32 = 1024**3      # byte
     property gc_segments_interval = 60           # second
     property queue_max_acks = 2_000_000          # number of message
     property stats_interval = 5000               # millisecond
     property stats_log_size = 120                # 10 mins at 5s interval
     property set_timestamp = false               # in message headers when receive
-    property file_buffer_size = 16384            # byte
-    property socket_buffer_size = 16384          # byte
+    property file_buffer_size = 16384            # bytes
+    property socket_buffer_size = 16384          # bytes
     property tcp_nodelay = false                 # bool
+    {% if flag?(:linux) %}
+      property segment_size : Int32 = 1024**3     # bytes
+    {% else %}
+      property segment_size : Int32 = 8 * 1024**2 # bytes
+    {% end %}
 
     @@instance : Config = self.new
 
