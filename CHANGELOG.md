@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Support for consumer priority
+
+### Changed
+- Index files are memory-mapped which makes them much faster
+- Default git branch is renamed to main
+- Default to 8MB segment size on non-Linux machines (that doesn't support hole punching)
+
+### Fixed
+- Consumer accounting wasn't right when client disconnected
+- Some stats could overflow, fixed by making the counter UInt64
+
 ## [1.0.0-alpha.23] - 2021-01-22
 
 ### Fixed
