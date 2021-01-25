@@ -229,12 +229,23 @@ class MFile < IO
     code = LibC.truncate(@path.check_no_null_byte, capacity)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
 
-    # then remap
-    buffer = LibC.mremap(@buffer, @capacity, capacity.to_i32, LibC::MREMAP_MAYMOVE).as(UInt8*)
-    raise RuntimeError.from_errno("mremap") if buffer == LibC::MAP_FAILED
+    {% if flag?(:linux) %}
+      # then remap
+      buffer = LibC.mremap(@buffer, @capacity, capacity.to_i32, LibC::MREMAP_MAYMOVE).as(UInt8*)
+      raise RuntimeError.from_errno("mremap") if buffer == LibC::MAP_FAILED
+      @capacity = capacity
+      @buffer = Bytes.new(buffer, @capacity, read_only: @readonly)
+    {% else %}
+      # unmap and then mmap again
+      code = LibC.munmap(@buffer, @capacity)
+      raise RuntimeError.from_errno("Error unmapping file") if code == -1
 
-    @capacity = capacity
-    @buffer = Bytes.new(buffer, @capacity, read_only: @readonly)
+      # mmap again
+      fd = open_fd
+      @capacity = capacity
+      @buffer = mmap(fd)
+      close_fd(fd)
+    {% end %}
   end
 
   def move(new_path)
