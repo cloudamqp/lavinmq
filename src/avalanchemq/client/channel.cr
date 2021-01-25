@@ -337,10 +337,10 @@ module AvalancheMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
             return
           end
+          priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-          priority = consumer_priority(frame)
           c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
           @consumers.push(c)
           q.add_consumer(c)
