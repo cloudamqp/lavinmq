@@ -246,7 +246,7 @@ sudo systemctl start avalanchemq
 From source:
 
 ```bash
-git clone git@github.com:avalanchemq/avalanchemq.git
+git clone git@github.com:cloudamqp/avalanchemq.git
 cd avalanchemq
 shards build --release --production
 install bin/avalanchemq /usr/local/bin/avalanchemq
