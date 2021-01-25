@@ -214,10 +214,12 @@ module AvalancheMQ
     end
 
     private def set_socket_options(socket)
-      socket.keepalive = true
-      socket.tcp_keepalive_idle = 60
-      socket.tcp_keepalive_count = 3
-      socket.tcp_keepalive_interval = 10
+      unless socket.remote_address.loopback?
+        socket.keepalive = true
+        socket.tcp_keepalive_idle = 60
+        socket.tcp_keepalive_count = 3
+        socket.tcp_keepalive_interval = 10
+      end
       socket.tcp_nodelay = Config.instance.tcp_nodelay
       socket.buffer_size = Config.instance.socket_buffer_size
     end
