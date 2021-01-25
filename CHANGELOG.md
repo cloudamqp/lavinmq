@@ -11,20 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Federation: improvments to how messages are acked
+- Federation: improvements to how messages are acked
 - Segment positions must be in order for GC to work
 - Show queue arguments in queue list
 
 ### Changed
 
-- Removed abillity to ack with requeue from HTTP API
+- Removed ability to ack with requeue from HTTP API
 
 ## [1.0.0-alpha.22] - 2021-01-20
 
 ### Fixed
 
 - Bug where we tried to write beyond segment capacity
-- Missing return when bind/unbind precondictions failed
+- Missing return when bind/unbind preconditions failed
 - Restore Queue@max_length_bytes when policy changes
 - Start federation links when exchange policy is applied
 - Don't expire messages when the queue has been closed
@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Make sure client connections are cleanuped correctly
+- Make sure client connections are cleaned up correctly
 - Bug when creating and listing users in avalanchemqctl
 - Kill process if segment GC loop fails unexpectedly
 - SegmentPosition is requeued if not expired
@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- x-max-length is always repected
+- x-max-length is always respected
 - Validate x-max-priority
 - Better handling in UI on server errors
 - Remember table sorting option until session ends + correct sorting on page refresh
@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Allow all printable ASCII characters in entity (queue and exchnage) names.
+- Allow all printable ASCII characters in entity (queue and exchange) names.
 
 ## [1.0.0-alpha.18] - 2020-12-01
 
