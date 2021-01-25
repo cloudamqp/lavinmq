@@ -329,8 +329,8 @@
       tr.insertCell(-1)
       index--
     }
-
-    const colHeader = table.querySelectorAll(`tr > *:nth-child(${target})`)[0]
+    let tbl = tr.parentElement.parentElement
+    let colHeader = tbl.querySelectorAll(`tr > *:nth-child(${target})`)[0]
     if (colHeader.classList.contains("hide")) {
       tr.cells[tr.cells.length - 1].classList.add('hide')
     }
