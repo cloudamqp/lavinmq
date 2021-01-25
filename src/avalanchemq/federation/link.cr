@@ -70,18 +70,17 @@ module AvalancheMQ
         end
 
         private def run_loop
-          raise "Invalid state" unless @state.stopped?
           loop do
             break if @state.terminating?
             @state = State::Starting
             start_link
             break
           rescue ex
+            @log.error { "Federation link state=#{@state} error=#{ex.inspect}" }
             break if @state.terminating?
             @state = State::Stopped
             @last_changed = nil
             @error = ex.message
-            @log.error { "Federation link error: #{ex.message}" }
             select
             when @stop.receive?
               break
@@ -206,6 +205,8 @@ module AvalancheMQ
             nil
           else raise "Unexpected event '#{event}'"
           end
+        rescue e
+          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
         end
 
         private def unregister_observer
@@ -269,7 +270,6 @@ module AvalancheMQ
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String, @log : Logger)
           @log.progname += " link=#{@federated_ex.name}"
-          @federated_ex.register_observer(self)
           super(@upstream, @log)
         end
 
@@ -284,23 +284,35 @@ module AvalancheMQ
           when :delete
             @upstream.stop_link(@federated_ex)
           when :bind
-            if q = @consumer_q
-              if b = data.as?(BindingDetails)
-                args = ::AMQP::Client::Arguments.new(b.arguments)
-                q.bind(@upstream_exchange, b.routing_key, args: args)
-              end
+            with_consumer_q do |q|
+              b = data_as_binding_details(data)
+              args = ::AMQP::Client::Arguments.new(b.arguments)
+              q.bind(@upstream_exchange, b.routing_key, args: args)
             end
           when :unbind
-            if q = @consumer_q
-              if b = data.as?(BindingDetails)
-                args = ::AMQP::Client::Arguments.new(b.arguments)
-                q.unbind(@upstream_exchange, b.routing_key, args: args)
-              end
+            with_consumer_q do |q|
+              b = data_as_binding_details(data)
+              args = ::AMQP::Client::Arguments.new(b.arguments)
+              q.unbind(@upstream_exchange, b.routing_key, args: args)
             end
           else raise "Unexpected event '#{event}'"
           end
-        rescue ::AMQP::Client::Channel::ClosedException
-          @log.debug { "Ignoring event=#{event} data=#{data} reason=consumer_channel_closed" }
+        rescue e
+          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+        end
+
+        private def data_as_binding_details(data) : BindingDetails
+          b = data.as?(BindingDetails)
+          raise ArgumentError.new("Expected data to be of type BindingDetails") unless b
+          b
+        end
+
+        private def with_consumer_q
+          if q = @consumer_q
+            yield q
+          else
+            @log.warn { "No upstream connection for exchange event" }
+          end
         end
 
         def terminate
@@ -364,6 +376,7 @@ module AvalancheMQ
           ::AMQP::Client.start(upstream_uri) do |c|
             ::AMQP::Client.start(local_uri) do |p|
               cch, @consumer_q = setup(c)
+              @federated_ex.register_observer(self)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
               pch.confirm_select if @upstream.ack_mode.on_confirm?
