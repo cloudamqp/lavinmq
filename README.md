@@ -253,7 +253,7 @@ install bin/avalanchemq /usr/local/bin/avalanchemq
 ```
 
 Refer to
-[Crystal's installation documentation](https://crystal-lang.org/docs/installation/)
+[Crystal's installation documentation](https://crystal-lang.org/install/)
 on how to install Crystal.
 
 ## Usage
