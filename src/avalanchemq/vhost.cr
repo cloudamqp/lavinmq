@@ -721,7 +721,7 @@ module AvalancheMQ
       collected = 0_u64
 
       if referenced_sps.empty?
-        @segments.delete_if do |seg, mfile|
+        @segments.reject! do |seg, mfile|
           next if mfile == @wfile
           collected += mfile.disk_usage
           @log.info { "Deleting segment #{seg}" }

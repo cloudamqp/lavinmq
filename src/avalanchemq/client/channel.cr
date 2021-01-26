@@ -419,7 +419,7 @@ module AvalancheMQ
 
       private def delete_consumers_unacked(consumer)
         @unack_lock.synchronize do
-          @unacked.delete_if do |unack|
+          @unacked.reject! do |unack|
             unack.consumer == consumer
           end
         end
@@ -561,7 +561,7 @@ module AvalancheMQ
 
       def recover(consumer)
         @unack_lock.synchronize do
-          @unacked.delete_if do |unack|
+          @unacked.reject! do |unack|
             if unack.consumer == consumer
               yield unack.sp
               true
