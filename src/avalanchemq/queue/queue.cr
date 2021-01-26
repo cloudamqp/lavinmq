@@ -848,6 +848,15 @@ module AvalancheMQ
     def fsync_ack
     end
 
+    def to_json(builder : JSON::Builder)
+      builder.object do
+        details_tuple.each do |k, v|
+          builder.field(k, v) unless v.nil?
+          builder.field("consumer_details", @consumers)
+        end
+      end
+    end
+
     class Error < Exception; end
   end
 end
