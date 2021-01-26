@@ -41,7 +41,7 @@ module AvalancheMQ
       def delete(consumer : Client::Channel::Consumer) : Array(SegmentPosition)
         consumer_unacked = Array(SegmentPosition).new(Math.max(consumer.prefetch_count, 16))
         @lock.synchronize do
-          @unacked.delete_if do |unack|
+          @unacked.reject! do |unack|
             if unack.consumer == consumer
               consumer_unacked << unack.sp
               true
