@@ -11,3 +11,4 @@
 *.log
 .icr_*
 *.swp
+shard.override.yml
