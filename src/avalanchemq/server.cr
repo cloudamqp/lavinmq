@@ -298,7 +298,7 @@ module AvalancheMQ
             end
           end
         else
-          rss = `ps -o rss= -p $PPID`.to_i64
+          rss = `ps -o rss= -p $PPID`.to_i64? || 0
         end
 
         @rss_log.push rss
