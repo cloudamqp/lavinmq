@@ -5,8 +5,20 @@
 A message queue server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
 
-Aims to be very fast, has low RAM requirements, handles extremely long queues,
+Aims to be very fast, has low RAM requirements, handles very long queues,
 many connections, and requires minimal configuration.
+
+## Performance
+
+A single m6g.large EC2 instance, with a GP3 EBS drive (XFS formatted),
+can sustain about 600.000 messages/s (16 byte msg body, single queue, single producer,
+single consumer). A single producer can push 1.200.000 msgs/s and if there's no producers
+auto-ack consumers can receive 1.000.000 msgs/s.
+
+Enqueueing 10 million messages only uses 80MB RAM. 8000
+connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
+MB RAM. About 1.600 bindings per second can be made to non-durable queues,
+and about 1000 bindings/second to durable queues.
 
 ## Implementation
 
@@ -200,21 +212,6 @@ message. If you have been logging `x-offset` for each message you can use
 that value, bind a new queue to the exchange and supply that
 value as `x-from` for that binding and the new queue would get all
 messages from that offset. 
-
-## Performance
-
-A single c5.large EC2 instance, with a 2 TB ST1 EBS drive (XFS formatted),
-can sustain about 250.000 messages/s (16 byte msg body, single queue, single producer,
-single consumer). A single producer can push 550.000 msgs/s and if there's no producers
-consumers can receive 730.000 msgs/s. When the message size is 1MB the
-instance's network speed becomes the bottleneck at 10 Gbit/s. When the
-OS disk cache is full the EBS performance becomes the bottleneck,
-at about 500 MB/s.
-
-Enqueueing 10 million messages only uses 80MB RAM. 8000
-connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
-MB RAM. About 1.600 bindings per second can be made to non-durable queues,
-and about 1000 bindings/second to durable queues.
 
 ## Installation
 
