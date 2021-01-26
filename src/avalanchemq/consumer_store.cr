@@ -112,8 +112,16 @@ module AvalancheMQ
       @size.zero?
     end
 
-    def to_a
-      @store.flat_map &.consumers
+    def each
+      @store.each { |cg| cg.consumers.each { |c| yield c } }
+    end
+
+    def to_json(builder : JSON::Builder)
+      builder.array do
+        each do |v|
+          v.to_json(builder)
+        end
+      end
     end
 
     def capacity

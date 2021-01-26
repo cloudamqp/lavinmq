@@ -36,10 +36,7 @@ module AvalancheMQ
         get "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
-            q.details_tuple.merge({
-              consumer_details: q.consumers.to_a,
-            }).to_json(context.response)
+            queue(context, params, vhost).to_json(context.response)
           end
         end
 
