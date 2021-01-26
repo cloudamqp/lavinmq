@@ -228,18 +228,22 @@ sudo apt update
 sudo apt install avalanchemq
 ```
 
-In CentOS/Redhat/Amazon Linux:
+In Fedora/CentOS/Redhat/Amazon Linux:
 
 ```bash
 sudo tee /etc/yum.repos.d/avalanchemq.repo << EOF
 [avalanchemq]
 name=avalanchemq
-baseurl=https://dl.bintray.com/cloudamqp/rpm
+baseurl=https://packagecloud.io/cloudamqp/avalanchemq/el/8/$basearch
+repo_gpgcheck=1
 gpgcheck=0
-repo_gpgcheck=0
 enabled=1
+gpgkey=https://packagecloud.io/cloudamqp/avalanchemq/gpgkey
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+metadata_expire=300
 EOF
-sudo yum install avalanchemq
+sudo dnf install avalanchemq
 sudo systemctl start avalanchemq
 ```
 
