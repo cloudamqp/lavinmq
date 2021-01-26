@@ -86,7 +86,7 @@
           connectionLink.href = `/connection?name=${encodeURIComponent(item.name)}`
           if (item.client_properties.connection_name) {
             connectionLink.innerHTML = `<span>${item.name}</span>
-              <br><small>${item.client_properties.connection_name}</small>`
+              <br><small>${escapeHTML(item.client_properties.connection_name)}</small>`
           } else {
             connectionLink.textContent = item.name
           }
