@@ -272,31 +272,13 @@ for an example.
 
 ## Docker
 
-It is possible to run AvalancheMQ using Docker. To build the image run:
+Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/avalanchemq).
+Fetch and run the latest version with:
 
-`docker build -t avalanchemq .`
-
-This will create a docker image tagged as avalanchemq:latest that we then can use to launch an
-instance of AvalancheMQ by executing:
-
-`docker run --rm -p 15672:15672 -p 5672:5672 -v data:/data --name avalanchemq avalanchemq:latest`
+`docker run --rm -it -p 15672:15672 -p 5672:5672 -v data:/tmp/amqp cloudamqp/avalanchemq`
 
 You are now able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
-start publishing/consuming messages. The container can be killed
-by running:
-
-`docker kill avalanchemq`
-
-## OS configuration
-
-If you have a lot of clients that open connections
-at the same time, e.g. after a restart, you may see
-"kernel: Possible SYN flooding on port 5671" in the syslog.
-Then you probably should increase `net.ipv4.tcp_max_syn_backlog`:
-
-```bash
-sysctl -w net.ipv4.tcp_max_syn_backlog=2048 # default 512
-```
+start publishing/consuming messages to `amqp://guest:guest@localhost`.
 
 ## Debugging
 
@@ -331,7 +313,7 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 
 1. Run specs with `crystal spec`
 1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
-1. Build with `shards build --release`
+1. Build with `shards build`
 
 ### Release
 
