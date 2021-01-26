@@ -60,7 +60,7 @@ for the queue directories in the vhost directory. The queue directories only has
 
 ### Flows
 
-Follows does an architectural description of the different flows in the server.
+Here is an architectural description of the different flows in the server.
 
 #### Publish
 
@@ -113,9 +113,9 @@ Currently missing features
 
 ### Known differences to other AMQP servers
 
-There are few edge-cases that are handled a bit differently in AvalancheMQ compared to other AMQP servers.
+There are a few edge-cases that are handled a bit differently in AvalancheMQ compared to other AMQP servers.
 
-* Messages being reject and requeued with TTL 0 is delivered to consumers if there are any, not expired
+* Messages being rejected and requeued with TTL 0 is delivered to consumers if there are any, not expired
 * When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
 * TTL of queues and messages are correct to the second, not to the millisecond
 * Messages are not expired if there are active consumers
@@ -131,14 +131,14 @@ doesn't have any bindings.
 The exchange will also keep the message in the exchange after the 
 message has been routed to all queue bindings. 
 
-When a new binding get applied to the exchange additional arguments
-can be applied which decided if these stored messages should be routed
-to the new queue or not. 
+When a new binding gets applied to the exchange additional arguments
+can be applied which decides if these stored messages should be routed
+to the new queue or not.
 For example, you can have a publisher that has been writing messages to a 
 exchange for a while but you notice that no queue has been bound to 
-that exchange. But since the exchange is persistent you can bind a new
-queue saying that all existing message in the exchange should be routed
-the to newly bounded queue. 
+that exchange. Since the exchange is persistent you can bind a new
+queue saying that all existing messages in the exchange should be routed
+the to newly bound queue.
 
 #### Message selection
 
@@ -147,7 +147,7 @@ it which messages should be published to the queue.
 
 If the exchange has 10 messages persisted, each box represent a 
 message where the first message published to the exchange is the one
-far to the right, message 0.
+to the far right, message 0.
 
 ```
 [9] [8] [7] [6] [5] [4] [3] [2] [1] [0]
@@ -268,7 +268,7 @@ for an example.
 
 ## Docker
 
-It is possible to run AvalancheMQ using docker. To build the image run:
+It is possible to run AvalancheMQ using Docker. To build the image run:
 
 `docker build -t avalanchemq .`
 
@@ -314,7 +314,7 @@ A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.
 
 In OS X the app [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
 
-Memory garage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment).
+Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment).
 
 ## Contributing
 
