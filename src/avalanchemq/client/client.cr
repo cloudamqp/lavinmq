@@ -306,7 +306,7 @@ module AvalancheMQ
             @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             frame.body.skip(frame.body_size)
           else
-            yield ch
+            @log.debug { "Discarding #{frame.inspect}, waiting for Close(Ok)" }
           end
         end
       else
