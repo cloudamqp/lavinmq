@@ -357,6 +357,8 @@ module AvalancheMQ
           elsif q.internal?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
           else
+            @get_count += 1
+            @events.send(EventType::ClientGet)
             if env = q.basic_get(frame.no_ack)
               persistent = env.message.properties.delivery_mode == 2_u8
               delivery_tag = next_delivery_tag(q, env.segment_position,
@@ -365,10 +367,7 @@ module AvalancheMQ
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
                 env.message.routing_key, q.message_count)
-              deliver(get_ok, env.message)
-              @get_count += 1
-              @events.send(EventType::ClientGet)
-              increment_redeliver if env.redelivered
+              deliver(get_ok, env.message, env.redelivered)
             else
               send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
             end
