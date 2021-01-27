@@ -189,9 +189,12 @@ module AvalancheMQ
       end
     end
 
-    def send(frame : AMQP::Frame) : Bool
+    def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
       return false if closed?
-      unless frame.channel.zero? || @channels[frame.channel]?.try &.running?
+      if channel_is_open.nil?
+        channel_is_open = frame.channel.zero? || @channels[frame.channel]?.try &.running?
+      end
+      unless channel_is_open
         @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
         return false
       end
@@ -236,10 +239,6 @@ module AvalancheMQ
 
     def deliver(frame, msg)
       return false if closed?
-      unless frame.channel.zero? || @channels[frame.channel]?.try &.running?
-        @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
-        return false
-      end
       @write_lock.synchronize do
         socket = @socket
         {% unless flag?(:release) %}
@@ -334,7 +333,7 @@ module AvalancheMQ
         open_channel(frame)
       when AMQP::Frame::Channel::Close
         @channels.delete(frame.channel).try &.close
-        send AMQP::Frame::Channel::CloseOk.new(frame.channel)
+        send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
       when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow

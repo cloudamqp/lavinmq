@@ -84,7 +84,11 @@ module AvalancheMQ
       end
 
       def send(frame)
-        @client.send frame
+        unless @running
+          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
+          return false
+        end
+        @client.send frame, true
       end
 
       def confirm_select(frame)
@@ -283,6 +287,10 @@ module AvalancheMQ
       end
 
       def deliver(frame, msg, redelivered = false)
+        unless @running
+          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
+          return false
+        end
         @client.deliver(frame, msg) || return false
         if redelivered
           @redeliver_count += 1
