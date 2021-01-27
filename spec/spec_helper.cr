@@ -64,12 +64,12 @@ module TestHelpers
 
   def wait_for(timeout = 5.seconds)
     sec = Time.monotonic
-    until res = yield
+    loop do
       Fiber.yield
+      res = yield
+      return res if res
       raise "Execuction expired" if Time.monotonic - sec > timeout
     end
-    Fiber.yield
-    res
   end
 
   def test_headers(headers = nil)
