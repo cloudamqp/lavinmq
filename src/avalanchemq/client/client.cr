@@ -191,6 +191,10 @@ module AvalancheMQ
 
     def send(frame : AMQP::Frame) : Bool
       return false if closed?
+      unless frame.channel.zero? || @channels[frame.channel]?.try &.running?
+        @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
+        return false
+      end
       {% unless flag?(:release) %}
         @log.debug { "Send #{frame.inspect}" }
       {% end %}
@@ -231,6 +235,11 @@ module AvalancheMQ
     @write_lock = Mutex.new(:checked)
 
     def deliver(frame, msg)
+      return false if closed?
+      unless frame.channel.zero? || @channels[frame.channel]?.try &.running?
+        @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
+        return false
+      end
       @write_lock.synchronize do
         socket = @socket
         {% unless flag?(:release) %}

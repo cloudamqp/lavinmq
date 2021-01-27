@@ -84,11 +84,7 @@ module AvalancheMQ
       end
 
       def send(frame)
-        if @running
-          @client.send frame
-        else
-          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
-        end
+        @client.send frame
       end
 
       def confirm_select(frame)
@@ -286,20 +282,16 @@ module AvalancheMQ
         confirm_ack
       end
 
-      def deliver(frame, msg)
-        success = @client.deliver(frame, msg)
-        @events.send(EventType::ClientDeliver) if success
-        success
-      end
-
-      def increment_deliver
-        @deliver_count += 1
-        @events.send(EventType::ClientDeliver)
-      end
-
-      def increment_redeliver
-        @redeliver_count += 1
-        @events.send(EventType::ClientRedeliver)
+      def deliver(frame, msg, redelivered = false)
+        @client.deliver(frame, msg) || return false
+        if redelivered
+          @redeliver_count += 1
+          @events.send(EventType::ClientRedeliver)
+        else
+          @deliver_count += 1
+          @events.send(EventType::ClientDeliver)
+        end
+        true
       end
 
       def consume(frame)
