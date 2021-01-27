@@ -443,13 +443,15 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "can receive and deliver large messages" do
+  it "can receive and deliver multiple large messages" do
+    pmsg = "a" * 150_000
     with_channel do |ch|
-      pmsg1 = "a" * 8133
-      q = ch.queue
-      q.publish pmsg1
-      msg = q.get
-      msg.not_nil!.body_io.to_s.should eq pmsg1.to_s
+      2.times do
+        q = ch.queue
+        q.publish pmsg
+        msg = q.get
+        msg.not_nil!.body_io.to_s.should eq pmsg
+      end
     end
   end
 

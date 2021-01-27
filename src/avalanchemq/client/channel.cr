@@ -23,7 +23,6 @@ module AvalancheMQ
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
-      @next_msg_body_file_pos = 0
       @next_msg_props : AMQP::Properties?
       @log : Logger
       @client_flow = true
@@ -36,6 +35,7 @@ module AvalancheMQ
       @delivery_tag = 0_u64
       @unacked = Deque(Unack).new
       @unack_lock = Mutex.new(:checked)
+      @next_msg_body_file : File?
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
@@ -44,11 +44,6 @@ module AvalancheMQ
         @log = @client.log.dup
         @log.progname += " channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
-        @next_msg_body_file = File.open(tmp_path, "w+")
-        @next_msg_body_file.sync = true
-        @next_msg_body_file.read_buffering = false
-        @next_msg_body_file.delete
         @events.send(EventType::ChannelCreated)
         @next_msg_body_tmp = IO::Memory.new
       end
@@ -161,19 +156,17 @@ module AvalancheMQ
             @next_msg_body_tmp.clear
           end
         else
-          copied = IO.copy(frame.body, @next_msg_body_file, frame.body_size)
-          @next_msg_body_file_pos += copied
+          copied = IO.copy(frame.body, next_msg_body_file, frame.body_size)
           if copied != frame.body_size
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
-          if @next_msg_body_file_pos == @next_msg_size
-            @next_msg_body_file.rewind
+          if next_msg_body_file.pos == @next_msg_size
+            next_msg_body_file.rewind
             begin
-              finish_publish(@next_msg_body_file, ts)
+              finish_publish(next_msg_body_file, ts)
             ensure
-              @next_msg_body_file.truncate
-              @next_msg_body_file.rewind
-              @next_msg_body_file_pos = 0
+              next_msg_body_file.truncate
+              next_msg_body_file.rewind
             end
           end
         end
@@ -544,7 +537,7 @@ module AvalancheMQ
           @log.debug { "Requeing unacked msg #{unack.sp}" }
           unack.queue.reject(unack.sp, true)
         end
-        @next_msg_body_file.close
+        @next_msg_body_file.try &.close
         @events.send(EventType::ChannelClosed)
         @log.debug { "Closed" }
       end
@@ -586,6 +579,18 @@ module AvalancheMQ
       def direct_reply_request?(str)
         # no regex for speed
         str.try { |r| r == "amq.rabbitmq.reply-to" || r.starts_with? DIRECT_REPLY_PREFIX }
+      end
+
+      private def next_msg_body_file
+        @next_msg_body_file ||=
+          begin
+            tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
+            File.open(tmp_path, "w+").tap do |f|
+              f.sync = true
+              f.read_buffering = false
+              f.delete
+            end
+          end
       end
     end
   end
