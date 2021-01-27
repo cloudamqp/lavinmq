@@ -440,7 +440,7 @@ module AvalancheMQ
       else
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       end
-      @channels[frame.channel].running = false
+      @channels.delete(frame.channel).try &.close
     end
 
     def close_connection(frame, code, text)
