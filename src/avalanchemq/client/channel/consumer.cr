@@ -47,15 +47,7 @@ module AvalancheMQ
             delivery_tag,
             redelivered,
             msg.exchange_name, msg.routing_key)
-          ok = @channel.client.deliver(deliver, msg)
-          if ok
-            if redelivered
-              @channel.increment_redeliver
-            else
-              @channel.increment_deliver
-            end
-          end
-          ok
+          @channel.deliver(deliver, msg, redelivered)
         end
 
         def ack(sp)
