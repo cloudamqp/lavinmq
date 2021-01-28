@@ -143,29 +143,23 @@ module AvalancheMQ
           send_precondition_failed(frame, e.message)
         end
       rescue IO::TimeoutError
-        unless send_heartbeat
-          cleanup
-          close_socket
-          break
-        end
+        send_heartbeat || break
       rescue ex : AMQP::Error::NotImplemented
         @log.error { ex.inspect }
         send_not_implemented(ex)
       rescue ex : AMQP::Error::FrameDecode
         @log.error { ex.inspect }
         send_frame_error
-        return
       rescue ex : IO::Error | OpenSSL::SSL::Error
         @log.debug { "Lost connection, while reading (#{ex.inspect_with_backtrace})" } unless closed?
-        cleanup
-        close_socket
-        return
+        break
       rescue ex : Exception
         @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
         send_internal_error(ex.message)
-        return
       end
     ensure
+      cleanup
+      close_socket
       @log.info "Connection (#{@name}) disconnected for user=#{@user.name} "
     end
 
