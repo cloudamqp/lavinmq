@@ -29,7 +29,7 @@ module AvalancheMQ
 
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
-    @save = Channel(AMQP::Frame).new(32)
+    @save = Channel(AMQP::Frame).new(128)
     @write_lock = Mutex.new(:checked)
     @wfile : MFile
     @log : Logger
@@ -341,6 +341,7 @@ module AvalancheMQ
         e = @exchanges[f.exchange_name] =
           make_exchange(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
         apply_policies([e] of Exchange) unless loading
+        @save.send f if !loading && f.durable
       when AMQP::Frame::Exchange::Delete
         if x = @exchanges.delete f.exchange_name
           @exchanges.each_value do |ex|
@@ -349,21 +350,25 @@ module AvalancheMQ
             end
           end
           x.delete
+          @save.send f if !loading && x.durable
         else
           return false
         end
       when AMQP::Frame::Exchange::Bind
-        source = @exchanges[f.source]? || return false
-        x = @exchanges[f.destination]? || return false
-        source.bind(x, f.routing_key, f.arguments.to_h)
+        src = @exchanges[f.source]? || return false
+        dst = @exchanges[f.destination]? || return false
+        src.bind(dst, f.routing_key, f.arguments.to_h)
+        @save.send f if !loading && src.durable && dst.durable
       when AMQP::Frame::Exchange::Unbind
-        source = @exchanges[f.source]? || return false
-        x = @exchanges[f.destination]? || return false
-        source.unbind(x, f.routing_key, f.arguments.to_h)
+        src = @exchanges[f.source]? || return false
+        dst = @exchanges[f.destination]? || return false
+        src.unbind(dst, f.routing_key, f.arguments.to_h)
+        @save.send f if !loading && src.durable && dst.durable
       when AMQP::Frame::Queue::Declare
         return false if @queues.has_key? f.queue_name
         q = @queues[f.queue_name] = QueueFactory.make(self, f)
         apply_policies([q] of Queue) unless loading
+        @save.send f if !loading && f.durable && !f.exclusive
         @events.send(EventType::QueueDeclared) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
@@ -372,6 +377,7 @@ module AvalancheMQ
               ex.unbind(q, *binding_args) if destinations.includes?(q)
             end
           end
+          @save.send f if !loading && q.durable && !q.exclusive
           @events.send(EventType::QueueDeleted)
           q.delete
         else
@@ -381,13 +387,14 @@ module AvalancheMQ
         x = @exchanges[f.exchange_name]? || return false
         q = @queues[f.queue_name]? || return false
         x.bind(q, f.routing_key, f.arguments.to_h)
+        @save.send f if !loading && x.durable && q.durable && !q.exclusive
       when AMQP::Frame::Queue::Unbind
         x = @exchanges[f.exchange_name]? || return false
         q = @queues[f.queue_name]? || return false
         x.unbind(q, f.routing_key, f.arguments.to_h)
+        @save.send f if !loading && x.durable && q.durable && !q.exclusive
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
-      @save.send f unless loading
       true
     end
 
@@ -608,24 +615,6 @@ module AvalancheMQ
       File.open(File.join(@data_dir, "definitions.amqp"), "W") do |f|
         f.seek(0, IO::Seek::End)
         while frame = @save.receive?
-          case frame
-          when AMQP::Frame::Exchange::Declare
-            next unless frame.durable
-          when AMQP::Frame::Queue::Declare
-            next unless frame.durable
-            next if frame.exclusive
-          when AMQP::Frame::Exchange::Delete
-            next unless @exchanges[frame.exchange_name]?.try(&.durable)
-          when AMQP::Frame::Queue::Delete
-            next unless @queues[frame.queue_name]?.try { |q| q.durable && !q.exclusive }
-          when AMQP::Frame::Queue::Bind, AMQP::Frame::Queue::Unbind
-            next unless @exchanges[frame.exchange_name]?.try &.durable
-            next unless @queues[frame.queue_name]?.try &.durable
-          when AMQP::Frame::Exchange::Bind, AMQP::Frame::Exchange::Unbind
-            next unless @exchanges[frame.source]?.try &.durable
-            next unless @exchanges[frame.destination]?.try &.durable
-          else raise "Cannot apply frame #{frame.class} in vhost #{@name}"
-          end
           @log.debug { "Storing definition: #{frame.inspect}" }
           f.write_bytes frame
           f.fsync
