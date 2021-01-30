@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.25] - 2021-01-30
+
+### Fixed
+- Deleted queues could reappear after a crash
+- Never send frames to closed channels
+- Checking RSS on OS X could fail when FD limit was reached
+- Escaping connection name in UI to prevent XSS
+
+### Changed
+- Crystal 0.36.0 compability
+- Don't open a temp write for every channel, only when needed
+
 ## [1.0.0-alpha.24] - 2021-01-26
 
 ### Added
