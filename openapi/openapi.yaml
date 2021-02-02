@@ -1,7 +1,8 @@
 ---
 openapi: 3.0.3
 info:
-  version: 1.0.0
+  version:
+    "$ref": "./avalanchemq_version.yaml#/version"
   title: AvalancheMQ Management HTTP API
   description: HTTP API to programmatically manage all aspects of AvalancheMQ.
   contact:

@@ -12,3 +12,4 @@
 .icr_*
 *.swp
 shard.override.yml
+/openapi/avalanchemq_version.yaml
