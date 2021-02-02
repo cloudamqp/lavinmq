@@ -6,14 +6,15 @@ It also copies it to `static/docs/index.html` so you can view the docs at [http:
 
 The dependencies:
 
-* `./create_avalanchemq_version_yaml` that creates `avalanchemq_version.yaml` (not in source control), needed when building the docs
 * [Spectral] is used to lint the documentation. To run it manually: `spectral lint openapi.yaml`
 * [ReDoc] is to build the documentation.
   To run it manually: `redoc-cli bundle openapi.yaml` (a file `redoc-static.html` will be created in your working directory)
 
 You can use the [ReDoc Docker image] to watch for updates so you can preview the documentation as you work on it. (Note the gotcha: the browser caches the YAML files even if they have changed, open dev console in the browser to mitigate.)
 
-Start it with `./redoc-serve-and-watch`, then view the docs at [http://localhost:8080/](http://localhost:8080/).
+Start it with:
+
+      ./redoc-serve-and-watch
 
 ## OpenAPI notes
 

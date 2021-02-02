@@ -1,7 +1,0 @@
-#!/bin/bash
-
-set -e
-
-VERSION_FILE="$(dirname $0)/avalanchemq_version.yaml"
-
-echo "version: $(git describe --abbrev=0 | cut -c2-)" > $VERSION_FILE
