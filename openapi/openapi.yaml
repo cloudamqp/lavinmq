@@ -2,7 +2,7 @@
 openapi: 3.0.3
 info:
   version:
-    "$ref": "./shard.yml#/version"
+    "$ref": "../shard.yml#/version"
   title: AvalancheMQ Management HTTP API
   description: HTTP API to programmatically manage all aspects of AvalancheMQ.
   contact:
