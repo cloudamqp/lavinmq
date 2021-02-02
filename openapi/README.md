@@ -12,9 +12,7 @@ The dependencies:
 
 You can use the [ReDoc Docker image] to watch for updates so you can preview the documentation as you work on it. (Note the gotcha: the browser caches the YAML files even if they have changed, open dev console in the browser to mitigate.)
 
-Start it with:
-
-      ./redoc-serve-and-watch
+Start it with `./redoc-serve-and-watch`, then view the docs at [http://localhost:8080/](http://localhost:8080/).
 
 ## OpenAPI notes
 
