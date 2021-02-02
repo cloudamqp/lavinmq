@@ -9,6 +9,11 @@ on:
 jobs:
   build_docs:
     name: Build HTTP API documentation
+    if: |
+      !(   contains(github.event.pull_request.title,  '[ci skip]')
+        || contains(github.event.pull_request.title,  '[skip ci]')
+        || contains(github.event.head_commit.message, '[ci skip]')
+        || contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-latest
 
     steps:
