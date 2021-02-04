@@ -55,7 +55,7 @@ module AvalancheMQ
       @name = "#{@remote_address} -> #{@local_address}"
       @client_properties = start_ok.client_properties
       if connection_name = @client_properties["connection_name"]?.try(&.as(String))
-        @log.progname += "(#{connection_name})"
+        @log.progname += " (#{connection_name})"
       end
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
