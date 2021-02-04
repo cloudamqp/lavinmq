@@ -7,7 +7,7 @@ COPY build ./build
 COPY package.json package-lock.json ./
 RUN npm install --unsafe-perm
 
-FROM crystallang/crystal:0.36.0 AS builder
+FROM crystallang/crystal:0.36.1 AS builder
 
 # install dependencies
 RUN apt-get update && apt-get install -y libsystemd-dev
