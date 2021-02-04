@@ -43,7 +43,7 @@ jobs:
         run: |
           curl -fsSLO https://crystal-lang.org/install.sh
           chmod +x install.sh
-          ./install.sh --crystal=0.36.0
+          ./install.sh --crystal=0.36.1
 
       - name: Install dependencies
         run: |

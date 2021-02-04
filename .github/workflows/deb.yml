@@ -48,7 +48,7 @@ jobs:
         run: |
           wget https://crystal-lang.org/install.sh
           chmod +x install.sh
-          sudo ./install.sh --crystal=0.36.0
+          sudo ./install.sh --crystal=0.36.1
 
       - name: Checkout
         uses: actions/checkout@v2
