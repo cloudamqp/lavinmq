@@ -307,12 +307,15 @@ module AvalancheMQ
         end
       else
         case frame
+        when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
+          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
         when AMQP::Frame::Body
           @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           frame.body.skip(frame.body_size)
+        else
+          @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
+          close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
         end
-        @log.error { "Channel #{frame.channel} not open" }
-        close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
       end
     end
 
