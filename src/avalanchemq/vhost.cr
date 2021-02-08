@@ -73,7 +73,7 @@ module AvalancheMQ
         @awaiting_confirm.add channel
         unless @fsync
           @fsync = true
-          spawn(name: "VHost/#{@name}#fsync") { fsync }
+          spawn(fsync, name: "VHost/#{@name}#fsync")
         end
       end
     end
@@ -82,7 +82,6 @@ module AvalancheMQ
     @queues_to_fsync = Set(DurableQueue).new
 
     def fsync
-      return unless @fsync
       @log.debug { "fsync segment file" }
       @wfile.fsync
       @queues_to_fsync_lock.synchronize do
