@@ -4,11 +4,6 @@ on: [push]
 jobs:
   lint:
     name: Lint
-    if: |
-      !(   contains(github.event.pull_request.title,  '[ci skip]')
-        || contains(github.event.pull_request.title,  '[skip ci]')
-        || contains(github.event.head_commit.message, '[ci skip]')
-        || contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-latest
     container: crystallang/crystal:0.36.1
     continue-on-error: true
@@ -24,11 +19,6 @@ jobs:
 
   api-lint:
     name: Lint and build HTTP API documentation
-    if: |
-      !(   contains(github.event.pull_request.title,  '[ci skip]')
-        || contains(github.event.pull_request.title,  '[skip ci]')
-        || contains(github.event.head_commit.message, '[ci skip]')
-        || contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-latest
     continue-on-error: true
 
@@ -41,11 +31,6 @@ jobs:
 
   spec:
     name: Spec
-    if: |
-      !(   contains(github.event.pull_request.title,  '[ci skip]')
-        || contains(github.event.pull_request.title,  '[skip ci]')
-        || contains(github.event.head_commit.message, '[ci skip]')
-        || contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-20.04
 
     steps:
@@ -71,11 +56,6 @@ jobs:
 
   compile:
     name: Compile AvalancheMQ
-    if: |
-      !(   contains(github.event.pull_request.title,  '[ci skip]')
-        || contains(github.event.pull_request.title,  '[skip ci]')
-        || contains(github.event.head_commit.message, '[ci skip]')
-        || contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-20.04
 
     steps:
