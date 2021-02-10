@@ -16,7 +16,6 @@ module AvalancheMQ
 
     def add_consumer(consumer)
       @lock.synchronize do
-        @size += 1
         idx = @store.bsearch_index { |cg| cg.priority >= consumer.priority }
         if idx
           cg = @store[idx]
@@ -28,12 +27,12 @@ module AvalancheMQ
         else
           @store.push ConsumerGroup.new(consumer.priority, Deque{consumer})
         end
+        @size += 1
       end
     end
 
     def delete_consumer(consumer)
       @lock.synchronize do
-        @size -= 1
         @last_consumer_selected = nil if consumer == @last_consumer_selected
 
         if idx = @store.bsearch_index { |cg| cg.priority >= consumer.priority }
@@ -47,6 +46,9 @@ module AvalancheMQ
             else
               cg.consumers.delete(consumer)
             end
+            @size -= 1
+          else
+            raise "Consumer not found"
           end
         end
       end
@@ -88,12 +90,16 @@ module AvalancheMQ
     def cancel_consumers
       @lock.synchronize do
         @store.each { |cg| cg.consumers.each &.cancel }
-        @store.clear
+        @store = Array{ConsumerGroup.new(0, Deque(Client::Channel::Consumer).new(8))}
+        @size = 0_u32
       end
     end
 
     def clear
-      @lock.synchronize { @store.clear }
+      @lock.synchronize do
+        @store = Array{ConsumerGroup.new(0, Deque(Client::Channel::Consumer).new(8))}
+        @size = 0_u32
+      end
     end
 
     def immediate_delivery?
