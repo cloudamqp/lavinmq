@@ -35,11 +35,7 @@ module AvalancheMQ
     property file_buffer_size = 16384            # bytes
     property socket_buffer_size = 16384          # bytes
     property tcp_nodelay = false                 # bool
-    {% if flag?(:linux) %}
-      property segment_size : Int32 = 1024**3     # bytes
-    {% else %}
-      property segment_size : Int32 = 8 * 1024**2 # bytes
-    {% end %}
+    property segment_size : Int32 = 8 * 1024**2 # bytes
 
     @@instance : Config = self.new
 
