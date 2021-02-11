@@ -1,15 +1,19 @@
-module.exports = {
+{
+    "env": {
+      "es2020": true,
+      "browser": true
+    },
     "extends": "eslint:recommended",
+    "parserOptions": {
+      "ecmaVersion": 2020
+    },
     "plugins": [
         "html"
     ],
     "settings": {
         "html/indent": "+2"
     },
-    "globals": {
-        "avalanchemq": true
-    },
     "rules": {
         "no-console": "off"
     }
-};
+}
