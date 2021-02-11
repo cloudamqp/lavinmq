@@ -1,0 +1,65 @@
+require "../../server"
+
+module AvalancheMQ
+  class AMQPWebsocket
+    def self.new(amqp_server : Server)
+      ::HTTP::WebSocketHandler.new do |ws, ctx|
+        req = ctx.request
+        local_address = Socket::IPAddress.new("0.0.0.0", 15672) # guessing local address for older crystal versions
+        local_address = req.local_address.as(Socket::IPAddress) if req.responds_to?(:local_address)
+        remote_address = req.remote_address.as(Socket::IPAddress)
+        io = WebSocketIO.new(ws)
+        spawn amqp_server.handle_connection(io, remote_address, local_address), name: "HandleWSconnection #{remote_address}"
+      end
+    end
+  end
+
+  class WebSocketIO < IO
+    include IO::Buffered
+
+    def initialize(@ws : ::HTTP::WebSocket)
+      @r, @w = IO.pipe
+      @r.read_buffering = false
+      @w.sync = true
+      @ws.on_binary do |bytes|
+        @w.write(bytes)
+      end
+      @ws.on_close do |_code, _message|
+        self.close
+      end
+      self.buffer_size = 4096
+    end
+
+    def unbuffered_read(bytes : Bytes)
+      @r.read(bytes)
+    end
+
+    def unbuffered_write(bytes : Bytes) : Nil
+      @ws.send(bytes)
+    end
+
+    def unbuffered_flush
+    end
+
+    def unbuffered_rewind
+    end
+
+    def unbuffered_close
+      return if @closed
+      @closed = true
+      @r.close
+      @w.close
+      @ws.close
+    end
+
+    def read_timeout=(timeout)
+      @r.read_timeout = timeout
+    end
+
+    def fd
+      io = @ws.@ws.@io
+      return io.fd if io.responds_to?(:fd)
+      0
+    end
+  end
+end

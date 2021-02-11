@@ -37,7 +37,7 @@ module AvalancheMQ
     rate_stats(%w(send_oct recv_oct))
     DEFAULT_EX = "amq.default"
 
-    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket,
+    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket | WebSocketIO,
                    @remote_address : Socket::IPAddress,
                    @local_address : Socket::IPAddress,
                    @vhost : VHost,
@@ -75,6 +75,8 @@ module AvalancheMQ
         @socket.as(TCPSocket).fd
       when UNIXSocket
         @socket.as(UNIXSocket).fd
+      when WebSocketIO
+        @socket.as(WebSocketIO).fd
       else
         raise "Unexpected socket #{@socket.class}"
       end
@@ -243,16 +245,19 @@ module AvalancheMQ
       return false if closed?
       @write_lock.synchronize do
         socket = @socket
+        websocket = socket.is_a? WebSocketIO
         {% unless flag?(:release) %}
           @log.debug { "Send #{frame.inspect}" }
         {% end %}
         socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+        socket.flush if websocket
         @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
         {% unless flag?(:release) %}
           @log.debug { "Send #{header.inspect}" }
         {% end %}
         socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
+        socket.flush if websocket
         @send_oct_count += 8_u64 + header.bytesize
         pos = 0
         while pos < msg.size
@@ -267,10 +272,11 @@ module AvalancheMQ
                    AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
                  end
           socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
+          socket.flush if websocket
           @send_oct_count += 8_u64 + body.bytesize
           pos += length
         end
-        socket.flush
+        socket.flush unless websocket # Websockets need to send one frame per WS frame
         @last_sent_frame = RoughTime.utc
       end
       true

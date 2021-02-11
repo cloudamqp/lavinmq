@@ -21,6 +21,7 @@ module AvalancheMQ
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
+          AMQPWebsocket.new(@amqp_server),
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log.dup),
           StaticController.new,

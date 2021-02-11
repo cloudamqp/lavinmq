@@ -190,7 +190,7 @@ module AvalancheMQ
       end
     end
 
-    private def handle_connection(socket, remote_address, local_address)
+    def handle_connection(socket, remote_address, local_address)
       client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log, @events)
       if client.nil?
         socket.close

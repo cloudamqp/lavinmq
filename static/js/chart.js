@@ -180,11 +180,11 @@
   }
 
   function fillDatasetVoids(dataset) {
-    prevPoint = dataset.data[0]
-    moreIter = false
+    let prevPoint = dataset.data[0]
+    let moreIter = false
     dataset.data.forEach((point,i) => {
-      timeDiff = point.x.getTime() - prevPoint.x.getTime()
-      if ( timeDiff >= POLLING_RATE*2) {
+      const timeDiff = point.x.getTime() - prevPoint.x.getTime()
+      if (timeDiff >= POLLING_RATE*2) {
         dataset.data.splice(i ,0 ,{"x": new Date(point.x.getTime() - POLLING_RATE), y: null})
         moreIter = timeDiff >= POLLING_RATE*3
       }

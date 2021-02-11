@@ -5,12 +5,15 @@
   "main": "",
   "directories": {},
   "dependencies": {
-    "chart.js": "^2.9.4",
-    "eslint-plugin-html": "^5.0.5"
+    "@cloudamqp/amqp-client": "^1.0.6",
+    "chart.js": "2.7.3"
   },
   "devDependencies": {
-    "@stoplight/spectral": "^5.8.0",
-    "redoc-cli": "^0.9.13"
+    "@stoplight/spectral": "^5.8.1",
+    "eslint": "^7.20.0",
+    "eslint-plugin-html": "^6.0.0",
+    "redoc": "~2.0.0-rc.50",
+    "redoc-cli": "^0.10.2"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

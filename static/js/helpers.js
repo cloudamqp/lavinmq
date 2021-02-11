@@ -1,3 +1,4 @@
+/* global avalanchemq */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
   function formatNumber (num) {
@@ -52,9 +53,9 @@
   }
 
   function argumentHelper (className, e) {
-    val = e.target.getAttribute('data-tag')
+    const val = e.target.getAttribute('data-tag')
     if (val) {
-      currentVal = document.querySelector(`[name=${className}]`).value
+      const currentVal = document.querySelector(`[name=${className}]`).value
       document.querySelector(`[name=${className}]`).value = currentVal ? currentVal + ', ' + val : val
     }
     else if (val === "") {
@@ -63,8 +64,8 @@
   }
 
   function argumentHelperJSON (className, e) {
-    val = e.target.getAttribute('data-tag')
-    currentVal = document.querySelector(`[name=${className}]`).value
+    const val = e.target.getAttribute('data-tag')
+    const currentVal = document.querySelector(`[name=${className}]`).value
     if (currentVal === "" && val) {
       document.querySelector(`[name=${className}]`).value = "{\"" + val + "\": value}"
     }
@@ -79,14 +80,14 @@
   */
   function autoCompleteDatalist(datalistID, type) {
     avalanchemq.http.request('GET',`/api/${type}`).then(res => {
-      datalist = document.getElementById(datalistID);
+      const datalist = document.getElementById(datalistID);
       while (datalist.firstChild) {
         datalist.removeChild(datalist.lastChild);
       }
-      values = res.map(val => val.name)
-      uniqValues = [...new Set(values)];
+      const values = res.map(val => val.name)
+      const uniqValues = [...new Set(values)];
       uniqValues.sort().forEach(val => {
-        option = document.createElement("option")
+        const option = document.createElement("option")
         option.value = val
         datalist.appendChild(option)
       });
