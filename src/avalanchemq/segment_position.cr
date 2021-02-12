@@ -24,6 +24,10 @@ module AvalancheMQ
       self.new(0_u32, 0_u32)
     end
 
+    def zero?
+      @segment.zero? && @position.zero?
+    end
+
     def end_position
       @position + @bytesize
     end
@@ -80,22 +84,22 @@ module AvalancheMQ
     end
 
     def self.make(segment, position, msg)
-        expires_at =
-          if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
-            msg.timestamp + delay.to_i64
-          elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
-            msg.timestamp + exp_ms
-          else
-            0_i64
-          end
-        priority = msg.properties.priority || 0_u8
-        flags =
-          if msg.properties.headers.try(&.has_key?("x-dead-letter-exchange"))
-            SPFlags::HasDLX
-          else
-            SPFlags.new(0u8)
-          end
-        self.new(segment, position, msg.bytesize.to_u32, expires_at, priority, flags)
+      expires_at =
+        if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
+          msg.timestamp + delay.to_i64
+        elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
+          msg.timestamp + exp_ms
+        else
+          0_i64
+        end
+      priority = msg.properties.priority || 0_u8
+      flags =
+        if msg.properties.headers.try(&.has_key?("x-dead-letter-exchange"))
+          SPFlags::HasDLX
+        else
+          SPFlags.new(0u8)
+        end
+      self.new(segment, position, msg.bytesize.to_u32, expires_at, priority, flags)
     end
   end
 end
