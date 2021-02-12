@@ -22,10 +22,13 @@ module AvalancheMQ
       end
       File.write(File.join(@index_dir, ".queue"), @name)
       @enq = MFile.new(File.join(@index_dir, "enq"), ack_max_file_size)
+      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
+      # mfiles can be to large after a crash
+      @enq.truncate(0) if @ready.empty?
+      @ack.truncate(0)
       SchemaVersion.verify_or_prefix(@enq, :index)
       @enq.seek 0, IO::Seek::End
       @enq.advise(MFile::Advice::DontNeed)
-      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
       SchemaVersion.verify_or_prefix(@ack, :index)
       @ack.seek 0, IO::Seek::End
       @ack.advise(MFile::Advice::DontNeed)
