@@ -23,14 +23,10 @@ module AvalancheMQ
       File.write(File.join(@index_dir, ".queue"), @name)
       @enq = MFile.new(File.join(@index_dir, "enq"), ack_max_file_size)
       SchemaVersion.verify_or_prefix(@enq, :index)
-      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
-      SchemaVersion.verify_or_prefix(@ack, :index)
-      # mfiles can be to large after a crash
-      @enq.truncate(0) if @ready.empty?
-      @ack.truncate(0)
-
       @enq.seek 0, IO::Seek::End
       @enq.advise(MFile::Advice::DontNeed)
+      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
+      SchemaVersion.verify_or_prefix(@ack, :index)
       @ack.seek 0, IO::Seek::End
       @ack.advise(MFile::Advice::DontNeed)
     end
@@ -177,7 +173,10 @@ module AvalancheMQ
           acked = Array(SegmentPosition).new(ack_count)
           loop do
             sp = SegmentPosition.from_io ack
-            break if sp.zero?
+            if sp.zero?
+              ack.delete
+              break
+            end
             acked << sp
           rescue IO::EOFError
             break
@@ -190,7 +189,10 @@ module AvalancheMQ
           @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
           loop do
             sp = SegmentPosition.from_io enq
-            break if sp.zero?
+            if sp.zero?
+              enq.delete
+              break
+            end
             next if acked.bsearch { |asp| asp >= sp } == sp
             ready << sp
           rescue IO::EOFError
