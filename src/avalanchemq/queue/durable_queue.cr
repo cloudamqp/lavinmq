@@ -174,6 +174,7 @@ module AvalancheMQ
           loop do
             sp = SegmentPosition.from_io ack
             if sp.zero?
+              @log.warn { "Deleting corrupt ack index" }
               ack.delete
               break
             end
@@ -190,6 +191,7 @@ module AvalancheMQ
           loop do
             sp = SegmentPosition.from_io enq
             if sp.zero?
+              @log.warn { "Deleting corrupt queue index" }
               enq.delete
               break
             end
