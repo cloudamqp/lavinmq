@@ -124,7 +124,6 @@ jobs:
           Test outcome: ${{ steps.test.outcome }}
         run: echo NOOP
 
-
   bunny-test:
     name: Bunny client test
     runs-on: ubuntu-20.04
@@ -164,7 +163,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           working-directory: bunny
-          ruby-version: 2.7.1
+          ruby-version: 2.7.2
           bundler-cache: true
 
       - name: Run specs
