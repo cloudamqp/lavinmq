@@ -174,8 +174,8 @@ module AvalancheMQ
           loop do
             sp = SegmentPosition.from_io ack
             if sp.zero?
-              @log.warn { "Deleting corrupt ack index" }
-              ack.delete
+              @log.info { "Truncating ack index" }
+              ack.truncate(enq.pos - SegmentPosition::BYTESIZE)
               break
             end
             acked << sp
@@ -191,8 +191,8 @@ module AvalancheMQ
           loop do
             sp = SegmentPosition.from_io enq
             if sp.zero?
-              @log.warn { "Deleting corrupt queue index" }
-              enq.delete
+              @log.info { "Truncating queue index" }
+              enq.truncate(enq.pos - SegmentPosition::BYTESIZE)
               break
             end
             next if acked.bsearch { |asp| asp >= sp } == sp
