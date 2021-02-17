@@ -159,7 +159,7 @@ jobs:
           repository: ruby-amqp/bunny
           path: bunny
           fetch-depth: 0
-          ref: "v2.17.0"
+          ref: "2.17.0"
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
