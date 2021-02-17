@@ -146,7 +146,7 @@ jobs:
       - name: Run avalanchemq in background
         run: |
           chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp --debug &
+          bin/avalanchemq --data-dir /tmp/amqp &
 
       - name: Import definitions
         run: |
@@ -158,6 +158,7 @@ jobs:
         with:
           repository: ruby-amqp/bunny
           path: bunny
+          ref: "v2.17.0"
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
