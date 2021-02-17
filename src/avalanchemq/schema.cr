@@ -2,30 +2,30 @@ module AvalancheMQ
   class OutdatedSchemaVersion < Exception
     getter version : Int32
 
-    def initialize(@version)
-      super "Outdated schema version #{@version}"
+    def initialize(@version, path)
+      super "Outdated schema version #{@version} for #{path}"
     end
   end
 
   class UnsupportedSchemaVersion < Exception
     getter version : Int32
 
-    def initialize(@version, type)
-      super "cannot migrate #{type} file from version #{@version}"
+    def initialize(@version, path)
+      super "Cannot migrate #{path} from version #{@version}"
     end
   end
 
   class SchemaVersion
     VERSIONS = {
       definition: 1,
-      message: 1,
-      index: 2
+      message:    1,
+      index:      2,
     }
 
     def self.verify(file, type) : Int32
       version = file.read_bytes Int32
       if version != VERSIONS[type]
-        raise OutdatedSchemaVersion.new version
+        raise OutdatedSchemaVersion.new version, file.path
       end
       version
     end
@@ -64,7 +64,7 @@ module AvalancheMQ
           return
         end
       end
-      raise UnsupportedSchemaVersion.new current_version, type
+      raise UnsupportedSchemaVersion.new current_version, file.path
     end
 
     class MigrateIndexV1toV2

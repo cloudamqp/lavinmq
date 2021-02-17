@@ -175,7 +175,9 @@ module AvalancheMQ
             sp = SegmentPosition.from_io ack
             if sp.zero?
               @log.info { "Truncating ack index" }
-              ack.truncate(enq.pos - SegmentPosition::BYTESIZE)
+              File.open(ack.path, "W") do |f|
+                f.truncate(ack.pos - SegmentPosition::BYTESIZE)
+              end
               break
             end
             acked << sp
@@ -192,7 +194,9 @@ module AvalancheMQ
             sp = SegmentPosition.from_io enq
             if sp.zero?
               @log.info { "Truncating queue index" }
-              enq.truncate(enq.pos - SegmentPosition::BYTESIZE)
+              File.open(enq.path, "W") do |f|
+                f.truncate(enq.pos - SegmentPosition::BYTESIZE)
+              end
               break
             end
             next if acked.bsearch { |asp| asp >= sp } == sp
