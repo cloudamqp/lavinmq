@@ -38,7 +38,7 @@ module AvalancheMQ
       i = 0
       @enq.close
       @enq = MFile.new(File.join(@index_dir, "enq.tmp"),
-                       SP_SIZE * (@ready.size + @unacked.size + 1_000_000))
+        SP_SIZE * (@ready.size + @unacked.size + 1_000_000))
       SchemaVersion.prefix(@enq, :index)
       @ready.locked_each do |all_ready|
         @unacked.locked_each do |all_unacked|
@@ -172,7 +172,15 @@ module AvalancheMQ
           ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
           acked = Array(SegmentPosition).new(ack_count)
           loop do
-            acked << SegmentPosition.from_io ack
+            sp = SegmentPosition.from_io ack
+            if sp.zero?
+              @log.info { "Truncating ack index" }
+              File.open(ack.path, "W") do |f|
+                f.truncate(ack.pos - SegmentPosition::BYTESIZE)
+              end
+              break
+            end
+            acked << sp
           rescue IO::EOFError
             break
           end
@@ -184,6 +192,13 @@ module AvalancheMQ
           @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
           loop do
             sp = SegmentPosition.from_io enq
+            if sp.zero?
+              @log.info { "Truncating queue index" }
+              File.open(enq.path, "W") do |f|
+                f.truncate(enq.pos - SegmentPosition::BYTESIZE)
+              end
+              break
+            end
             next if acked.bsearch { |asp| asp >= sp } == sp
             ready << sp
           rescue IO::EOFError
