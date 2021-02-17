@@ -146,7 +146,7 @@ jobs:
       - name: Run avalanchemq in background
         run: |
           chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp &
+          bin/avalanchemq --data-dir /tmp/amqp --debug &
 
       - name: Import definitions
         run: |
