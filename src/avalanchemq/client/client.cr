@@ -80,6 +80,11 @@ module AvalancheMQ
       end
     end
 
+    # Returns client provided connection name if set, else server generated name
+    def client_name
+      @client_properties["connection_name"]?.try(&.as(String)) || @name
+    end
+
     def channel_name_prefix
       @remote_address.to_s
     end
