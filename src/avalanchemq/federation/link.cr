@@ -8,15 +8,15 @@ module AvalancheMQ
       abstract class Link
         include Observer
         include SortableJSON
-        getter last_changed, error
+        getter last_changed, error, state
 
-        @consumer_available = Channel(Nil).new
         @last_changed : Int64?
         @state = State::Stopped
-        @stop = ::Channel(Exception?).new
         @error : String?
         @scrubbed_uri : String
         @last_unacked : UInt64?
+        @upstream_connection : ::AMQP::Client::Connection?
+        @downstream_connection : ::AMQP::Client::Connection?
 
         def initialize(@upstream : Upstream, @log : Logger)
           user = UserStore.instance.direct_user
@@ -28,14 +28,6 @@ module AvalancheMQ
           uri = @upstream.uri
           ui = uri.userinfo
           @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub("#{ui}@", "")
-        end
-
-        def state
-          @state.to_s
-        end
-
-        def running?
-          @state.running?
         end
 
         def details_tuple
@@ -58,42 +50,41 @@ module AvalancheMQ
           Fiber.yield
         end
 
-        def terminated?
-          @state.terminated?
+        private def state(state)
+          @log.debug { "state change #{@state}->#{state}" }
+          @last_changed = Time.utc.to_unix_ms
+          @state = state
         end
 
         # Does not trigger reconnect, but a graceful close
         def terminate
-          return if terminated?
-          @state = State::Terminating
-          @stop.send(nil)
+          return if @state.terminated?
+          unregister_observer
+          state(State::Terminating)
+          @upstream_connection.try &.close
+          @downstream_connection.try &.close
         end
 
         private def run_loop
-          raise "Invalid state" unless @state.stopped?
           loop do
             break if @state.terminating?
-            @state = State::Starting
+            state(State::Starting)
             start_link
-            break
+            break if @state.terminating?
+            state(State::Stopped)
+            sleep @upstream.reconnect_delay.seconds
+            @log.info { "Federation try reconnect" }
           rescue ex
             break if @state.terminating?
-            @state = State::Stopped
-            @last_changed = nil
+            @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
+            state(State::Stopped)
             @error = ex.message
-            @log.error { "Federation link error: #{ex.message}" }
-            select
-            when @stop.receive?
-              break
-            when timeout @upstream.reconnect_delay.seconds
-              @log.info { "Federation try reconnect" }
-            end
+            sleep @upstream.reconnect_delay.seconds
+            @log.info { "Federation try reconnect" }
           end
           @log.info { "Federation link stopped" }
         ensure
-          @stop.close
-          @last_changed = nil
-          @state = State::Terminated
+          state(State::Terminated)
           @log.info { "Terminated" }
         end
 
@@ -111,34 +102,13 @@ module AvalancheMQ
             # no ack
             return
           end
-        rescue ex
-          @stop.send ex unless @stop.closed?
         end
 
         private def ack(delivery_tag, upstream_ch, close = false)
           return unless delivery_tag
           if ch = upstream_ch
-            return if ch.closed?
-
-            # We batch ack for faster federation
-            batch_full = delivery_tag % (@upstream.prefetch / 2).ceil.to_i == 0
-            if batch_full || close
-              upstream_ch.basic_ack(delivery_tag, multiple: true)
-            else
-              @last_unacked = delivery_tag
-            end
-          end
-        end
-
-        private def ack_timeout_loop(upstream_ch)
-          loop do
-            select
-            when ex = @stop.receive?
-              raise ex unless ex.nil?
-              return
-            when timeout(@upstream.ack_timeout)
-              ack(@last_unacked, upstream_ch)
-            end
+            raise "Channel closed when acking" if ch.closed?
+            ch.basic_ack(delivery_tag)
           end
         end
 
@@ -181,12 +151,13 @@ module AvalancheMQ
       end
 
       class QueueLink < Link
+        @consumer_available = Channel(Nil).new(1)
         EXCHANGE = ""
 
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String, @log : Logger)
           @log.progname += " link=#{@federated_q.name}"
           @federated_q.register_observer(self)
-          @consumer_available.send(nil) if @federated_q.immediate_delivery?
+          consumer_available if @federated_q.immediate_delivery?
           super(@upstream, @log)
         end
 
@@ -194,18 +165,32 @@ module AvalancheMQ
           @federated_q.name
         end
 
+        def terminate
+          super
+          @consumer_available.close
+        end
+
+        private def consumer_available
+          select
+          when @consumer_available.send nil
+          else
+          end
+        end
+
         def on(event, data)
+          return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
-          return if terminated?
           case event
           when :delete, :close
             @upstream.stop_link(@federated_q)
           when :add_consumer
-            @consumer_available.send(nil)
+            consumer_available
           when :rm_consumer
             nil
           else raise "Unexpected event '#{event}'"
           end
+        rescue e
+          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
         end
 
         private def unregister_observer
@@ -219,31 +204,28 @@ module AvalancheMQ
         end
 
         private def start_link
-          return if terminated?
+          return if @state.terminated?
+          @upstream_connection.try &.close
+          @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           local_uri = named_uri(@local_uri)
           ::AMQP::Client.start(upstream_uri) do |c|
+            @upstream_connection = c
             ::AMQP::Client.start(local_uri) do |p|
+              @downstream_connection = p
               cch, q = setup_queue(c)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
               pch.confirm_select if @upstream.ack_mode.on_confirm?
               no_ack = @upstream.ack_mode.no_ack?
-              @state = State::Running
-              @last_changed = Time.utc.to_unix_ms
-              @log.debug { "Running" }
+              state(State::Running)
               unless @federated_q.immediate_delivery?
                 @log.debug { "Waiting for consumers" }
-                select
-                when @consumer_available.receive?
-                # continue
-                when ex = @stop.receive?
-                  raise ex unless ex.nil?
-                  return
-                end
+                @consumer_available.receive?
               end
               q_name = q[:queue_name]
-              cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
+              cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+                @last_changed = Time.utc.to_unix_ms
                 headers, received_from = received_from_header(msg)
                 received_from << ::AMQP::Client::Arguments.new({
                   "uri"         => @scrubbed_uri,
@@ -254,10 +236,6 @@ module AvalancheMQ
                 msg.properties.headers = headers
                 federate(msg, pch, cch.not_nil!, EXCHANGE, @federated_q.name)
               end
-              ack_timeout_loop(cch)
-              return
-            ensure
-              ack(@last_unacked, cch, close: true)
             end
           end
         end
@@ -269,7 +247,6 @@ module AvalancheMQ
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String, @log : Logger)
           @log.progname += " link=#{@federated_ex.name}"
-          @federated_ex.register_observer(self)
           super(@upstream, @log)
         end
 
@@ -278,29 +255,41 @@ module AvalancheMQ
         end
 
         def on(event, data)
+          return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
-          return if terminated?
           case event
           when :delete
             @upstream.stop_link(@federated_ex)
           when :bind
-            if q = @consumer_q
-              if b = data.as?(BindingDetails)
-                args = ::AMQP::Client::Arguments.new(b.arguments)
-                q.bind(@upstream_exchange, b.routing_key, args: args)
-              end
+            with_consumer_q do |q|
+              b = data_as_binding_details(data)
+              args = ::AMQP::Client::Arguments.new(b.arguments)
+              q.bind(@upstream_exchange, b.routing_key, args: args)
             end
           when :unbind
-            if q = @consumer_q
-              if b = data.as?(BindingDetails)
-                args = ::AMQP::Client::Arguments.new(b.arguments)
-                q.unbind(@upstream_exchange, b.routing_key, args: args)
-              end
+            with_consumer_q do |q|
+              b = data_as_binding_details(data)
+              args = ::AMQP::Client::Arguments.new(b.arguments)
+              q.unbind(@upstream_exchange, b.routing_key, args: args)
             end
           else raise "Unexpected event '#{event}'"
           end
-        rescue ::AMQP::Client::Channel::ClosedException
-          @log.debug { "Ignoring event=#{event} data=#{data} reason=consumer_channel_closed" }
+        rescue e
+          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+        end
+
+        private def data_as_binding_details(data) : BindingDetails
+          b = data.as?(BindingDetails)
+          raise ArgumentError.new("Expected data to be of type BindingDetails") unless b
+          b
+        end
+
+        private def with_consumer_q
+          if q = @consumer_q
+            yield q
+          else
+            @log.warn { "No upstream connection for exchange event" }
+          end
         end
 
         def terminate
@@ -358,21 +347,25 @@ module AvalancheMQ
         end
 
         private def start_link
-          return if terminated?
+          return if @state.terminated?
+          @upstream_connection.try &.close
+          @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           local_uri = named_uri(@local_uri)
           ::AMQP::Client.start(upstream_uri) do |c|
+            @upstream_connection = c
             ::AMQP::Client.start(local_uri) do |p|
+              @downstream_connection = p
               cch, @consumer_q = setup(c)
+              @federated_ex.register_observer(self)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
               pch.confirm_select if @upstream.ack_mode.on_confirm?
               no_ack = @upstream.ack_mode.no_ack?
-              @state = State::Running
-              @last_changed = Time.utc.to_unix_ms
-              @log.debug { "Running" }
+              state(State::Running)
 
-              cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag) do |msg|
+              cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+                @last_changed = Time.utc.to_unix_ms
                 headers, received_from = received_from_header(msg)
                 received_from << ::AMQP::Client::Arguments.new({
                   "uri"         => @scrubbed_uri,
@@ -383,10 +376,7 @@ module AvalancheMQ
                 msg.properties.headers = headers
                 federate(msg, pch, cch.not_nil!, @federated_ex.name, msg.routing_key)
               end
-              ack_timeout_loop(cch)
-              return
             ensure
-              ack(@last_unacked, cch, close: true)
               @consumer_q = nil
             end
           end
