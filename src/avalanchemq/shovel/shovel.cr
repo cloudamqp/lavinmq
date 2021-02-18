@@ -36,7 +36,7 @@ module AvalancheMQ
       @q : NamedTuple(queue_name: String, message_count: UInt32, consumer_count: UInt32)?
       @last_unacked : UInt64?
 
-      getter delete_after
+      getter delete_after, last_unacked
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
@@ -284,7 +284,12 @@ module AvalancheMQ
         loop do
           break if terminated?
           @state = State::Starting
-          @source.start unless @source.started?
+          unless @source.started?
+            if @source.last_unacked
+              @log.error { "Restarted with unacked messages, message duplication possible" }
+            end
+            @source.start
+          end
           @destination.start unless @destination.started?
           break if terminated?
           @log.info { "started" }
