@@ -68,8 +68,9 @@ module TestHelpers
       Fiber.yield
       res = yield
       return res if res
-      raise "Execuction expired" if Time.monotonic - sec > timeout
+      break if Time.monotonic - sec > timeout
     end
+    raise "Execuction expired"
   end
 
   def test_headers(headers = nil)
