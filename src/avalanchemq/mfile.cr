@@ -106,12 +106,15 @@ class MFile < IO
   def close(truncate_to_size = true) : Nil
     return if @closed
     @closed = true
-    code = LibC.munmap(@buffer, @capacity)
-    raise RuntimeError.from_errno("Error unmapping file") if code == -1
-    return if @readonly || @deleted || !truncate_to_size
-    code = LibC.ftruncate(@fd, @size)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    close_fd(@fd)
+    begin
+      code = LibC.munmap(@buffer, @capacity)
+      raise RuntimeError.from_errno("Error unmapping file") if code == -1
+      return if @readonly || @deleted || !truncate_to_size
+      code = LibC.ftruncate(@fd, @size)
+      raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    ensure
+      close_fd(@fd)
+    end
   end
 
   def flush
