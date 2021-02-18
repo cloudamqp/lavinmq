@@ -419,6 +419,7 @@ module AvalancheMQ
     def close(reason = nil)
       reason ||= "Connection closed"
       @log.info { "Closing, #{reason}" }
+      @vhost.fsync
       close_frame = AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
       send(close_frame) || cleanup
       @running = false

@@ -89,13 +89,17 @@ module AvalancheMQ
         @queues_to_fsync.each &.fsync_enq
         @queues_to_fsync.clear
       end
+      send_publish_confirms
+      @fsync = false
+    end
+
+    def send_publish_confirms
       @awaiting_confirm_lock.synchronize do
         @log.debug { "send confirm to #{@awaiting_confirm.size} channels" }
         @awaiting_confirm.each do |ch|
           ch.confirm_ack(multiple: true)
         end
         @awaiting_confirm.clear
-        @fsync = false
       end
     end
 

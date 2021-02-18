@@ -291,6 +291,9 @@ module AvalancheMQ
           @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
           return false
         end
+        # Make sure publishes are confirmed before we deliver
+        # can happend if the vhost spawned fsync fiber has not execed yet
+        @client.vhost.send_publish_confirms
         @client.deliver(frame, msg) || return false
         if redelivered
           @redeliver_count += 1
