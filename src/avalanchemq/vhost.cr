@@ -21,7 +21,7 @@ module AvalancheMQ
     include SortableJSON
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
-      log, shovels, direct_reply_channels, upstreams, default_user,
+      log, shovels, direct_reply_channels, default_user,
       connections, dir
     property? flow = true
     property? dirty = false
@@ -439,22 +439,22 @@ module AvalancheMQ
       @parameters.delete({component_name, parameter_name})
       case component_name
       when SHOVEL
-        @shovels.not_nil!.delete(parameter_name)
+        shovels.delete(parameter_name)
       when FEDERATION_UPSTREAM
-        @upstreams.not_nil!.delete_upstream(parameter_name)
+        upstreams.delete_upstream(parameter_name)
       when FEDERATION_UPSTREAM_SET
-        @upstreams.not_nil!.delete_upstream_set(parameter_name)
+        upstreams.delete_upstream_set(parameter_name)
       else
         @log.warn { "No action when deleting parameter #{component_name}" }
       end
     end
 
     def stop_shovels
-      @shovels.not_nil!.each_value &.terminate
+      shovels.each_value &.terminate
     end
 
     def stop_upstream_links
-      @upstreams.not_nil!.stop_all
+      upstreams.stop_all
     end
 
     def close(seamless_restart = false, reason = "Broker shutdown")
@@ -519,11 +519,11 @@ module AvalancheMQ
       @parameters.apply(parameter) do |p|
         case p.component_name
         when SHOVEL
-          @shovels.not_nil!.create(p.parameter_name, p.value)
+          shovels.create(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM
-          @upstreams.not_nil!.create_upstream(p.parameter_name, p.value)
+          upstreams.create_upstream(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM_SET
-          @upstreams.not_nil!.create_upstream_set(p.parameter_name, p.value)
+          upstreams.create_upstream_set(p.parameter_name, p.value)
         else
           @log.warn { "No action when applying parameter #{p.component_name}" }
         end
@@ -843,6 +843,14 @@ module AvalancheMQ
         ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise Error::ExchangeTypeError.new("Unknown exchange type #{type}")
       end
+    end
+
+    def upstreams
+      @upstreams.not_nil!
+    end
+
+    def shovels
+      @shovels.not_nil!
     end
   end
 end

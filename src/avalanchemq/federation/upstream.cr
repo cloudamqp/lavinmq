@@ -90,14 +90,8 @@ module AvalancheMQ
         link
       end
 
-      def close(sync = false)
+      def close
         links.each(&.terminate)
-        if sync
-          loop do
-            break if links.all?(&.terminated?)
-            Fiber.yield
-          end
-        end
         @ex_links.clear
         @q_links.clear
       end
