@@ -19,8 +19,8 @@ module AvalancheMQ
       return "" if headers.nil?
       case value = headers[hash_on.as(String)]?
       when String then value.as(String)
-      when Nil then ""
-      else raise Error::PreconditionFailed.new("Routing header must be string")
+      when Nil    then ""
+      else             raise Error::PreconditionFailed.new("Routing header must be string")
       end
     end
 
