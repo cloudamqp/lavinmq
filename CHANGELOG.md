@@ -7,30 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.26] - 2021-02-19
+
+### Fixes
+
+- Confirms are sent before messages are delivered to consumers
+- Federation links connection recovery improved
+- Null padded index files are truncated on restore
+- File descriptors are always closed when files are deleted
+
+### Changes
+
+- Lower default segment size to 8MB
+- Include client provided connection name (if any) in log statements
+
 ## [1.0.0-alpha.25] - 2021-01-30
 
 ### Fixed
+
 - Deleted queues could reappear after a crash
 - Never send frames to closed channels
 - Checking RSS on OS X could fail when FD limit was reached
 - Escaping connection name in UI to prevent XSS
 
 ### Changed
+
 - Crystal 0.36.0 compability
 - Don't open a temp write for every channel, only when needed
 
 ## [1.0.0-alpha.24] - 2021-01-26
 
 ### Added
+
 - Support for consumer priority
 
 ### Changed
+
 - Index files are memory-mapped which makes them much faster
 - Default git branch is renamed to main
 - Default to 8MB segment size on non-Linux machines (that doesn't support hole punching)
 - Default to 300s heartbeat timeout
 
 ### Fixed
+
 - Consumer accounting wasn't right when client disconnected
 - Some stats could overflow, fixed by making the counter UInt64
 
