@@ -401,6 +401,17 @@ module AvalancheMQ
       true
     end
 
+    alias QueueBinding = Tuple(BindingKey, Exchange)
+
+    def queue_bindings(queue : Queue)
+      iterators = @exchanges.each_value.map do |ex|
+        ex.queue_bindings.each.select do |(_binding_args, destinations)|
+          destinations.includes?(queue)
+        end.map { |(binding_args, _destinations)| {ex, binding_args} }
+      end
+      Iterator(QueueBinding).chain(iterators)
+    end
+
     def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
                    definition : Hash(String, JSON::Any), priority : Int8)
       add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))

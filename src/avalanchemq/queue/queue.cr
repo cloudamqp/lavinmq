@@ -88,6 +88,10 @@ module AvalancheMQ
       "amq.gen-#{Random::Secure.urlsafe_base64(24)}"
     end
 
+    def bindings
+      @vhost.queue_bindings(self)
+    end
+
     def redeclare
       @last_get_time = Time.monotonic
       step_loop # necessary to recalculate ttl
