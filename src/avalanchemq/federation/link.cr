@@ -339,6 +339,7 @@ module AvalancheMQ
           ch, q = try_passive(upstream_client, ch) do |uch, passive|
             uch.queue(@upstream_q, args: ::AMQP::Client::Arguments.new(q_args), passive: passive)
           end
+          @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
             args = ::AMQP::Client::Arguments.new(binding.arguments)
             q.bind(@upstream_exchange, binding.routing_key, args: args)
@@ -357,7 +358,6 @@ module AvalancheMQ
             ::AMQP::Client.start(local_uri) do |p|
               @downstream_connection = p
               cch, @consumer_q = setup(c)
-              @federated_ex.register_observer(self)
               cch.prefetch(count: @upstream.prefetch)
               pch = p.channel
               pch.confirm_select if @upstream.ack_mode.on_confirm?
