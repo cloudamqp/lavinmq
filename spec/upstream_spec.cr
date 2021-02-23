@@ -23,10 +23,13 @@ module UpstreamSpecHelpers
       "#{AMQP_BASE_URL}/upstream", "upstream_ex")
     upstream.ack_timeout = 1.milliseconds
     downstream_vhost.upstreams.not_nil!.add(upstream)
-    definitions = {"federation-upstream" => JSON::Any.new(upstream_name)} of String => JSON::Any
-    downstream_vhost.add_policy("FE", /downstream_ex/, AvalancheMQ::Policy::Target::Exchanges,
-      definitions, 12_i8)
     {upstream, upstream_vhost, downstream_vhost}
+  end
+
+  def self.start_link(upstream)
+    definitions = {"federation-upstream" => JSON::Any.new(upstream.name)} of String => JSON::Any
+    upstream.vhost.add_policy("FE", /downstream_ex/, AvalancheMQ::Policy::Target::Exchanges,
+      definitions, 12_i8)
   end
 
   def self.cleanup_ex_federation
@@ -188,6 +191,7 @@ describe AvalancheMQ::Federation::Upstream do
 
   it "should federate exchange even with no downstream consumer" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream wo downstream")
+    UpstreamSpecHelpers.start_link(upstream)
 
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
@@ -214,6 +218,7 @@ describe AvalancheMQ::Federation::Upstream do
 
   it "should continue after upstream restart" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream restart")
+    UpstreamSpecHelpers.start_link(upstream)
 
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
