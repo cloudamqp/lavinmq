@@ -62,7 +62,7 @@ module TestHelpers
     with_channel(args) { |ch| yield ch }
   end
 
-  def wait_for(timeout = 5.seconds)
+  def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__)
     sec = Time.monotonic
     loop do
       Fiber.yield
@@ -70,7 +70,7 @@ module TestHelpers
       return res if res
       break if Time.monotonic - sec > timeout
     end
-    raise "Execuction expired"
+    fail "Execuction expired", file: file, line: line
   end
 
   def test_headers(headers = nil)
