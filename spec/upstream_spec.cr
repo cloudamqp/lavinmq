@@ -253,4 +253,38 @@ describe AvalancheMQ::Federation::Upstream do
   ensure
     UpstreamSpecHelpers.cleanup_ex_federation
   end
+
+  it "should reflect all bindings to upstream q" do
+    upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_ex_federation("ef test bindings")
+
+    with_channel(vhost: "downstream") do |downstream_ch|
+      downstream_ch.exchange("downstream_ex", "topic")
+      queues = [] of AMQP::Client::Queue
+      10.times do |i|
+        downstream_q = downstream_ch.queue("")
+        downstream_q.bind("downstream_ex", "before.link.#{i}")
+        queues << downstream_q
+      end
+      upstream_q = upstream_vhost.queues.values.first
+      upstream_q.bindings.size.should eq 0
+
+      UpstreamSpecHelpers.start_link(upstream)
+      wait_for { upstream.links.first?.try &.state.running? }
+
+      upstream_q.bindings.size.should eq queues.size
+      # Assert setup is correct
+      10.times do |i|
+        downstream_q = downstream_ch.queue("")
+        downstream_q.bind("downstream_ex", "after.link.#{i}")
+        queues << downstream_q
+      end
+      sleep 0.01
+      upstream_q.bindings.size.should eq queues.size
+      queues.each &.delete
+      sleep 0.01
+      upstream_q.bindings.size.should eq 0
+    end
+  ensure
+    UpstreamSpecHelpers.cleanup_ex_federation
+  end
 end
