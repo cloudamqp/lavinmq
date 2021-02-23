@@ -203,7 +203,7 @@ describe AvalancheMQ::Federation::Upstream do
         downstream_q = downstream_ch.queue("downstream_q")
         downstream_q.bind("downstream_ex", "#")
         upstream_ex.publish_confirm "federate me", "rk"
-        downstream_q.get.should_not be_nil
+        wait_for { downstream_q.get }
         msgs = [] of AMQP::Client::Message
         downstream_q.subscribe { |msg| msgs << msg }
         upstream_ex.publish_confirm "federate me", "rk"
@@ -265,12 +265,11 @@ describe AvalancheMQ::Federation::Upstream do
         downstream_q.bind("downstream_ex", "before.link.#{i}")
         queues << downstream_q
       end
-      upstream_q = upstream_vhost.queues.values.first
-      upstream_q.bindings.size.should eq 0
 
       UpstreamSpecHelpers.start_link(upstream)
       wait_for { upstream.links.first?.try &.state.running? }
 
+      upstream_q = upstream_vhost.queues.values.first
       upstream_q.bindings.size.should eq queues.size
       # Assert setup is correct
       10.times do |i|
