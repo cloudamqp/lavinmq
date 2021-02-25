@@ -170,7 +170,7 @@ module AvalancheMQ
           SchemaVersion.verify(ack, :index)
 
           ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
-          acked = Array(SegmentPosition).new(ack_count)
+          acked : Array(SegmentPosition)? = nil
           loop do
             sp = SegmentPosition.from_io ack
             if sp.zero?
@@ -180,11 +180,12 @@ module AvalancheMQ
               end
               break
             end
+            acked ||= Array(SegmentPosition).new(ack_count)
             acked << sp
           rescue IO::EOFError
             break
           end
-          acked.sort!
+          acked.try &.sort!
           # to avoid repetetive allocations in Dequeue#increase_capacity
           # we redeclare the ready queue with a larger initial capacity
           enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
@@ -199,7 +200,7 @@ module AvalancheMQ
               end
               break
             end
-            next if acked.bsearch { |asp| asp >= sp } == sp
+            next if acked.try { |a| a.bsearch { |asp| asp >= sp } == sp }
             ready << sp
           rescue IO::EOFError
             break
