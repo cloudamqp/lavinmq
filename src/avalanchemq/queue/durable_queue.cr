@@ -169,7 +169,6 @@ module AvalancheMQ
           SchemaVersion.verify(enq, :index)
           SchemaVersion.verify(ack, :index)
 
-          ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
           acked : Array(SegmentPosition)? = nil
           loop do
             sp = SegmentPosition.from_io ack
@@ -180,7 +179,10 @@ module AvalancheMQ
               end
               break
             end
-            acked ||= Array(SegmentPosition).new(ack_count)
+            unless acked
+              ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
+              acked = Array(SegmentPosition).new(ack_count)
+            end
             acked << sp
           rescue IO::EOFError
             break
