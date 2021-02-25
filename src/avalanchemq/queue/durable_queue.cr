@@ -169,7 +169,9 @@ module AvalancheMQ
           SchemaVersion.verify(enq, :index)
           SchemaVersion.verify(ack, :index)
 
+          # Defer allocation of acked array in case we truncate due to zero sp.
           acked : Array(SegmentPosition)? = nil
+
           loop do
             sp = SegmentPosition.from_io ack
             if sp.zero?
@@ -188,11 +190,10 @@ module AvalancheMQ
             break
           end
           acked.try &.sort!
-          # to avoid repetetive allocations in Dequeue#increase_capacity
-          # we redeclare the ready queue with a larger initial capacity
-          enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
-          capacity = Math.max(enq_count, 1024)
-          @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
+
+          # Defer allocation of ready queue in case we truncate due to zero sp.
+          ready : ReadyQueue? = nil
+
           loop do
             sp = SegmentPosition.from_io enq
             if sp.zero?
@@ -201,6 +202,13 @@ module AvalancheMQ
                 f.truncate(enq.pos - SegmentPosition::BYTESIZE)
               end
               break
+            end
+            unless ready
+              # To avoid repetetive allocations in Dequeue#increase_capacity
+              # we redeclare the ready queue with a larger initial capacity
+              enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
+              capacity = Math.max(enq_count, 1024)
+              @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
             end
             next if acked.try { |a| a.bsearch { |asp| asp >= sp } == sp }
             ready << sp
