@@ -189,7 +189,7 @@ module AvalancheMQ
                 end
                 sps.each do |sp|
                   if ack
-                    q.ack(sp, true)
+                    q.ack(sp)
                   else
                     q.reject(sp, requeue)
                   end

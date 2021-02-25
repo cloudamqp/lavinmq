@@ -457,7 +457,7 @@ module AvalancheMQ
         if c = unack.consumer
           c.ack(unack.sp)
         end
-        unack.queue.ack(unack.sp, persistent: unack.persistent)
+        unack.queue.ack(unack.sp)
         @events.send(EventType::ClientAck)
         @ack_count += 1
       end

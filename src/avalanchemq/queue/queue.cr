@@ -356,14 +356,12 @@ module AvalancheMQ
 
     private def deliver_to_consumer(c)
       # @log.debug { "Getting a new message" }
-      if env = get(c.no_ack)
+      if env = get(c.no_ack, c)
         sp = env.segment_position
         # @log.debug { "Delivering #{sp} to consumer" }
         if c.deliver(env.message, sp, env.redelivered)
           if c.no_ack
-            delete_message(sp, false)
-          else
-            @unacked.push(sp, env.message.persistent?, c)
+            delete_message(sp)
           end
           if env.redelivered
             @redeliver_count += 1
@@ -372,6 +370,7 @@ module AvalancheMQ
           end
           # @log.debug { "Delivery done" }
         else
+          @unacked.delete(sp)
           @ready.insert(sp)
           @log.debug { "Delivery failed, returning message to ready" }
         end
@@ -578,7 +577,7 @@ module AvalancheMQ
           end
         end
       end
-      delete_message sp, msg.persistent?
+      delete_message sp
     end
 
     # checks if the message has been dead lettered to the same queue
@@ -682,18 +681,19 @@ module AvalancheMQ
       @get_count += 1
       if env = get(no_ack)
         if no_ack
-          delete_message(env.segment_position, false)
-        else
-          @unacked.push(env.segment_position, env.message.persistent?, nil)
+          delete_message(env.segment_position)
         end
         env
       end
     end
 
     # return the next message in the ready queue
-    private def get(no_ack : Bool)
+    private def get(no_ack : Bool, consumer : Client::Channel::Consumer? = nil)
       return nil if @state == QueueState::Closed
       if sp = @ready.shift?
+        unless no_ack
+          @unacked.push(sp, consumer)
+        end
         env = read(sp)
         if @delivery_limit && !no_ack
           with_delivery_count_header(env)
@@ -737,16 +737,16 @@ module AvalancheMQ
       @requeued.delete(sp) if redelivered
     end
 
-    def ack(sp : SegmentPosition, persistent : Bool) : Nil
+    def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count += 1
       @unacked.delete(sp)
-      delete_message(sp, persistent)
+      delete_message(sp)
       consumer_available
     end
 
-    protected def delete_message(sp : SegmentPosition, persistent = false) : Nil
+    protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
       @vhost.dirty = true
     end

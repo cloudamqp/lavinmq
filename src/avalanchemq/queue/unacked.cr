@@ -6,7 +6,6 @@ module AvalancheMQ
     class UnackQueue
       record Unack,
         sp : SegmentPosition,
-        persistent : Bool,
         consumer : Client::Channel::Consumer?
 
       @lock = Mutex.new(:checked)
@@ -15,10 +14,10 @@ module AvalancheMQ
         @unacked = Deque(Unack).new(capacity)
       end
 
-      def push(sp : SegmentPosition, persistent : Bool, consumer : Client::Channel::Consumer?)
+      def push(sp : SegmentPosition, consumer : Client::Channel::Consumer?)
         @lock.synchronize do
           unacked = @unacked
-          unack = Unack.new(sp, persistent, consumer)
+          unack = Unack.new(sp, consumer)
           if idx = unacked.bsearch_index { |u| u.sp > sp }
             unacked.insert(idx, unack)
           else
