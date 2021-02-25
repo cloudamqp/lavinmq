@@ -695,8 +695,7 @@ module AvalancheMQ
         @dirty = false
       end
     rescue ex
-      @log.fatal("Unhandled exception in #gc_segments_loop, killing process")
-      @log.fatal(ex)
+      @log.fatal("Unhandled exception in #gc_segments_loop, killing process #{ex.inspect_with_backtrace}")
       exit 1
     end
 
