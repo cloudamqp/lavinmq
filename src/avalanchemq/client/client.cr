@@ -528,7 +528,11 @@ module AvalancheMQ
           send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
           return
         end
-        @vhost.apply(frame)
+        begin
+          @vhost.apply(frame)
+        rescue e : Error::ExchangeTypeError
+          send_precondition_failed(frame, e.message)
+        end
         send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
       end
     end
