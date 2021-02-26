@@ -12,7 +12,7 @@ module AvalancheMQ
     property amqps_port = -1
     property unix_path = ""
     property unix_proxy_protocol = true # PROXY protocol on unix domain socket connections
-    property tcp_proxy_protocol = false  # PROXY protocol on amqp tcp connections
+    property tcp_proxy_protocol = false # PROXY protocol on amqp tcp connections
     property unix_socket_tls_terminated = false
     property tls_cert_path = ""
     property tls_key_path = ""
@@ -24,17 +24,17 @@ module AvalancheMQ
     property http_unix_path = ""
     property http_systemd_socket_name = "avalanchemq-http.socket"
     property amqp_systemd_socket_name = "avalanchemq-amqp.socket"
-    property heartbeat = 300_u16                 # second
-    property frame_max = 131_072_u32             # bytes
-    property channel_max = 2048_u16              # number
-    property gc_segments_interval = 60           # second
-    property queue_max_acks = 2_000_000          # number of message
-    property stats_interval = 5000               # millisecond
-    property stats_log_size = 120                # 10 mins at 5s interval
-    property set_timestamp = false               # in message headers when receive
-    property file_buffer_size = 16384            # bytes
-    property socket_buffer_size = 16384          # bytes
-    property tcp_nodelay = false                 # bool
+    property heartbeat = 300_u16                # second
+    property frame_max = 131_072_u32            # bytes
+    property channel_max = 2048_u16             # number
+    property gc_segments_interval = 60          # second
+    property queue_max_acks = 2_000_000         # number of message
+    property stats_interval = 5000              # millisecond
+    property stats_log_size = 120               # 10 mins at 5s interval
+    property set_timestamp = false              # in message headers when receive
+    property file_buffer_size = 16384           # bytes
+    property socket_buffer_size = 16384         # bytes
+    property tcp_nodelay = false                # bool
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property raise_gc_warn : Bool = false
 
@@ -91,15 +91,15 @@ module AvalancheMQ
     private def parse_amqp(settings)
       settings.each do |config, v|
         case config
-        when "bind"        then @amqp_bind = v
-        when "port"        then @amqp_port = v.to_i32
-        when "tls_port"    then @amqps_port = v.to_i32
-        when "tls_cert"    then @tls_cert_path = v # backward compatibility
-        when "tls_key"     then @tls_key_path = v  # backward compatibility
-        when "unix_path"   then @unix_path = v
-        when "heartbeat"   then @heartbeat = v.to_u16
-        when "frame_max"   then @frame_max = v.to_u32
-        when "channel_max" then @channel_max = v.to_u16
+        when "bind"                then @amqp_bind = v
+        when "port"                then @amqp_port = v.to_i32
+        when "tls_port"            then @amqps_port = v.to_i32
+        when "tls_cert"            then @tls_cert_path = v # backward compatibility
+        when "tls_key"             then @tls_key_path = v  # backward compatibility
+        when "unix_path"           then @unix_path = v
+        when "heartbeat"           then @heartbeat = v.to_u16
+        when "frame_max"           then @frame_max = v.to_u32
+        when "channel_max"         then @channel_max = v.to_u16
         when "systemd_socket_name" then @amqp_systemd_socket_name = v
         when "unix_proxy_protocol" then @unix_proxy_protocol = true?(v)
         when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v)
@@ -112,12 +112,12 @@ module AvalancheMQ
     private def parse_mgmt(settings)
       settings.each do |config, v|
         case config
-        when "bind"      then @http_bind = v
-        when "port"      then @http_port = v.to_i32
-        when "tls_port"  then @https_port = v.to_i32
-        when "tls_cert"  then @tls_cert_path = v # backward compatibility
-        when "tls_key"   then @tls_key_path = v  # backward compatibility
-        when "unix_path" then @http_unix_path = v
+        when "bind"                then @http_bind = v
+        when "port"                then @http_port = v.to_i32
+        when "tls_port"            then @https_port = v.to_i32
+        when "tls_cert"            then @tls_cert_path = v # backward compatibility
+        when "tls_key"             then @tls_key_path = v  # backward compatibility
+        when "unix_path"           then @http_unix_path = v
         when "systemd_socket_name" then @http_systemd_socket_name = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
