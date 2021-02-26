@@ -36,6 +36,7 @@ module AvalancheMQ
     property socket_buffer_size = 16384          # bytes
     property tcp_nodelay = false                 # bool
     property segment_size : Int32 = 8 * 1024**2 # bytes
+    property raise_gc_warn : Bool = false
 
     @@instance : Config = self.new
 
