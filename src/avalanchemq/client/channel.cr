@@ -75,8 +75,8 @@ module AvalancheMQ
 
       def client_flow(active : Bool)
         @client_flow = active
-        return unless active
-        @consumers.each { |c| c.queue.consumer_available }
+        @consumers.each { |c| c.queue.consumer_available } if active
+        send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
       def state
