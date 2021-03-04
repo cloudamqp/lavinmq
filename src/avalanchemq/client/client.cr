@@ -211,9 +211,11 @@ module AvalancheMQ
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
+      close_socket
       false
     rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
+      close_socket
       false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
@@ -265,11 +267,17 @@ module AvalancheMQ
         @last_sent_frame = RoughTime.utc
       end
       true
-    rescue ex : IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
+    rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
+      close_socket
+      false
+    rescue ex: AMQ::Protocol::Error::FrameEncode
+      @log.warn { "Error encoding frame (#{ex.inspect})" }
+      close_socket
       false
     rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
+      close_socket
       false
     rescue ex
       @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
