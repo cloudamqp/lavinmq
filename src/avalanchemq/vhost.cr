@@ -667,6 +667,7 @@ module AvalancheMQ
         end
         segments[seg] = file
       end
+      @dirty = true unless was_empty
       segments
     end
 
@@ -677,8 +678,10 @@ module AvalancheMQ
       return if @closed
       referenced_sps = ReferencedSPs.new(@queues.size)
       loop do
-        sleep Config.instance.gc_segments_interval
-        next unless @dirty
+        unless @dirty
+          sleep Config.instance.gc_segments_interval
+          next
+        end
         break if @closed
         gc_log("collecting sps") do
           collect_sps(referenced_sps)
