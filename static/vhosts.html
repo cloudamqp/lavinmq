@@ -29,10 +29,6 @@
           <table id="table" class="table">
             <thead>
               <tr>
-                <td colspan="2">Overview</td>
-                <td colspan="3">Messages</td>
-              </tr>
-              <tr>
                 <th data-sort-key="name">Name</th>
                 <th class="left">Users</th>
                 <th data-sort-key="ready">Ready</th>
@@ -92,9 +88,9 @@
           }
           const userList = permissions.filter(p => p.vhost === item.name).map(p => p.user).join(', ')
           avalanchemq.table.renderCell(tr, 1, userList)
-          avalanchemq.table.renderCell(tr, 2, avalanchemq.helpers.formatNumber(item.messages_ready), 'right')
-          avalanchemq.table.renderCell(tr, 3, avalanchemq.helpers.formatNumber(item.messages_unacknowledged), 'right')
-          avalanchemq.table.renderCell(tr, 4, avalanchemq.helpers.formatNumber(item.messages), 'right')
+          avalanchemq.table.renderCell(tr, 2, avalanchemq.helpers.formatNumber(item.messages_ready), 'center')
+          avalanchemq.table.renderCell(tr, 3, avalanchemq.helpers.formatNumber(item.messages_unacknowledged), 'center')
+          avalanchemq.table.renderCell(tr, 4, avalanchemq.helpers.formatNumber(item.messages), 'center')
         })
       })
 
