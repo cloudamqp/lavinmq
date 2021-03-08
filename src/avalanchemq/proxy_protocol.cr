@@ -38,11 +38,12 @@ module AvalancheMQ
         header.split(' ') do |v|
           case i
           when 0 then raise InvalidSignature.new(v) if v != "PROXY"
+          when 1 then nil
           when 2 then src_addr = v
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32
           when 5 then dst_port = v.to_i32
-          else nil
+          else break
           end
           i += 1
         end
