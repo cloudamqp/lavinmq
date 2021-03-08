@@ -213,18 +213,16 @@ module AvalancheMQ
       @last_sent_frame = RoughTime.utc
       @send_oct_count += 8_u64 + frame.bytesize
       if frame.is_a?(AMQP::Frame::Connection::CloseOk)
-        cleanup
-        close_socket
         return false
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
-      cleanup
+      close_socket
       false
     rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
-      cleanup
+      close_socket
       false
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
@@ -280,13 +278,17 @@ module AvalancheMQ
         @last_sent_frame = RoughTime.utc
       end
       true
-    rescue ex : IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameEncode
+    rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
-      cleanup
+      close_socket
+      false
+    rescue ex: AMQ::Protocol::Error::FrameEncode
+      @log.warn { "Error encoding frame (#{ex.inspect})" }
+      close_socket
       false
     rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
-      cleanup
+      close_socket
       false
     rescue ex
       @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
@@ -432,7 +434,7 @@ module AvalancheMQ
       @log.info { "Closing, #{reason}" }
       @vhost.fsync
       close_frame = AMQP::Frame::Connection::Close.new(320_u16, reason.to_s, 0_u16, 0_u16)
-      send(close_frame) || cleanup
+      send(close_frame)
       @running = false
     end
 

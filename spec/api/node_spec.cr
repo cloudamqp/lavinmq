@@ -74,5 +74,32 @@ describe AvalancheMQ::HTTP::NodesController do
       data["channel_created"].as_i.should eq (channels_created + 1)
       data["channel_closed"].as_i.should eq (channels_closed + 1)
     end
+
+    it "should count connections open / closed once" do
+      response = get("/api/nodes")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      data = body.as_a.first.as_h
+      connections_created = data["connection_created"].as_i
+      connections_closed = data["connection_closed"].as_i
+      with_channel do
+        s.update_stats_rates
+
+        response = get("/api/nodes")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        data = body.as_a.first.as_h
+        data["connection_created"].as_i.should eq (connections_created + 1)
+        data["connection_closed"].as_i.should eq (connections_closed)
+      end
+      s.update_stats_rates
+
+      response = get("/api/nodes")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      data = body.as_a.first.as_h
+      data["connection_created"].as_i.should eq (connections_created + 1)
+      data["connection_closed"].as_i.should eq (connections_closed + 1)
+    end
   end
 end
