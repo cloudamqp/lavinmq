@@ -31,7 +31,7 @@ dependencies:
   amqp-client:
     github: cloudamqp/amqp-client.cr
   http-protection:
-    github: rogeriozambon/http-protection
+    github: 84codes/http-protection
   systemd:
     github: 84codes/systemd.cr
   logger:
