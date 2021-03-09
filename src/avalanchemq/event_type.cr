@@ -10,6 +10,7 @@ module AvalancheMQ
     ClientDeliver
     ClientGet
     ClientPublish
+    ClientPublishConfirm
     ClientRedeliver
     ClientReject
   end

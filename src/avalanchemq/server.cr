@@ -31,7 +31,7 @@ module AvalancheMQ
     @closed = false
     @flow = true
     rate_stats(%w(channel_closed channel_created connection_closed connection_created
-      queue_declared queue_deleted ack deliver get publish redeliver reject))
+      queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
@@ -228,18 +228,19 @@ module AvalancheMQ
     private def events_loop
       while type = @events.receive?
         case type
-        in EventType::ChannelClosed     then @channel_closed_count += 1
-        in EventType::ChannelCreated    then @channel_created_count += 1
-        in EventType::ConnectionClosed  then @connection_closed_count += 1
-        in EventType::ConnectionCreated then @connection_created_count += 1
-        in EventType::QueueDeclared     then @queue_declared_count += 1
-        in EventType::QueueDeleted      then @queue_deleted_count += 1
-        in EventType::ClientAck         then @ack_count += 1
-        in EventType::ClientDeliver     then @deliver_count += 1
-        in EventType::ClientGet         then @get_count += 1
-        in EventType::ClientPublish     then @publish_count += 1
-        in EventType::ClientRedeliver   then @redeliver_count += 1
-        in EventType::ClientReject      then @reject_count += 1
+        in EventType::ChannelClosed         then @channel_closed_count += 1
+        in EventType::ChannelCreated        then @channel_created_count += 1
+        in EventType::ConnectionClosed      then @connection_closed_count += 1
+        in EventType::ConnectionCreated     then @connection_created_count += 1
+        in EventType::QueueDeclared         then @queue_declared_count += 1
+        in EventType::QueueDeleted          then @queue_deleted_count += 1
+        in EventType::ClientAck             then @ack_count += 1
+        in EventType::ClientDeliver         then @deliver_count += 1
+        in EventType::ClientGet             then @get_count += 1
+        in EventType::ClientPublish         then @publish_count += 1
+        in EventType::ClientPublishConfirm  then @confirm_count += 1
+        in EventType::ClientRedeliver       then @redeliver_count += 1
+        in EventType::ClientReject          then @reject_count += 1
         end
       end
     end
