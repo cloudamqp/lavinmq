@@ -115,13 +115,13 @@ consumers and deliver a message to each.
 * Rewindable queues (all messages that are published to an exchange
   are stored and can be dumped into a queue when a certain binding is
   made, even if they have already been consumed before)
+* AMQP WebSocket
 
 Currently missing features
 
-* WebSockets
+* Transactions
 * Clustering
 * Plugins
-* Transactions (probably won't implement)
 
 ### Known differences to other AMQP servers
 
