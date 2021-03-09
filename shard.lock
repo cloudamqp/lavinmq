@@ -18,7 +18,7 @@ shards:
 
   http-protection:
     git: https://github.com/84codes/http-protection.git
-    version: 0.2.0+git.commit.f6216eaf2159b0c82cab85fc3dc07454fcc8e941
+    version: 0.2.0+git.commit.7b86d7876ca1fac09ec33bf4a4d841995393514f
 
   logger:
     git: https://github.com/84codes/logger.cr.git
