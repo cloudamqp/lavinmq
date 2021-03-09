@@ -244,6 +244,7 @@ module AvalancheMQ
 
       def confirm_nack(multiple = false)
         return unless @confirm
+        @events.send(EventType::ClientPublishConfirm)
         @confirm_count += 1 # Stats
         send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple, requeue: false)
       end
@@ -264,6 +265,7 @@ module AvalancheMQ
 
       def confirm_ack(multiple = false)
         return unless @confirm
+        @events.send(EventType::ClientPublishConfirm)
         @confirm_count += 1 # Stats
         send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
       end

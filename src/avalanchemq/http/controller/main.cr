@@ -24,7 +24,7 @@ module AvalancheMQ
 
     class MainController < Controller
       include StatsHelpers
-      OVERVIEW_STATS = %w(ack deliver get publish redeliver reject)
+      OVERVIEW_STATS = %w(ack deliver get publish confirm redeliver reject)
 
       private def register_routes
         get "/api/overview" do |context, _params|
