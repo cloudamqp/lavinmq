@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.27] - 2021-03-09
+
 ### Added
 
-- Websocket support
+- WebSocket support, for use with https://github.com/cloudamqp/amqp-client.js
+
+### Changed
+
+- Compress HTTP responses
+- Faster restoring of queue indexes on boot
+
+### Fixed
+
+- Reply with FlowOk when getting Flow from channel
+- Consitent clean up of dropped connections
+- Mark vhost as dirty on boot to run at least one GC
+- x-frame-options now applied correctly
 
 ## [1.0.0-alpha.26] - 2021-02-19
 
