@@ -352,6 +352,12 @@ aside li.active a {
   white-space: nowrap;
 }
 
+.table tbody td:hover {
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-all;
+}
+
 .self-link {
   text-decoration: underline;
   cursor: pointer;
