@@ -2,27 +2,27 @@ version: 2.0
 shards:
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 0.14.0
+    version: 0.14.1
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
-    version: 0.3.24
+    version: 1.0.0
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 0.6.6
+    version: 1.0.0
 
   baked_file_system:
     git: https://github.com/schovi/baked_file_system.git
-    version: 0.9.8+git.commit.7183bfde8d86a976a6912f582b51cbd1783456af
+    version: 0.9.8+git.commit.fd6ba88eb227400954c430bb946382de85809240
 
   http-protection:
     git: https://github.com/84codes/http-protection.git
-    version: 0.2.0+git.commit.7b86d7876ca1fac09ec33bf4a4d841995393514f
+    version: 0.2.0+git.commit.893a191d55e301e0df96d6dd0f7d72c527bddeb8
 
   logger:
-    git: https://github.com/84codes/logger.cr.git
-    version: 1.0.0
+    git: https://github.com/crystal-lang/logger.cr.git
+    version: 0.1.0
 
   radix:
     git: https://github.com/luislavena/radix.git

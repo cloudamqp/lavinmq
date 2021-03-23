@@ -22,7 +22,6 @@ targets:
 dependencies:
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-    version: ~>0.3.0
   router:
     github: tbrand/router.cr
   baked_file_system:
@@ -32,15 +31,16 @@ dependencies:
     github: cloudamqp/amqp-client.cr
   http-protection:
     github: 84codes/http-protection
+    branch: master
   systemd:
     github: 84codes/systemd.cr
   logger:
-    github: 84codes/logger.cr
+    github: crystal-lang/logger.cr
 
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
 
-crystal: 0.36.1
+crystal: 1.0.0
 
 license: Apache-2.0
