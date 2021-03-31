@@ -9,7 +9,7 @@
     "chart.js": "2.7.3"
   },
   "devDependencies": {
-    "@stoplight/spectral": "^5.8.1",
+    "@stoplight/spectral": "^4.1.1",
     "eslint": "^7.20.0",
     "eslint-plugin-html": "^6.0.0",
     "redoc": "~2.0.0-rc.50",
