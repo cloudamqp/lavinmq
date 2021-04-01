@@ -4,5 +4,5 @@ freebsd_instance:
 task:
   install_script: pkg install -y crystal shards
   script: |
-    shards install
+    shards install --production --ignore-crystal-version
     crystal spec
