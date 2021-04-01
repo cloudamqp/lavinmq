@@ -10,7 +10,7 @@ module Observable
   end
 
   def notify_observers(event : Symbol, data : Object? = nil)
-    @observers.each { |o| o.on(event, data) }
+    @observers.each &.on(event, data)
   end
 end
 

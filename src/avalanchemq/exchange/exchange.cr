@@ -170,11 +170,11 @@ module AvalancheMQ
 
     private def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
       notify_observers(:bind, binding_details({routing_key, headers}, destination))
-      if (pq = @persistent_queue) && headers && headers.any?
+      if (pq = @persistent_queue) && headers && !headers.empty?
         method = headers.select(REPUBLISH_HEADERS).first_key?
         return unless method
         arg = headers[method].try &.as?(ArgumentNumber)
-        return true unless arg && pq.any?
+        return true if arg.nil? || pq.empty?
         persisted = pq.message_count
         @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
         case destination

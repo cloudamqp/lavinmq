@@ -31,7 +31,7 @@ module AvalancheMQ
       end
 
       private def all_channels(user)
-        Iterator(Client::Channel).chain(connections(user).map { |c| c.channels.each_value })
+        Iterator(Client::Channel).chain(connections(user).map(&.channels.each_value))
       end
 
       private def with_channel(context, params)

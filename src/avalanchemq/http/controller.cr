@@ -171,7 +171,7 @@ module AvalancheMQ
         @amqp_server.vhosts.each_value.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
-          full_view_vhosts_access || (amqp_access && user.tags.any?)
+          full_view_vhosts_access || (amqp_access && !user.tags.empty?)
         end
       end
 

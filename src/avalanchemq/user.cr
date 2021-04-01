@@ -15,7 +15,7 @@ module AvalancheMQ
     end
 
     def self.parse_list(list : String) : Array(Tag)
-      list.split(",").map { |t| Tag.parse?(t.strip) }.compact
+      list.split(",").compact_map { |t| Tag.parse?(t.strip) }
     end
   end
 
@@ -125,7 +125,7 @@ module AvalancheMQ
         name:              @name,
         password_hash:     @password,
         hashing_algorithm: @password.try &.hash_algorithm,
-        tags:              @tags.map { |t| t.to_s.downcase }.join(","),
+        tags:              @tags.map(&.to_s.downcase).join(","),
       }
     end
 

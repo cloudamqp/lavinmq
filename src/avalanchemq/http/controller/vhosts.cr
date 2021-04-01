@@ -50,10 +50,10 @@ module AvalancheMQ
         get "/api/vhosts/:name/permissions" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, "name") do |vhost|
-            @amqp_server.users.map do |_, u|
+            @amqp_server.users.compact_map do |_, u|
               next if u.hidden?
               u.permissions[vhost]?.try { |p| u.permissions_details(vhost, p) }
-            end.compact.to_json(context.response)
+            end.to_json(context.response)
           end
         end
       end

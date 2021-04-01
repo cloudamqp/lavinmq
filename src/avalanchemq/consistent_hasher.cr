@@ -16,14 +16,14 @@ class ConsistentHasher(T)
     weight.times do |t|
       @ring[hash_key("#{key}.#{t}")] = target
     end
-    @sorted_keys = @ring.keys.sort
+    @sorted_keys = @ring.keys.sort!
   end
 
   def remove(key : String, weight : UInt32)
     weight.times do |t|
       @ring.delete(hash_key("#{key}.#{t}"))
     end
-    @sorted_keys = @ring.keys.sort
+    @sorted_keys = @ring.keys.sort!
   end
 
   def get(key)

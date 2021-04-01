@@ -35,7 +35,7 @@ module AvalancheMQ
         get "/api/users/without-permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
           itr = @amqp_server.users.each_value.reject(&.hidden?)
-            .select { |u| u.permissions.empty? }
+            .select(&.permissions.empty?)
             .map { |u| UserView.new(u) }
           page(context, itr)
         end

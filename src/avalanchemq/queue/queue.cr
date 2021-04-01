@@ -413,7 +413,7 @@ module AvalancheMQ
         ready: @ready.size,
         ready_bytes: @ready.sum &.bytesize,
         unacked: @unacked.size,
-        unacked_bytes: @unacked.sum { |u| u.sp.bytesize },
+        unacked_bytes: @unacked.sum &.sp.bytesize,
         policy: @policy.try &.name,
         exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
         state: @state.to_s,

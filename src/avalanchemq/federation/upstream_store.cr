@@ -112,8 +112,8 @@ module AvalancheMQ
       end
 
       def stop_all
-        @upstreams.each { |_, upstream| upstream.close }
-        @upstream_sets.values.flatten.each { |upstream| upstream.close }
+        @upstreams.each_value &.close
+        @upstream_sets.values.flatten.each &.close
       end
     end
   end

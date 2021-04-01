@@ -248,7 +248,7 @@ module AvalancheMQ
         path = case
                when !@uri.path.empty?
                  @uri.path
-               when p = msg.properties.headers.try { |h| h["uri_path"]? }
+               when p = msg.properties.headers.try &.["uri_path"]?
                  p.to_s
                else
                  "/"

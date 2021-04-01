@@ -123,7 +123,7 @@ module AvalancheMQ
         ex.unroutable_count += 1
         return false
       end
-      return false if immediate && !found_queues.any? { |q| q.immediate_delivery? }
+      return false if immediate && !found_queues.any? &.immediate_delivery?
       sp = write_to_disk(msg, ex.persistent?)
       flush = properties.delivery_mode == 2_u8
       ok = 0
@@ -520,7 +520,7 @@ module AvalancheMQ
             end
       sorted_policies = @policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
-        if match = sorted_policies.find { |p| p.match?(r) }
+        if match = sorted_policies.find &.match?(r)
           r.apply_policy(match)
         else
           r.clear_policy

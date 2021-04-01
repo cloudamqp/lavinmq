@@ -17,7 +17,7 @@ module AvalancheMQ
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
       ack_mode = Shovel::AckMode.parse?(ack_mode_str) || Shovel::DEFAULT_ACK_MODE
       reconnect_delay = config["reconnect-delay"]?.try &.as_i || Shovel::DEFAULT_RECONNECT_DELAY
-      prefetch = config["src-prefetch-count"]?.try { |p| p.as_i.to_u16 } || Shovel::DEFAULT_PREFETCH
+      prefetch = config["src-prefetch-count"]?.try(&.as_i.to_u16) || Shovel::DEFAULT_PREFETCH
       src = Shovel::AMQPSource.new(name, URI.parse(config["src-uri"].as_s),
         config["src-queue"]?.try &.as_s?,
         config["src-exchange"]?.try &.as_s?,

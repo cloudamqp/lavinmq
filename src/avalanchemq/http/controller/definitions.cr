@@ -202,7 +202,7 @@ module AvalancheMQ
           name = u["name"].as_s
           pass_hash = u["password_hash"].as_s
           hash_algo = u["hashing_algorithm"]?.try(&.as_s)
-          tags = u["tags"]?.try(&.as_s).to_s.split(",").map { |t| Tag.parse?(t) }.compact
+          tags = u["tags"]?.try(&.as_s).to_s.split(",").compact_map { |t| Tag.parse?(t) }
           @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
         end
         @amqp_server.users.save!

@@ -131,7 +131,7 @@ module AvalancheMQ
         get "/api/policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = Iterator(Policy).chain(vhosts(user).map { |v| v.policies.each_value })
+          itr = Iterator(Policy).chain(vhosts(user).map(&.policies.each_value))
           page(context, itr)
         end
 

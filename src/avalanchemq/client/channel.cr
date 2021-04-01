@@ -75,7 +75,7 @@ module AvalancheMQ
 
       def client_flow(active : Bool)
         @client_flow = active
-        @consumers.each { |c| c.queue.consumer_available } if active
+        @consumers.each(&.queue.consumer_available) if active
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
@@ -512,11 +512,11 @@ module AvalancheMQ
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
-        @consumers.each { |c| c.queue.consumer_available } if notify_queues
+        @consumers.each(&.queue.consumer_available) if notify_queues
       end
 
       def basic_recover(frame) : Nil
-        @consumers.each { |c| c.recover(frame.requeue) }
+        @consumers.each &.recover(frame.requeue)
         delete_all_unacked do |unack|
           unack.queue.reject(unack.sp, true) if unack.consumer.nil?
         end

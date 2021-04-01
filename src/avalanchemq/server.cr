@@ -181,7 +181,7 @@ module AvalancheMQ
 
     def stop_shovels
       @log.info("Stopping shovels")
-      @vhosts.each_value { |v| v.stop_shovels }
+      @vhosts.each_value &.stop_shovels
     end
 
     private def apply_parameter(parameter : Parameter? = nil)
@@ -362,7 +362,7 @@ module AvalancheMQ
 
     def flow(active : Bool)
       @flow = active
-      @vhosts.each_value { |v| v.flow = active }
+      @vhosts.each_value &.flow=(active)
     end
 
     def uptime
