@@ -16,7 +16,7 @@ lib LibC
       flags : Int64
       spare : StaticArray(Long, 4)
     end
-  {% elsif flag?(:darwin) %}
+  {% elsif flag?(:darwin) || flag?(:bsd) %}
     struct Statfs
       bsize : UInt32
       iosize : Int32
