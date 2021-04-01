@@ -3,4 +3,6 @@ freebsd_instance:
 
 task:
   install_script: pkg install -y crystal shards
-  script: crystal spec
+  script: |
+    shards install
+    crystal spec
