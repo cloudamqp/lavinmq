@@ -2,7 +2,9 @@ freebsd_instance:
   image_family: freebsd-12-2
 
 task:
-  install_script: pkg install -y crystal shards
+  install_script: |
+    pkg install -y crystal shards
+    pkg install -y -r FreeBSD security/openssl
   script: |
     shards install --production --ignore-crystal-version
     crystal spec
