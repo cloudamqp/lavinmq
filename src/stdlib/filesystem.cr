@@ -74,8 +74,8 @@ end
 
 struct FilesystemInfo
   def initialize(statfs : LibC::Statfs)
-    @available = statfs.bavail * statfs.bsize
-    @total = statfs.blocks * statfs.bsize
+    @available = statfs.bavail.to_u64 * statfs.bsize
+    @total = statfs.blocks.to_u64 * statfs.bsize
   end
 
   # Bytes available to non-privileged on disk
