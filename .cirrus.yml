@@ -1,5 +1,5 @@
 freebsd_instance:
-  image_family: freebsd-13-0
+  image_family: freebsd-12-2
 
 task:
   install_script: pkg install -y crystal shards
