@@ -1,4 +1,4 @@
-FROM node:10 AS docbuilder
+FROM node:14 AS docbuilder
 
 WORKDIR /tmp
 
