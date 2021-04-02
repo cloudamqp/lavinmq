@@ -5,7 +5,7 @@ WORKDIR /tmp
 COPY openapi ./openapi
 COPY build ./build
 COPY shard.yml package.json package-lock.json ./
-RUN npm install --unsafe-perm
+RUN npm ci --unsafe-perm
 
 FROM crystallang/crystal:0.36.1 AS builder
 
