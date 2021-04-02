@@ -6,7 +6,7 @@
   "directories": {},
   "dependencies": {
     "@cloudamqp/amqp-client": "^1.0.6",
-    "chart.js": "2.7.3"
+    "chart.js": "^2.9.4"
   },
   "devDependencies": {
     "@stoplight/spectral": "^4.1.1",
