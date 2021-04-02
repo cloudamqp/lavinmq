@@ -1,6 +1,6 @@
 # AvalancheMQ Management HTTP API OpenAPI spec
 
-Running `npm install` will install dependencies, lint and build the documentation.
+Running `npm ci` will install dependencies, lint and build the documentation.
 
 It also copies it to `static/docs/index.html` so you can view the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/) if you have AvalancheMQ running.
 
