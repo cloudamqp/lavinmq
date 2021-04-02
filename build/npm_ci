@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -ex
+
+# npm wants to use SSH (since @stoplight/spectral downgrade in a8c83ffc)
+git config --global url."https://github.com/".insteadOf git@github.com:
+git config --global url."https://".insteadOf ssh://
+
+npm ci
