@@ -5,7 +5,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    container: crystallang/crystal:0.36.1
+    container: crystallang/crystal:1.0.0
     continue-on-error: true
 
     steps:
@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Crystal Ameba Linter
-        uses: crystal-ameba/github-action@v0.2.4
+        uses: crystal-ameba/github-action@v0.2.11
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -46,7 +46,7 @@ jobs:
         run: |
           wget https://crystal-lang.org/install.sh
           chmod +x install.sh
-          sudo ./install.sh --crystal=0.36.1
+          sudo ./install.sh --crystal=1.0.0
 
       - name: Shards install
         run: shards install
@@ -68,7 +68,7 @@ jobs:
         run: |
           wget https://crystal-lang.org/install.sh
           chmod +x install.sh
-          sudo ./install.sh --crystal=0.36.1
+          sudo ./install.sh --crystal=1.0.0
 
       - name: Checkout
         uses: actions/checkout@v2
