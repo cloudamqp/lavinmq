@@ -353,9 +353,15 @@ aside li.active a {
 }
 
 .table tbody td:hover {
-  text-overflow: clip;
-  white-space: normal;
-  word-break: break-all;
+  overflow: visible;
+  background-color: inherit;
+}
+
+.table tbody td:hover a {
+  background-color: inherit;
+  position: relative;
+  padding-right: 10px;
+  z-index: 1000;
 }
 
 .self-link {
@@ -366,6 +372,10 @@ aside li.active a {
 
 .table tbody tr:nth-of-type(odd) {
   background-color: #fafafa;
+}
+
+.table tbody tr:nth-of-type(even) {
+  background-color: #fff;
 }
 
 #table-error {
