@@ -357,7 +357,7 @@ aside li.active a {
   background-color: inherit;
 }
 
-.table tbody td:hover a {
+.table tbody a {
   background-color: inherit;
   position: relative;
   padding-right: 10px;
