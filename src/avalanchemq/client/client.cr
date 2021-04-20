@@ -20,7 +20,8 @@ module AvalancheMQ
     property direct_reply_consumer_tag
     getter vhost, channels, log, name
     getter user
-    getter remote_address
+    getter remote_address : Socket::IPAddress
+    getter local_address : Socket::IPAddress
     getter max_frame_size : UInt32
     getter channel_max : UInt16
     getter heartbeat_timeout : UInt16
@@ -38,14 +39,15 @@ module AvalancheMQ
     DEFAULT_EX = "amq.default"
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket | WebSocketIO,
-                   @remote_address : Socket::IPAddress,
-                   @local_address : Socket::IPAddress,
+                   @connection_properties : ConnectionProperties,
                    @vhost : VHost,
                    @user : User,
                    @events : Server::Event,
                    tune_ok,
                    start_ok)
       @log = vhost.log.dup
+      @remote_address = @connection_properties.src
+      @local_address = @connection_properties.dst
       @log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
       @channel_max = tune_ok.channel_max
@@ -110,9 +112,9 @@ module AvalancheMQ
         peer_port:         @remote_address.port,
         name:              @name,
         pid:               @name,
-        ssl:               tls_terminated?,
-        tls_version:       tls_version,
-        cipher:            cipher,
+        ssl:               @connection_properties.ssl,
+        tls_version:       @connection_properties.ssl_version,
+        cipher:            @connection_properties.ssl_cipher,
         state:             state,
       }.merge(stats_details)
     end
@@ -300,8 +302,8 @@ module AvalancheMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, remote_address, local_address, vhosts, users, log, events)
-      AMQPConnection.start(socket, remote_address, local_address, vhosts, users, log.dup, events)
+    def self.start(socket, conn_props, vhosts, users, log, events)
+      AMQPConnection.start(socket, conn_props, vhosts, users, log.dup, events)
     end
 
     private def with_channel(frame)
@@ -841,23 +843,6 @@ module AvalancheMQ
       # yield so that msg expiration, consumer delivery etc gets priority
       Fiber.yield
       with_channel frame, &.basic_get(frame)
-    end
-
-    private def tls_terminated?
-      @socket.is_a?(OpenSSL::SSL::Socket) ||
-        (@socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated)
-    end
-
-    private def tls_version
-      return @socket.as(OpenSSL::SSL::Socket).tls_version if @socket.is_a?(OpenSSL::SSL::Socket)
-      return "Unknown" if @socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated
-      nil
-    end
-
-    private def cipher
-      return @socket.as(OpenSSL::SSL::Socket).cipher if @socket.is_a?(OpenSSL::SSL::Socket)
-      return "Unknown" if @socket.is_a?(UNIXSocket) && Config.instance.unix_socket_tls_terminated
-      nil
     end
   end
 end

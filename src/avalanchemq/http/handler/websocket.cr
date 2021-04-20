@@ -8,8 +8,9 @@ module AvalancheMQ
         local_address = Socket::IPAddress.new("0.0.0.0", 15672) # guessing local address for older crystal versions
         local_address = req.local_address.as(Socket::IPAddress) if req.responds_to?(:local_address)
         remote_address = req.remote_address.as(Socket::IPAddress)
+        connection_properties = ConnectionProperties.new(remote_address, local_address)
         io = WebSocketIO.new(ws)
-        spawn amqp_server.handle_connection(io, remote_address, local_address), name: "HandleWSconnection #{remote_address}"
+        spawn amqp_server.handle_connection(io, connection_properties), name: "HandleWSconnection #{remote_address}"
       end
     end
   end

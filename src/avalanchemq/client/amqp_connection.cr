@@ -1,6 +1,7 @@
 module AvalancheMQ
   module AMQPConnection
-    def self.start(socket, remote_address, local_address, vhosts, users, log, events)
+    def self.start(socket, conn_props, vhosts, users, log, events)
+      remote_address = conn_props.src
       log.progname += " client=#{remote_address}"
       socket.read_timeout = 15
       if confirm_header(socket, log)
@@ -8,7 +9,7 @@ module AvalancheMQ
           if user = authenticate(socket, users, start_ok, log)
             if tune_ok = tune(socket, log)
               if vhost = open(socket, vhosts, user, log)
-                Client.new(socket, remote_address, local_address, vhost, user, events, tune_ok, start_ok)
+                Client.new(socket, conn_props, vhost, user, events, tune_ok, start_ok)
               end
             end
           end
