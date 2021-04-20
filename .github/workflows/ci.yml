@@ -49,7 +49,7 @@ jobs:
           sudo ./install.sh --crystal=1.0.0
 
       - name: Shards install
-        run: shards install
+        run: shards install --ignore-crystal-version
 
       - name: Spec
         run: crystal spec --no-color --order random
@@ -75,7 +75,7 @@ jobs:
 
       - name: Build avalanchemq
         run: |
-          shards install --production
+          shards install --production --ignore-crystal-version
           shards build --production avalanchemq avalanchemqctl
 
       - name: Upload bin/
