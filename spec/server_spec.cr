@@ -141,15 +141,6 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "should mark the vhost as dirty when a queue is purged" do
-    with_channel do |ch|
-      q = ch.queue
-      4.times { q.publish "" }
-      q.purge
-      s.vhosts["/"].dirty?.should eq true
-    end
-  end
-
   it "supports publisher confirms" do
     with_channel do |ch|
       q = ch.queue
