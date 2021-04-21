@@ -20,7 +20,7 @@ describe "Delayed Message Exchange" do
   end
 
   q_name = "delayed_q"
-  it "should delay messages" do
+  it "should delay 1 message" do
     with_channel do |ch|
       x = ch.exchange(x_name, "topic", args: x_args)
       q = ch.queue(q_name)
@@ -31,6 +31,27 @@ describe "Delayed Message Exchange" do
       queue.message_count.should eq 0
       wait_for { queue.message_count == 1 }
       queue.message_count.should eq 1
+    end
+  ensure
+    s.vhosts["/"].delete_exchange(x_name)
+    s.vhosts["/"].delete_queue(q_name)
+  end
+
+  q_name = "delayed_q"
+  it "should delay 2 messages" do
+    with_channel do |ch|
+      x = ch.exchange(x_name, "topic", args: x_args)
+      q = ch.queue(q_name)
+      q.bind(x.name, "#")
+      hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
+      x.publish "test message 1", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+      x.publish "test message 2", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+      queue = s.vhosts["/"].queues[q_name]
+      queue.message_count.should eq 0
+      wait_for { queue.message_count == 2 }
+      queue.message_count.should eq 2
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
     end
   ensure
     s.vhosts["/"].delete_exchange(x_name)
