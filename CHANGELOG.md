@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- FreeBSD compatibility
+- Crystal 1.0.0 compatibility
+- Publisher confirm count to Overview chart
+
 ## [1.0.0-alpha.27] - 2021-03-09
 
 ### Added
