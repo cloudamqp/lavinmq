@@ -227,6 +227,7 @@ module AvalancheMQ
     rescue ex
       @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send_internal_error(ex.message)
+      false
     end
 
     def connection_details
@@ -466,6 +467,7 @@ module AvalancheMQ
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
       @log.info { "Connection=#{@name} disconnected" }
+    ensure
       @running = false
     end
 
@@ -505,11 +507,11 @@ module AvalancheMQ
     end
 
     def send_internal_error(message)
-      send AMQP::Frame::Connection::Close.new(541_u16, "INTERNAL_ERROR - #{message}", 0_u16, 0_u16)
+      close_connection(nil, 541_u16, "INTERNAL_ERROR - #{message}")
     end
 
     def send_frame_error(message = nil)
-      send AMQP::Frame::Connection::Close.new(501_u16, "FRAME_ERROR - #{message}", 0_u16, 0_u16)
+      close_connection(nil, 501_u16, "FRAME_ERROR - #{message}")
     end
 
     private def declare_exchange(frame)
