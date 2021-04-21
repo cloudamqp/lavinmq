@@ -282,7 +282,7 @@ module AvalancheMQ
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
       close_socket
       false
-    rescue ex: AMQ::Protocol::Error::FrameEncode
+    rescue ex : AMQ::Protocol::Error::FrameEncode
       @log.warn { "Error encoding frame (#{ex.inspect})" }
       close_socket
       false

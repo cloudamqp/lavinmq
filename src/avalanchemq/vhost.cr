@@ -96,9 +96,7 @@ module AvalancheMQ
     def send_publish_confirms
       @awaiting_confirm_lock.synchronize do
         @log.debug { "send confirm to #{@awaiting_confirm.size} channels" }
-        @awaiting_confirm.each do |ch|
-          ch.confirm_ack(multiple: true)
-        end
+        @awaiting_confirm.each(&.confirm_ack(multiple: true))
         @awaiting_confirm.clear
       end
     end

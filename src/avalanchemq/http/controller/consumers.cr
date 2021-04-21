@@ -16,7 +16,7 @@ module AvalancheMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            itr = connections(user).each.select { |conn| conn.vhost.name == vhost }
+            itr = connections(user).each.select(&.vhost.name.==(vhost))
               .flat_map do |conn|
                 conn.channels.each_value.flat_map &.consumers
               end
@@ -41,7 +41,7 @@ module AvalancheMQ
               context.response.status_code = 404
               break
             end
-            consumer = channel.consumers.find { |c| c.tag == consumer_tag }
+            consumer = channel.consumers.find(&.tag.==(consumer_tag))
             unless consumer
               context.response.status_code = 404
               break

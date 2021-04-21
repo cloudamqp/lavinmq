@@ -130,7 +130,7 @@ describe AvalancheMQ::Client::Channel::Consumer do
       s.vhosts["/"].delete_queue("consumer-priority")
     end
 
-    it "accepts any integer as x-priority" do
+    it "should accept any integer as x-priority" do
       with_channel do |ch|
         q = ch.queue
         args = AMQP::Client::Arguments.new({"x-priority" => Int8::MIN})
