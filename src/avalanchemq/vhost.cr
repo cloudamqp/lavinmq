@@ -26,6 +26,7 @@ module AvalancheMQ
     property? flow = true
     property? dirty = false
     getter? closed = false
+    getter gc_loop = Channel(Nil).new
 
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
@@ -672,32 +673,39 @@ module AvalancheMQ
     private def gc_segments_loop
       # Don't gc all vhosts at the same time
       sleep Random.rand(Config.instance.gc_segments_interval)
-      # save some memory if the vhost was created and deleted fast
       return if @closed
       referenced_sps = ReferencedSPs.new(@queues.size)
+      interval = Config.instance.gc_segments_interval.seconds
       loop do
-        unless @dirty
-          sleep Config.instance.gc_segments_interval
-          next
+        select
+        when @gc_loop.receive
+          run_gc(referenced_sps)
+        when timeout interval
+          next unless @dirty
+          run_gc(referenced_sps)
         end
-        break if @closed
-        gc_log("collecting sps") do
-          collect_sps(referenced_sps)
-        end
-        gc_log("garbage collecting") do
-          gc_segments(referenced_sps)
-        end
-        gc_log("compact internal queues") do
-          @queues.each_value &.compact
-        end
-        gc_log("GC collect") do
-          GC.collect
-        end
-        @dirty = false
+      rescue ex
+        @log.fatal("Unhandled exception in #gc_segments_loop, "\
+                   "killing process #{ex.inspect_with_backtrace}")
+        exit 1
       end
-    rescue ex
-      @log.fatal("Unhandled exception in #gc_segments_loop, killing process #{ex.inspect_with_backtrace}")
-      exit 1
+    end
+
+    private def run_gc(referenced_sps)
+      return if @closed
+      gc_log("collecting sps") do
+        collect_sps(referenced_sps)
+      end
+      gc_log("garbage collecting") do
+        gc_segments(referenced_sps)
+      end
+      gc_log("compact internal queues") do
+        @queues.each_value &.compact
+      end
+      gc_log("GC collect") do
+        GC.collect
+      end
+      @dirty = false
     end
 
     private def gc_log(desc, &blk)
