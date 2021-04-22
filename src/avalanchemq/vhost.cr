@@ -39,8 +39,6 @@ module AvalancheMQ
     @fsync = false
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
-    EXCHANGE_TYPES = %w(direct fanout topic headers
-      x-federation-upstream x-consistent-hash)
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User, @events : Server::Event)

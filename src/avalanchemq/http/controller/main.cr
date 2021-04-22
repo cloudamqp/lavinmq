@@ -25,6 +25,8 @@ module AvalancheMQ
     class MainController < Controller
       include StatsHelpers
       OVERVIEW_STATS = %w(ack deliver get publish confirm redeliver reject)
+      EXCHANGE_TYPES = %w(direct fanout topic headers
+                          x-federation-upstream x-consistent-hash)
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -105,7 +107,7 @@ module AvalancheMQ
               },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
-            exchange_types: VHost::EXCHANGE_TYPES.map { |name| {name: name} },
+            exchange_types: EXCHANGE_TYPES.map { |name| {name: name} },
           }.to_json(context.response)
           context
         end
