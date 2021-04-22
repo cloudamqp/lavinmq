@@ -511,6 +511,11 @@ module AvalancheMQ
       @connections.flat_map { |conn| conn.channels.each_value.flat_map &.consumers }
     end
 
+    def trigger_gc!
+      @dirty = true
+      @gc_loop.send nil
+    end
+
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
       itr = if resources
               resources.each
@@ -679,33 +684,28 @@ module AvalancheMQ
       loop do
         select
         when @gc_loop.receive
-          run_gc(referenced_sps)
         when timeout interval
-          next unless @dirty
-          run_gc(referenced_sps)
         end
+        return if @closed
+        next unless @dirty
+        gc_log("collecting sps") do
+          collect_sps(referenced_sps)
+        end
+        gc_log("garbage collecting") do
+          gc_segments(referenced_sps)
+        end
+        gc_log("compact internal queues") do
+          @queues.each_value &.compact
+        end
+        gc_log("GC collect") do
+          GC.collect
+        end
+        @dirty = false
       rescue ex
         @log.fatal("Unhandled exception in #gc_segments_loop, "\
                    "killing process #{ex.inspect_with_backtrace}")
         exit 1
       end
-    end
-
-    private def run_gc(referenced_sps)
-      return if @closed
-      gc_log("collecting sps") do
-        collect_sps(referenced_sps)
-      end
-      gc_log("garbage collecting") do
-        gc_segments(referenced_sps)
-      end
-      gc_log("compact internal queues") do
-        @queues.each_value &.compact
-      end
-      gc_log("GC collect") do
-        GC.collect
-      end
-      @dirty = false
     end
 
     private def gc_log(desc, &blk)
