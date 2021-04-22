@@ -20,8 +20,6 @@ module AvalancheMQ
     property direct_reply_consumer_tag
     getter vhost, channels, log, name
     getter user
-    getter remote_address : Socket::IPAddress
-    getter local_address : Socket::IPAddress
     getter max_frame_size : UInt32
     getter channel_max : UInt16
     getter heartbeat_timeout : UInt16
@@ -32,6 +30,8 @@ module AvalancheMQ
 
     @connected_at : Int64
     @heartbeat_interval : Time::Span?
+    @remote_address : Socket::IPAddress
+    @local_address : Socket::IPAddress
     @running = true
     @last_recv_frame = RoughTime.utc
     @last_sent_frame = RoughTime.utc
