@@ -141,6 +141,33 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "should run GC on purge", focus: true do
+    data_dir = s.vhosts["/"].data_dir
+    info = Filesystem.info(data_dir)
+    current = info.available
+
+    with_channel do |ch|
+
+      q = ch.queue "my_durable_queue", durable: true, exclusive: true
+      4.times do
+        q.publish_confirm "a" * 1024**2, props: AMQP::Client::Properties.new(delivery_mode: 2)
+      end
+
+      info = Filesystem.info(data_dir)
+      after_publish = info.available
+      (after_publish < current).should be_true
+
+      q.purge
+
+      sleep 0 # yield to other fiber for GC
+
+      info = Filesystem.info(data_dir)
+      after_purge = info.available
+      (after_purge > after_publish).should be_true
+    end
+  end
+
+
   it "supports publisher confirms" do
     with_channel do |ch|
       q = ch.queue
