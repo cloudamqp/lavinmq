@@ -398,7 +398,7 @@ module AvalancheMQ
       @deleted = true
       close
       @vhost.delete_queue(@name)
-      @vhost.dirty = true
+      @vhost.trigger_gc!
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
       true
@@ -823,7 +823,7 @@ module AvalancheMQ
     def purge : UInt32
       count = @ready.purge
       @log.debug { "Purged #{count} messages" }
-      @vhost.dirty = true
+      @vhost.trigger_gc!
       count.to_u32
     end
 
