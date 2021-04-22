@@ -1,4 +1,5 @@
 require "socket"
+require "./connection_properties"
 
 module AvalancheMQ
   # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
