@@ -152,8 +152,15 @@ module AvalancheMQ
       q_name = "amq.delayed.#{@name}"
       raise "Exchange name too long" if q_name.size > MAX_NAME_LENGTH
       @log.debug { "Declaring delayed queue: #{name}" }
-      arguments = Hash(String, AMQP::Field){"x-dead-letter-exchange" => @name}
-      @delayed_queue = DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
+      arguments = Hash(String, AMQP::Field){
+        "x-dead-letter-exchange" => @name,
+        "auto-delete": @auto_delete
+      }
+      @delayed_queue = if durable
+                         DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
+                       else
+                         DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
+                       end
       @vhost.queues[q_name] = @delayed_queue.as(Queue)
     end
 

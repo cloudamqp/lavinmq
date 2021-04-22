@@ -39,9 +39,6 @@ module AvalancheMQ
     @fsync = false
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
-    EXCHANGE_TYPES = %w(direct fanout topic headers
-      x-federation-upstream x-delayed-message
-      x-consistent-hash)
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User, @events : Server::Event)
@@ -850,7 +847,7 @@ module AvalancheMQ
       when "x-delayed-message"
         type = arguments.delete("x-delayed-type")
         raise Error::ExchangeTypeError.new("Missing required argument 'x-delayed-type'") unless type
-        arguments["x-delayed-message"] = true
+        arguments["x-delayed-exchange"] = true
         make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       when "x-federation-upstream"
         FederationExchange.new(vhost, name, arguments)

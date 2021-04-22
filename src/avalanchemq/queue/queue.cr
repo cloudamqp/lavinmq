@@ -536,19 +536,18 @@ module AvalancheMQ
         if expire_at = expire_at(sp)
           expire_in = expire_at - now
           @log.debug { "expire sp=#{sp} expire_in=#{expire_in}" }
-          if expire_in > 0
-            @log.debug { "No more message to expire" }
-            break
+          if expire_in <= 0
+            expire_msg(sp, :expired)
+            if (i += 1) == 8192
+              Fiber.yield
+              i = 0
+            end
+            true
+          else
+            false
           end
-
-          expire_msg(sp, :expired)
-          if (i += 1) == 8192
-            Fiber.yield
-            i = 0
-          end
-          true
         else
-          break
+          false
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
