@@ -112,7 +112,7 @@ module AvalancheMQ
         peer_port:         @remote_address.port,
         name:              @name,
         pid:               @name,
-        ssl:               @connection_info.ssl,
+        ssl:               @connection_info.ssl?,
         tls_version:       @connection_info.ssl_version,
         cipher:            @connection_info.ssl_cipher,
         state:             state,

@@ -202,11 +202,11 @@ module AvalancheMQ
       end
     end
 
-    def handle_connection(socket, conn_props)
-      client = Client.start(socket, conn_props, @vhosts, @users, @log, @events)
+    def handle_connection(socket, connection_info)
+      client = Client.start(socket, connection_info, @vhosts, @users, @log, @events)
       if client.nil?
         socket.close
-        @log.info { "Connection failed for remote_address=#{conn_props.src}" }
+        @log.info { "Connection failed for remote_address=#{connection_info.src}" }
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
