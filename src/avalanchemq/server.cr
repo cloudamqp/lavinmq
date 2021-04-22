@@ -12,7 +12,7 @@ require "./queue"
 require "./parameter"
 require "./chained_logger"
 require "./config"
-require "./connection_properties"
+require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
 require "./stats"
@@ -69,8 +69,8 @@ module AvalancheMQ
         when 2
           spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
         else
-          client_properties = ConnectionProperties.new(client.remote_address, client.local_address)
-          spawn(handle_connection(client, client_properties), name: "Server#handle_connection(tcp)")
+          conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
+          spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
         end
       end
     rescue ex : IO::Error
@@ -93,8 +93,8 @@ module AvalancheMQ
           spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
         else
           # TODO: use unix socket address, don't fake local
-          client_properties = ConnectionProperties.local
-          spawn(handle_connection(client, client_properties), name: "Server#handle_connection(tcp)")
+          conn_info = ConnectionInfo.local
+          spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
         end
       end
     rescue ex : IO::Error
@@ -124,11 +124,11 @@ module AvalancheMQ
           ssl_client.sync = false
           ssl_client.read_buffering = true
           set_socket_options(client)
-          conn_props = ConnectionProperties.new(remote_addr, client.local_address)
-          conn_props.ssl = true
-          conn_props.ssl_version = ssl_client.tls_version
-          conn_props.ssl_cipher = ssl_client.cipher
-          spawn handle_connection(ssl_client, conn_props), name: "Server#handle_connection(tls)"
+          conn_info = ConnInfo.new(remote_addr, client.local_address)
+          conn_info.ssl = true
+          conn_info.ssl_version = ssl_client.tls_version
+          conn_info.ssl_cipher = ssl_client.cipher
+          spawn handle_connection(ssl_client, conn_info), name: "Server#handle_connection(tls)"
         rescue ex
           @log.error "Error accepting TLS connection from #{remote_addr}: #{ex.inspect}"
           begin

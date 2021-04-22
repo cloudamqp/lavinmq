@@ -39,15 +39,15 @@ module AvalancheMQ
     DEFAULT_EX = "amq.default"
 
     def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket | WebSocketIO,
-                   @connection_properties : ConnectionProperties,
+                   @connection_info : ConnectionInfo,
                    @vhost : VHost,
                    @user : User,
                    @events : Server::Event,
                    tune_ok,
                    start_ok)
       @log = vhost.log.dup
-      @remote_address = @connection_properties.src
-      @local_address = @connection_properties.dst
+      @remote_address = @connection_info.src
+      @local_address = @connection_info.dst
       @log.progname += " client=#{@remote_address}"
       @max_frame_size = tune_ok.frame_max
       @channel_max = tune_ok.channel_max
@@ -112,9 +112,9 @@ module AvalancheMQ
         peer_port:         @remote_address.port,
         name:              @name,
         pid:               @name,
-        ssl:               @connection_properties.ssl,
-        tls_version:       @connection_properties.ssl_version,
-        cipher:            @connection_properties.ssl_cipher,
+        ssl:               @connection_info.ssl,
+        tls_version:       @connection_info.ssl_version,
+        cipher:            @connection_info.ssl_cipher,
         state:             state,
       }.merge(stats_details)
     end

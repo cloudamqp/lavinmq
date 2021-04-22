@@ -1,5 +1,5 @@
 require "socket"
-require "./connection_properties"
+require "./connection_info"
 
 module AvalancheMQ
   # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
@@ -38,7 +38,7 @@ module AvalancheMQ
         end
         src = Socket::IPAddress.new(src_addr, src_port)
         dst = Socket::IPAddress.new(dst_addr, dst_port)
-        ConnectionProperties.new(src, dst)
+        ConnectionInfo.new(src, dst)
       ensure
         io.read_timeout = nil
       end
@@ -73,23 +73,23 @@ module AvalancheMQ
         family = Family.from_value(buffer[13])
         length = IO::ByteFormat::NetworkEndian.decode(UInt16, buffer.to_slice[14, 2])
 
-        rest = Bytes.new(length)
-        io.read_fully(rest)
+        bytes = Bytes.new(length)
+        io.read_fully(bytes)
 
-        header, pos = extract_address(family, rest)
-        bytes = rest + pos
+        header, pos = extract_address(family, bytes)
+        bytes = bytes + pos
         header = extract_tlv(header, bytes)
         header
       ensure
         io.read_timeout = nil
       end
 
-      private def self.extract_tlv(header : ConnectionProperties, rest)
+      private def self.extract_tlv(header : ConnectionInfo, bytes)
         pos = 0
-        while pos < rest.size
-          type = TLVType.from_value(rest[pos]); pos += 1
-          length = IO::ByteFormat::NetworkEndian.decode(UInt16, rest[pos, 2]); pos += 2
-          value = rest[pos, length]; pos += length
+        while pos < bytes.size
+          type = TLVType.from_value(bytes[pos]); pos += 1
+          length = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
+          value = bytes[pos, length]; pos += length
           case type
           when TLVType::SSL
             header = extract_tlv_ssl(header, value)
@@ -127,39 +127,37 @@ module AvalancheMQ
         header
       end
 
-      private def self.extract_address(family, rest) : Tuple(ConnectionProperties, Int32)
-        pos = 0
+      private def self.extract_address(family, bytes) : Tuple(ConnectionInfo, Int32)
         case family
         when Family::TCPv4
-          src_addr = rest[0, 4].map(&.to_u8).join(".")
-          dst_addr = rest[4, 4].map(&.to_u8).join(".")
-          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, rest[8, 2])
-          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, rest[10, 2])
+          src_addr = bytes[0, 4].map(&.to_u8).join(".")
+          dst_addr = bytes[4, 4].map(&.to_u8).join(".")
+          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[8, 2])
+          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[10, 2])
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          { ConnectionProperties.new(src, dst), 12 }
+          { ConnectionInfo.new(src, dst), 12 }
         when Family::TCPv6
           # TODO: should be optmizied, now converted from binary to string to binary
           src_addr = String.build(39) do |str|
             8.times do |i|
               str << ":" unless i.zero?
-              str << rest[pos, 2].hexstring; pos += 2
+              str << bytes[i * 2, 2].hexstring
             end
           end
           dst_addr = String.build(39) do |str|
             8.times do |i|
               str << ":" unless i.zero?
-              str << rest[pos, 2].hexstring; pos += 2
+              str << bytes[16 + i * 2, 2].hexstring
             end
           end
-          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, rest[32, 2])
-          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, rest[34, 2])
+          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[32, 2])
+          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[34, 2])
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          pos = 36
-          { ConnectionProperties.new(src, dst), 36 }
+          { ConnectionInfo.new(src, dst), 36 }
         else
           raise InvalidFamily.new family.to_s
         end

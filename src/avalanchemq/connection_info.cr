@@ -1,7 +1,7 @@
 require "socket"
 
 module AvalancheMQ
-  struct ConnectionProperties
+  struct ConnectionInfo
     getter src : Socket::IPAddress
     getter dst : Socket::IPAddress
     property ssl : Bool = false
