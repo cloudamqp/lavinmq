@@ -12,6 +12,7 @@ require "./queue"
 require "./parameter"
 require "./chained_logger"
 require "./config"
+require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
 require "./stats"
@@ -62,10 +63,14 @@ module AvalancheMQ
         client.sync = false
         client.read_buffering = true
         set_socket_options(client)
-        if Config.instance.tcp_proxy_protocol
-          spawn(handle_proxied_connection(client), name: "Server#handle_proxied_connection(tcp)")
+        case Config.instance.tcp_proxy_protocol
+        when 1
+          spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
+        when 2
+          spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
         else
-          spawn(handle_connection(client, client.remote_address, client.local_address), name: "Server#handle_connection(tcp)")
+          conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
+          spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
         end
       end
     rescue ex : IO::Error
@@ -77,16 +82,19 @@ module AvalancheMQ
     def listen(s : UNIXServer)
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
-      src = Socket::IPAddress.new("127.0.0.1", 0)
-      dst = Socket::IPAddress.new("127.0.0.1", 0)
       while client = s.accept?
         client.sync = false
         client.read_buffering = true
         client.buffer_size = Config.instance.socket_buffer_size
-        if Config.instance.unix_proxy_protocol
-          spawn(handle_proxied_connection(client), name: "Server#handle_proxied_connection(unix)")
+        case Config.instance.unix_proxy_protocol
+        when 1
+          spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
+        when 2
+          spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
         else
-          spawn(handle_connection(client, src, dst), name: "Server#handle_connection(unix)")
+          # TODO: use unix socket address, don't fake local
+          conn_info = ConnectionInfo.local
+          spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
         end
       end
     rescue ex : IO::Error
@@ -116,7 +124,11 @@ module AvalancheMQ
           ssl_client.sync = false
           ssl_client.read_buffering = true
           set_socket_options(client)
-          spawn handle_connection(ssl_client, remote_addr, client.local_address), name: "Server#handle_connection(tls)"
+          conn_info = ConnectionInfo.new(remote_addr, client.local_address)
+          conn_info.ssl = true
+          conn_info.ssl_version = ssl_client.tls_version
+          conn_info.ssl_cipher = ssl_client.cipher
+          spawn handle_connection(ssl_client, conn_info), name: "Server#handle_connection(tls)"
         rescue ex
           @log.error "Error accepting TLS connection from #{remote_addr}: #{ex.inspect}"
           begin
@@ -190,11 +202,11 @@ module AvalancheMQ
       end
     end
 
-    def handle_connection(socket, remote_address, local_address)
-      client = Client.start(socket, remote_address, local_address, @vhosts, @users, @log, @events)
+    def handle_connection(socket, connection_info)
+      client = Client.start(socket, connection_info, @vhosts, @users, @log, @events)
       if client.nil?
         socket.close
-        @log.info { "Connection failed for remote_address=#{remote_address}" }
+        @log.info { "Connection failed for remote_address=#{connection_info.src}" }
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "HandleConnection exception: #{ex.inspect}" }
@@ -205,11 +217,17 @@ module AvalancheMQ
       end
     end
 
-    private def handle_proxied_connection(client)
-      proxyheader = ProxyProtocol::V1.parse(client)
-      handle_connection(client, proxyheader.src, proxyheader.dst)
+    private def handle_proxied_v1_connection(client)
+      handle_connection(client, ProxyProtocol::V1.parse(client))
     rescue ex
-      @log.info { "Error accepting proxied socket: #{ex.inspect}" }
+      @log.info { "Error accepting proxied socket: #{ex.inspect_with_backtrace}" }
+      client.close rescue nil
+    end
+
+    private def handle_proxied_v2_connection(client)
+      handle_connection(client, ProxyProtocol::V2.parse(client))
+    rescue ex
+      @log.info { "Error accepting proxied socket: #{ex.inspect_with_backtrace}" }
       client.close rescue nil
     end
 

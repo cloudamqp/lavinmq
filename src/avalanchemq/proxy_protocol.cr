@@ -1,24 +1,13 @@
 require "socket"
+require "./connection_info"
 
 module AvalancheMQ
+  # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
   module ProxyProtocol
     class InvalidSignature < Exception; end
     class InvalidVersionCmd < Exception; end
     class InvalidFamily < Exception; end
-
-    struct Header
-      getter src : Socket::IPAddress
-      getter dst : Socket::IPAddress
-
-      def initialize(@src, @dst)
-      end
-
-      def self.local
-        src = Socket::IPAddress.new("127.0.0.1", 0)
-        dst = Socket::IPAddress.new("127.0.0.1", 0)
-        new(src, dst)
-      end
-    end
+    class UnsupportedTLVType < Exception; end
 
     module V1
       # Examples:
@@ -49,7 +38,7 @@ module AvalancheMQ
         end
         src = Socket::IPAddress.new(src_addr, src_port)
         dst = Socket::IPAddress.new(dst_addr, dst_port)
-        Header.new(src, dst)
+        ConnectionInfo.new(src, dst)
       ensure
         io.read_timeout = nil
       end
@@ -69,10 +58,10 @@ module AvalancheMQ
         buffer = uninitialized UInt8[16]
         io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
-        unless signature == SIGNATURE
+        unless signature == SIGNATURE.to_slice
           raise InvalidSignature.new(signature.to_s)
         end
-        ver_cmd = buffer[13]
+        ver_cmd = buffer[12]
         case ver_cmd
         when 32
           # LOCAL
@@ -81,38 +70,121 @@ module AvalancheMQ
         else
           raise InvalidVersionCmd.new ver_cmd.to_s
         end
-        family = buffer[14]
-        length = IO::ByteFormat::NetworkEndian.decode(UInt16, buffer.to_slice[15, 2])
+        family = Family.from_value(buffer[13])
+        length = IO::ByteFormat::NetworkEndian.decode(UInt16, buffer.to_slice[14, 2])
 
+        bytes = Bytes.new(length)
+        io.read_fully(bytes)
+
+        header, pos = extract_address(family, bytes)
+        bytes = bytes + pos
+        header = extract_tlv(header, bytes)
+        header
+      ensure
+        io.read_timeout = nil
+      end
+
+      private def self.extract_tlv(header : ConnectionInfo, bytes)
+        pos = 0
+        while pos < bytes.size
+          type = TLVType.from_value(bytes[pos]); pos += 1
+          length = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
+          value = bytes[pos, length]; pos += length
+          case type
+          when TLVType::SSL
+            header = extract_tlv_ssl(header, value)
+          else raise UnsupportedTLVType.new
+          end
+        end
+        header
+      end
+
+      private def self.extract_tlv_ssl(header, bytes)
+        pos = 0
+        client = SSL_CLIENT.from_value(bytes[pos]); pos += 1
+        verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[pos, 4]); pos += 4
+        header.ssl = true
+        header.ssl_verify = verify.zero?
+
+        value = bytes + pos
+        header = extract_tlv_sub_ssl(header, value)
+      end
+
+      private def self.extract_tlv_sub_ssl(header, bytes)
+        pos = 0
+        while pos < bytes.size
+          ssl_type = SSLSubType.from_value(bytes[pos]); pos += 1
+          ssl_len = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[pos, 2]); pos += 2
+          ssl_value = String.new(bytes[pos, ssl_len]); pos += ssl_len
+          case ssl_type
+          when SSLSubType::VERSION then header.ssl_version = ssl_value
+          when SSLSubType::CIPHER  then header.ssl_cipher = ssl_value
+          when SSLSubType::KEY_ALG then header.ssl_key_alg = ssl_value
+          when SSLSubType::SIG_ALG then header.ssl_sig_alg = ssl_value
+          when SSLSubType::CN      then header.ssl_cn = ssl_value
+          end
+        end
+        header
+      end
+
+      private def self.extract_address(family, bytes) : Tuple(ConnectionInfo, Int32)
         case family
         when Family::TCPv4
-          buf = uninitialized UInt8[12]
-          io.read(buf.to_slice)
-          src_addr = buf.to_slice[0, 4].map(&.to_u8).join(".")
-          dst_addr = buf.to_slice[4, 4].map(&.to_u8).join(".")
-          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, buf.to_slice[8, 2])
-          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, buf.to_slice[10, 2])
+          src_addr = bytes[0, 4].map(&.to_u8).join(".")
+          dst_addr = bytes[4, 4].map(&.to_u8).join(".")
+          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[8, 2])
+          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[10, 2])
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          io.skip(length - 12)
-          Header.new(src, dst)
-          #when Family::TCPv6
-          #  buf = uninitialized UInt8[36]
-          #  io.read(buf.to_slice)
-          #  src_addr = buf.to_slice[0, 16].map(&.to_u8).slice(2).join(":")
-          #  dst_addr = buf.to_slice[16, 16].map(&.to_u8).join(".")
-          #  src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, buf.to_slice[8, 2])
-          #  dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, buf.to_slice[10, 2])
+          { ConnectionInfo.new(src, dst), 12 }
+        when Family::TCPv6
+          # TODO: should be optmizied, now converted from binary to string to binary
+          src_addr = String.build(39) do |str|
+            8.times do |i|
+              str << ":" unless i.zero?
+              str << bytes[i * 2, 2].hexstring
+            end
+          end
+          dst_addr = String.build(39) do |str|
+            8.times do |i|
+              str << ":" unless i.zero?
+              str << bytes[16 + i * 2, 2].hexstring
+            end
+          end
+          src_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[32, 2])
+          dst_port = IO::ByteFormat::NetworkEndian.decode(UInt16, bytes[34, 2])
 
-          #  src = Socket::IPAddress.new(src_addr, src_port)
-          #  dst = Socket::IPAddress.new(dst_addr, dst_port)
-
-          #  io.skip(length - 36)
-        else raise InvalidFamily.new family.to_s
+          src = Socket::IPAddress.new(src_addr, src_port.to_i32)
+          dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
+          { ConnectionInfo.new(src, dst), 36 }
+        else
+          raise InvalidFamily.new family.to_s
         end
-      ensure
-        io.read_timeout = nil
+      end
+
+      enum SSL_CLIENT : UInt8
+        SSL = 0x01
+        CERT_CONN = 0x02
+        CERT_SESS = 0x04
+      end
+
+      enum TLVType : UInt8
+       ALPN      = 0x01
+       AUTHORITY = 0x02
+       CRC32C    = 0x03
+       NOOP      = 0x04
+       UNIQUE_ID = 0x05
+       SSL       = 0x20
+       NETNS     = 0x30
+      end
+
+      enum SSLSubType : UInt8
+       VERSION = 0x21
+       CN      = 0x22
+       CIPHER  = 0x23
+       SIG_ALG = 0x24
+       KEY_ALG = 0x25
       end
 
       enum Family : UInt8
