@@ -10,7 +10,7 @@ describe "ProxyProtocol" do
       conn_info = AvalancheMQ::ProxyProtocol::V1.parse(r)
       conn_info.src.to_s.should eq "1.2.3.4:34567"
       conn_info.dst.to_s.should eq "127.0.0.2:1234"
-      conn_info.ssl.should be_false
+      conn_info.ssl?.should be_false
     end
 
     it "can handle invalid data" do
@@ -45,7 +45,7 @@ describe "ProxyProtocol" do
       conn_info = AvalancheMQ::ProxyProtocol::V2.parse(r)
       conn_info.src.to_s.should eq "127.0.0.1:37424"
       conn_info.dst.to_s.should eq "127.0.0.1:5671"
-      conn_info.ssl.should be_true
+      conn_info.ssl?.should be_true
       conn_info.ssl_version.should eq "TLSv1.3"
       conn_info.ssl_cipher.should eq "TLS_AES_256_GCM_SHA384"
     end

@@ -124,7 +124,7 @@ module AvalancheMQ
           ssl_client.sync = false
           ssl_client.read_buffering = true
           set_socket_options(client)
-          conn_info = ConnInfo.new(remote_addr, client.local_address)
+          conn_info = ConnectionInfo.new(remote_addr, client.local_address)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
