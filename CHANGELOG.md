@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FreeBSD compatibility
 - Crystal 1.0.0 compatibility
 - Publisher confirm count to Overview chart
+- Support for PROXY protocol v2, including SSL information
+
+### Changed
+
+- Delayed message exchange bug fix
+- Trigger explicit GC of message segments on purge and delete queue
 
 ## [1.0.0-alpha.27] - 2021-03-09
 
