@@ -22,7 +22,7 @@ set -eux
 [ -f /usr/share/crystal/src/ext/libcrystal.a ] && exit 0
 apt-get update
 apt-get install -y wget clang libssl-dev libpcre3-dev libgc-dev libevent-dev zlib1g-dev libsystemd-dev
-wget https://raw.githubusercontent.com/crystal-lang/crystal/master/src/ext/sigfault.c
+wget https://raw.githubusercontent.com/crystal-lang/crystal/1.0.0/src/ext/sigfault.c
 cc -c -o sigfault.o sigfault.c
 ar -rcs libcrystal.a sigfault.o
 mkdir -p /usr/share/crystal/src/ext
