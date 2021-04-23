@@ -60,11 +60,6 @@
               displayFormats: {
                 second: 'HH:mm:ss'
               }
-            },
-            ticks: {
-              min: 0,
-              max: MAX_TICKS,
-              source: 'auto'
             }
           }],
           yAxes: [{
