@@ -141,7 +141,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  it "should run GC on purge", focus: true do
+  it "should run GC on purge" do
     data_dir = s.vhosts["/"].data_dir
     info = Filesystem.info(data_dir)
     current = info.available

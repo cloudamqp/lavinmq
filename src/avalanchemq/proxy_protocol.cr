@@ -101,13 +101,13 @@ module AvalancheMQ
 
       private def self.extract_tlv_ssl(header, bytes)
         pos = 0
-        client = SSL_CLIENT.from_value(bytes[pos]); pos += 1
+        # client = SSL_CLIENT.from_value(bytes[pos]); pos += 1
         verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[pos, 4]); pos += 4
         header.ssl = true
         header.ssl_verify = verify.zero?
 
         value = bytes + pos
-        header = extract_tlv_sub_ssl(header, value)
+        extract_tlv_sub_ssl(header, value)
       end
 
       private def self.extract_tlv_sub_ssl(header, bytes)
