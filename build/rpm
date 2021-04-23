@@ -31,7 +31,7 @@ A resource efficient message queue server implementing the AMQP protocol
 #crystal spec
 
 %build
-shards build --production --release
+shards build --production --release --ignore-crystal-version
 
 %install
 install -D -m 0755 bin/%{name} %{buildroot}/%{_bindir}/%{name}

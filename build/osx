@@ -1,4 +1,4 @@
 #!/bin/bash -eux
 revision=$1
-shards build --release --production
+shards build --release --production --ignore-crystal-version
 build/tar $revision

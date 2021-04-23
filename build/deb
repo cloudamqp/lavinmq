@@ -7,14 +7,14 @@ pkg_version=${1:-$(git describe --tags | cut -c2- )}
 pkg_revision=${2:-1}
 architecture=${3:-$(dpkg --print-architecture)}
 
+shards install --production --ignore-crystal-version
 if [ "$architecture" != "$(dpkg --print-architecture)" ]
 then
-  shards install --production --ignore-crystal-version
   build/cross-compile-with-docker src/avalanchemq.cr ubuntu:$(lsb_release -rs)
   build/cross-compile-with-docker src/avalanchemqperf.cr ubuntu:$(lsb_release -rs)
   build/cross-compile-with-docker src/avalanchemqctl.cr ubuntu:$(lsb_release -rs)
 else
-  shards build --production --release --stats
+  shards build --release --stats
 fi
 
 root=builds/debian/$(lsb_release -cs)/avalanchemq_${pkg_version}-${pkg_revision}_$architecture
