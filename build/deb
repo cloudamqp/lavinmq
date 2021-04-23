@@ -14,7 +14,7 @@ then
   build/cross-compile-with-docker src/avalanchemqperf.cr ubuntu:$(lsb_release -rs)
   build/cross-compile-with-docker src/avalanchemqctl.cr ubuntu:$(lsb_release -rs)
 else
-  shards build --release --stats
+  shards build --release --stats --production --ignore-crystal-version
 fi
 
 root=builds/debian/$(lsb_release -cs)/avalanchemq_${pkg_version}-${pkg_revision}_$architecture
