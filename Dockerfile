@@ -16,7 +16,7 @@ WORKDIR /tmp
 
 # Copying and install dependencies
 COPY shard.yml shard.lock ./
-RUN shards install --production
+RUN shards install --production --ignore-crystal-version
 
 # Copying the rest of the code
 COPY ./static ./static
