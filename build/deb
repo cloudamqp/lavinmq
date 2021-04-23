@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eu
+set -eux
 which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
 which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
 which help2man > /dev/null || (echo "help2man required"; exit 1)
