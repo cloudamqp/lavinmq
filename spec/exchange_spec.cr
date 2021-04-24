@@ -13,7 +13,7 @@ describe AvalancheMQ::Exchange do
 
         x1.publish "test message", "some-rk"
 
-        q1.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q1.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
         q1.get(no_ack: true).should be_nil
 
         x3 = ch.exchange("e3", "topic", auto_delete: true)
@@ -24,10 +24,10 @@ describe AvalancheMQ::Exchange do
 
         x1.publish "test message", "some-rk"
 
-        q1.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q1.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
         q1.get(no_ack: true).should be_nil
 
-        q2.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
         q2.get(no_ack: true).should be_nil
       end
     end

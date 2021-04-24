@@ -25,8 +25,7 @@ module AvalancheMQ
     class MainController < Controller
       include StatsHelpers
       OVERVIEW_STATS = %w(ack deliver get publish confirm redeliver reject)
-      EXCHANGE_TYPES = %w(direct fanout topic headers
-                          x-federation-upstream x-consistent-hash)
+      EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream x-consistent-hash)
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -83,11 +82,11 @@ module AvalancheMQ
               queues:      queues,
             },
             queue_totals: {
-              messages:             ready + unacked,
-              messages_ready:       ready,
+              messages:                    ready + unacked,
+              messages_ready:              ready,
               messages_unacknowledged:     unacked,
-              messages_log:         add_logs(ready_log, unacked_log),
-              messages_ready_log:   ready_log,
+              messages_log:                add_logs(ready_log, unacked_log),
+              messages_ready_log:          ready_log,
               messages_unacknowledged_log: unacked_log,
             },
             recv_oct_details: {

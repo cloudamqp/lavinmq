@@ -7,8 +7,8 @@ describe AvalancheMQ::PriorityQueue do
       q = ch.queue("", args: q_args)
       q.publish "prio2", props: AMQP::Client::Properties.new(priority: 2)
       q.publish "prio1", props: AMQP::Client::Properties.new(priority: 1)
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("prio2")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("prio1")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("prio2")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("prio1")
     end
   end
 
@@ -19,9 +19,9 @@ describe AvalancheMQ::PriorityQueue do
       q.publish "prio0"
       q.publish "prio1", props: AMQP::Client::Properties.new(priority: 1)
       q.publish "prio00"
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("prio1")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("prio0")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("prio00")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("prio1")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("prio0")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("prio00")
     end
   end
 

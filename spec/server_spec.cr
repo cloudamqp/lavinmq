@@ -35,7 +35,7 @@ describe AvalancheMQ::Server do
       q = ch.queue
       q.publish "m1"
       m1 = q.get(no_ack: false)
-      m1.try { |m| m.reject }
+      m1.try(&.reject)
       m1 = q.get(no_ack: false)
       m1.should eq(nil)
     end
@@ -46,7 +46,7 @@ describe AvalancheMQ::Server do
       q = ch.queue
       q.publish "m1"
       m1 = q.get(no_ack: false)
-      m1.try { |m| m.reject(requeue: true) }
+      m1.try(&.reject(requeue: true))
       m1 = q.get(no_ack: false)
       m1.not_nil!.body_io.to_s.should eq("m1")
       m1.not_nil!.redelivered.should be_true
@@ -147,7 +147,6 @@ describe AvalancheMQ::Server do
     current = info.available
 
     with_channel do |ch|
-
       q = ch.queue "my_durable_queue", durable: true, exclusive: true
       4.times do
         q.publish_confirm "a" * 1024**2, props: AMQP::Client::Properties.new(delivery_mode: 2)
@@ -166,7 +165,6 @@ describe AvalancheMQ::Server do
       (after_purge > after_publish).should be_true
     end
   end
-
 
   it "supports publisher confirms" do
     with_channel do |ch|

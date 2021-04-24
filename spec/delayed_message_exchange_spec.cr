@@ -50,8 +50,8 @@ describe "Delayed Message Exchange" do
       queue.message_count.should eq 0
       wait_for { queue.message_count == 2 }
       queue.message_count.should eq 2
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
     end
   ensure
     s.vhosts["/"].delete_exchange(x_name)
@@ -70,9 +70,9 @@ describe "Delayed Message Exchange" do
       queue = s.vhosts["/"].queues[q_name]
       queue.message_count.should eq 0
       wait_for { queue.message_count >= 1 }
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("delay-short")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-short")
       wait_for { queue.message_count == 1 }
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("delay-long")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-long")
     end
   ensure
     s.vhosts["/"].delete_exchange(x_name)

@@ -8,7 +8,7 @@ module AvalancheMQ
       def initialize(@log : Logger)
       end
 
-      def call(context)
+      def call(context) # ameba:disable Metrics/CyclomaticComplexity
         call_next(context)
       rescue ex : Server::UnknownContentType
         context.response.content_type = "text/plain"

@@ -8,7 +8,7 @@ require "option_parser"
 class AvalancheMQCtl
   @@cfg = AvalancheMQ::Config.instance
   @options = {} of String => String
-  @args  = {} of String => JSON::Any
+  @args = {} of String => JSON::Any
   @cmd : String?
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
@@ -16,31 +16,31 @@ class AvalancheMQCtl
   @socket : UNIXSocket?
 
   COMPAT_CMDS = {
-    {"add_user",                "Creates a new user", "<username> <password>"},
-    {"change_password",         "Change the user password", "<username> <new_password>"},
-    {"delete_user",             "Delete a user", "<username>"},
-    {"list_users",              "List user names and tags", ""},
-    {"set_user_tags",           "Sets user tags", "<username> <tags>"},
-    {"list_vhosts",             "Lists virtual hosts", ""},
-    {"add_vhost",               "Creates a virtual host", "<vhost>"},
-    {"delete_vhost",            "Deletes a virtual host", "<vhost>"},
-    {"clear_policy",            "Clears (removes) a policy", "<name>"},
-    {"list_policies",           "Lists all policies in a virtual host", ""},
-    {"list_connections",        "Lists AMQP 0.9.1 connections for the node", ""},
-    {"list_queues",             "Lists queues and their properties", ""},
-    {"purge_queue",             "Purges a queue (removes all messages in it)", "<queue>"},
-    {"pause_queue",             "Pause all consumers on a queue", "<queue>"},
-    {"resume_queue",            "Resume all consumers on a queue", "<queue>"},
-    {"delete_queue",            "Delete queue", "<queue>"},
-    {"export_definitions",      "Exports definitions in JSON", ""},
-    {"import_definitions",      "Import definitions in JSON", "<file>"},
-    {"close_all_connections",   "Instructs the broker to close all connections for the specified vhost or entire node", "<reason>"},
-    {"close_connection",        "Instructs the broker to close a connection by pid", "<pid> <reason>"},
-    {"stop_app",                "Stop the AMQP broker", ""},
-    {"start_app",               "Starts the AMQP broker", ""},
+    {"add_user", "Creates a new user", "<username> <password>"},
+    {"change_password", "Change the user password", "<username> <new_password>"},
+    {"delete_user", "Delete a user", "<username>"},
+    {"list_users", "List user names and tags", ""},
+    {"set_user_tags", "Sets user tags", "<username> <tags>"},
+    {"list_vhosts", "Lists virtual hosts", ""},
+    {"add_vhost", "Creates a virtual host", "<vhost>"},
+    {"delete_vhost", "Deletes a virtual host", "<vhost>"},
+    {"clear_policy", "Clears (removes) a policy", "<name>"},
+    {"list_policies", "Lists all policies in a virtual host", ""},
+    {"list_connections", "Lists AMQP 0.9.1 connections for the node", ""},
+    {"list_queues", "Lists queues and their properties", ""},
+    {"purge_queue", "Purges a queue (removes all messages in it)", "<queue>"},
+    {"pause_queue", "Pause all consumers on a queue", "<queue>"},
+    {"resume_queue", "Resume all consumers on a queue", "<queue>"},
+    {"delete_queue", "Delete queue", "<queue>"},
+    {"export_definitions", "Exports definitions in JSON", ""},
+    {"import_definitions", "Import definitions in JSON", "<file>"},
+    {"close_all_connections", "Instructs the broker to close all connections for the specified vhost or entire node", "<reason>"},
+    {"close_connection", "Instructs the broker to close a connection by pid", "<pid> <reason>"},
+    {"stop_app", "Stop the AMQP broker", ""},
+    {"start_app", "Starts the AMQP broker", ""},
 
-    {"list_exchanges",          "Lists exchanges", ""},
-    {"delete_exchange",         "Delete exchange", "<name>"},
+    {"list_exchanges", "Lists exchanges", ""},
+    {"delete_exchange", "Delete exchange", "<name>"},
   }
 
   def initialize
@@ -134,31 +134,31 @@ class AvalancheMQCtl
   def run_cmd
     @parser.parse
     case @cmd
-    when "create_queue" then create_queue
-    when "delete_queue" then delete_queue
-    when "import_definitions" then import_definitions
-    when "export_definitions" then export_definitions
-    when "set_user_tags" then set_user_tags
-    when "add_user" then add_user
-    when "list_users" then list_users
-    when "delete_user" then delete_user
-    when "change_password" then change_password
-    when "list_queues" then list_queues
-    when "purge_queue" then purge_queue
-    when "list_vhosts" then list_vhosts
-    when "add_vhost" then add_vhost
-    when "delete_vhost" then delete_vhost
-    when "clear_policy" then clear_policy
-    when "list_policies" then list_policies
-    when "set_policy" then set_policy
-    when "list_connections" then list_connections
-    when "close_connection" then close_connection
+    when "create_queue"          then create_queue
+    when "delete_queue"          then delete_queue
+    when "import_definitions"    then import_definitions
+    when "export_definitions"    then export_definitions
+    when "set_user_tags"         then set_user_tags
+    when "add_user"              then add_user
+    when "list_users"            then list_users
+    when "delete_user"           then delete_user
+    when "change_password"       then change_password
+    when "list_queues"           then list_queues
+    when "purge_queue"           then purge_queue
+    when "list_vhosts"           then list_vhosts
+    when "add_vhost"             then add_vhost
+    when "delete_vhost"          then delete_vhost
+    when "clear_policy"          then clear_policy
+    when "list_policies"         then list_policies
+    when "set_policy"            then set_policy
+    when "list_connections"      then list_connections
+    when "close_connection"      then close_connection
     when "close_all_connections" then close_all_connections
-    when "list_exchanges" then list_exchanges
-    when "create_exchange" then create_exchange
-    when "delete_exchange" then delete_exchange
-    when "stop_app" then
-    when "start_app" then
+    when "list_exchanges"        then list_exchanges
+    when "create_exchange"       then create_exchange
+    when "delete_exchange"       then delete_exchange
+    when "stop_app"
+    when "start_app"
     else
       puts @parser
       abort
@@ -288,7 +288,7 @@ class AvalancheMQCtl
     username = ARGV.shift?
     password = ARGV.shift?
     abort @banner unless username && password
-    resp = http.put "/api/users/#{username}", @headers, { password: password }.to_json
+    resp = http.put "/api/users/#{username}", @headers, {password: password}.to_json
     handle_response(resp, 201, 204)
   end
 
@@ -303,7 +303,7 @@ class AvalancheMQCtl
     username = ARGV.shift?
     tags = ARGV.shift?
     abort @banner unless username && tags
-    resp = http.put "/api/users/#{username}", @headers, { tags: tags }.to_json
+    resp = http.put "/api/users/#{username}", @headers, {tags: tags}.to_json
     handle_response(resp, 204)
   end
 
@@ -311,7 +311,7 @@ class AvalancheMQCtl
     username = ARGV.shift?
     pwd = ARGV.shift?
     abort @banner unless username && pwd
-    resp = http.put "/api/users/#{username}", @headers, { password: pwd }.to_json
+    resp = http.put "/api/users/#{username}", @headers, {password: pwd}.to_json
     handle_response(resp, 204)
   end
 
@@ -326,7 +326,6 @@ class AvalancheMQCtl
       next unless q = u.as_h?
       puts "#{q["name"]}\t#{q["messages"]}"
     end
-
   end
 
   private def purge_queue
@@ -354,7 +353,7 @@ class AvalancheMQCtl
   end
 
   private def list_connections
-    columns =  ARGV
+    columns = ARGV
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
     resp = http.get "/api/connections", @headers
     puts "Listing connections ..." unless quiet?
@@ -443,7 +442,7 @@ class AvalancheMQCtl
     definition = ARGV.shift?
     abort @banner unless name && pattern && definition
     body = {
-      pattern: pattern,
+      pattern:    pattern,
       definition: JSON.parse(definition),
       "apply-to": @options["apply-to"]? || "all",
       "priority": @options["priority"]?.try &.to_i? || 0,
@@ -459,8 +458,8 @@ class AvalancheMQCtl
     url = "/api/queues/#{URI.encode_www_form(vhost)}/#{name}"
     body = {
       "auto_delete": @options.has_key?("auto_delete"),
-      "durable": @options.has_key?("durable"),
-      "arguments": @args
+      "durable":     @options.has_key?("durable"),
+      "arguments":   @args,
     }
     resp = http.put url, @headers, body.to_json
     handle_response(resp, 201, 204)
@@ -497,12 +496,12 @@ class AvalancheMQCtl
     abort @banner unless name && etype
     url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{name}"
     body = {
-      "type": etype,
+      "type":        etype,
       "auto_delete": @options.has_key?("auto_delete"),
-      "durable": @options.has_key?("durable"),
-      "internal": @options.has_key?("internal"),
-      "delayed": @options.has_key?("delayed"),
-      "arguments": @args
+      "durable":     @options.has_key?("durable"),
+      "internal":    @options.has_key?("internal"),
+      "delayed":     @options.has_key?("delayed"),
+      "arguments":   @args,
     }
     resp = http.put url, @headers, body.to_json
     handle_response(resp, 201, 204)
@@ -516,7 +515,6 @@ class AvalancheMQCtl
     resp = http.delete url
     handle_response(resp, 204)
   end
-
 end
 
 cli = AvalancheMQCtl.new

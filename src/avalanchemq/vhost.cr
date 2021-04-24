@@ -155,13 +155,26 @@ module AvalancheMQ
         end
       end
 
+      find_cc_queues(ex, headers, visited, queues)
+
+      if queues.empty? && ex.alternate_exchange
+        if ae = @exchanges[ex.alternate_exchange]?
+          visited.add(ex)
+          if visited.add?(ae)
+            find_all_queues(ae, routing_key, headers, visited, queues)
+          end
+        end
+      end
+    end
+
+    private def find_cc_queues(ex, headers, visited, queues)
       if cc = headers.try(&.fetch("CC", nil))
         if cc = cc.as?(Array(AMQP::Field))
           hdrs = headers.not_nil!.clone
           hdrs.delete "CC"
-          cc.each do |rk|
-            if rk = rk.as?(String)
-              find_all_queues(ex, rk, hdrs, visited, queues)
+          cc.each do |cc_rk|
+            if cc_rk = cc_rk.as?(String)
+              find_all_queues(ex, cc_rk, hdrs, visited, queues)
             else
               raise Error::PreconditionFailed.new("CC header not a string array")
             end
@@ -176,24 +189,15 @@ module AvalancheMQ
           hdrs = headers.not_nil!.clone
           hdrs.delete "CC"
           hdrs.delete "BCC"
-          bcc.each do |rk|
-            if rk = rk.as?(String)
-              find_all_queues(ex, rk, hdrs, visited, queues)
+          bcc.each do |bcc_rk|
+            if bcc_rk = bcc_rk.as?(String)
+              find_all_queues(ex, bcc_rk, hdrs, visited, queues)
             else
               raise Error::PreconditionFailed.new("BCC header not a string array")
             end
           end
         else
           raise Error::PreconditionFailed.new("BCC header not a string array")
-        end
-      end
-
-      if queues.empty? && ex.alternate_exchange
-        if ae = @exchanges[ex.alternate_exchange]?
-          visited.add(ex)
-          if visited.add?(ae)
-            find_all_queues(ae, routing_key, headers, visited, queues)
-          end
         end
       end
     end
@@ -699,7 +703,7 @@ module AvalancheMQ
         end
         @dirty = false
       rescue ex
-        @log.fatal("Unhandled exception in #gc_segments_loop, "\
+        @log.fatal("Unhandled exception in #gc_segments_loop, " \
                    "killing process #{ex.inspect_with_backtrace}")
         exit 1
       end
@@ -729,15 +733,7 @@ module AvalancheMQ
       collected = 0_u64
 
       if referenced_sps.empty?
-        @segments.reject! do |seg, mfile|
-          next if mfile == @wfile
-          collected += mfile.disk_usage
-          @log.info { "Deleting segment #{seg}" }
-          @segment_holes.delete(mfile)
-          mfile.close(truncate_to_size: false)
-          mfile.delete
-          true
-        end
+        collected += gc_all_segements
       end
 
       file = nil
@@ -785,6 +781,20 @@ module AvalancheMQ
       end
 
       @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
+    end
+
+    private def gc_all_segements
+      collected = 0_u64
+      @segments.reject! do |seg, mfile|
+        next if mfile == @wfile
+        collected += mfile.disk_usage
+        @log.info { "Deleting segment #{seg}" }
+        @segment_holes.delete(mfile)
+        mfile.close(truncate_to_size: false)
+        mfile.delete
+        true
+      end
+      collected
     end
 
     # For each file we hold an array of holes where we've already punched

@@ -56,7 +56,7 @@ describe AvalancheMQ::Queue do
         q = ch.queue(q_name)
         q.bind(x.name, q.name)
         x.publish_confirm "test message", q.name
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
         iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
         iq.pause!
@@ -76,7 +76,7 @@ describe AvalancheMQ::Queue do
         q.bind(x.name, q.name)
 
         x.publish_confirm "test message", q.name
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
         iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
         iq.pause!

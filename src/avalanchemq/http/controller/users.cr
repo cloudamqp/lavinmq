@@ -25,7 +25,7 @@ module AvalancheMQ
     class UsersController < Controller
       include UserHelpers
 
-      private def register_routes
+      private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
           page(context, @amqp_server.users.each_value.reject(&.hidden?)

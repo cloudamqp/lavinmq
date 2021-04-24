@@ -42,9 +42,9 @@ describe AvalancheMQ::Shovel do
         sleep 10.milliseconds
         x.publish "shovel me 3", "ql_q1"
         sleep 10.milliseconds
-        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 1"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 2"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should be_nil
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
+        q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
         s.vhosts["/"].shovels.not_nil!.empty?.should be_true
       end
     ensure
@@ -84,9 +84,9 @@ describe AvalancheMQ::Shovel do
         spawn { shovel.not_nil!.run }
         wait_for { shovel.not_nil!.running? }
         x.publish_confirm "shovel me 3", "sf_q1"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 1"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 2"
-        q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me 3"
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
         shovel.not_nil!.running?.should be_true
       end
     ensure
@@ -117,7 +117,7 @@ describe AvalancheMQ::Shovel do
         wait_for { shovel.not_nil!.running? }
         sleep 0.1 # Give time for message to be shoveled
         s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
-        q2.get(no_ack: false).try { |m| m.body_io.to_s }.should eq "shovel me"
+        q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
       end
     ensure
       ShovelSpecHelpers.cleanup "ap_"
@@ -146,7 +146,7 @@ describe AvalancheMQ::Shovel do
         wait_for { shovel.not_nil!.running? }
         sleep 0.1 # Give time for message to be shoveled
         s.vhosts["/"].queues["na_q1"].message_count.should eq 0
-        q2.get(no_ack: false).try { |m| m.body_io.to_s }.should eq "shovel me"
+        q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
       end
     ensure
       ShovelSpecHelpers.cleanup "na_"
@@ -236,7 +236,7 @@ describe AvalancheMQ::Shovel do
         q1.publish_confirm "shovel me 3", props: props
         q1.publish_confirm "shovel me 4", props: props
         4.times do |i|
-          q2.get(no_ack: true).try { |m| m.body_io.to_s }.should eq "shovel me #{i + 1}"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me #{i + 1}"
         end
         s.vhosts["/"].queues["rc_q1"].message_count.should eq 0
       end

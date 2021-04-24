@@ -3,8 +3,8 @@ require "../src/avalanchemq/consistent_hasher.cr"
 
 describe "Consistent Hash Exchange" do
   describe "Hasher" do
-     # weight/replicas = binding key as INT
-     # hash on queue name
+    # weight/replicas = binding key as INT
+    # hash on queue name
     it "should return nil if empty" do
       ch = ConsistentHasher(String).new
       ch.get("1").should be_nil
@@ -88,7 +88,7 @@ describe "Consistent Hash Exchange" do
         q.bind(x.name, "1")
         x.publish("test message", "rk")
         q.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message")
       end
     ensure
@@ -118,16 +118,16 @@ describe "Consistent Hash Exchange" do
         x.publish "test message 2", "r3"
 
         q0.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 0")
         q1.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should be_nil
         q2.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 1")
         q2.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 2")
       end
     ensure
@@ -168,22 +168,22 @@ describe "Consistent Hash Exchange" do
         q1 = ch.queue(q_names[1])
         q1.bind(x.name, "3")
 
-        hdrs1 = AMQP::Client::Arguments.new()
-        hdrs2 = AMQP::Client::Arguments.new({ "cluster" => "1"})
-        hdrs3 = AMQP::Client::Arguments.new({ "cluster" => ""})
+        hdrs1 = AMQP::Client::Arguments.new
+        hdrs2 = AMQP::Client::Arguments.new({"cluster" => "1"})
+        hdrs3 = AMQP::Client::Arguments.new({"cluster" => ""})
 
         x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
         x.publish_confirm "test message 1", "abc", props: AMQP::Client::Properties.new(headers: hdrs2)
         x.publish_confirm "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
 
         q0.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 0")
         q0.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 2")
         q1.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 1")
       end
     ensure
@@ -219,16 +219,16 @@ describe "Consistent Hash Exchange" do
         x.publish "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
 
         q0.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 0")
         q1.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should be_nil
         q2.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 1")
         q2.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message 2")
       end
     ensure
@@ -236,58 +236,57 @@ describe "Consistent Hash Exchange" do
       q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
       q_names = [] of String
     end
-     it "should route on to same queue even after delete" do
-       with_channel do |ch|
-         x = ch.exchange(x_name, "x-consistent-hash")
-         q_names = [] of String
+    it "should route on to same queue even after delete" do
+      with_channel do |ch|
+        x = ch.exchange(x_name, "x-consistent-hash")
+        q_names = [] of String
 
-         q_names << "1"
-         q0 = ch.queue(q_names[0])
-         q0.bind(x.name, "3")
+        q_names << "1"
+        q0 = ch.queue(q_names[0])
+        q0.bind(x.name, "3")
 
-         q1 = ch.queue("2")
-         q1.bind(x.name, "3")
+        q1 = ch.queue("2")
+        q1.bind(x.name, "3")
 
-         q_names << "3"
-         q2 = ch.queue(q_names[1])
-         q2.bind(x.name, "3")
+        q_names << "3"
+        q2 = ch.queue(q_names[1])
+        q2.bind(x.name, "3")
 
-         x.publish "test message 0", "r1"
-         x.publish "test message 1", "r2"
-         x.publish "test message 2", "r3"
+        x.publish "test message 0", "r1"
+        x.publish "test message 1", "r2"
+        x.publish "test message 2", "r3"
 
-         q0.get(no_ack: true)
-           .try { |msg| msg.body_io.to_s }
-           .should eq("test message 0")
-         q2.get(no_ack: true)
-           .try { |msg| msg.body_io.to_s }
-           .should eq("test message 1")
-         q2.get(no_ack: true)
-           .try { |msg| msg.body_io.to_s }
-           .should eq("test message 2")
+        q0.get(no_ack: true)
+          .try(&.body_io.to_s)
+          .should eq("test message 0")
+        q2.get(no_ack: true)
+          .try(&.body_io.to_s)
+          .should eq("test message 1")
+        q2.get(no_ack: true)
+          .try(&.body_io.to_s)
+          .should eq("test message 2")
 
-         s.vhosts["/"].delete_queue("2")
+        s.vhosts["/"].delete_queue("2")
 
-         x.publish "test message 0", "r1"
-         x.publish "test message 1", "r2"
-         x.publish "test message 2", "r3"
+        x.publish "test message 0", "r1"
+        x.publish "test message 1", "r2"
+        x.publish "test message 2", "r3"
 
-         q0.get(no_ack: true)
-           .try { |msg| msg.body_io.to_s }
-           .should eq("test message 0")
-         q2.get(no_ack: true)
-           .try { |msg| msg.body_io.to_s }
-           .should eq("test message 1")
-         q2.get(no_ack: true)
-           .try { |msg| msg.body_io.to_s }
-           .should eq("test message 2")
-
-       end
-     ensure
-       s.vhosts["/"].delete_exchange(x_name)
-       q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-       q_names = [] of String
-     end
+        q0.get(no_ack: true)
+          .try(&.body_io.to_s)
+          .should eq("test message 0")
+        q2.get(no_ack: true)
+          .try(&.body_io.to_s)
+          .should eq("test message 1")
+        q2.get(no_ack: true)
+          .try(&.body_io.to_s)
+          .should eq("test message 2")
+      end
+    ensure
+      s.vhosts["/"].delete_exchange(x_name)
+      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
+      q_names = [] of String
+    end
   end
 
   describe "exchange => exchange bindings" do
@@ -309,7 +308,7 @@ describe "Consistent Hash Exchange" do
 
         x.publish("test message", "rk")
         q.get(no_ack: true)
-          .try { |msg| msg.body_io.to_s }
+          .try(&.body_io.to_s)
           .should eq("test message")
       end
     ensure

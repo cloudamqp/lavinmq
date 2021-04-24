@@ -5,8 +5,11 @@ module AvalancheMQ
   # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
   module ProxyProtocol
     class InvalidSignature < Exception; end
+
     class InvalidVersionCmd < Exception; end
+
     class InvalidFamily < Exception; end
+
     class UnsupportedTLVType < Exception; end
 
     module V1
@@ -32,7 +35,7 @@ module AvalancheMQ
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32
           when 5 then dst_port = v.to_i32
-          else break
+          else        break
           end
           i += 1
         end
@@ -101,7 +104,7 @@ module AvalancheMQ
 
       private def self.extract_tlv_ssl(header, bytes)
         pos = 0
-        client = SSL_CLIENT.from_value(bytes[pos]); pos += 1
+        client = SSLCLIENT.from_value(bytes[pos]); pos += 1
         verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[pos, 4]); pos += 4
         header.ssl = true
         header.ssl_verify = verify.zero?
@@ -137,7 +140,7 @@ module AvalancheMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          { ConnectionInfo.new(src, dst), 12 }
+          {ConnectionInfo.new(src, dst), 12}
         when Family::TCPv6
           # TODO: should be optmizied, now converted from binary to string to binary
           src_addr = String.build(39) do |str|
@@ -157,43 +160,43 @@ module AvalancheMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          { ConnectionInfo.new(src, dst), 36 }
+          {ConnectionInfo.new(src, dst), 36}
         else
           raise InvalidFamily.new family.to_s
         end
       end
 
-      enum SSL_CLIENT : UInt8
-        SSL = 0x01
+      enum SSLCLIENT : UInt8
+        SSL       = 0x01
         CERT_CONN = 0x02
         CERT_SESS = 0x04
       end
 
       enum TLVType : UInt8
-       ALPN      = 0x01
-       AUTHORITY = 0x02
-       CRC32C    = 0x03
-       NOOP      = 0x04
-       UNIQUE_ID = 0x05
-       SSL       = 0x20
-       NETNS     = 0x30
+        ALPN      = 0x01
+        AUTHORITY = 0x02
+        CRC32C    = 0x03
+        NOOP      = 0x04
+        UNIQUE_ID = 0x05
+        SSL       = 0x20
+        NETNS     = 0x30
       end
 
       enum SSLSubType : UInt8
-       VERSION = 0x21
-       CN      = 0x22
-       CIPHER  = 0x23
-       SIG_ALG = 0x24
-       KEY_ALG = 0x25
+        VERSION = 0x21
+        CN      = 0x22
+        CIPHER  = 0x23
+        SIG_ALG = 0x24
+        KEY_ALG = 0x25
       end
 
       enum Family : UInt8
-        UNSPEC = 0
-        TCPv4 = 17
-        UDPv4 = 18
-        TCPv6 = 33
-        UDPv6 = 34
-        UNIXStream = 49
+        UNSPEC       =  0
+        TCPv4        = 17
+        UDPv4        = 18
+        TCPv6        = 33
+        UDPv6        = 34
+        UNIXStream   = 49
         UNIXDatagram = 50
       end
     end

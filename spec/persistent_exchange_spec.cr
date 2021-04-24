@@ -14,7 +14,7 @@ describe "Persistent Exchange" do
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
         q.get(no_ack: true)
-          .try { |msg| msg.properties.headers }
+          .try(&.properties.headers)
           .try { |h| h["x-offset"] }
           .should_not be_nil
       end
@@ -31,7 +31,7 @@ describe "Persistent Exchange" do
         x.publish "test message", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -47,7 +47,7 @@ describe "Persistent Exchange" do
         x.publish "test message 2", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -63,7 +63,7 @@ describe "Persistent Exchange" do
         x.publish "test message 2", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -79,7 +79,7 @@ describe "Persistent Exchange" do
         x.publish "test message 2", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => -1})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -96,8 +96,8 @@ describe "Persistent Exchange" do
         x.publish "test message 3", q.name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 3})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -119,7 +119,7 @@ describe "Persistent Exchange" do
         q = ch.queue q_name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})
         q.bind(x_name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -138,7 +138,7 @@ describe "Persistent Exchange" do
         x.publish pmsg, q.name
         bind_args = AMQP::Client::Arguments.new({"x-tail" => 1})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -155,8 +155,8 @@ describe "Persistent Exchange" do
         x.publish "test message 3", q.name
         bind_args = AMQP::Client::Arguments.new({"x-tail" => 2})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -173,8 +173,8 @@ describe "Persistent Exchange" do
         x.publish "test message 3", q.name
         bind_args = AMQP::Client::Arguments.new({"x-tail" => -1})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -191,7 +191,7 @@ describe "Persistent Exchange" do
         x.publish "test message 1", q.name
         bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
         q.unbind(x.name, "#", args: bind_args)
         sleep 0.01
         q.bind(x.name, "#", args: bind_args)
@@ -213,17 +213,17 @@ describe "Persistent Exchange" do
         x.publish "test message 3", q.name
         bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
 
         offset = q.get(no_ack: true)
-          .try { |msg| msg.properties.headers }
+          .try(&.properties.headers)
           .try { |h| h["x-offset"] }
 
         bind_args = AMQP::Client::Arguments.new({"x-from" => offset})
         q = ch.queue
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -240,8 +240,8 @@ describe "Persistent Exchange" do
         x.publish "test message 3", q.name
         bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -263,14 +263,14 @@ describe "Persistent Exchange" do
         bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "#", args: bind_args)
         offset = q.get(no_ack: true)
-          .try { |msg| msg.properties.headers }
+          .try(&.properties.headers)
           .try { |h| h["x-offset"] }
 
         bind_args = AMQP::Client::Arguments.new({"x-from" => offset.as(Int64) + 1})
         q = ch.queue
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 3")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
       end
     ensure
       s.vhosts["/"].delete_exchange(x_name)
@@ -301,7 +301,7 @@ describe "Persistent Exchange" do
         x.publish "test message 2", "rk.2"
         bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "rk.2", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 2")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
         q.get(no_ack: true).should be_nil
       end
     ensure
@@ -318,7 +318,7 @@ describe "Persistent Exchange" do
         x.publish "test message 2", "rk.2", props: AMQP::Client::Properties.new(headers: hdrs)
         bind_args = AMQP::Client::Arguments.new({"x-from" => 0})
         q.bind(x.name, "#", args: bind_args)
-        q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("test message 1")
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
         q.get(no_ack: true).should be_nil
       end
     ensure

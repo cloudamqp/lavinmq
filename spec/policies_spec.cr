@@ -141,8 +141,8 @@ describe AvalancheMQ::VHost do
       s.vhosts["/"].add_policy("max-length-bytes", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, 12_i8)
       sleep 0.01
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short2")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("long")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
       s.vhosts["/"].delete_policy("max-length-bytes")
     end
   ensure
@@ -160,8 +160,8 @@ describe AvalancheMQ::VHost do
       q.publish_confirm "short2"
       q.publish_confirm "long"
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short2")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("long")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
       s.vhosts["/"].delete_policy("max-length-bytes")
     end
   ensure
@@ -180,8 +180,8 @@ describe AvalancheMQ::VHost do
       q.publish_confirm "short2"
       q.publish_confirm "long"
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short1")
-      q.get(no_ack: true).try { |msg| msg.body_io.to_s }.should eq("short2")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("short1")
+      q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
       s.vhosts["/"].delete_policy("max-length-bytes")
     end
   ensure

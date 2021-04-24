@@ -522,13 +522,7 @@ module AvalancheMQ
       elsif frame.exchange_name.empty?
         send_access_refused(frame, "Not allowed to declare the default exchange")
       elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
-        if frame.passive || e.match?(frame)
-          unless frame.no_wait
-            send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
-          end
-        else
-          send_precondition_failed(frame, "Existing exchange '#{frame.exchange_name}' declared with other arguments")
-        end
+        redeclare_exchange(e, frame)
       elsif frame.passive
         send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
       elsif frame.exchange_name.starts_with? "amq."
@@ -546,6 +540,16 @@ module AvalancheMQ
           send_precondition_failed(frame, e.message)
         end
         send AMQP::Frame::Exchange::DeclareOk.new(frame.channel) unless frame.no_wait
+      end
+    end
+
+    private def redeclare_exchange(e, frame)
+      if frame.passive || e.match?(frame)
+        unless frame.no_wait
+          send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
+        end
+      else
+        send_precondition_failed(frame, "Existing exchange '#{frame.exchange_name}' declared with other arguments")
       end
     end
 

@@ -14,7 +14,7 @@ module AvalancheMQ
           else
           end
         end
-        io << datetime << " [" << severity << "] " unless ENV.fetch("JOURNAL_STREAM",nil)
+        io << datetime << " [" << severity << "] " unless ENV.fetch("JOURNAL_STREAM", nil)
         io << progname << ": " << message
       end
     end

@@ -101,7 +101,7 @@ module AvalancheMQ
       @exclusive_consumer
     end
 
-    def apply_policy(policy : Policy)
+    def apply_policy(policy : Policy) # ameba:disable Metrics/CyclomaticComplexity
       clear_policy
       policy.definition.each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
@@ -252,12 +252,12 @@ module AvalancheMQ
     end
 
     def pause!
-      return unless @state == QueueState::Running
+      return unless @state.running?
       @state = QueueState::Paused
     end
 
     def resume!
-      return unless @state == QueueState::Paused
+      return unless @state.paused?
       @state = QueueState::Running
       @paused.send nil
     end
@@ -271,20 +271,20 @@ module AvalancheMQ
       end
     end
 
-    private def deliver_loop
+    private def deliver_loop # ameba:disable Metrics/CyclomaticComplexity
       i = 0
       loop do
-        break if @state == QueueState::Closed
+        break if @state.closed?
         if @ready.empty?
           i = 0
           receive_or_expire || break
         end
-        if @state == QueueState::Running && (c = @consumers.next_consumer(i))
+        if @state.running? && (c = @consumers.next_consumer(i))
           deliver_to_consumer(c)
           # deliver 4096 msgs to a consumer then change consumer
           i = 0 if (i += 1) == 4096
         else
-          break if @state == QueueState::Closed
+          break if @state.closed?
           i = 0
           consumer_or_expire || break
         end
@@ -337,7 +337,7 @@ module AvalancheMQ
         when @refresh_ttl_timeout.receive
           @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
         when timeout ttl
-          return true if @state == QueueState::Closed
+          return true if @state.closed?
           case ttl
           when q_ttl
             expire_queue && return false
@@ -346,7 +346,7 @@ module AvalancheMQ
           else raise "Unknown TTL"
           end
         end
-      elsif @state == QueueState::Flow || @state == QueueState::Paused
+      elsif @state.flow? || @state.paused?
         @paused.receive
       else
         @consumer_available.receive
@@ -426,7 +426,7 @@ module AvalancheMQ
     class RejectOverFlow < Exception; end
 
     def publish(sp : SegmentPosition, persistent = false) : Bool
-      return false if @state == QueueState::Closed
+      return false if @state.closed?
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
       was_empty = @ready.push(sp) == 1
@@ -618,6 +618,14 @@ module AvalancheMQ
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
+      handle_xdeath_header(headers, meta, routing_keys, reason)
+
+      props.expiration = nil if props.expiration
+      props
+    end
+
+    private def handle_xdeath_header(headers, meta, routing_keys, reason)
+      props = meta.properties
       xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
 
       found_at = -1
@@ -656,9 +664,7 @@ module AvalancheMQ
         xdeaths.unshift xd.as(AMQP::Table)
       end
       headers["x-death"] = xdeaths
-
-      props.expiration = nil if props.expiration
-      props
+      nil
     end
 
     private def dead_letter_msg(msg : BytesMessage, sp, props, dlx, dlrk)
@@ -675,7 +681,7 @@ module AvalancheMQ
     end
 
     def basic_get(no_ack) : Envelope?
-      return nil unless @state == QueueState::Running
+      return nil unless @state.running?
       @last_get_time = Time.monotonic
       @get_count += 1
       if env = get(no_ack)
@@ -688,7 +694,7 @@ module AvalancheMQ
 
     # return the next message in the ready queue
     private def get(no_ack : Bool, consumer : Client::Channel::Consumer? = nil)
-      return nil if @state == QueueState::Closed
+      return nil if @state.closed?
       if sp = @ready.shift?
         unless no_ack
           @unacked.push(sp, consumer)

@@ -1,4 +1,5 @@
 require "./exchange"
+
 module AvalancheMQ
   class HeadersExchange < Exchange
     def type : String
@@ -60,6 +61,7 @@ module AvalancheMQ
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def matches(bindings, routing_key, headers, &blk : Queue | Exchange ->)
       bindings.each do |bt, dst|
         args = bt[1] || next

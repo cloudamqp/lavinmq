@@ -24,13 +24,16 @@ module AvalancheMQ
       socket.try &.close unless socket.try &.closed?
       nil
     ensure
-      timeout =
-        if t = tune_ok
-          if t.heartbeat > 0
-            t.heartbeat / 2
-          end
-        end
+      timeout = heartbeat_timeout(tune_ok)
       socket.read_timeout = timeout
+    end
+
+    private def self.heartbeat_timeout(tune_ok)
+      if t = tune_ok
+        if t.heartbeat > 0
+          t.heartbeat / 2
+        end
+      end
     end
 
     def self.confirm_header(socket, log)
