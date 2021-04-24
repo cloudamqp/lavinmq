@@ -2,7 +2,7 @@ version: 2.0
 shards:
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 0.14.2
+    version: 0.14.3
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
@@ -14,7 +14,7 @@ shards:
 
   baked_file_system:
     git: https://github.com/schovi/baked_file_system.git
-    version: 0.9.8+git.commit.fd6ba88eb227400954c430bb946382de85809240
+    version: 0.10.0+git.commit.f086b45c52bac364e67b4b4c0b5698f2407215e2
 
   http-protection:
     git: https://github.com/84codes/http-protection.git
@@ -30,7 +30,7 @@ shards:
 
   router:
     git: https://github.com/tbrand/router.cr.git
-    version: 0.2.7
+    version: 0.2.8
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
