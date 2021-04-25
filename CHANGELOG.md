@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Restore PROXY protocol v2 functionality
+- Correct header names for Received/Sent bytes in Connections listing
 
 ## [1.0.0-alpha.29] - 2021-04-23
 
