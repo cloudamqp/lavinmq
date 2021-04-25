@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.30] - 2021-04-25
+
+### Fixed
+
+- Restore PROXY protocol v2 functionality
+
+## [1.0.0-alpha.29] - 2021-04-23
+
+### Fixed
+
+- Build script fixes
+
 ## [1.0.0-alpha.28] - 2021-04-23
 
 ### Fixed
