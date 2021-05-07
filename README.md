@@ -316,7 +316,7 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 
 1. Update `CHANGELOG.md`
 1. Bump version in `shards.yml`
-1. Create and push an annotated tag (`git tag -a $(shards version)`), put the changelog of the version in the tagging message
+1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
 
 ## Contributors
 
