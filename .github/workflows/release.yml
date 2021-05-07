@@ -1,0 +1,36 @@
+on:
+  push:
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+name: Create Release
+
+jobs:
+  build:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # to be able to figure out which is next to latest tag
+
+      # Needed because of https://github.com/actions/checkout/issues/290
+      - name: Fetch annotated tags
+        run: git fetch --force --tags
+
+      - name: Construct the release notes
+        run: |
+          echo 'RELEASE_NOTES<<EOF' >> $GITHUB_ENV
+          ./build/release_notes >> $GITHUB_ENV
+          echo 'EOF' >> $GITHUB_ENV
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          body: ${{ env.RELEASE_NOTES }}

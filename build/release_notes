@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# GITHUB_REPOSITORY is a default environment variable in Actions
+# https://docs.github.com/en/actions/reference/environment-variables
+
+LATEST_TAG=$(git describe --abbrev=0)
+PREV_TAG=$(git describe --abbrev=0 "${LATEST_TAG}~")
+TAG_BODY=$(git tag --list --format='%(body)' $LATEST_TAG)
+
+echo "$TAG_BODY" | sed '/^-----BEGIN PGP/,/^-----END PGP/d'
+echo ""
+echo "Changes: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${LATEST_TAG}"
