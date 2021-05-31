@@ -426,6 +426,7 @@ module AvalancheMQ
     end
 
     private def close_socket
+      @running = false
       @socket.close
       @log.debug { "Socket closed" }
     rescue ex
