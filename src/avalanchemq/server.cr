@@ -72,6 +72,9 @@ module AvalancheMQ
           conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
           spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
         end
+      rescue ex : IO::Error
+        @log.warn "#{ex.inspect} while accepting connection"
+        client.try &.close rescue nil
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect}"
@@ -83,18 +86,23 @@ module AvalancheMQ
       @listeners << s
       @log.info { "Listening on #{s.local_address}" }
       while client = s.accept?
-        client.sync = false
-        client.read_buffering = true
-        client.buffer_size = Config.instance.socket_buffer_size
-        case Config.instance.unix_proxy_protocol
-        when 1
-          spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
-        when 2
-          spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
-        else
-          # TODO: use unix socket address, don't fake local
-          conn_info = ConnectionInfo.local
-          spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
+        begin
+          client.sync = false
+          client.read_buffering = true
+          client.buffer_size = Config.instance.socket_buffer_size
+          case Config.instance.unix_proxy_protocol
+          when 1
+            spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
+          when 2
+            spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
+          else
+            # TODO: use unix socket address, don't fake local
+            conn_info = ConnectionInfo.local
+            spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
+          end
+        rescue ex : IO::Error
+          @log.warn "#{ex.inspect} while accepting connection"
+          client.try &.close rescue nil
         end
       end
     rescue ex : IO::Error
