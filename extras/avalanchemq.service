@@ -3,13 +3,13 @@ Description=AvalancheMQ
 Documentation=https://github.com/cloudamqp/avalanchemq
 Requires=network.target
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/usr/bin/avalanchemq -c /etc/avalanchemq/avalanchemq.ini
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=0
 User=avalanchemq
 Group=avalanchemq
 LimitNOFILE=infinity
