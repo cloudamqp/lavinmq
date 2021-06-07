@@ -86,7 +86,7 @@ module AvalancheMQ
     end
 
     def self.create_hidden_user(name)
-      password = Random.new.urlsafe_base64(32)
+      password = Random::Secure.urlsafe_base64(32)
       password_hash = hash_password(password, "sha256")
       user = self.new(name, password_hash, [Tag::Administrator])
       user.plain_text_password = password
