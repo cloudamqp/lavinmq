@@ -564,20 +564,62 @@ module AvalancheMQ
     end
 
     private def load_definitions!
+      exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
+      queues = Hash(String, AMQP::Frame::Queue::Declare).new
+      queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h,k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
+      exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h,k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+      should_compact = false
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         io.buffer_size = Config.instance.file_buffer_size
         io.advise(File::Advice::Sequential)
         SchemaVersion.verify(io, :definition)
         loop do
           begin
-            AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |frame|
-              apply frame, loading: true
+            AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |f|
+              case f
+              when AMQP::Frame::Exchange::Declare
+                exchanges[f.exchange_name] = f
+              when AMQP::Frame::Exchange::Delete
+                exchanges.delete f.exchange_name
+                exchange_bindings.delete f.exchange_name
+                should_compact = true
+              when AMQP::Frame::Exchange::Bind
+                exchange_bindings[f.destination] << f
+              when AMQP::Frame::Exchange::Unbind
+                exchange_bindings[f.destination].reject! do |b|
+                  b.source == f.source &&
+                  b.routing_key == f.routing_key &&
+                  b.arguments == f.arguments
+                end
+                should_compact = true
+              when AMQP::Frame::Queue::Declare
+                queues[f.queue_name] = f
+              when AMQP::Frame::Queue::Delete
+                queues.delete f.queue_name
+                queue_bindings.delete f.queue_name
+                should_compact = true
+              when AMQP::Frame::Queue::Bind
+                queue_bindings[f.queue_name] << f
+              when AMQP::Frame::Queue::Unbind
+                queue_bindings[f.queue_name].reject! do |b|
+                  b.exchange_name == f.exchange_name &&
+                  b.routing_key == f.routing_key &&
+                  b.arguments == f.arguments
+                end
+                should_compact = true
+              else raise "Cannot apply frame #{f.class} in vhost #{@name}"
+              end
             end
           rescue ex : IO::EOFError
             break
           end
         end
       end
+      exchanges.each_value { |f| apply f, loading: true }
+      queues.each_value { |f| apply f, loading: true }
+      exchange_bindings.each_value { |fs| fs.each { |f| apply f, loading: true } }
+      queue_bindings.each_value { |fs| fs.each { |f| apply f, loading: true } }
+      compact! if should_compact
     rescue IO::Error
       load_default_definitions
       compact!
