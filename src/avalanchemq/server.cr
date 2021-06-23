@@ -77,7 +77,7 @@ module AvalancheMQ
         client.try &.close rescue nil
       end
     rescue ex : IO::Error
-      abort "Unrecoverable error in listener: #{ex.inspect}"
+      abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
     ensure
       @listeners.delete(s)
     end
@@ -106,7 +106,7 @@ module AvalancheMQ
         end
       end
     rescue ex : IO::Error
-      abort "Unrecoverable error in unix listener: #{ex.inspect}"
+      abort "Unrecoverable error in unix listener: #{ex.inspect_with_backtrace}"
     ensure
       @listeners.delete(s)
     end
@@ -147,7 +147,7 @@ module AvalancheMQ
         end
       end
     rescue ex : IO::Error | OpenSSL::Error
-      abort "Unrecoverable error in TLS listener: #{ex.inspect}"
+      abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
     ensure
       @listeners.delete(s)
     end
