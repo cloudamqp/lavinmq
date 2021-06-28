@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.31] - 2021-06-28
+
+### Fixed
+
+- When starting, make sure to only load queues once even if the defintions.amqp includes creating/deleting the same queue multiple times
+- Speed up logging by only looking at ENV once
+- StartLimitIntervalSec was in the wrong SystemD service file section
+- Catch and only log IO::Errors in accept loop (could happen if client disconnected very soon after TCP was established)
+
+### Changed
+
+- Log backtrace if unhandled exception occurs
+- Only log if a publish confirm can't be delivered to client, don't raise
+
 ## [1.0.0-alpha.30] - 2021-04-25
 
 ### Fixed
