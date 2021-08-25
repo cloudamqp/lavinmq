@@ -284,6 +284,7 @@ module AvalancheMQ
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
       close_socket
+      Fiber.yield
       false
     rescue ex : AMQ::Protocol::Error::FrameEncode
       @log.warn { "Error encoding frame (#{ex.inspect})" }
