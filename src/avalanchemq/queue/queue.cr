@@ -785,6 +785,7 @@ module AvalancheMQ
       else
         expire_msg(sp, :rejected)
       end
+      consumer_available
       @reject_count += 1
     end
 
