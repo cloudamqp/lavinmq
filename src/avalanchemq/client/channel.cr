@@ -400,7 +400,11 @@ module AvalancheMQ
           elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
             @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             unack = @unacked.delete_at(idx)
-            unack.tag == delivery_tag || raise "BUG: Didn't found the right tag!!!"
+            unless unack.tag == delivery_tag
+              @unacked.insert(idx, unack)
+              @log.error { "Unacked bsearch found the wrong tag:#{delivery_tag}, got: #{unack.tag}, at index:#{idx}" }
+              return nil # found the wrong tag
+            end
             unack
           end
         end
