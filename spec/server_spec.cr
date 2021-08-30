@@ -854,4 +854,14 @@ describe AvalancheMQ::Server do
       msg.should_not be_nil
     end
   end
+
+  it "will close channel on unknown delivery tag" do
+    with_channel do |ch|
+      ch.basic_ack(1)
+      sleep 0.1
+      expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 1/) do
+        ch.basic_ack(1)
+      end
+    end
+  end
 end
