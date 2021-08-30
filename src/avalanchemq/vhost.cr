@@ -26,8 +26,8 @@ module AvalancheMQ
     property? flow = true
     property? dirty = false
     getter? closed = false
-    getter gc_loop = Channel(Nil).new
 
+    @gc_loop = Channel(Nil).new(1)
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @save = Channel(AMQP::Frame).new(128)
@@ -518,7 +518,9 @@ module AvalancheMQ
 
     def trigger_gc!
       @dirty = true
-      @gc_loop.send nil
+      select
+      when @gc_loop.send nil
+      end
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
@@ -723,16 +725,15 @@ module AvalancheMQ
     end
 
     private def gc_segments_loop
-      # Don't gc all vhosts at the same time
-      sleep Random.rand(Config.instance.gc_segments_interval)
       return if @closed
       referenced_sps = ReferencedSPs.new(@queues.size)
-      interval = Config.instance.gc_segments_interval.seconds
+      interval = Random.rand(Config.instance.gc_segments_interval)
       loop do
         select
         when @gc_loop.receive
         when timeout interval
         end
+        interval = Config.instance.gc_segments_interval.seconds
         return if @closed
         next unless @dirty
         gc_log("collecting sps") do
@@ -751,8 +752,9 @@ module AvalancheMQ
       rescue ex
         @log.fatal("Unhandled exception in #gc_segments_loop, " \
                    "killing process #{ex.inspect_with_backtrace}")
-        exit 1
       end
+    ensure
+      exit 1
     end
 
     private def gc_log(desc, &blk)
