@@ -398,14 +398,9 @@ module AvalancheMQ
             @log.debug { "Unacked found tag:#{delivery_tag} at front" }
             @unacked.shift
           elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
+            return nil unless @unacked[idx].tag == delivery_tag
             @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
-            unack = @unacked.delete_at(idx)
-            unless unack.tag == delivery_tag
-              @unacked.insert(idx, unack)
-              @log.error { "Unacked bsearch found the wrong tag:#{delivery_tag}, got: #{unack.tag}, at index:#{idx}" }
-              return nil # found the wrong tag
-            end
-            unack
+            @unacked.delete_at(idx)
           end
         end
       end

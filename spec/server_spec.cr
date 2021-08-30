@@ -864,4 +864,22 @@ describe AvalancheMQ::Server do
       end
     end
   end
+
+  it "will close channel on double ack" do
+    with_channel do |ch|
+      q = ch.queue("")
+      q.publish "1"
+      q.publish "2"
+      q.publish "3"
+      msg1 = ch.basic_get(q.name, no_ack: false)
+      msg2 = ch.basic_get(q.name, no_ack: false)
+      _msg3 = ch.basic_get(q.name, no_ack: false)
+      msg2.not_nil!.ack
+      msg2.not_nil!.ack # this will trigger the error
+      sleep 0.1
+      expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 2/) do
+        msg1.not_nil!.ack
+      end
+    end
+  end
 end
