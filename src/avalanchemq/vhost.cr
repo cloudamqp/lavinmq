@@ -727,7 +727,7 @@ module AvalancheMQ
     private def gc_segments_loop
       return if @closed
       referenced_sps = ReferencedSPs.new(@queues.size)
-      interval = Random.rand(Config.instance.gc_segments_interval)
+      interval = Random.rand(Config.instance.gc_segments_interval).seconds
       loop do
         select
         when @gc_loop.receive
