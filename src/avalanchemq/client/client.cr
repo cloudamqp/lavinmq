@@ -163,7 +163,7 @@ module AvalancheMQ
         @log.error { ex.inspect }
         send_frame_error
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        @log.debug { "Lost connection, while reading (#{ex.inspect_with_backtrace})" } unless closed?
+        @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
         break
       rescue ex : Exception
         @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
