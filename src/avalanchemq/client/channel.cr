@@ -433,6 +433,7 @@ module AvalancheMQ
           end
           idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
           return nil unless idx
+          return nil unless @unacked[idx].tag == delivery_tag
           @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
           (idx + 1).times do
             yield @unacked.shift
