@@ -399,7 +399,9 @@ module AvalancheMQ
             @unacked.shift
           elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
             @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
-            @unacked.delete_at idx
+            unack = @unacked.delete_at(idx)
+            unack.tag == delivery_tag || raise "BUG: Didn't found the right tag!!!"
+            unack
           end
         end
       end
