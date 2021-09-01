@@ -4,7 +4,7 @@ docker run --rm -it -v "$PWD":/work:Z "$image" /bin/sh -c "
 set -eux
 curl -fsSLO https://crystal-lang.org/install.sh
 chmod +x install.sh
-./install.sh --crystal=1.0.0
+./install.sh --version=1.0
 yum install dnf-plugins-core
 yum config-manager --set-enabled PowerTools
 yum install -y git rpmlint rpm-build openssl-devel zlib-devel help2man systemd-devel

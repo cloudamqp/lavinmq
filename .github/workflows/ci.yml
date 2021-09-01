@@ -46,7 +46,7 @@ jobs:
         run: |
           wget https://crystal-lang.org/install.sh
           chmod +x install.sh
-          sudo ./install.sh --crystal=1.0.0
+          sudo ./install.sh --version=1.0
 
       - name: Shards install
         run: shards install --ignore-crystal-version
@@ -68,7 +68,7 @@ jobs:
         run: |
           wget https://crystal-lang.org/install.sh
           chmod +x install.sh
-          sudo ./install.sh --crystal=1.0.0
+          sudo ./install.sh --version=1.0
 
       - name: Checkout
         uses: actions/checkout@v2
