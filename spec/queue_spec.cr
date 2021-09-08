@@ -104,4 +104,42 @@ describe AvalancheMQ::Queue do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "Message timestamps" do
+    it "should be 0 when no messages" do
+      queue_name = Random::Secure.hex
+      with_channel do |ch|
+        ch.queue(queue_name)
+        details = s.vhosts["/"].queues[queue_name].details_tuple
+        details[:first_message_timestamp].should eq 0
+        details[:first_message_timestamp].should eq details[:last_message_timestamp]
+      end
+    end
+
+    it "should have the same timestamp when one message" do
+      queue_name = Random::Secure.hex
+      with_channel do |ch|
+        q = ch.queue(queue_name)
+        q.publish("message 1")
+        Fiber.yield
+        details = s.vhosts["/"].queues[queue_name].details_tuple
+        details[:first_message_timestamp].should eq details[:last_message_timestamp]
+      end
+    end
+
+    it "should have different timestamp when two messages" do
+      queue_name = Random::Secure.hex
+      with_channel do |ch|
+        q = ch.queue(queue_name)
+        q.publish("message 1")
+        # Need to sleep for 1 second to get a new RoughTime value.
+        sleep 1
+        q.publish("message 2")
+        sleep 0.1
+        details = s.vhosts["/"].queues[queue_name].details_tuple
+        details[:ready].should eq 2
+        details[:first_message_timestamp].should_not eq details[:last_message_timestamp]
+      end
+    end
+  end
 end
