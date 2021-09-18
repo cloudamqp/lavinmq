@@ -749,11 +749,10 @@ module AvalancheMQ
           GC.collect
         end
         @dirty = false
-      rescue ex
-        @log.fatal("Unhandled exception in #gc_segments_loop, " \
-                   "killing process #{ex.inspect_with_backtrace}")
       end
-    ensure
+    rescue ex
+      @log.fatal("Unhandled exception in #gc_segments_loop, " \
+                  "killing process #{ex.inspect_with_backtrace}")
       exit 1
     end
 
