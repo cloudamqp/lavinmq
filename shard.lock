@@ -6,11 +6,11 @@ shards:
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
-    version: 1.0.0
+    version: 1.0.1
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 1.0.1
+    version: 1.0.2
 
   baked_file_system:
     git: https://github.com/schovi/baked_file_system.git
@@ -34,5 +34,5 @@ shards:
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
-    version: 1.1.2
+    version: 1.1.4
 
