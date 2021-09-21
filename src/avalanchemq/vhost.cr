@@ -517,6 +517,7 @@ module AvalancheMQ
     end
 
     def trigger_gc!
+      return if @closed
       @dirty = true
       select
       when @gc_loop.send nil
