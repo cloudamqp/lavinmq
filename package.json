@@ -9,11 +9,9 @@
     "chart.js": "^2.9.4"
   },
   "devDependencies": {
-    "@stoplight/spectral": "^5.9.2",
     "eslint": "^7.20.0",
     "eslint-plugin-html": "^6.0.0",
-    "redoc": "~2.0.0-rc.50",
-    "redoc-cli": "^0.10.2"
+    "redoc-cli": "^0.12.3"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

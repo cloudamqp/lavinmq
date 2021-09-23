@@ -26,6 +26,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
+      # We need (redoc-cli) peer dependencies to be automatically installed
+      # https://nodejs.org/en/blog/npm/peer-dependencies/#using-peer-dependencies
+      - name: Install latest npm release
+        run: sudo npm install -g npm@latest
+
       - name: Lint and build HTTP API documentation
         run: ./build/npm_ci
 
