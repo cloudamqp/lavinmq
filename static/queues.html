@@ -29,6 +29,7 @@
           <table id="table" class="table">
             <thead>
               <tr>
+                <th>Selected</th>
                 <th data-sort-key="vhost">Virtual host</th>
                 <th data-sort-key="name" class="left">Name</th>
                 <th>Features</th>
@@ -45,10 +46,13 @@
             </thead>
             <tbody></tbody>
           </table>
+          <div id="selected-controls" style="visibility: hidden;"> 
+            <button>Delete</button>
+          </div>
         </div>
       </section>
       <form method="put" id="declare" class="form card">
-        <h3>Add queue</h3> 
+        <h3>Add queue</h3>
         <label>
           <span>Virtual host</span>
           <select name="vhost" required></select>
@@ -140,9 +144,24 @@
           const view = item.internal ? 'queue_internal' : 'queue'
           queueLink.href = '/' + view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
           queueLink.textContent = item.name
-          avalanchemq.table.renderCell(tr, 0, item.vhost)
-          avalanchemq.table.renderCell(tr, 1, queueLink)
-          avalanchemq.table.renderCell(tr, 2, features, 'center')
+          var checkbox = document.createElement('input')
+          checkbox.type='checkbox'
+          checkbox.id='selected-checkbox'
+          checkbox.addEventListener('change', function() {
+            //Needs fixing
+            if (document.getElementById('selected-checkbox').checked) {
+              document.getElementById('selected-controls').style.visibility="visible"
+              console.log(document.getElementById('selected-checkbox'))
+            } else {
+              document.getElementById('selected-controls').style.visibility="hidden"
+              console.log(document.getElementById('selected-checkbox').checked == 'selected-checkbox')
+            }
+          }); 
+          
+          avalanchemq.table.renderCell(tr, 0, checkbox) 
+          avalanchemq.table.renderCell(tr, 1, item.vhost)
+          avalanchemq.table.renderCell(tr, 2, queueLink)
+          avalanchemq.table.renderCell(tr, 3, features, 'center')
         }
 
         let policyLink = ''
@@ -151,15 +170,15 @@
           policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
           policyLink.textContent = item.policy
         }
-        avalanchemq.table.renderCell(tr, 3, policyLink, 'center')
-        avalanchemq.table.renderCell(tr, 4, item.consumers, 'right')
-        avalanchemq.table.renderCell(tr, 5, null, 'center ' + 'state-' + item.state)
-        avalanchemq.table.renderCell(tr, 6, avalanchemq.helpers.formatNumber(item.ready), 'right')
-        avalanchemq.table.renderCell(tr, 7, avalanchemq.helpers.formatNumber(item.unacked), 'right')
-        avalanchemq.table.renderCell(tr, 8, avalanchemq.helpers.formatNumber(item.messages), 'right')
-        avalanchemq.table.renderCell(tr, 9, avalanchemq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
-        avalanchemq.table.renderCell(tr, 10, avalanchemq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
-        avalanchemq.table.renderCell(tr, 11, avalanchemq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
+        avalanchemq.table.renderCell(tr, 4, policyLink, 'center')
+        avalanchemq.table.renderCell(tr, 5, item.consumers, 'right')
+        avalanchemq.table.renderCell(tr, 6, null, 'center ' + 'state-' + item.state)
+        avalanchemq.table.renderCell(tr, 7, avalanchemq.helpers.formatNumber(item.ready), 'right')
+        avalanchemq.table.renderCell(tr, 8, avalanchemq.helpers.formatNumber(item.unacked), 'right')
+        avalanchemq.table.renderCell(tr, 9, avalanchemq.helpers.formatNumber(item.messages), 'right')
+        avalanchemq.table.renderCell(tr, 10, avalanchemq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
+        avalanchemq.table.renderCell(tr, 11, avalanchemq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
+        avalanchemq.table.renderCell(tr, 12, avalanchemq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
       })
 
       document.querySelector('#declare').addEventListener('submit', function (evt) {
