@@ -7,7 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && ./build/npm_ci
 
-FROM crystallang/crystal:1.0.0 AS builder
+FROM 84codes/crystal:1.1.1-ubuntu-18.04 AS builder
 
 # install dependencies
 RUN apt-get update && apt-get install -y libsystemd-dev
