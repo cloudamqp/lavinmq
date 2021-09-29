@@ -1,0 +1,21 @@
+ARG build_image
+FROM $build_image AS build-stage
+
+WORKDIR /build
+
+# Install deps
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian tzdata
+
+# Copy all files
+COPY shard.yml shard.lock README.md LICENSE ./
+COPY src src
+COPY build build
+
+# Build deb package
+ARG pkg_version
+RUN build/deb $pkg_version
+
+# Copy the deb package to a scratch image, that then can be exported
+FROM scratch AS export-stage
+COPY --from=build-stage /build/builds .
