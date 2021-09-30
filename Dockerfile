@@ -1,11 +1,11 @@
-FROM node:14 AS docbuilder
+FROM node:16 AS docbuilder
 
 WORKDIR /tmp
 
 COPY openapi ./openapi
 COPY build ./build
 COPY shard.yml package.json package-lock.json ./
-RUN npm config set unsafe-perm true && ./build/npm_ci
+RUN npm config set unsafe-perm true && npm ci
 
 FROM 84codes/crystal:1.1.1-ubuntu-18.04 AS builder
 

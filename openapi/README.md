@@ -6,7 +6,7 @@ It also copies it to `static/docs/index.html` so you can view the docs at [http:
 
 The dependencies:
 
-* [Spectral] is used to lint the documentation. To run it manually: `docker run --rm -it -v $(pwd):/tmp stoplight/spectral lint openapi/openapi.yaml`
+* [Spectral] is used to lint the documentation. To run it manually: `docker run --rm -it -v $(pwd):/tmp stoplight/spectral:6 --ruleset /tmp/openapi/.spectral.json lint openapi/openapi.yaml`
 * [ReDoc] is to build the documentation.
   To run it manually: `redoc-cli bundle openapi.yaml` (a file `redoc-static.html` will be created in your working directory)
 

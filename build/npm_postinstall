@@ -1,14 +1,11 @@
 #!/bin/bash
-set -e
+
+set -ex
 
 echo "Copying javascript libraries to static/js/lib/"
 mkdir -p static/js/lib
 cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js
 cp node_modules/@cloudamqp/amqp-client/dist/amqp-websocket-client.mjs static/js/lib/
-
-echo "Linting HTTP API documentation"
-test -t 1 && USE_TTY="--tty" || true
-docker run --rm ${USE_TTY:-} -v $(pwd):/tmp stoplight/spectral lint openapi/openapi.yaml
 
 echo "Generating HTML for HTTP documentation"
 redoc-cli bundle openapi/openapi.yaml
