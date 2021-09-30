@@ -8,9 +8,11 @@ RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y libsystemd-dev dpkg fakeroot help2man lintian tzdata
 
 # Copy all files
-COPY shard.yml shard.lock README.md LICENSE ./
+COPY shard.yml shard.lock README.md LICENSE NOTICE CHANGELOG.md ./
 COPY src src
 COPY build build
+COPY static static
+COPY extras extras
 
 # Build deb package
 ARG pkg_version
