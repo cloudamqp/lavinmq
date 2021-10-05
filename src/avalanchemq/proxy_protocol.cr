@@ -104,7 +104,7 @@ module AvalancheMQ
 
       private def self.extract_tlv_ssl(header, bytes)
         pos = 0
-        client = SSLCLIENT.from_value(bytes[pos]); pos += 1
+        _client = SSLCLIENT.from_value(bytes[pos]); pos += 1
         verify = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[pos, 4]); pos += 4
         header.ssl = true
         header.ssl_verify = verify.zero?

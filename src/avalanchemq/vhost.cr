@@ -566,6 +566,7 @@ module AvalancheMQ
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def load_definitions!
       exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
       queues = Hash(String, AMQP::Frame::Queue::Declare).new
