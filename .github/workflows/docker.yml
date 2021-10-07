@@ -1,9 +1,11 @@
-name: docker
+name: Docker images
 
 on:
   push:
+    branches:
+      - main
     tags:
-      - 'v*.*.*'
+      - 'v*'
 
 jobs:
   main:
@@ -11,29 +13,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
 
-      - name: Repo metadata
-        id: repo
-        uses: actions/github-script@v3
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v3
         with:
-          script: |
-            const repo = await github.repos.get(context.repo)
-            return repo.data
-
-      - name: Prepare
-        id: prep
-        run: |
-          DOCKER_IMAGE=cloudamqp/avalanchemq
-          VERSION=$(git describe --tags | cut -c2-)
-          TAGS=$DOCKER_IMAGE:$VERSION
-          if ( git describe --exact-match 2> /dev/null )
-          then TAGS=$TAGS,$DOCKER_IMAGE:latest
-          fi
-          echo ::set-output name=version::${VERSION}
-          echo ::set-output name=tags::${TAGS}
-          echo ::set-output name=created::$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          images: cloudamqp/avalanchemq
+          flavor: |
+            latest=true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
@@ -48,23 +35,10 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
-        id: docker_build
         uses: docker/build-push-action@v2
         with:
           context: .
-          file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.prep.outputs.tags }}
-          labels: |
-            org.opencontainers.image.title=${{ fromJson(steps.repo.outputs.result).name }}
-            org.opencontainers.image.description=${{ fromJson(steps.repo.outputs.result).description }}
-            org.opencontainers.image.url=${{ fromJson(steps.repo.outputs.result).html_url }}
-            org.opencontainers.image.source=${{ fromJson(steps.repo.outputs.result).clone_url }}
-            org.opencontainers.image.version=${{ steps.prep.outputs.version }}
-            org.opencontainers.image.created=${{ steps.prep.outputs.created }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.licenses=${{ fromJson(steps.repo.outputs.result).license.spdx_id }}
-
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
