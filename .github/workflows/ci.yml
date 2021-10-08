@@ -72,7 +72,7 @@ jobs:
       - name: Build avalanchemq
         run: |
           shards install --production --ignore-crystal-version
-          shards build --production avalanchemq avalanchemqctl
+          shards build --release --production avalanchemq avalanchemqctl
 
       - name: Upload bin/
         uses: actions/upload-artifact@v2
