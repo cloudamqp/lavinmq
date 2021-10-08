@@ -142,7 +142,8 @@ describe AvalancheMQ::Server do
   end
 
   it "should run GC on purge" do
-    data_dir = s.vhosts["/"].data_dir
+    vhost = s.vhosts["/"]
+    data_dir = vhost.data_dir
     current = Dir.glob(File.join(data_dir, "msgs.*")).size
 
     with_channel do |ch|
@@ -157,6 +158,8 @@ describe AvalancheMQ::Server do
       q.purge
 
       sleep 0 # yield to other fiber for GC
+
+      wait_for { !vhost.dirty? }
 
       after_purge = Dir.glob(File.join(data_dir, "msgs.*")).size
       (after_purge < after_publish).should be_true
