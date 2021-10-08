@@ -143,8 +143,7 @@ describe AvalancheMQ::Server do
 
   it "should run GC on purge" do
     data_dir = s.vhosts["/"].data_dir
-    info = Filesystem.info(data_dir)
-    current = info.available
+    current = Dir.glob(File.join(data_dir, "msgs.*")).size
 
     with_channel do |ch|
       q = ch.queue "my_durable_queue", durable: true, exclusive: true
@@ -152,17 +151,15 @@ describe AvalancheMQ::Server do
         q.publish_confirm "a" * 1024**2, props: AMQP::Client::Properties.new(delivery_mode: 2)
       end
 
-      info = Filesystem.info(data_dir)
-      after_publish = info.available
-      (after_publish < current).should be_true
+      after_publish = Dir.glob(File.join(data_dir, "msgs.*")).size
+      (after_publish > current).should be_true
 
       q.purge
 
       sleep 0 # yield to other fiber for GC
 
-      info = Filesystem.info(data_dir)
-      after_purge = info.available
-      (after_purge > after_publish).should be_true
+      after_purge = Dir.glob(File.join(data_dir, "msgs.*")).size
+      (after_purge < after_publish).should be_true
     end
   end
 
