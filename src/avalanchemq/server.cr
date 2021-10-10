@@ -212,17 +212,8 @@ module AvalancheMQ
 
     def handle_connection(socket, connection_info)
       client = Client.start(socket, connection_info, @vhosts, @users, @log, @events)
-      if client.nil?
-        socket.close
-        @log.info { "Connection failed for remote_address=#{connection_info.src}" }
-      end
-    rescue ex : IO::Error | OpenSSL::SSL::Error
-      @log.debug { "HandleConnection exception: #{ex.inspect}" }
-      begin
-        socket.close
-      rescue
-        nil
-      end
+    ensure
+      socket.close if client.nil?
     end
 
     private def handle_proxied_v1_connection(client)

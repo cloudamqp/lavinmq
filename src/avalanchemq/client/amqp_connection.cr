@@ -9,6 +9,7 @@ module AvalancheMQ
           if user = authenticate(socket, users, start_ok, log)
             if tune_ok = tune(socket, log)
               if vhost = open(socket, vhosts, user, log)
+                socket.read_timeout = heartbeat_timeout(tune_ok)
                 Client.new(socket, connection_info, vhost, user, events, tune_ok, start_ok)
               end
             end
@@ -17,36 +18,31 @@ module AvalancheMQ
       end
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
       log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
-      socket.try &.close unless socket.try &.closed?
       nil
     rescue ex
       log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
-      socket.try &.close unless socket.try &.closed?
       nil
-    ensure
-      timeout = heartbeat_timeout(tune_ok)
-      socket.read_timeout = timeout
     end
 
     private def self.heartbeat_timeout(tune_ok)
-      if t = tune_ok
-        if t.heartbeat > 0
-          t.heartbeat / 2
-        end
+      if tune_ok.heartbeat > 0
+        tune_ok.heartbeat / 2
       end
     end
 
-    def self.confirm_header(socket, log)
+    def self.confirm_header(socket, log) : Bool
       proto = uninitialized UInt8[8]
-      socket.read(proto.to_slice)
-      if proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
+      count = socket.read(proto.to_slice)
+      if count.zero? # EOF, socket closed by peer
+        false
+      elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
         socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
         socket.flush
-        socket.close
         log.warn { "Unexpected protocol '#{String.new(proto.to_slice)}', closing socket" }
-        return false
+        false
+      else
+        true
       end
-      true
     end
 
     SERVER_PROPERTIES = AMQP::Table.new({
@@ -73,7 +69,6 @@ module AvalancheMQ
       start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
       if start_ok.bytesize > 4096
         log.warn { "StartOk frame was #{start_ok.bytesize} bytes, max allowed is 4096 bytes" }
-        socket.close
         return
       end
       start_ok
@@ -110,9 +105,6 @@ module AvalancheMQ
           start_ok.class_id,
           start_ok.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
-        close_on_ok(socket, log)
-      else
-        socket.close
       end
       nil
     end
@@ -128,19 +120,16 @@ module AvalancheMQ
         when AMQP::Frame::Connection::TuneOk
           if frame.frame_max < 4096
             log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
-            socket.close
             return
           end
           frame
         else
           log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
-          socket.close
           return
         end
       end
       if tune_ok.frame_max < 4096
         log.warn { "Suggested Frame max (#{tune_ok.frame_max}) too low, closing connection" }
-        socket.close
         return
       end
       tune_ok
@@ -160,39 +149,14 @@ module AvalancheMQ
           socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
-          close_on_ok(socket, log)
         end
       else
         log.warn "VHost \"#{vhost_name}\" not found"
         socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
         socket.flush
-        close_on_ok(socket, log)
       end
       nil
-    end
-
-    def self.close_on_ok(socket, log)
-      loop do
-        AMQP::Frame.from_io(socket, IO::ByteFormat::NetworkEndian) do |frame|
-          if frame.is_a?(AMQP::Frame::Connection::Close | AMQP::Frame::Connection::CloseOk)
-            true
-          else
-            log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
-            if frame.is_a?(AMQP::Frame::Body)
-              log.debug "Skipping body"
-              frame.body.skip(frame.body_size)
-            end
-            false
-          end
-        end && break
-      end
-    rescue IO::EOFError
-      log.debug { "Client closed socket without sending CloseOk" }
-    rescue ex
-      log.warn { "#{ex.inspect} while waiting for CloseOk" }
-    ensure
-      socket.close
     end
   end
 end
