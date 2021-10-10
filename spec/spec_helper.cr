@@ -29,6 +29,13 @@ unless ENV["CI"]?
   Spec.override_default_formatter(Spec::VerboseFormatter.new)
 end
 
+Spec.after_each do
+  vhost = s.vhosts["/"]
+  vhost.queues.each_key do |queue_name|
+    vhost.delete_queue(queue_name)
+  end
+end
+
 module TestHelpers
   class_property s, h
 
