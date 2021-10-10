@@ -778,7 +778,6 @@ module AvalancheMQ
     end
 
     private def gc_segments(referenced_sps) : Nil
-      pp "gc_segments start"
       @log.debug { "GC segments" }
       collected = 0_u64
 
@@ -831,7 +830,6 @@ module AvalancheMQ
       end
 
       @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
-      pp "gc_segments stop"
     end
 
     private def gc_all_segements
