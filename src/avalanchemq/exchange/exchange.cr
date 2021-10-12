@@ -109,9 +109,19 @@ module AvalancheMQ
     end
 
     def bindings_details
-      @queue_bindings.each.chain(@exchange_bindings.each).flat_map do |(key, destinations)|
-        destinations.map { |destination| binding_details(key, destination) }
+      # Could be refactored, but currently broken on Crystal 1.x with LLVM 11 --release optimizations
+      #
+      # @queue_bindings.each.chain(@exchange_bindings.each).flat_map do |(key, destinations)|
+      #   destinations.map { |destination| binding_details(key, destination) }
+      # end
+      arr = Array(BindingDetails).new(@queue_bindings.size + @exchange_bindings.size)
+      @queue_bindings.each do |key, desinations|
+        desinations.each { |destination| arr << binding_details(key, destination) }
       end
+      @exchange_bindings.each do |key, desinations|
+        desinations.each { |destination| arr << binding_details(key, destination) }
+      end
+      arr
     end
 
     def binding_details(key, destination)
