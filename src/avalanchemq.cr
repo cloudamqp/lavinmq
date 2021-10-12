@@ -41,24 +41,26 @@ if fd_limit_current < 1025
   puts "WARNING: You need one for each connection and two for each durable queue, and some more."
 end
 
+Dir.mkdir_p config.data_dir
 # Make sure that only one instance is using the data directory
 # Can work as a poor mans cluster where the master nodes aquires
 # a file lock on a shared file system like NFS
-Dir.mkdir_p config.data_dir
-lock = File.open(File.join(config.data_dir, ".lock"), "w+")
-lock.sync = true
-lock.read_buffering = false
-begin
-  lock.flock_exclusive(blocking: false)
-rescue
-  puts "INFO: Data directory locked by '#{lock.gets_to_end}'"
-  puts "INFO: Waiting for file lock to be released"
-  lock.flock_exclusive(blocking: true)
-  puts "INFO: Lock aquired"
+if config.data_dir_lock
+  lock = File.open(File.join(config.data_dir, ".lock"), "w+")
+  lock.sync = true
+  lock.read_buffering = false
+  begin
+    lock.flock_exclusive(blocking: false)
+  rescue
+    puts "INFO: Data directory locked by '#{lock.gets_to_end}'"
+    puts "INFO: Waiting for file lock to be released"
+    lock.flock_exclusive(blocking: true)
+    puts "INFO: Lock aquired"
+  end
+  lock.truncate
+  lock.print System.hostname
+  lock.fsync
 end
-lock.truncate
-lock.print System.hostname
-lock.fsync
 
 log = Logger.new(STDOUT, level: config.log_level.not_nil!)
 AvalancheMQ::LogFormatter.use(log)
@@ -214,7 +216,7 @@ shutdown = ->(_s : Signal) do
     puts "Shutting down gracefully..."
     amqp_server.close
     http_server.try &.close
-    lock.close
+    lock.try &.close
     puts "Fibers: "
     Fiber.yield
     Fiber.list { |f| puts f.inspect }
@@ -230,15 +232,19 @@ Signal::TERM.trap &shutdown
 SystemD.notify("READY=1\n")
 GC.collect
 
-# write to the lock file to detect lost lock
-# See "Lost locks" in `man 2 fcntl`
-begin
-  hostname = System.hostname.to_slice
-  loop do
-    sleep 30
-    lock.write_at hostname, 0
+if lock
+  # write to the lock file to detect lost lock
+  # See "Lost locks" in `man 2 fcntl`
+  begin
+    hostname = System.hostname.to_slice
+    loop do
+      sleep 30
+      lock.write_at hostname, 0
+    end
+  rescue ex : IO::Error
+    STDERR.puts ex.inspect
+    abort "ERROR: Lost lock!"
   end
-rescue ex : IO::Error
-  STDERR.puts ex.inspect
-  abort "ERROR: Lost lock!"
+else
+  sleep
 end

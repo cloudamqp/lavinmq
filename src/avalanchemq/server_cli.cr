@@ -48,6 +48,7 @@ module AvalancheMQ
           config.log_level = level if level
         end
         parser.on("--raise-gc-warn", "Raise on GC warnings") { config.raise_gc_warn = true }
+        parser.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { config.data_dir_lock = false }
         parser.on("-d", "--debug", "Verbose logging") { config.log_level = Logger::DEBUG }
         parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
         parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }

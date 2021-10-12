@@ -37,6 +37,7 @@ module AvalancheMQ
     property tcp_nodelay = false                # bool
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property raise_gc_warn : Bool = false
+    property data_dir_lock : Bool = true
 
     @@instance : Config = self.new
 
@@ -67,6 +68,7 @@ module AvalancheMQ
       settings.each do |config, v|
         case config
         when "data_dir"             then @data_dir = v
+        when "data_dir_lock"        then @data_dir_lock = true?(v)
         when "log_level"            then @log_level = Logger::Severity.parse(v)
         when "stats_interval"       then @stats_interval = v.to_i32
         when "stats_log_size"       then @stats_log_size = v.to_i32
