@@ -119,6 +119,7 @@ class AvalancheMQCtl
       end
     end
     @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
+    @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
       puts @parser
       exit 1

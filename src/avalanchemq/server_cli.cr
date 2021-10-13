@@ -51,6 +51,7 @@ module AvalancheMQ
         parser.on("-d", "--debug", "Verbose logging") { config.log_level = Logger::DEBUG }
         parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
         parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
+        parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
         parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end
     end
