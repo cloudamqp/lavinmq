@@ -13,7 +13,11 @@ end
 
 module AvalancheMQ
   module HTTP
-    INTERNAL_UNIX_SOCKET = "/tmp/avalanchemq/http.sock"
+    {% if flag?(:linux) %}
+      INTERNAL_UNIX_SOCKET = "/dev/shm/avalanchemq-http.sock"
+    {% else %}
+      INTERNAL_UNIX_SOCKET = "/tmp/avalanchemq-http.sock"
+    {% end %}
 
     class Server
       def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
