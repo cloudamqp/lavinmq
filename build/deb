@@ -102,6 +102,6 @@ chmod g-w -R $root
 fakeroot dpkg-deb --build $root
 rm -r $root
 
-lintian $root.deb || true
+#lintian $root.deb || true
 
 echo $root.deb
