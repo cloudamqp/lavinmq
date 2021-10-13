@@ -211,6 +211,7 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should reconnect and continue" do
+      {% if flag?(:freebsd) %} pending! {% end %}
       config = %({
         "src-uri": "#{AMQP_BASE_URL}",
         "src-queue": "rc_q1",
