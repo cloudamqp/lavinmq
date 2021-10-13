@@ -20,7 +20,7 @@ require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
 require "./avalanchemq/log_formatter"
 
-puts "AvalancheMQ #{AvalancheMQ::VERSION}"
+puts AvalancheMQ::BUILD_INFO
 {% unless flag?(:release) %}
   puts "WARNING: Not built in release mode"
 {% end %}
