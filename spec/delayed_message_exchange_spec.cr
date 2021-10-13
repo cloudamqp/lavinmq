@@ -59,6 +59,7 @@ describe "Delayed Message Exchange" do
   end
 
   it "should deliver in correct order" do
+    {% if flag?(:freebsd) %} pending! {% end %}
     with_channel do |ch|
       x = ch.exchange(x_name, "topic", args: x_args)
       q = ch.queue(q_name)

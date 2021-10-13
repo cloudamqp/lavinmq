@@ -346,6 +346,7 @@ describe AvalancheMQ::Server do
   end
 
   it "can cancel consumers" do
+    {% if flag?(:freebsd) %} pending! {% end %}
     with_channel do |ch|
       q = ch.queue("", auto_delete: false, durable: true, exclusive: false)
       q.publish "m1"
