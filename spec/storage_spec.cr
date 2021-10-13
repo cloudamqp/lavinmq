@@ -71,12 +71,9 @@ describe AvalancheMQ::VHost do
     with_channel do |ch|
       q = ch.queue
       q.publish "msg"
-      done = false
       q.subscribe(no_ack: true) do |_msg|
-        done = true
       end
-      wait_for { done }
-      s.vhosts["/"].dirty?.should be_true
+      should_eventually(be_true) { s.vhosts["/"].dirty? }
     end
   end
 
@@ -84,13 +81,10 @@ describe AvalancheMQ::VHost do
     with_channel do |ch|
       q = ch.queue
       q.publish "msg"
-      done = false
       q.subscribe(no_ack: false) do |msg|
         msg.reject
-        done = true
       end
-      wait_for { done }
-      s.vhosts["/"].dirty?.should be_true
+      should_eventually(be_true) { s.vhosts["/"].dirty? }
     end
   end
 
