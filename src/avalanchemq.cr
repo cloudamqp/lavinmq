@@ -20,25 +20,29 @@ require "./avalanchemq/server"
 require "./avalanchemq/http/http_server"
 require "./avalanchemq/log_formatter"
 
-puts "AvalancheMQ #{AvalancheMQ::VERSION}"
+log_file = (path = config.log_file) ? File.open(path, "a") : STDOUT
+log = Logger.new(log_file, level: config.log_level)
+AvalancheMQ::LogFormatter.use(log)
+
+log.info "AvalancheMQ #{AvalancheMQ::VERSION}"
 {% unless flag?(:release) %}
-  puts "WARNING: Not built in release mode"
+  log.warn "WARNING: Not built in release mode"
 {% end %}
 {% if flag?(:preview_mt) %}
-  puts "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
+  log.info "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
 {% end %}
-puts "Pid: #{Process.pid}"
-puts "Config file: #{config.config_file}" unless config.config_file.empty?
-puts "Data directory: #{config.data_dir}"
+log.info "Pid: #{Process.pid}"
+log.info "Config file: #{config.config_file}" unless config.config_file.empty?
+log.info "Data directory: #{config.data_dir}"
 
 # Maximize FD limit
 _, fd_limit_max = System.file_descriptor_limit
 System.file_descriptor_limit = fd_limit_max
 fd_limit_current, _ = System.file_descriptor_limit
-puts "FD limit: #{fd_limit_current}"
+log.info "FD limit: #{fd_limit_current}"
 if fd_limit_current < 1025
-  puts "WARNING: The file descriptor limit is very low, consider raising it."
-  puts "WARNING: You need one for each connection and two for each durable queue, and some more."
+  log.warn "WARNING: The file descriptor limit is very low, consider raising it."
+  log.warn "WARNING: You need one for each connection and two for each durable queue, and some more."
 end
 
 Dir.mkdir_p config.data_dir
@@ -52,18 +56,16 @@ if config.data_dir_lock
   begin
     lock.flock_exclusive(blocking: false)
   rescue
-    puts "INFO: Data directory locked by '#{lock.gets_to_end}'"
-    puts "INFO: Waiting for file lock to be released"
+    log.info "Data directory locked by '#{lock.gets_to_end}'"
+    log.info "Waiting for file lock to be released"
     lock.flock_exclusive(blocking: true)
-    puts "INFO: Lock aquired"
+    log.info "Lock acquired"
   end
   lock.truncate
   lock.print System.hostname
   lock.fsync
 end
 
-log = Logger.new(STDOUT, level: config.log_level.not_nil!)
-AvalancheMQ::LogFormatter.use(log)
 amqp_server = AvalancheMQ::Server.new(config.data_dir, log.dup)
 http_server = AvalancheMQ::HTTP::Server.new(amqp_server, log.dup)
 
@@ -134,7 +136,7 @@ SystemD.listen_fds_with_names.each do |fd, name|
     # io = TCPSocket.new(fd: fd)
     # load_parameters_such_as_username_etc
     # Client.new(io, ...)
-    puts "unexpected socket from systemd '#{name}' (#{fd})"
+    log.error "unexpected socket from systemd '#{name}' (#{fd})"
   end
 end
 
@@ -213,17 +215,16 @@ shutdown = ->(_s : Signal) do
     # amqp_server.vhosts.each do |_, vh|
     #  SystemD.store_fds(vh.connections.map(&.fd), "vhost=#{vh.dir}")
     # end
-    puts "Shutting down gracefully..."
+    log.info "Shutting down gracefully..."
     amqp_server.close
     http_server.try &.close
     lock.try &.close
-    puts "Fibers: "
-    Fiber.yield
-    Fiber.list { |f| puts f.inspect }
+    log.info "Fibers: "
+    Fiber.list { |f| log.info f.inspect }
     exit 0
   else
-    puts "Fibers: "
-    Fiber.list { |f| puts f.inspect }
+    log.info "Fibers: "
+    Fiber.list { |f| log.info f.inspect }
     exit 1
   end
 end
@@ -242,8 +243,7 @@ if lock
       lock.write_at hostname, 0
     end
   rescue ex : IO::Error
-    STDERR.puts ex.inspect
-    abort "ERROR: Lost lock!"
+    abort "ERROR: Lost lock! #{ex.inspect}"
   end
 else
   sleep
