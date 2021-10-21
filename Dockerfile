@@ -24,7 +24,7 @@ COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
-RUN shards build --production --no-debug --release avalanchemq && strip bin/*
+RUN shards build --production --no-debug --release && strip bin/*
 
 # start from scratch and only copy the built binary
 FROM ubuntu:20.04
