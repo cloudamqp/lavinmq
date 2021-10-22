@@ -1,5 +1,6 @@
 bin/avalanchemq:
-	crystal build --release -o bin/avalanchemq src/avalanchemq.cr
+	shards install --production
+	shards build --release --production avalanchemq
 
 .PHONY: install
 
