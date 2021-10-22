@@ -124,10 +124,8 @@ class MFile < IO
     msync(@buffer.to_unsafe, @pos, LibC::MS_SYNC)
   end
 
-  private def munmap(ptr : Pointer? = nil, size : Int32? = nil)
-    ptr ||= @buffer.to_unsafe
-    size ||= @capacity
-    code = LibC.munmap(ptr, size)
+  private def munmap(buffer = @buffer, size = @capacity)
+    code = LibC.munmap(buffer.to_unsafe, size)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
   end
 
@@ -222,7 +220,7 @@ class MFile < IO
     new_size = page_align(new_size.to_i32)
     bytes = @capacity - new_size
     return 0 if bytes < PAGESIZE # don't bother truncating less than a page
-    munmap(@buffer.to_unsafe + new_size, bytes)
+    munmap(@buffer + new_size, bytes)
     @capacity = @size = new_size
     code = LibC.ftruncate(@fd, new_size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
