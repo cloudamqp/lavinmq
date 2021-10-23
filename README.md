@@ -15,7 +15,7 @@ can sustain about 600.000 messages/s (16 byte msg body, single queue, single pro
 single consumer). A single producer can push 1.200.000 msgs/s and if there's no producers
 auto-ack consumers can receive 1.000.000 msgs/s.
 
-Enqueueing 10 million messages only uses 80MB RAM. 8000
+Enqueueing 10 million messages only uses 80 MB RAM. 8000
 connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
 MB RAM. About 1.600 bindings per second can be made to non-durable queues,
 and about 1000 bindings/second to durable queues.
@@ -45,11 +45,11 @@ in-memory array, and write the segment-position to an "ack" file. That way
 we can restore the queue index on boot by reading all the segment-position stored
 in the queue index file, then exclude all the segment-position read from the
 "ack" file.  The queue index is rewritten when the "ack" file becomes 16 MB,
-that is, every 16 \* 1024 \* 1024 / 8 = 2097152 message.
+that is, every `16 * 1024 * 1024 / 8 = 2097152` message.
 Then the current in-memory queue index is written to a new file and the
 "ack" file is truncated.
 
-Segments in the vhost's message store are being deleted when no queue index as
+Segments in the vhost's message store are being deleted when no queue index has
 a reference to a position in that segment.
 
 Declarations of queues, exchanges and bindings are written to a definitions
