@@ -192,7 +192,8 @@ describe AvalancheMQ::Federation::Upstream do
   it "should federate exchange even with no downstream consumer" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream wo downstream")
     UpstreamSpecHelpers.start_link(upstream)
-
+    s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
         upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
@@ -219,6 +220,8 @@ describe AvalancheMQ::Federation::Upstream do
   it "should continue after upstream restart" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream restart")
     UpstreamSpecHelpers.start_link(upstream)
+    s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
@@ -256,6 +259,8 @@ describe AvalancheMQ::Federation::Upstream do
 
   it "should reflect all bindings to upstream q" do
     upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_ex_federation("ef test bindings")
+    s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
     with_channel(vhost: "downstream") do |downstream_ch|
       downstream_ch.exchange("downstream_ex", "topic")
