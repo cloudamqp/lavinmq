@@ -104,7 +104,7 @@ describe AvalancheMQ::Queue do
       s.vhosts["/"].delete_exchange(x_name)
     end
 
-    it "should be able to get messages from paused queue with force flag", focus: true do
+    it "should be able to get messages from paused queue with force flag" do
       with_channel do |ch|
         x = ch.exchange(x_name, "direct")
         q = ch.queue(q_name)
