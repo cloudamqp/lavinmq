@@ -26,7 +26,7 @@ AvalancheMQ::LogFormatter.use(log)
 
 log.info AvalancheMQ::BUILD_INFO
 {% unless flag?(:release) %}
-  log.warn "WARNING: Not built in release mode"
+  log.warn "Not built in release mode"
 {% end %}
 {% if flag?(:preview_mt) %}
   log.info "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
@@ -41,8 +41,8 @@ System.file_descriptor_limit = fd_limit_max
 fd_limit_current, _ = System.file_descriptor_limit
 log.info "FD limit: #{fd_limit_current}"
 if fd_limit_current < 1025
-  log.warn "WARNING: The file descriptor limit is very low, consider raising it."
-  log.warn "WARNING: You need one for each connection and two for each durable queue, and some more."
+  log.warn "The file descriptor limit is very low, consider raising it."
+  log.warn "You need one for each connection and two for each durable queue, and some more."
 end
 
 Dir.mkdir_p config.data_dir
