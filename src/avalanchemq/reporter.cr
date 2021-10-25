@@ -32,6 +32,17 @@ module AvalancheMQ
       end
     end
 
+    def self.print_queue_segments(amqp_server, io)
+      amqp_server.vhosts.each_value do |vhost|
+        vhost.queues.each_value do |q|
+          s = Set(UInt32).new
+          q.unacked.each_sp {|sp| s << sp.segment }
+          q.ready.each {|sp| s << sp.segment }
+          io.puts "queue=\"#{vhost.name}/#{q.name}\" segments=#{s}"
+        end
+      end
+    end
+
     def self.dump_string_pool(io)
       pool = AMQ::Protocol::ShortString::POOL
       io.puts "# size=#{pool.size} capacity=#{pool.@capacity}"

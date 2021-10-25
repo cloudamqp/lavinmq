@@ -185,6 +185,7 @@ Signal::USR1.trap do
     STDOUT.puts "Dumping string pool to #{f.path}"
     AvalancheMQ::Reporter.dump_string_pool(f)
   end
+  AvalancheMQ::Reporter.print_queue_segments(amqp_server, STDOUT)
   STDOUT.flush
 end
 
