@@ -47,6 +47,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
 
   describe "DELETE /api/consumers/vhost/connection/channel/consumer" do
     it "should return 204 when successful" do
+      {% if flag?(:freebsd) %} pending! {% end %}
       with_channel do |ch|
         q = ch.queue("")
         consumer = q.subscribe { }

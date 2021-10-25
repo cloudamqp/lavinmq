@@ -5,11 +5,9 @@ require "./user"
 module AvalancheMQ
   class VHostStore
     include Enumerable({String, VHost})
-    @default_user : User
 
     def initialize(@data_dir : String,
                    @log : Logger, @users : UserStore, @events : Server::Event)
-      @default_user = @users.default_user
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -22,7 +20,7 @@ module AvalancheMQ
       end
     end
 
-    def create(name, user = @default_user, save = true)
+    def create(name, user = @users.default_user, save = true)
       if v = @vhosts[name]?
         return v
       end
@@ -60,13 +58,14 @@ module AvalancheMQ
 
     private def load!
       path = File.join(@data_dir, "vhosts.json")
+      default_user = @users.default_user
       if File.exists? path
         @log.debug "Loading vhosts from file"
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
-            @vhosts[name] = VHost.new(name, @data_dir, @log.dup, @default_user, @events)
+            @vhosts[name] = VHost.new(name, @data_dir, @log.dup, default_user, @events)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
         rescue JSON::ParseException

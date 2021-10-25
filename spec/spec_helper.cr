@@ -29,6 +29,13 @@ unless ENV["CI"]?
   Spec.override_default_formatter(Spec::VerboseFormatter.new)
 end
 
+Spec.after_each do
+  vhost = s.vhosts["/"]
+  vhost.queues.each_key do |queue_name|
+    vhost.delete_queue(queue_name)
+  end
+end
+
 module TestHelpers
   class_property s, h
 
@@ -60,6 +67,19 @@ module TestHelpers
 
   def with_ssl_channel(**args)
     with_channel(args) { |ch| yield ch }
+  end
+
+  def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__)
+    sec = Time.monotonic
+    loop do
+      Fiber.yield
+      begin
+        yield.should(expectation, file: file, line: line)
+        return
+      rescue ex
+        raise ex if Time.monotonic - sec > timeout
+      end
+    end
   end
 
   def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__)

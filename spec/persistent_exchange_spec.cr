@@ -184,6 +184,7 @@ describe "Persistent Exchange" do
 
   describe "x-persist-seconds" do
     it "should expire messages" do
+      {% if flag?(:freebsd) %} pending! {% end %}
       with_channel do |ch|
         x_args = AMQP::Client::Arguments.new({"x-persist-ms" => 1})
         x = ch.exchange(x_name, "topic", args: x_args)

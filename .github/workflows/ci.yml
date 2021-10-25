@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: apt-get update && apt-get install -y libsystemd-dev libyaml-dev
 
+      - name: Print Crystal version
+        run: crystal -v
+
       - name: Shards install
         run: shards install --ignore-crystal-version
 
@@ -60,7 +63,10 @@ jobs:
       - name: Build avalanchemq
         run: |
           shards install --production --ignore-crystal-version
-          shards build --production avalanchemq avalanchemqctl
+          shards build --release --production avalanchemq avalanchemqctl
+
+      - name: Print build info
+        run: bin/avalanchemq --build-info
 
       - name: Upload bin/
         uses: actions/upload-artifact@v2

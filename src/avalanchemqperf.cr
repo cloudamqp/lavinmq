@@ -15,6 +15,7 @@ class Perf
     @parser.banner = @banner
     @parser.on("-h", "--help", "Show this help") { puts @parser; exit 1 }
     @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
+    @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
     @parser.on("--uri=URI", "URI to connect to (default amqp://guest:guest@localhost)") do |v|
       @uri = v

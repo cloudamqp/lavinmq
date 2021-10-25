@@ -43,6 +43,31 @@ describe AvalancheMQ::HTTP::Server do
       vhost.should be_a(AvalancheMQ::VHost)
     end
 
+    # https://github.com/cloudamqp/avalanchemq/issues/276
+    context "if default user has been replaced" do
+      before_each do
+        s.users.delete(s.users.default_user.name)
+        s.users.create("other_name", "guest", [AvalancheMQ::Tag::Administrator]) # Will be the new default_user
+      end
+
+      after_each do
+        s.users.delete(s.users.default_user.name)
+        s.vhosts.delete("new")
+        s.users.create("guest", "guest", [AvalancheMQ::Tag::Administrator])
+        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
+      end
+
+      it "imports with new default user" do
+        headers = HTTP::Headers{"Content-Type"  => "application/json",
+                                "Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="} # other_name:guest
+        body = %({ "vhosts":[{ "name":"new" }] })
+        response = post("/api/definitions", body: body, headers: headers)
+        response.status_code.should eq 200
+        vhost = s.vhosts["new"]? || nil
+        vhost.should be_a(AvalancheMQ::VHost)
+      end
+    end
+
     it "imports queues" do
       body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = post("/api/definitions", body: body)

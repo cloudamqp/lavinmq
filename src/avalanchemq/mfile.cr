@@ -107,8 +107,7 @@ class MFile < IO
     return if @closed
     @closed = true
     begin
-      code = LibC.munmap(@buffer, @capacity)
-      raise RuntimeError.from_errno("Error unmapping file") if code == -1
+      munmap
       return if @readonly || @deleted || !truncate_to_size
       code = LibC.ftruncate(@fd, @size)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
@@ -123,6 +122,11 @@ class MFile < IO
 
   def fsync
     msync(@buffer.to_unsafe, @pos, LibC::MS_SYNC)
+  end
+
+  private def munmap(buffer = @buffer, size = @capacity)
+    code = LibC.munmap(buffer.to_unsafe, size)
+    raise RuntimeError.from_errno("Error unmapping file") if code == -1
   end
 
   private def msync(addr, len, flag) : Nil
@@ -216,8 +220,7 @@ class MFile < IO
     new_size = page_align(new_size.to_i32)
     bytes = @capacity - new_size
     return 0 if bytes < PAGESIZE # don't bother truncating less than a page
-    code = LibC.munmap(@buffer + new_size, bytes)
-    raise RuntimeError.from_errno("Error unmapping file") if code == -1
+    munmap(@buffer + new_size, bytes)
     @capacity = @size = new_size
     code = LibC.ftruncate(@fd, new_size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
@@ -239,9 +242,7 @@ class MFile < IO
       @buffer = Bytes.new(buffer, @capacity, read_only: @readonly)
     {% else %}
       # unmap and then mmap again
-      code = LibC.munmap(@buffer, @capacity)
-      raise RuntimeError.from_errno("Error unmapping file") if code == -1
-
+      munmap
       # mmap again
       @capacity = capacity
       @buffer = mmap

@@ -24,7 +24,7 @@ log_file = (path = config.log_file) ? File.open(path, "a") : STDOUT
 log = Logger.new(log_file, level: config.log_level)
 AvalancheMQ::LogFormatter.use(log)
 
-log.info "AvalancheMQ #{AvalancheMQ::VERSION}"
+log.info AvalancheMQ::BUILD_INFO
 {% unless flag?(:release) %}
   log.warn "WARNING: Not built in release mode"
 {% end %}
