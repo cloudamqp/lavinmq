@@ -21,14 +21,9 @@ module AvalancheMQ
         io << "}"
       end
 
-      private def append(io, name, value, labels = Tuple.new)
+      private def append(io, name, value : Int | Float, labels = Tuple.new)
           io << "avalanchemq_"
-          case name
-          when Tuple
-            io << name.join("_")
-          else
-            io << name
-          end
+          io << name
           append_labels(io, labels) unless labels.empty?
           io << " " << value << "\n"
       end
@@ -47,8 +42,16 @@ module AvalancheMQ
           append(o, "server_disk_total_bytes", @amqp_server.disk_total)
           append(o, "server_disk_free_bytes", @amqp_server.disk_free)
           vhosts(u).each do |vhost|
-            vhost.message_details.each do |k, v|
-              append(o, {"vhost", k}, v, { "name", vhost.name })
+            label = { "name", vhost.name }
+            append(o, "vhost_gc_runs", vhost.gc_runs, label)
+            vhost.gc_timing.each do |k,v|
+              append(o, "vhost_gc_time_#{k.downcase.tr(" ", "_")}", v, label)
+            end
+            details = vhost.message_details
+            append(o, "vhost_messages_unacked", details[:messages_unacknowledged], label)
+            append(o, "vhost_messages_ready", details[:messages_ready], label)
+            details[:message_stats].each do |k, v|
+              append(o, "vhost_messages_#{k}", v, label)
             end
             vhost.exchanges.each_value do |e|
                l = { "name", e.name, "vhost", vhost.name }
@@ -58,6 +61,8 @@ module AvalancheMQ
              end
              vhost.queues.each_value do |q|
                l = { "name", q.name, "vhost", vhost.name }
+               append(o, "queue_messages_ready", q.message_count, l)
+               append(o, "queue_messages_unacked", q.unacked_count, l)
                append(o, "queue_ack", q.ack_count, l)
                append(o, "queue_deliver", q.deliver_count, l)
                append(o, "queue_get", q.get_count, l)
