@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.32] - 2021-10-27
+
+### Added
+
+- On `USR1` print segments referenced by each queue
+- Log to file, via config option `log_file`
+- New option `--build-info` to print build information (Crystal, LLVM version etc)
+- New option `--no-data-dir-lock` to stop lock file being created
+- Added `avalanchemqctl` and `avalanchemqperf` binaries to Docker images
+- Packages and images built with Crystal 1.2.1 and LLVM 10
+- Keep debug symbols in Docker builds
+### Fixed
+
+- MFile (mmap) unmap pointer bug
+- VHost definition import failed if default user was renamed
+- Definitions export bug if compiled with LLVM 11
+- Memory reporting on BSD/Mac, value was kbyte but handled as byte
+- Assertions against acking wrong messages
+- Handle IO::Error exceptions in read_loop
+### Changed
+
+- Unix domain socket default location changed to `/dev/shm/avalanchemq-http.sock` on Linux
+- Don't log if client EOF on connect, such as healthchecks
 ## [1.0.0-alpha.31] - 2021-06-28
 
 ### Fixed
