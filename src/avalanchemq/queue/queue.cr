@@ -282,7 +282,10 @@ module AvalancheMQ
         if @state.running? && (c = @consumers.next_consumer(i))
           deliver_to_consumer(c)
           # deliver 4096 msgs to a consumer then change consumer
-          i = 0 if (i += 1) == 4096
+          if (i += 1) == 4096
+            Fiber.yield
+            i = 0
+          end
         else
           break if @state.closed?
           i = 0
