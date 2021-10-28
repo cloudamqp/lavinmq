@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0-alpha.32] - 2021-10-27
+## [1.0.0-alpha.33] - 2021-10-28
 
+### Fixed
+
+- Fix stuck deliver_loop by yielding once in a while
+
+## [1.0.0-alpha.32] - 2021-10-27
 ### Added
 
 - On `USR1` print segments referenced by each queue
