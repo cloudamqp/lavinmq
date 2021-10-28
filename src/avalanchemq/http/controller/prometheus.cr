@@ -53,6 +53,17 @@ module AvalancheMQ
           context
         end
 
+        get "/metrics/custom" do |context, params|
+          prefix = context.request.query_params["prefix"] || "lavinmq"
+          bad_request(context, "prefix to long") if prefix.size > 20
+          u = user(context)
+          report(context.response) do
+            writer = PrometheusWriter.new(context.response, prefix)
+            detailed_custom(writer, vhosts(u))
+          end
+          context
+        end
+
         get "/metrics/detailed" do |context, params|
           prefix = context.request.query_params["prefix"] || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
@@ -60,7 +71,7 @@ module AvalancheMQ
           u = user(context)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
-            detailed_queue_metrics(u, writer, families)
+            ## TODO
           end
           context
         end
@@ -77,7 +88,37 @@ module AvalancheMQ
         writer.write({name: "scrape_mem", value: mem})
       end
 
-      private def detailed_queue_metrics(u, writer, families)
+      private def detailed_custom(writer, vhosts)
+        vhosts.each do |vhost|
+          details = vhost.message_details
+          labels = { name: vhost.name }
+          writer.write({name: "vhost_messages_ready",
+                        value: details[:messages_ready],
+                        labels: labels})
+          writer.write({name: "vhost_messages_unacked",
+                        value: details[:messages_unacknowledged],
+                        labels: labels})
+          details[:message_stats].each do |k, v|
+            writer.write({name: "vhost_messages_#{k}", value: v, labels: labels})
+          end
+          vhost.exchanges.each_value do |e|
+            labels = { name: e.name, vhost: vhost.name }
+            writer.write({name: "exchange_publish_in", value: e.publish_in_count, labels: labels})
+            writer.write({name: "exchange_publish_out", value: e.publish_out_count, labels: labels})
+            writer.write({name: "exchange_unroutable", value: e.unroutable_count, labels: labels})
+          end
+          vhost.queues.each_value do |q|
+            labels = { name: q.name, vhost: vhost.name }
+            writer.write({name: "queue_messages_ready", value: q.message_count, labels: labels})
+            writer.write({name: "queue_messages_unacked", value: q.unacked_count, labels: labels})
+            writer.write({name: "queue_ack", value: q.ack_count, labels: labels})
+            writer.write({name: "queue_deliver", value: q.deliver_count, labels: labels})
+            writer.write({name: "queue_get", value: q.get_count, labels: labels})
+            writer.write({name: "queue_publish", value: q.publish_count, labels: labels})
+            writer.write({name: "queue_redeliver", value: q.redeliver_count, labels: labels})
+            writer.write({name: "queue_reject", value: q.reject_count, labels: labels})
+          end
+        end
       end
 
       private def overview_broker_metrics(writer)
@@ -243,32 +284,6 @@ module AvalancheMQ
                           help: "GC time spent in #{k}"})
           end
         end
-          # details = vhost.message_details
-          #   append(o, "vhost_messages_unacked", details[:messages_unacknowledged], label)
-          #   append(o, "vhost_messages_ready", details[:messages_ready], label)
-          #   details[:message_stats].each do |k, v|
-          #     append(o, "vhost_messages_#{k}", v, label)
-          #   end
-          #   vhost.exchanges.each_value do |e|
-          #      l = { "name", e.name, "vhost", vhost.name }
-          #      append(o, "exchange_publish_in", e.publish_in_count, l)
-          #      append(o, "exchange_publish_out", e.publish_out_count, l)
-          #      append(o, "exchange_unroutable", e.unroutable_count, l)
-          #    end
-          #    vhost.queues.each_value do |q|
-          #      l = { "name", q.name, "vhost", vhost.name }
-          #      append(o, "queue_messages_ready", q.message_count, l)
-          #      append(o, "queue_messages_unacked", q.unacked_count, l)
-          #      append(o, "queue_ack", q.ack_count, l)
-          #      append(o, "queue_deliver", q.deliver_count, l)
-          #      append(o, "queue_get", q.get_count, l)
-          #      append(o, "queue_publish", q.publish_count, l)
-          #      append(o, "queue_redeliver", q.redeliver_count, l)
-          #      append(o, "queue_reject", q.reject_count, l)
-          #    end
-          # end
-          # context
-        # end
       end
     end
   end
