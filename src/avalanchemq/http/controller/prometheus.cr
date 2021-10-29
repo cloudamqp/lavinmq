@@ -54,7 +54,7 @@ module AvalancheMQ
           context
         end
 
-        get "/metrics/detailed" do |context, params|
+        get "/metrics/detailed" do |context, _|
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
           families = context.request.query_params.fetch_all("family")
