@@ -41,7 +41,8 @@ module AvalancheMQ
     class PrometheusController < Controller
       private def register_routes
         get "/metrics" do |context, _|
-          prefix = context.request.query_params["prefix"] || "lavinmq"
+          prefix = context.request.query_params["prefix"]? || "lavinmq"
+          prefix
           bad_request(context, "prefix to long") if prefix.size > 20
           u = user(context)
           report(context.response) do
@@ -53,25 +54,28 @@ module AvalancheMQ
           context
         end
 
-        get "/metrics/custom" do |context, params|
-          prefix = context.request.query_params["prefix"] || "lavinmq"
-          bad_request(context, "prefix to long") if prefix.size > 20
-          u = user(context)
-          report(context.response) do
-            writer = PrometheusWriter.new(context.response, prefix)
-            detailed_custom(writer, vhosts(u))
-          end
-          context
-        end
-
         get "/metrics/detailed" do |context, params|
-          prefix = context.request.query_params["prefix"] || "lavinmq"
+          prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
           families = context.request.query_params.fetch_all("family")
           u = user(context)
+          vhosts = vhosts(u)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
-            ## TODO
+            families.each do |family|
+              case family
+              when "connection_churn_metrics"
+                detailed_connection_churn_metrics(writer)
+              when "queue_coarse_metrics"
+                detailed_queue_coarse_metrics(vhosts, writer)
+              when "queue_consumer_count"
+                detailed_queue_consumer_count(vhosts, writer)
+              when "connection_coarse_metrics", "connection_metrics"
+                detailed_connection_coarse_metrics(vhosts, writer)
+              when "channel_metrics"
+                detailed_channel_metrics(vhosts, writer)
+              end
+            end
           end
           context
         end
@@ -88,44 +92,10 @@ module AvalancheMQ
         writer.write({name: "scrape_mem", value: mem})
       end
 
-      private def detailed_custom(writer, vhosts)
-        vhosts.each do |vhost|
-          details = vhost.message_details
-          labels = { name: vhost.name }
-          writer.write({name: "vhost_messages_ready",
-                        value: details[:messages_ready],
-                        labels: labels})
-          writer.write({name: "vhost_messages_unacked",
-                        value: details[:messages_unacknowledged],
-                        labels: labels})
-          details[:message_stats].each do |k, v|
-            writer.write({name: "vhost_messages_#{k}", value: v, labels: labels})
-          end
-          vhost.exchanges.each_value do |e|
-            labels = { name: e.name, vhost: vhost.name }
-            writer.write({name: "exchange_publish_in", value: e.publish_in_count, labels: labels})
-            writer.write({name: "exchange_publish_out", value: e.publish_out_count, labels: labels})
-            writer.write({name: "exchange_unroutable", value: e.unroutable_count, labels: labels})
-          end
-          vhost.queues.each_value do |q|
-            labels = { name: q.name, vhost: vhost.name }
-            writer.write({name: "queue_messages_ready", value: q.message_count, labels: labels})
-            writer.write({name: "queue_messages_unacked", value: q.unacked_count, labels: labels})
-            writer.write({name: "queue_ack", value: q.ack_count, labels: labels})
-            writer.write({name: "queue_deliver", value: q.deliver_count, labels: labels})
-            writer.write({name: "queue_get", value: q.get_count, labels: labels})
-            writer.write({name: "queue_publish", value: q.publish_count, labels: labels})
-            writer.write({name: "queue_redeliver", value: q.redeliver_count, labels: labels})
-            writer.write({name: "queue_reject", value: q.reject_count, labels: labels})
-          end
-        end
-      end
-
       private def overview_broker_metrics(writer)
         writer.write({name: "identity_info", value: 1, labels: {
                         "#{writer.prefix}_version" => AvalancheMQ::VERSION,
-                        "#{writer.prefix}_node" => "rabbit@test-cheerful-beige-lemming-02",
-                        "#{writer.prefix}_cluster" => "test-cheerful-beige-lemming"}})
+                        "#{writer.prefix}_cluster" => System.hostname}})
         writer.write({name: "connections_opened_total",
                       value: @amqp_server.connection_created_count,
                       type: "counter",
@@ -282,6 +252,120 @@ module AvalancheMQ
                           labels: labels,
                           type: "counter",
                           help: "GC time spent in #{k}"})
+          end
+        end
+      end
+
+      private def detailed_connection_churn_metrics(writer)
+        writer.write({name: "detailed_connections_opened_total",
+                      value: @amqp_server.connection_created_count,
+                      type: "counter",
+                      help: "Total number of connections opened"})
+        writer.write({name: "detailed_connections_closed_total",
+                      value: @amqp_server.connection_closed_count,
+                      type: "counter",
+                      help: "Total number of connections closed or terminated"})
+        writer.write({name: "detailed_channels_opened_total",
+                      value: @amqp_server.channel_created_count,
+                      type: "counter",
+                      help: "Total number of channels opened"})
+        writer.write({name: "detailed_channels_closed_total",
+                      value: @amqp_server.channel_closed_count,
+                      type: "counter",
+                      help: "Total number of channels closed"})
+        writer.write({name: "detailed_queues_declared_total",
+                      value: @amqp_server.queue_declared_count,
+                      type: "counter",
+                      help: "Total number of queues declared"})
+        writer.write({name: "detailed_queues_deleted_total",
+                      value: @amqp_server.queue_deleted_count,
+                      type: "counter",
+                      help: "Total number of queues deleted"})
+      end
+
+      private def detailed_queue_coarse_metrics(vhosts, writer)
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = { queue: q.name, vhost: vhost.name }
+            ready = q.message_count
+            unacked = q.unacked_count
+            writer.write({name: "detailed_queue_messages_ready",
+                          value: ready,
+                          type: "gauge",
+                          labels: labels,
+                          help: "Messages ready to be delivered to consumers"})
+            writer.write({name: "detailed_queue_messages_unacked",
+                          value: unacked,
+                          type: "gauge",
+                          labels: labels,
+                          help: "Messages delivered to consumers but not yet acknowledged"})
+            writer.write({name: "detailed_queue_messages",
+                          value: ready + unacked,
+                          type: "gauge",
+                          labels: labels,
+                          help: "Sum of ready and unacknowledged messages - total queue depth"})
+          end
+        end
+      end
+
+      private def detailed_queue_consumer_count(vhosts, writer)
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = { queue: q.name, vhost: vhost.name }
+            writer.write({name: "detailed_queue_consumers",
+                          value: q.consumers.size,
+                          type: "gauge",
+                          labels: labels,
+                          help: "Consumers on a queue"})
+          end
+        end
+      end
+
+      private def detailed_connection_coarse_metrics(vhosts, writer)
+        vhosts.each do |vhost|
+          vhost.connections.each do |conn|
+            labels = { channel: conn.name }
+            writer.write({name: "detailed_connection_incoming_bytes_total",
+                          value: conn.recv_oct_count,
+                          type: "counter",
+                          labels: labels,
+                          help: "Total number of bytes received on a connection"})
+            writer.write({name: "detailed_connection_outgoing_bytes_total",
+                          value: conn.send_oct_count,
+                          type: "counter",
+                          labels: labels,
+                          help: "Total number of bytes sent on a connection"})
+            writer.write({name: "detailed_connection_channels",
+                          value: conn.channels.size,
+                          type: "counter",
+                          labels: labels,
+                          help: "Channels on a connection"})
+          end
+        end
+      end
+
+      private def detailed_channel_metrics(vhosts, writer)
+        vhosts.each do |vhost|
+          vhost.connections.each do |conn|
+            conn.channels.each_value do |ch|
+              labels = { channel: ch.name }
+              d = ch.details_tuple
+              writer.write({name: "detailed_channel_consumers",
+                            value: d[:consumer_count],
+                            type: "gauge",
+                            labels: labels,
+                            help: "Consumers on a channels"})
+              writer.write({name: "detailed_messages_unacked",
+                            value: d[:messages_unacknowledged],
+                            type: "gauge",
+                            labels: labels,
+                            help: "Delivered but not yet acknowledged messages"})
+              writer.write({name: "detailed_channel_prefetch",
+                            value: d[:prefetch_count],
+                            type: "gauge",
+                            labels: labels,
+                            help: "Total limit of unacknowledged messages for all consumers on a channel"})
+            end
           end
         end
       end
