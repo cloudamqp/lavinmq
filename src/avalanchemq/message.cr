@@ -33,7 +33,7 @@ module AvalancheMQ
       rk = AMQP::ShortString.from_io io, format
       pr = AMQP::Properties.from_io io, format
       sz = UInt64.from_io io, format
-      body = io.to_slice[io.pos, sz]
+      body = io.to_slice(io.pos, sz)
       BytesMessage.new(ts, ex, rk, pr, sz, body)
     end
   end

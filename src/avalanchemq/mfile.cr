@@ -173,6 +173,10 @@ class MFile < IO
     @buffer
   end
 
+  def to_slice(pos, size)
+    (@buffer + pos).to_slice(size)
+  end
+
   def punch_hole(size : UInt32, offset : UInt32 = 0u32) : UInt32
     {% if flag?(:linux) %}
       return 0u32 if size < PAGESIZE
