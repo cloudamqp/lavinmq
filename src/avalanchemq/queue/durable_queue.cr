@@ -154,7 +154,7 @@ module AvalancheMQ
       @ack.fsync
     end
 
-    SP_SIZE = SegmentPosition::BYTESIZE
+    SP_SIZE = SegmentPosition::BYTESIZE.to_i64
 
     private def restore_index : Nil
       @log.info "Restoring index"
