@@ -487,7 +487,7 @@ module AvalancheMQ
       return @segment_file if @segment_id == id
       mfile = @vhost.segment_file(id)
       @segment_id = id
-      @segment_file = IO::Memory.new(mfile.to_slice, writeable: false)
+      @segment_file = IO::Memory.new(mfile.to_unsafe, mfile.capacity, writeable: false)
     end
 
     def metadata(sp) : MessageMetadata?

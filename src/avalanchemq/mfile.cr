@@ -14,7 +14,6 @@ lib LibC
 end
 
 # Memory mapped file
-# Max 2GB files (Slice is currently limited to Int32)
 # If no `capacity` is given the file is open in read only mode and
 # `capacity` is set to the current file size.
 # If the process crashes the file will be `capacity` large,
@@ -26,7 +25,7 @@ class MFile < IO
   getter size = 0
   getter capacity = 0
   getter path : String
-  @buffer : Bytes
+  @buffer : Pointer(UInt8)
   @fd : Int32
 
   # Map a file, if no capacity is given the file must exists and
@@ -79,13 +78,13 @@ class MFile < IO
     stat.st_blocks.to_u64 * 512
   end
 
-  private def mmap : Bytes
+  private def mmap : Pointer(UInt8)
     protection = LibC::PROT_READ
     protection |= LibC::PROT_WRITE # unless @readonly
     flags = LibC::MAP_SHARED
     buffer = LibC.mmap(nil, @capacity, protection, flags, @fd, 0).as(UInt8*)
     raise RuntimeError.from_errno("mmap") if buffer == LibC::MAP_FAILED
-    Bytes.new(buffer, @capacity, read_only: @readonly)
+    buffer
   end
 
   private def close_fd(fd)
@@ -117,15 +116,15 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer.to_unsafe, @pos, LibC::MS_ASYNC)
+    msync(@buffer, @pos, LibC::MS_ASYNC)
   end
 
   def fsync
-    msync(@buffer.to_unsafe, @pos, LibC::MS_SYNC)
+    msync(@buffer, @pos, LibC::MS_SYNC)
   end
 
   private def munmap(buffer = @buffer, size = @capacity)
-    code = LibC.munmap(buffer.to_unsafe, size)
+    code = LibC.munmap(buffer, size)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
   end
 
@@ -141,7 +140,7 @@ class MFile < IO
   def write(slice : Bytes) : Nil
     pos = @pos
     raise IO::EOFError.new if pos + slice.size > @capacity
-    slice.copy_to(@buffer + pos)
+    slice.copy_to(@buffer + pos, slice.size)
     @pos = pos += slice.size
     @size = pos if pos > @size
   end
@@ -170,7 +169,7 @@ class MFile < IO
     end
   end
 
-  def to_slice
+  def to_unsafe
     @buffer
   end
 
@@ -239,7 +238,7 @@ class MFile < IO
       buffer = LibC.mremap(@buffer, @capacity, capacity.to_i32, LibC::MREMAP_MAYMOVE).as(UInt8*)
       raise RuntimeError.from_errno("mremap") if buffer == LibC::MAP_FAILED
       @capacity = capacity
-      @buffer = Bytes.new(buffer, @capacity, read_only: @readonly)
+      @buffer = buffer
     {% else %}
       # unmap and then mmap again
       munmap
