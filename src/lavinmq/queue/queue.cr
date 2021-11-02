@@ -114,8 +114,7 @@ module LavinMQ
       {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
       {"message_count", "unacked_count"})
 
-    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready,
-      last_get_time
+    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready, last_get_time
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? closed
@@ -343,8 +342,11 @@ module LavinMQ
       @deleted = true
       close
       @state = QueueState::Deleted
-      @vhost.delete_queue(@name)
-      @vhost.trigger_gc!
+      vhost = @vhost
+      vhost.delete_queue(@name)
+      @ready.each do |sp|
+        vhost.decrease_segment_references(sp.segment)
+      end
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
       true
@@ -407,6 +409,7 @@ module LavinMQ
       @ready.push(sp)
       drop_overflow unless immediate_delivery?
       @publish_count += 1
+      @vhost.increase_segment_references(sp.segment)
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ::Channel::ClosedError
@@ -676,7 +679,8 @@ module LavinMQ
       end
     end
 
-    # return the next message in the ready queue
+    # yield the next message in the ready queue
+    # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
@@ -691,24 +695,29 @@ module LavinMQ
             env = with_delivery_count_header(env)
           end
           if env
-            yield env # deliver the message
-            # ack/unack the message after it has been delivered
-            if no_ack
-              @log.debug { "Deleting: #{sp}" }
-              delete_message(sp)
-            else
-              @log.debug { "Unacked: #{sp}" }
+            unless no_ack
+              @log.debug { "Counting as unacked: #{sp}" }
               @unacked_count += 1
               @unacked_bytesize += sp.bytesize
             end
+            yield env # deliver the message
+            if no_ack
+              @log.debug { "Deleting: #{sp}" }
+              delete_message(sp)
+            end
             return true
           end
-        rescue ReadError
-          @ready.insert(sp)
-          close
-          return false
         rescue ex
           @ready.insert(sp)
+          unless no_ack
+            @log.debug { "Not counting as unacked: #{sp}" }
+            @unacked_count -= 1
+            @unacked_bytesize -= sp.bytesize
+          end
+          if ex.is_a? ReadError
+            close
+            return false
+          end
           raise ex
         end
       end
@@ -759,7 +768,7 @@ module LavinMQ
     protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
       @requeued.delete(sp)
-      @vhost.dirty = true
+      @vhost.decrease_segment_references(sp.segment)
     end
 
     def compact
@@ -842,13 +851,15 @@ module LavinMQ
       @log.info { "Purging at most #{max_count || "all"} messages" }
       delete_count = 0_u32
       if max_count.nil? || max_count >= @ready.size
-        delete_count += @ready.purge
+        @ready.each do |sp|
+          vhost.decrease_segment_references(sp.segment)
+        end
+        delete_count = @ready.purge
       else
-        max_count.times { @ready.shift? && (delete_count += 1) }
+        max_count.times { (sp = @ready.shift?) && (delete_count += 1) && vhost.decrease_segment_references(sp.segment) }
       end
       @log.info { "Purged #{delete_count} messages" }
-      @vhost.trigger_gc! if trigger_gc
-      delete_count
+      delete_count.to_u32
     end
 
     def match?(frame)

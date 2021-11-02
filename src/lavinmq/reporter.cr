@@ -6,9 +6,10 @@ module LavinMQ
       s.vhosts.each do |_, vh|
         puts "VHost #{vh.name}"
         puts_size_capacity vh.@awaiting_confirm, 4
+        puts_size_capacity vh.@segments, 4
+        puts_size_capacity vh.@segment_references, 4
         puts_size_capacity vh.@exchanges, 4
         puts_size_capacity vh.@queues, 4
-        puts_size_capacity vh.@segment_holes, 4
         vh.queues.each do |_, q|
           puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
           puts_size_capacity q.@consumers, 6
