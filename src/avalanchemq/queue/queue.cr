@@ -409,9 +409,13 @@ module AvalancheMQ
 
     def details_tuple
       {
-        name: @name, durable: @durable, exclusive: @exclusive,
-        auto_delete: @auto_delete, arguments: @arguments,
-        consumers: @consumers.size, vhost: @vhost.name,
+        name: @name,
+        durable: @durable,
+        exclusive: @exclusive,
+        auto_delete: @auto_delete,
+        arguments: @arguments,
+        consumers: @consumers.size,
+        vhost: @vhost.name,
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
         ready_bytes: @ready.sum &.bytesize,
@@ -865,8 +869,8 @@ module AvalancheMQ
       builder.object do
         details_tuple.each do |k, v|
           builder.field(k, v) unless v.nil?
-          builder.field("consumer_details", @consumers)
         end
+        builder.field("consumer_details", @consumers)
       end
     end
 
