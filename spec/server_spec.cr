@@ -136,31 +136,6 @@ describe LavinMQ::Server do
     end
   end
 
-  it "should run GC on purge" do
-    vhost = Server.vhosts["/"]
-    data_dir = vhost.data_dir
-    current = Dir.glob(File.join(data_dir, "msgs.*")).size
-
-    with_channel do |ch|
-      q = ch.queue "my_durable_queue", durable: true, exclusive: true
-      4.times do
-        q.publish_confirm "a" * 1024**2, props: AMQP::Client::Properties.new(delivery_mode: 2)
-      end
-
-      after_publish = Dir.glob(File.join(data_dir, "msgs.*")).size
-      (after_publish > current).should be_true
-
-      q.purge
-
-      sleep 0 # yield to other fiber for GC
-
-      wait_for { !vhost.dirty? }
-
-      after_purge = Dir.glob(File.join(data_dir, "msgs.*")).size
-      (after_purge < after_publish).should be_true
-    end
-  end
-
   it "supports publisher confirms" do
     with_channel do |ch|
       q = ch.queue
