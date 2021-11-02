@@ -49,8 +49,9 @@ module AvalancheMQ
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
       @segments = load_segments_on_disk
-      @segment_references = ZeroReferenceCounter(UInt32).new do |seg_nr|
-        if seg = @segments.delete(seg_nr)
+      @segment_references = ZeroReferenceCounter(UInt32).new do |segment|
+        next if @segments.last_key == segment
+        if seg = @segments.delete(segment)
           seg.delete
           seg.close
         end
