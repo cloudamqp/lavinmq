@@ -14,19 +14,18 @@ lib LibC
 end
 
 # Memory mapped file
-# Max 2GB files (Slice is currently limited to Int32)
 # If no `capacity` is given the file is open in read only mode and
 # `capacity` is set to the current file size.
 # If the process crashes the file will be `capacity` large,
 # not `size` large, only on graceful close is the file truncated to its `size`.
 # The file does not expand further than initial `capacity`, unless manually expanded.
 class MFile < IO
-  property pos = 0
+  property pos = 0i64
   getter? closed = false
-  getter size = 0
-  getter capacity = 0
+  getter size = 0i64
+  getter capacity = 0i64
   getter path : String
-  @buffer : Bytes
+  @buffer : Pointer(UInt8)
   @fd : Int32
 
   # Map a file, if no capacity is given the file must exists and
@@ -36,7 +35,7 @@ class MFile < IO
     @readonly = capacity.nil?
     @fd = open_fd
     @size = file_size
-    @capacity = capacity ? Math.max(capacity.to_i32, @size) : @size
+    @capacity = capacity ? Math.max(capacity.to_i64, @size) : @size
     if @capacity > @size
       code = LibC.ftruncate(@fd, @capacity)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
@@ -67,25 +66,25 @@ class MFile < IO
     fd
   end
 
-  private def file_size : Int32
+  private def file_size : Int64
     code = LibC.fstat(@fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
-    stat.st_size.to_i32
+    stat.st_size.to_i64
   end
 
-  def disk_usage : UInt64
+  def disk_usage : Int64
     code = LibC.fstat(@fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
-    stat.st_blocks.to_u64 * 512
+    stat.st_blocks.to_i64 * 512
   end
 
-  private def mmap : Bytes
+  private def mmap : Pointer(UInt8)
     protection = LibC::PROT_READ
     protection |= LibC::PROT_WRITE # unless @readonly
     flags = LibC::MAP_SHARED
     buffer = LibC.mmap(nil, @capacity, protection, flags, @fd, 0).as(UInt8*)
     raise RuntimeError.from_errno("mmap") if buffer == LibC::MAP_FAILED
-    Bytes.new(buffer, @capacity, read_only: @readonly)
+    buffer
   end
 
   private def close_fd(fd)
@@ -117,15 +116,15 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer.to_unsafe, @pos, LibC::MS_ASYNC)
+    msync(@buffer, @pos, LibC::MS_ASYNC)
   end
 
   def fsync
-    msync(@buffer.to_unsafe, @pos, LibC::MS_SYNC)
+    msync(@buffer, @pos, LibC::MS_SYNC)
   end
 
   private def munmap(buffer = @buffer, size = @capacity)
-    code = LibC.munmap(buffer.to_unsafe, size)
+    code = LibC.munmap(buffer, size)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
   end
 
@@ -141,9 +140,9 @@ class MFile < IO
   def write(slice : Bytes) : Nil
     pos = @pos
     raise IO::EOFError.new if pos + slice.size > @capacity
-    slice.copy_to(@buffer + pos)
+    slice.copy_to(@buffer + pos, slice.size)
     @pos = pos += slice.size
-    @size = pos if pos > @size
+    @size = pos.to_i64 if pos > @size
   end
 
   def read(slice : Bytes)
@@ -170,14 +169,18 @@ class MFile < IO
     end
   end
 
-  def to_slice
+  def to_unsafe
     @buffer
   end
 
-  def punch_hole(size : UInt32, offset : UInt32 = 0u32) : UInt32
+  def to_slice(pos, size)
+    (@buffer + pos).to_slice(size)
+  end
+
+  def punch_hole(size : Int, offset : Int = 0i64) : Int64
     {% if flag?(:linux) %}
-      return 0u32 if size < PAGESIZE
-      o = offset
+      return 0i64 if size < PAGESIZE
+      o = offset.to_i64
 
       # page align offset
       offset = page_align(offset)
@@ -190,15 +193,15 @@ class MFile < IO
         size = page_align(size)
         size -= PAGESIZE
       end
-      return 0u32 if size == 0
+      return 0i64 if size == 0
 
       addr = @buffer + offset
       if LibC.madvise(addr, size, LibC::MADV_REMOVE) != 0
         raise IO::Error.from_errno("madvise")
       end
-      size
+      size.to_i64
     {% else %}
-      return 0u32 # only linux supports MADV_REMOVE/hole punching
+      return 0i64 # only linux supports MADV_REMOVE/hole punching
     {% end %}
   end
 
@@ -216,10 +219,10 @@ class MFile < IO
     DontNeed
   end
 
-  def truncate(new_size : Int) : Int32
-    new_size = page_align(new_size.to_i32)
+  def truncate(new_size : Int) : Int64
+    new_size = page_align(new_size.to_i64)
     bytes = @capacity - new_size
-    return 0 if bytes < PAGESIZE # don't bother truncating less than a page
+    return 0i64 if bytes < PAGESIZE # don't bother truncating less than a page
     munmap(@buffer + new_size, bytes)
     @capacity = @size = new_size
     code = LibC.ftruncate(@fd, new_size)
@@ -228,7 +231,7 @@ class MFile < IO
   end
 
   def resize(new_size : Int) : Nil
-    capacity = new_size.to_i32
+    capacity = new_size.to_i64
 
     # resize the file first
     code = LibC.ftruncate(@fd, capacity)
@@ -236,10 +239,10 @@ class MFile < IO
 
     {% if flag?(:linux) %}
       # then remap
-      buffer = LibC.mremap(@buffer, @capacity, capacity.to_i32, LibC::MREMAP_MAYMOVE).as(UInt8*)
+      buffer = LibC.mremap(@buffer, @capacity, capacity.to_i64, LibC::MREMAP_MAYMOVE).as(UInt8*)
       raise RuntimeError.from_errno("mremap") if buffer == LibC::MAP_FAILED
       @capacity = capacity
-      @buffer = Bytes.new(buffer, @capacity, read_only: @readonly)
+      @buffer = buffer
     {% else %}
       # unmap and then mmap again
       munmap

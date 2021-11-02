@@ -485,13 +485,13 @@ module AvalancheMQ
     end
 
     @segment_id = 0_u32
-    @segment_file = IO::Memory.new(0)
+    @segment_file : MFile?
 
-    private def segment_file(id : UInt32) : IO::Memory
-      return @segment_file if @segment_id == id
+    private def segment_file(id : UInt32) : MFile
+      return @segment_file.not_nil! if @segment_id == id
       mfile = @vhost.segment_file(id)
       @segment_id = id
-      @segment_file = IO::Memory.new(mfile.to_slice, writeable: false)
+      @segment_file = mfile
     end
 
     def metadata(sp) : MessageMetadata?
