@@ -171,39 +171,6 @@ describe LavinMQ::DurableQueue do
 end
 
 describe LavinMQ::VHost do
-  it "should not be dirty if nothing happend" do
-    Server.vhosts.create("not_dirty").dirty?.should be_false
-  end
-
-  it "should be dirty after ack" do
-    with_channel do |ch|
-      q = ch.queue
-      q.publish "msg"
-      q.subscribe(no_ack: true) do |_msg|
-      end
-      should_eventually(be_true) { Server.vhosts["/"].dirty? }
-    end
-  end
-
-  it "should be dirty after reject" do
-    with_channel do |ch|
-      q = ch.queue
-      q.publish "msg"
-      q.subscribe(no_ack: false) do |msg|
-        msg.reject
-      end
-      should_eventually(be_true) { Server.vhosts["/"].dirty? }
-    end
-  end
-
-  it "should be dirty after expire" do
-    with_channel do |ch|
-      q = ch.queue
-      q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "0")
-      Server.vhosts["/"].dirty?.should be_true
-    end
-  end
-
   pending "GC segments" do
     vhost = Server.vhosts["/"]
     vhost.queues.each_value &.delete

@@ -16,7 +16,7 @@ require "./mfile"
 require "./schema"
 require "./event_type"
 require "./stats"
-require "./user"
+require "./reference_counter"
 
 module LavinMQ
   class VHost
@@ -29,7 +29,6 @@ module LavinMQ
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, gc_runs, gc_timing, log, users
     property? flow = true
-    property? dirty = false
     getter? closed = false
     property max_connections : Int32?
     property max_queues : Int32?
@@ -61,6 +60,16 @@ module LavinMQ
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
       @segment_id = @segments.last_key
+      @segment_references = ZeroReferenceCounter(UInt32).new do |segment|
+        next if segment == @segment_id
+        if mfile = @segments.delete(segment)
+          elapsed = Time.measure do
+            mfile.delete
+            mfile.close
+          end
+          @log.info { "Deleting segment #{segment} took #{elapsed.total_milliseconds} ms" }
+        end
+      end
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
@@ -68,7 +77,7 @@ module LavinMQ
       @upstreams = Federation::UpstreamStore.new(self)
       load!
       spawn save!, name: "VHost/#{@name}#save!"
-      spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
+      delete_unused_segments
     end
 
     def max_connections=(value : Int32) : Nil
@@ -184,6 +193,16 @@ module LavinMQ
     ensure
       visited.clear
       found_queues.clear
+    end
+
+    def increase_segment_references(segment : UInt32)
+      @segment_references.inc(segment)
+    end
+
+    def decrease_segment_references(segment : UInt32)
+      @segment_references.dec(segment)
+    rescue KeyError
+      @log.warn { "Segment #{segment} missing from segment_references" }
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
@@ -567,14 +586,6 @@ module LavinMQ
       FileUtils.rm_rf @data_dir
     end
 
-    def trigger_gc!
-      return if @closed
-      @dirty = true
-      select
-      when @gc_loop.send nil
-      end
-    end
-
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
       itr = if resources
               resources.each
@@ -773,200 +784,7 @@ module LavinMQ
         end
         segments[seg] = file
       end
-      @dirty = true unless was_empty
       segments
-    end
-
-    private def gc_segments_loop
-      return if @closed
-      referenced_sps = ReferencedSPs.new(@queues.size)
-      interval = Random.rand(Config.instance.gc_segments_interval).seconds
-      loop do
-        select
-        when @gc_loop.receive
-        when timeout interval
-        end
-        interval = Config.instance.gc_segments_interval.seconds
-        return if @closed
-        next unless @dirty
-        gc_log("collecting sps") do
-          collect_sps(referenced_sps)
-        end
-        gc_log("garbage collecting") do
-          gc_segments(referenced_sps)
-        end
-        gc_log("compact internal queues") do
-          @queues.each_value &.compact
-        end
-        gc_log("GC collect") do
-          GC.collect
-        end
-        @dirty = false
-        @gc_runs += 1
-      end
-    rescue ex
-      @log.fatal(exception: ex) { "Unhandled exception in #gc_segments_loop, killing process" }
-      exit 1
-    end
-
-    private def gc_log(desc, &blk)
-      elapsed = Time.measure do
-        mem = Benchmark.memory(&blk)
-        @log.info { "GC segments, #{desc} used #{mem.humanize_bytes} memory" }
-      end
-      @gc_timing[desc] += elapsed.total_milliseconds
-      return if elapsed.total_milliseconds <= 10
-      @log.info { "GC segments, #{desc} took #{elapsed.total_milliseconds} ms" }
-    end
-
-    private def collect_sps(referenced_sps) : Nil
-      @exchanges.each_value do |ex|
-        ex.referenced_sps(referenced_sps)
-      end
-      @queues.each_value do |q|
-        referenced_sps << SPQueue.new(q.ready)
-      end
-
-      unacked_count = 0
-      @connections.each do |c|
-        c.channels.each_value do |ch|
-          unacked_count += ch.unacked_count
-        end
-      end
-      if unacked_count > 0
-        unacked = Array(SegmentPosition).new(unacked_count)
-        @connections.each do |c|
-          c.channels.each_value do |ch|
-            ch.each_unacked do |unack|
-              unacked << unack.sp
-            end
-          end
-        end
-        referenced_sps << SPQueue.new(unacked)
-      end
-    end
-
-    # ameba:disable Metrics/CyclomaticComplexity
-    private def gc_segments(referenced_sps) : Nil
-      @log.debug { "GC segments" }
-      collected = 0_u64
-
-      if referenced_sps.empty?
-        collected += gc_all_segements
-      end
-
-      file = nil
-      prev_sp = SegmentPosition.zero
-      referenced_sps.each do |sp|
-        next if sp == prev_sp # ignore duplicates
-
-        raise ReferencedSPs::NotInOrderError.new(prev_sp, sp) if prev_sp > sp
-        # if the last segment was the same as this
-        if prev_sp.segment == sp.segment
-          # if there's a hole between previous sp and this sp
-          # punch a hole
-          collected += punch_hole(file, prev_sp.end_position, sp.position) if file
-        else # dealing with a new segment
-          # truncate the previous file
-          collected += file.truncate(prev_sp.end_position) if file
-
-          # if a segment is missing between this and previous SP
-          # means that a segment is unused, so let's delete it
-          ((prev_sp.segment + 1)...sp.segment).each do |seg|
-            collected += delete_segment(seg)
-          end
-
-          file = @segments[sp.segment]?
-          # punch from start of the segment (but not the version prefix)
-          collected += punch_hole(file, sizeof(Int32), sp.position) if file
-        end
-        prev_sp = sp
-      end
-
-      # truncate the last opened segment to last message
-      if file != @wfile
-        collected += file.truncate(prev_sp.end_position) if file
-      end
-
-      @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
-    end
-
-    private def delete_segment(seg) : Int
-      if mfile = @segments.delete(seg)
-        disk_usage = mfile.disk_usage
-        @log.info { "Deleting segment #{seg}" }
-        @segment_holes.delete(mfile)
-        mfile.close(truncate_to_size: false)
-        mfile.delete
-        disk_usage
-      else
-        0
-      end
-    end
-
-    private def gc_all_segements
-      collected = 0_u64
-      @segments.reject! do |seg, mfile|
-        next if mfile == @wfile
-        collected += mfile.disk_usage
-        @log.info { "Deleting segment #{seg}" }
-        @segment_holes.delete(mfile)
-        mfile.close(truncate_to_size: false)
-        mfile.delete
-        true
-      end
-      collected
-    end
-
-    # For each file we hold an array of holes where we've already punched
-    record Hole, start_pos : UInt32, end_pos : UInt32
-    @segment_holes = Hash(MFile, Array(Hole)).new { |h, k| h[k] = Array(Hole).new }
-
-    private def punch_hole(segment, start_pos : Int, end_pos : Int) : Int
-      {% unless flag?(:linux) %}
-        # only linux supports hole punching (MADV_REMOVE)
-        return 0
-      {% end %}
-      start_pos = start_pos.to_u32
-      end_pos = end_pos.to_u32
-      hole_size = end_pos - start_pos
-      return 0 if hole_size == 0
-
-      holes = @segment_holes[segment]
-      if idx = holes.bsearch_index { |hole| hole.start_pos >= start_pos }
-        hole = holes[idx]
-        hole_start = hole.start_pos
-        hole_end = hole.end_pos
-
-        case
-        when start_pos == hole_start && hole_end >= end_pos
-          # we got the exact same hole or a smaller hole
-          return 0
-        when start_pos == hole_start && hole_end < end_pos
-          # we got a hole that's not as long, then expand the hole
-          holes[idx] = Hole.new(start_pos, end_pos)
-        when start_pos < hole_start <= end_pos
-          # if the next hole is further away, but this hole ends after the next hole starts
-          # then expand the hole
-          end_pos = Math.max(end_pos, hole_end)
-          holes[idx] = Hole.new(start_pos, end_pos)
-        when start_pos < end_pos < hole_start
-          # this a completely new hole
-          holes.insert(idx, Hole.new(start_pos, end_pos))
-        else
-          raise "Unexpected hole punching case: \
-                 start_pos=#{start_pos} end_pos=#{end_pos} \
-                 hole_start=#{hole_start} hole_end=#{hole_end}"
-        end
-
-        hole_size = end_pos - start_pos
-        @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
-        segment.punch_hole(hole_size, start_pos)
-      else
-        @log.debug { "Punch hole in #{segment.path}, from #{start_pos}, to #{end_pos}" }
-        holes << Hole.new(start_pos, end_pos)
-        segment.punch_hole(hole_size, start_pos)
-      end
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
@@ -1015,7 +833,19 @@ module LavinMQ
         @log.info { "vhost=#{@name} queue=#{queue.name} action=purge_and_close_consumers " \
                     "purged_messages=#{purged_msgs}" }
       end
-      trigger_gc!
+    end
+
+    private def delete_unused_segments
+      current_segment = @segments.last_key
+      @segments.reject! do |segment, mfile|
+        next if current_segment == segment
+        if !@segment_references.has_key?(segment)
+          @log.info { "Deleting unused segment #{segment}" }
+          mfile.delete
+          mfile.close
+          next true
+        end
+      end
     end
 
     def event_tick(event_type)

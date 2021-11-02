@@ -9,7 +9,7 @@ module LavinMQ
       getter empty_change = Channel(Bool).new
       getter bytesize = 0u64
 
-      def initialize(initial_capacity = 1024)
+      def initialize(initial_capacity = 4096)
         @initial_capacity = initial_capacity.to_i32
         @ready = Deque(SegmentPosition).new(@initial_capacity)
       end
@@ -50,6 +50,7 @@ module LavinMQ
       # If broken with false yield, return the message to the queue
       def shift(& : SegmentPosition -> Bool)
         @lock.synchronize do
+          bytesize = 0u64
           loop do
             sp = @ready.shift? || return notify_empty(true)
             ok = yield sp
@@ -57,16 +58,9 @@ module LavinMQ
               @ready.unshift sp
               break
             end
-            @bytesize -= sp.bytesize
+            bytesize += sp.bytesize
           end
-        end
-      end
-
-      # Yields an iterator over all SPs, the deque is locked
-      # while it's being read from
-      def with_all(& : Iterator(SegmentPosition) -> Nil)
-        @lock.synchronize do
-          yield @ready.each
+          @bytesize -= bytesize
         end
       end
 
@@ -160,6 +154,7 @@ module LavinMQ
             yield sp
           end
           notify_empty(true) if @ready.empty?
+          compact
         end
       end
 
@@ -171,6 +166,7 @@ module LavinMQ
             yield sp
           end
           notify_empty(true) if @ready.empty?
+          compact
         end
       end
 
@@ -231,22 +227,16 @@ module LavinMQ
         @ready.@capacity
       end
 
-      def compact
-        @lock.synchronize do
-          @ready = Deque(SegmentPosition).new(@ready.size) { |i| @ready[i] }
+      def compact : Nil
+        ready = @ready
+        if (ready.empty? && ready.capacity > @initial_capacity) || ready.capacity > ready.size + 2**17 # when there's 3MB free in the deque
+          {% unless flag?(:release) %}
+            puts "compacting internal ready queue capacity=#{ready.capacity} size=#{ready.size}"
+          {% end %}
+          capacity = Math.max(ready.size, @initial_capacity)
+          @ready = Deque(SegmentPosition).new(capacity)
+          ready.each { |u| @ready << u }
         end
-      end
-
-      def lock
-        @lock.lock
-      end
-
-      def unlock
-        @lock.unlock
-      end
-
-      def to_a
-        @ready.to_a
       end
 
       def avg_bytesize

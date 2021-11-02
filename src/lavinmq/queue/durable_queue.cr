@@ -36,11 +36,9 @@ module LavinMQ
     private def compact_index! : Nil
       @log.info { "Compacting index" }
       @enq_lock.lock
-      @ack_lock.lock
       i = 0
       @enq.close
-      @enq = MFile.new(File.join(@index_dir, "enq.tmp"),
-        SP_SIZE * (@ready.size + @unacked_count + 1_000_000))
+      @enq = MFile.new(File.join(@index_dir, "enq.tmp"), ack_max_file_size + SP_SIZE * (@ready.size + @unacked_count))
       SchemaVersion.prefix(@enq, :index)
       @ready.locked_each do |all_ready|
         unacked = @consumers.flat_map(&.channel.unacked_for_queue(self)).sort!.each
@@ -67,11 +65,10 @@ module LavinMQ
 
       @ack.delete
       @ack.close
-      @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
+      @ack = MFile.new(File.join(@index_dir, "ack"), Math.max(ack_max_file_size, @enq.size // 2))
       SchemaVersion.prefix(@ack, :index)
       @ack.advise(MFile::Advice::DontNeed)
     ensure
-      @ack_lock.unlock
       @enq_lock.unlock
     end
 
@@ -111,16 +108,23 @@ module LavinMQ
 
     protected def delete_message(sp : SegmentPosition) : Nil
       super
-      begin
-        @ack_lock.synchronize do
+      @ack_lock.synchronize do
+        begin
           @log.debug { "writing #{sp} to ack" }
           @ack.write_bytes sp
+        rescue IO::EOFError
+          half_enq_size = @enq.size // 2
+          if @ack.size < half_enq_size && @ack.size < 512 * 1024**2
+            @ack.resize half_enq_size + SP_SIZE
+            @log.info { "Expanded ack file to avoid index compactation for long queue" }
+            @ack.write_bytes sp
+          else
+            time = Time.measure do
+              compact_index!
+            end
+            @log.info { "Compacting index took #{time.total_milliseconds} ms" }
+          end
         end
-      rescue IO::EOFError
-        time = Time.measure do
-          compact_index!
-        end
-        @log.info { "Compacting index took #{time.total_milliseconds} ms" }
       end
     end
 
@@ -202,6 +206,7 @@ module LavinMQ
             next
           end
           ready << sp
+          @vhost.increase_segment_references(sp.segment)
         rescue IO::EOFError
           break
         end
