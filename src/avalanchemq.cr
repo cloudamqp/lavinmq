@@ -111,35 +111,6 @@ if !config.tls_cert_path.empty?
   reload_tls(context, config, log)
 end
 
-SystemD.listen_fds_with_names.each do |fd, name|
-  case name
-  when config.amqp_systemd_socket_name, "unknown"
-    case
-    when SystemD.is_tcp_listener?(fd)
-      spawn amqp_server.listen(TCPServer.new(fd: fd)), name: "AMQP server listener"
-    when SystemD.is_unix_stream_listener?(fd)
-      spawn amqp_server.listen(UNIXServer.new(fd: fd)), name: "AMQP server listener"
-    else
-      raise "Unsupported amqp socket type"
-    end
-  when config.http_systemd_socket_name
-    case
-    when SystemD.is_tcp_listener?(fd)
-      http_server.bind(TCPServer.new(fd: fd))
-    when SystemD.is_unix_stream_listener?(fd)
-      http_server.bind(UNIXServer.new(fd: fd))
-    else
-      raise "Unsupported http socket type"
-    end
-  else
-    # TODO: support resuming client connections
-    # io = TCPSocket.new(fd: fd)
-    # load_parameters_such_as_username_etc
-    # Client.new(io, ...)
-    log.error "unexpected socket from systemd '#{name}' (#{fd})"
-  end
-end
-
 if config.amqp_port > 0
   spawn amqp_server.listen(config.amqp_bind, config.amqp_port),
     name: "AMQP listening on #{config.amqp_port}"
@@ -213,9 +184,6 @@ shutdown = ->(_s : Signal) do
   if first_shutdown_attempt
     first_shutdown_attempt = false
     SystemD.notify("STOPPING=1\n")
-    # amqp_server.vhosts.each do |_, vh|
-    #  SystemD.store_fds(vh.connections.map(&.fd), "vhost=#{vh.dir}")
-    # end
     log.info "Shutting down gracefully..."
     amqp_server.close
     http_server.try &.close
