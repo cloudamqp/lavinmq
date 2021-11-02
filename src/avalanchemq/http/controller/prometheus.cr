@@ -6,6 +6,19 @@ require "../binding_helpers"
 module AvalancheMQ
   module HTTP
     class PrometheusWriter
+
+
+      alias MetricValue = UInt16 | Int32 | UInt32 | UInt64 | Int64 | Float64
+      alias MetricLabels = Hash(String, String) |
+                           NamedTuple(name: String) |
+                           NamedTuple(channel: String) |
+                           NamedTuple(queue: String, vhost: String)
+      alias Metric = NamedTuple(name: String, value: MetricValue) |
+                     NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
+                     NamedTuple(name: String, value: MetricValue, help: String) |
+                     NamedTuple(name: String, value: MetricValue, type: String, help: String) |
+                     NamedTuple(name: String, value: MetricValue, type: String, help: String, labels: MetricLabels)
+
       getter :prefix
       def initialize(@io : IO, @prefix : String)
       end
@@ -21,7 +34,7 @@ module AvalancheMQ
         io << "}"
       end
 
-      def write(m)
+      def write(m : Metric)
         return unless m[:value]?
         io = @io
         if t = m[:type]?
@@ -42,7 +55,6 @@ module AvalancheMQ
       private def register_routes
         get "/metrics" do |context, _|
           prefix = context.request.query_params["prefix"]? || "lavinmq"
-          prefix
           bad_request(context, "prefix to long") if prefix.size > 20
           u = user(context)
           report(context.response) do
@@ -130,10 +142,10 @@ module AvalancheMQ
                       help: "Open TCP sockets"})
         writer.write({name: "process_resident_memory_bytes",
                       value: @amqp_server.rss,
-                      gauge: "Memory used in bytes"})
+                      help: "Memory used in bytes"})
         writer.write({name: "disk_space_available_bytes",
                       value: @amqp_server.disk_free,
-                      gauge: "Disk space available in bytes"})
+                      help: "Disk space available in bytes"})
         writer.write({name: "process_max_fds",
                       value: System.file_descriptor_limit[0],
                       type: "gauge",
@@ -240,7 +252,7 @@ module AvalancheMQ
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
                       help: "Server uptime in seconds"})
         vhosts(u).each do |vhost|
-          labels = { name: vhost.name }
+          labels = { name:  vhost.name }
           writer.write({name: "gc_runs",
                         value: vhost.gc_runs,
                         labels: labels,
