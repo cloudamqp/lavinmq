@@ -59,8 +59,7 @@ module AvalancheMQ
       %w(ack deliver confirm get get_no_ack publish redeliver reject return_unroutable),
       %w(message_count unacked_count))
 
-    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready,
-      unacked, last_get_time
+    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, last_get_time
     getter policy : Policy?
     getter? closed
     property? internal = false
@@ -400,8 +399,11 @@ module AvalancheMQ
       return false if @deleted
       @deleted = true
       close
-      @vhost.delete_queue(@name)
-      @vhost.trigger_gc!
+      vhost = @vhost
+      vhost.delete_queue(@name)
+      @ready.each do |sp|
+        vhost.decrease_segment_references(sp.segment)
+      end
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
       true
@@ -760,7 +762,7 @@ module AvalancheMQ
 
     protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
-      @vhost.dirty = true
+      @vhost.decrease_segment_references(sp.segment)
     end
 
     def compact
@@ -835,9 +837,12 @@ module AvalancheMQ
     end
 
     def purge : UInt32
+      vhost = @vhost
+      @ready.each do |sp|
+        vhost.decrease_segment_references(sp.segment)
+      end
       count = @ready.purge
       @log.debug { "Purged #{count} messages" }
-      @vhost.trigger_gc!
       count.to_u32
     end
 

@@ -194,6 +194,7 @@ module AvalancheMQ
           # Defer allocation of ready queue in case we truncate due to zero sp.
           ready : ReadyQueue? = nil
 
+          vhost = @vhost
           loop do
             sp = SegmentPosition.from_io enq
             if sp.zero?
@@ -212,6 +213,7 @@ module AvalancheMQ
             end
             next if acked.try { |a| a.bsearch { |asp| asp >= sp } == sp }
             ready << sp
+            vhost.increase_segment_references(sp.segment)
           rescue IO::EOFError
             break
           end

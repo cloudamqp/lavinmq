@@ -8,7 +8,7 @@ module AvalancheMQ
         puts_size_capacity vh.@awaiting_confirm, 4
         puts_size_capacity vh.@exchanges, 4
         puts_size_capacity vh.@queues, 4
-        puts_size_capacity vh.@segment_holes, 4
+        puts_size_capacity vh.@segment_references, 4
         vh.queues.each do |_, q|
           puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
           puts_size_capacity q.@consumers, 6
@@ -36,8 +36,8 @@ module AvalancheMQ
       amqp_server.vhosts.each_value do |vhost|
         vhost.queues.each_value do |q|
           s = Set(UInt32).new
-          q.unacked.each_sp {|sp| s << sp.segment }
-          q.ready.each {|sp| s << sp.segment }
+          q.@unacked.each_sp {|sp| s << sp.segment }
+          q.@ready.each {|sp| s << sp.segment }
           io.puts "queue=\"#{vhost.name}/#{q.name}\" segments=#{s}"
         end
       end
