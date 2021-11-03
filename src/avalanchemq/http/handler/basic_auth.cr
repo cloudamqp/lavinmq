@@ -26,10 +26,7 @@ module AvalancheMQ
             begin
               username, password = Base64.decode_string(base64).split(":")
               if user = @user_store[username]?
-                if valid_auth?(user, password)
-                  if username == "guest" && remote_ip(context) != Socket::IPAddress::LOOPBACK
-                    return forbidden(context)
-                  end
+                if valid_auth?(user, password) && guest_localhost?(context, user)
                   context.authenticated_username = username
                   return call_next(context)
                 end
@@ -62,8 +59,9 @@ module AvalancheMQ
         user.password.not_nil!.verify(password)
       end
 
-      private def remote_ip(context)
-        context.request.remote_address.as(Socket::IPAddress).address
+      private def guest_localhost?(context, user)
+        return true unless user.name == "guest"
+        context.request.remote_address.as(Socket::IPAddress).loopback?
       end
     end
   end

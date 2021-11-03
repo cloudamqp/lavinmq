@@ -92,7 +92,7 @@ module AvalancheMQ
       username, password = credentials(start_ok)
       user = users[username]?
       return user if user && user.password && user.password.not_nil!.verify(password) &&
-        guest_localhost(remote_address, user)
+        guest_localhost?(remote_address, user)
 
       if user.nil?
         log.warn "User \"#{username}\" not found"
@@ -160,9 +160,9 @@ module AvalancheMQ
       nil
     end
 
-    private def self.guest_localhost(remote_address, user)
+    private def self.guest_localhost?(remote_address, user)
       return true unless user.name == "guest"
-      remote_address.address == Socket::IPAddress::LOOPBACK
+      remote_address.loopback?
     end
   end
 end
