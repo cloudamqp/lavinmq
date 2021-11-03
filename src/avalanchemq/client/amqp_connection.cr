@@ -6,7 +6,7 @@ module AvalancheMQ
       socket.read_timeout = 15
       if confirm_header(socket, log)
         if start_ok = start(socket, log)
-          if user = authenticate(socket, users, start_ok, log)
+          if user = authenticate(socket, remote_address, users, start_ok, log)
             if tune_ok = tune(socket, log)
               if vhost = open(socket, vhosts, user, log)
                 socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -88,10 +88,11 @@ module AvalancheMQ
       end
     end
 
-    def self.authenticate(socket, users, start_ok, log)
+    def self.authenticate(socket, remote_address, users, start_ok, log)
       username, password = credentials(start_ok)
       user = users[username]?
-      return user if user && user.password && user.password.not_nil!.verify(password)
+      return user if user && user.password && user.password.not_nil!.verify(password) &&
+        guest_localhost(remote_address, user)
 
       if user.nil?
         log.warn "User \"#{username}\" not found"
@@ -157,6 +158,11 @@ module AvalancheMQ
         socket.flush
       end
       nil
+    end
+
+    private def self.guest_localhost(remote_address, user)
+      return true unless user.name == "guest"
+      remote_address.address == Socket::IPAddress::LOOPBACK
     end
   end
 end
