@@ -358,12 +358,14 @@ module AvalancheMQ
 
     private def deliver_to_consumer(c)
       # @log.debug { "Getting a new message" }
-      if env = get(c.no_ack, c)
+      if env = get(c.no_ack)
         sp = env.segment_position
         # @log.debug { "Delivering #{sp} to consumer" }
         if c.deliver(env.message, sp, env.redelivered)
           if c.no_ack
             delete_message(sp)
+          else
+            @unacked.push(sp, c)
           end
           if env.redelivered
             @redeliver_count += 1
@@ -372,7 +374,6 @@ module AvalancheMQ
           end
           # @log.debug { "Delivery done" }
         else
-          @unacked.delete(sp)
           @ready.insert(sp)
           @log.debug { "Delivery failed, returning message to ready" }
         end
@@ -702,12 +703,9 @@ module AvalancheMQ
     end
 
     # return the next message in the ready queue
-    private def get(no_ack : Bool, consumer : Client::Channel::Consumer? = nil)
+    private def get(no_ack : Bool)
       return nil if @state.closed?
       if sp = @ready.shift?
-        unless no_ack
-          @unacked.push(sp, consumer)
-        end
         env = read(sp)
         if @delivery_limit && !no_ack
           with_delivery_count_header(env)

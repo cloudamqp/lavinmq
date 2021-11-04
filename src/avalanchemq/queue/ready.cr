@@ -5,121 +5,80 @@ module AvalancheMQ
     # ReadyQueue is a sorted Deque of SegmentPositions
     class ReadyQueue
       @lock = Mutex.new(:reentrant)
-      @inital_capacity : Int32
+      getter count = 0
 
-      def initialize(inital_capacity = 1024)
-        @inital_capacity = inital_capacity.to_i32
-        @ready = Deque(SegmentPosition).new(@inital_capacity)
+      def initialize(queue_name)
+        @enq = MFile.new(File.join(@index_dir, "enq"), capacity: 1024 * 1024 )
+        @ack = MFile.new(File.join(@index_dir, "ack"), capacity: 1024 * 1024 )
+        @requeued = Deque(SegmentPosition).new
       end
 
-      def includes?(sp)
-        @ready.includes?(sp)
+      # Enqueue a new SegmentPosition, do not use for requeuing
+      def enqueue(sp : SegmentPosition)
+        @lock.synchronize do
+          @enq.write_bytes sp
+        end
+      end
+
+      # insert a SP, keeps the deque sorted
+      # returns SPs in the deque after the operation
+      def requeue(sp : SegmentPosition)
+        @lock.synchronize do
+          if i = @requeued.bsearch_index { |rsp| rsp > sp }
+            @requeued.insert(i, sp)
+          else
+            @requeued.push(sp)
+          end
+          @count += 1
+        end
+      end
+
+      # Insert SPs sorted, the array should ideally be sorted too
+      def requeue(sps : Enumerable(SegmentPosition))
+        @lock.synchronize do
+          sps.reverse_each do |sp|
+            if i = @requeued.bsearch_index { |rsp| rsp > sp }
+              @requeued.insert(i, sp)
+            else
+              @requeued.push(sp)
+            end
+            @count += 1
+          end
+          @count
+        end
       end
 
       def shift
-        @lock.synchronize do
-          @ready.shift
-        end
+        shift? || raise IndexError.new
       end
 
       def shift?
         @lock.synchronize do
-          @ready.shift?
+          sp = @requeued.shift?
+          sp ||= @enq.read_bytes(SegmentPosition) if @enq.pos + SP_SIZE <= @enq.size
+          @count -= 1 if sp
+          sp
         end
       end
 
       # Shift until block breaks or it returns false
       # If broken with false yield, return the message to the queue
-      def shift(&blk : SegmentPosition -> Bool)
+      def shift(& : SegmentPosition -> Bool)
         @lock.synchronize do
-          while sp = @ready.shift?
+          while sp = shift?
             ok = yield sp
             unless ok
-              @ready.unshift sp
+              reque(sp)
               break
             end
           end
         end
       end
 
-      # Yields an iterator over all SPs, the deque is locked
-      # while it's being read from
-      def with_all(&blk : Iterator(SegmentPosition) -> Nil)
-        @lock.synchronize do
-          yield @ready.each
-        end
-      end
-
-      # Iterate over all SPs in the deque, locking while reading
-      def each(&blk)
-        @lock.synchronize do
-          @ready.each { |sp| yield sp }
-        end
-      end
-
-      def each(start : Int, count : Int, &blk)
-        @lock.synchronize do
-          @ready.each(start: start, count: count) { |sp| yield sp }
-        end
-      end
-
-      def locked_each(&blk)
-        @lock.synchronize do
-          yield @ready.each
-        end
-      end
-
-      def bsearch_index(&blk)
-        @lock.synchronize do
-          @ready.bsearch_index { |sp, i| yield sp, i }
-        end
-      end
-
-      # insert a SP, keeps the deque sorted
-      # returns SPs in the deque after the operation
-      def insert(sp : SegmentPosition)
-        @lock.synchronize do
-          if i = @ready.bsearch_index { |rsp| rsp > sp }
-            @ready.insert(i, sp)
-          else
-            @ready.push(sp)
-          end
-          @ready.size
-        end
-      end
-
-      # Insert SPs sorted, the array should ideally be sorted too
-      def insert(sps : Enumerable(SegmentPosition))
-        @lock.synchronize do
-          sps.reverse_each do |sp|
-            if i = @ready.bsearch_index { |rsp| rsp > sp }
-              @ready.insert(i, sp)
-            else
-              @ready.push(sp)
-            end
-          end
-          @ready.size
-        end
-      end
-
       # Deletes a SP somewhere in the deque
       # returns true/false whether found
-      def delete(sp) : Bool
-        return false if @ready.empty?
-        @lock.synchronize do
-          if @ready.first == sp
-            @ready.shift
-            return true
-          else
-            if idx = @ready.bsearch_index { |rsp| rsp >= sp }
-              if @ready[idx] == sp
-                @ready.delete_at(idx)
-                return true
-              end
-            end
-          end
-        end
-        false
+      def ack(sp) : Bool
+        @ack.write_bytes sp
       end
 
       def limit_size(size, &blk : SegmentPosition -> Nil)
@@ -140,34 +99,8 @@ module AvalancheMQ
         end
       end
 
-      # Pushes a SP to the end of the deque
-      # Returns number of SPs in the deque
-      def push(sp : SegmentPosition) : Int32
-        @lock.synchronize do
-          @ready.push(sp)
-          @ready.size
-        end
-      end
-
-      # alias for `push`
-      def <<(sp)
-        push(sp)
-      end
-
-      def first?
-        @ready[0]?
-      end
-
-      def [](idx)
-        @ready[idx]
-      end
-
-      def []?(idx)
-        @ready[idx]?
-      end
-
       def empty?
-        @ready.empty?
+        @requeued.empty? && @enq.pos == @enq.size
       end
 
       # yields all messages, then clears it

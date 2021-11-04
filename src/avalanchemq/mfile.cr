@@ -147,11 +147,9 @@ class MFile < IO
 
   def read(slice : Bytes)
     pos = @pos
-    len = pos + slice.size
-    raise IO::EOFError.new if len > @size
-    (@buffer + pos).copy_to(slice.to_unsafe, slice.size)
-    @pos = len
-    slice.size
+    len = Math.min(slice.size, @size - pos)
+    (@buffer + pos).copy_to(slice.to_unsafe, len)
+    @pos += len
   end
 
   def rewind
@@ -227,6 +225,7 @@ class MFile < IO
     @capacity = @size = new_size
     code = LibC.ftruncate(@fd, new_size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    @pos = Math.min(@pos, new_size)
     bytes
   end
 
@@ -236,6 +235,7 @@ class MFile < IO
     # resize the file first
     code = LibC.ftruncate(@fd, capacity)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    @pos = Math.min(@pos, new_size)
 
     {% if flag?(:linux) %}
       # then remap
@@ -246,7 +246,6 @@ class MFile < IO
     {% else %}
       # unmap and then mmap again
       munmap
-      # mmap again
       @capacity = capacity
       @buffer = mmap
     {% end %}

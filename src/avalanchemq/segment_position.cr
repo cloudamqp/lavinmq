@@ -5,14 +5,16 @@ module AvalancheMQ
     @[Flags]
     enum SPFlags : UInt8
       HasDLX
+      HasExpiration
+      HasPriority
     end
 
     getter segment : UInt32
     getter position : UInt32
     getter bytesize : UInt32
+    getter flags : SPFlags
     getter expiration_ts : Int64
     getter priority : UInt8
-    getter flags : SPFlags
     BYTESIZE = 22
 
     def_equals_and_hash @segment, @position
@@ -38,10 +40,17 @@ module AvalancheMQ
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])
       format.encode(@bytesize, slice[8, 4])
-      format.encode(@expiration_ts, slice[12, 8])
-      slice[20] = @priority
-      slice[21] = @flags.value
-      io.write(slice)
+      slice[12] = @flags.value
+      len = 12
+      if @flags.includes?(SPFlags::HasPriority)
+        slice[13] = @priority
+        len = 13
+      end
+      if @flags.includes?(SPFlags::HasExpiration)
+        format.encode(@expiration_ts, slice[14, 8])
+        len = 22
+      end
+      io.write(slice[0, len])
     end
 
     def <=>(other : self)
@@ -54,10 +63,10 @@ module AvalancheMQ
       seg = UInt32.from_io(io, format)
       pos = UInt32.from_io(io, format)
       bytesize = UInt32.from_io(io, format)
-      ts = Int64.from_io(io, format)
-      priority = io.read_byte || raise IO::EOFError.new
       flags_value = io.read_byte || raise IO::EOFError.new
       flags = SPFlags.from_value flags_value
+      priority = (io.read_byte || raise IO::EOFError.new) if flags.includes?(SPFlags::HasPriority)
+      ts = Int64.from_io(io, format) if flags.includes?(SPFlags::HasExpiration)
       self.new(seg, pos, bytesize, ts, priority, flags)
     end
 
