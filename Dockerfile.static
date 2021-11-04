@@ -1,0 +1,32 @@
+FROM node:16 AS docbuilder
+
+WORKDIR /tmp
+
+COPY openapi ./openapi
+COPY build ./build
+COPY shard.yml package.json package-lock.json ./
+RUN npm config set unsafe-perm true && npm ci
+
+FROM 84codes/crystal:1.2.1-alpine-latest AS builder
+WORKDIR /tmp
+
+# Copying and install dependencies
+COPY shard.yml shard.lock ./
+RUN shards install --production
+
+# Copying the rest of the code
+COPY ./static ./static
+COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
+COPY ./src ./src
+
+# Build
+RUN shards build --production --release --static --error-trace -Dwithout_systemd
+RUN strip bin/*
+
+# start from scratch and only copy the built binary
+FROM scratch
+VOLUME /data
+WORKDIR /data
+EXPOSE 5672 15672 
+COPY --from=builder /tmp/bin/* /
+ENTRYPOINT ["/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]
