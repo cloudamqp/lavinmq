@@ -3,10 +3,10 @@ require "systemd"
 
 module AvalancheMQ
   class Launcher
-    @tls_context : (OpenSSL::SSL::Context::Server|Nil)
+    @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @log : Logger
-    @lock : (File|Nil)
+    @lock : File?
 
     def initialize(@config : AvalancheMQ::Config)
       @log = create_logger
