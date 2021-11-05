@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Option do configure tcp keepalive via config file
 
+### Removed
+
+- Remove SystemD socket activation/seamless restart ([#303](https://github.com/cloudamqp/avalanchemq/pull/303))
+
 ## [1.0.0-alpha.33] - 2021-10-28
 
 ### Fixed
