@@ -1,5 +1,9 @@
 require "file"
 require "systemd"
+require "./reporter"
+require "./server"
+require "./http/http_server"
+require "./log_formatter"
 
 module AvalancheMQ
   class Launcher
