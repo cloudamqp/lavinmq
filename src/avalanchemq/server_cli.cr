@@ -53,6 +53,9 @@ module AvalancheMQ
         parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
         parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
         parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
+        parser.on("--block-default-user-remotely=BLOCK", "Block default user remotely") do |v|
+          config.block_default_user_remotely = true?(v)
+        end
         parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end
     end
@@ -66,6 +69,10 @@ module AvalancheMQ
         STDERR.puts @parser
         exit 2
       end
+    end
+
+    private def true?(str : String?)
+      {"true", "yes", "y", "1"}.includes? str
     end
   end
 end

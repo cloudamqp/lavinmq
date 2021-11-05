@@ -7,7 +7,10 @@ module AvalancheMQ
     class BasicAuthHandler
       include ::HTTP::Handler
 
+      @block_default_user_remotely : Bool
+
       def initialize(@user_store : UserStore, @log : Logger)
+        @block_default_user_remotely = Config.instance.block_default_user_remotely
       end
 
       def call(context)
@@ -61,6 +64,7 @@ module AvalancheMQ
 
       private def guest_localhost?(context, user)
         return true unless user.name == "guest"
+        return true unless @block_default_user_remotely
         context.request.remote_address.as(Socket::IPAddress).loopback?
       end
     end

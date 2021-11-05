@@ -39,6 +39,7 @@ module AvalancheMQ
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property raise_gc_warn : Bool = false
     property data_dir_lock : Bool = true
+    property block_default_user_remotely : Bool = false
 
     @@instance : Config = self.new
 
@@ -84,6 +85,7 @@ module AvalancheMQ
         when "tls_key"              then @tls_key_path = v
         when "tls_ciphers"          then @tls_ciphers = v
         when "tls_min_version"      then @tls_min_version = v
+        when "block_default_user_remotely" then @block_default_user_remotely = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
