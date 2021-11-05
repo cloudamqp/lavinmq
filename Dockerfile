@@ -9,9 +9,6 @@ RUN npm config set unsafe-perm true && npm ci
 
 FROM 84codes/crystal:1.2.1-ubuntu-20.04 AS builder
 
-# install dependencies
-RUN apt-get update && apt-get install -y libsystemd-dev
-
 WORKDIR /tmp
 
 # Copying and install dependencies
