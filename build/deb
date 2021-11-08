@@ -8,7 +8,10 @@ pkg_version=${1:-$(git describe --tags | cut -c2- )}
 pkg_revision=${2:-1}
 architecture=${3:-$(dpkg --print-architecture)}
 
-shards build --release --stats --production
+shards build --stats --production --debug $NAME
+mv bin/$NAME bin/$NAME-debug
+
+shards build --stats --production --no-debug --release
 strip bin/*
 
 mkdir debroot
@@ -47,6 +50,7 @@ help2man -Nn "performance testing tool for amqp servers" usr/bin/avalanchemqperf
 gzip -9 -n usr/share/man/man1/avalanchemq.1
 gzip -9 -n usr/share/man/man1/avalanchemqctl.1
 gzip -9 -n usr/share/man/man1/avalanchemqperf.1
+cp usr/share/man/man1/avalanchemq.1.gz usr/share/man/man1/avalanchemq-debug.1.gz
 
 mkdir DEBIAN
 find . -type f -not -path "./DEBIAN/*" -print0 | xargs -0 md5sum > DEBIAN/md5sums
@@ -64,7 +68,7 @@ Priority: optional
 Architecture: $architecture
 Depends: systemd,adduser,$(ldd ../bin/* | awk '/=>/ {print $3}' | xargs dpkg -S | awk -F: "/$architecture/ { print \$1 }" | sort -u | paste -sd,)
 Installed-Size: $(du -ks usr | cut -f1)
-Maintainer: AvalancheMQ Team <contact@avalanchemq.com>
+Maintainer: CloudAMQP <contact@cloudamqp.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
  Aims to be very fast, have low RAM requirements,
  handle very long queues, many connections and
