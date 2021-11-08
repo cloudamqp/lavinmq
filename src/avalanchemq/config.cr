@@ -65,6 +65,10 @@ module AvalancheMQ
       end
     end
 
+    def tls_configured?
+      !@tls_cert_path.empty?
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
     private def parse_main(settings)
       settings.each do |config, v|
