@@ -65,7 +65,13 @@ module AvalancheMQ
       private def guest_localhost?(context, user)
         return true unless user.name == "guest"
         return true unless @block_default_user_remotely
-        context.request.remote_address.as(Socket::IPAddress).loopback?
+        case context.request.remote_address
+        when Socket::IPAddress
+          context.request.remote_address.as(Socket::IPAddress).loopback?
+        when Socket::UNIXAddress
+          return true
+        end
+        false
       end
     end
   end
