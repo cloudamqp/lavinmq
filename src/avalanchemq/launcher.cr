@@ -34,7 +34,9 @@ module AvalancheMQ
     end
 
     private def print_environment_info
-      @log.info AvalancheMQ::BUILD_INFO
+      AvalancheMQ::BUILD_INFO.each_line do |line|
+        @log.info line
+      end
       {% unless flag?(:release) %}
         @log.warn "Not built in release mode"
       {% end %}
