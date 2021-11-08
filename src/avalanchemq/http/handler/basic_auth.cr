@@ -7,10 +7,7 @@ module AvalancheMQ
     class BasicAuthHandler
       include ::HTTP::Handler
 
-      @block_default_user_remotely : Bool
-
       def initialize(@user_store : UserStore, @log : Logger)
-        @block_default_user_remotely = Config.instance.block_default_user_remotely
       end
 
       def call(context)
@@ -29,7 +26,7 @@ module AvalancheMQ
             begin
               username, password = Base64.decode_string(base64).split(":")
               if user = @user_store[username]?
-                if valid_auth?(user, password) && guest_localhost?(context, user)
+                if valid_auth?(user, password) && allow_guest_user?(context, user)
                   context.authenticated_username = username
                   return call_next(context)
                 end
@@ -62,12 +59,12 @@ module AvalancheMQ
         user.password.not_nil!.verify(password)
       end
 
-      private def guest_localhost?(context, user)
+      private def allow_guest_user?(context, user)
         return true unless user.name == "guest"
-        return true unless @block_default_user_remotely
+        return true if Config.instance.allow_guest_user_remotely
         case context.request.remote_address
         when Socket::IPAddress
-          context.request.remote_address.as(Socket::IPAddress).loopback?
+          return context.request.remote_address.as(Socket::IPAddress).loopback?
         when Socket::UNIXAddress
           return true
         end
