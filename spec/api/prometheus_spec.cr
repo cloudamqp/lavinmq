@@ -14,9 +14,9 @@ describe AvalancheMQ::HTTP::ConsumersController do
       prefix = "testing"
       response = get("/metrics?prefix=#{prefix}")
       lines = response.body.lines
-      metric_lines = lines.reject { |l| l.starts_with? "#" }
-      prefix_lines = lines.select { |l| l.starts_with? prefix }
-      telemetry_lines = lines.select { |l| l.starts_with? "telemetry" }
+      metric_lines = lines.reject(&.starts_with? "#")
+      prefix_lines = lines.select(&.starts_with? prefix)
+      telemetry_lines = lines.select(&.starts_with? "telemetry")
       prefix_lines.size.should eq metric_lines.size - 2
       telemetry_lines.size.should eq 2
     end
