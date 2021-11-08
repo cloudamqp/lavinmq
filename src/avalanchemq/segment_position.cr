@@ -67,7 +67,7 @@ module AvalancheMQ
       flags = SPFlags.from_value flags_value
       priority = (io.read_byte || raise IO::EOFError.new) if flags.includes?(SPFlags::HasPriority)
       ts = Int64.from_io(io, format) if flags.includes?(SPFlags::HasExpiration)
-      self.new(seg, pos, bytesize, ts, priority, flags)
+      self.new(seg, pos, bytesize || 0u32, ts || 0i64, priority || 0u8, flags)
     end
 
     def self.from_i64(i : Int64)

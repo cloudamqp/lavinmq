@@ -50,7 +50,6 @@ module AvalancheMQ
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
-    @ready = ReadyQueue.new
     @unacked = UnackQueue.new
     @paused = Channel(Nil).new(1)
 
@@ -68,6 +67,8 @@ module AvalancheMQ
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
+      index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      @ready = ReadyQueue.new(index_dir)
       @last_get_time = Time.monotonic
       @log = @vhost.log.dup
       @log.progname += " queue=#{@name}"
@@ -374,7 +375,7 @@ module AvalancheMQ
           end
           # @log.debug { "Delivery done" }
         else
-          @ready.insert(sp)
+          @ready.requeue(sp)
           @log.debug { "Delivery failed, returning message to ready" }
         end
       else
@@ -421,7 +422,7 @@ module AvalancheMQ
         vhost: @vhost.name,
         messages: @ready.size + @unacked.size,
         ready: @ready.size,
-        ready_bytes: @ready.sum &.bytesize,
+        ready_bytes: @ready.bytesize,
         unacked: @unacked.size,
         unacked_bytes: @unacked.sum &.sp.bytesize,
         policy: @policy.try &.name,
@@ -439,7 +440,7 @@ module AvalancheMQ
       return false if @state.closed?
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
-      was_empty = @ready.push(sp) == 1
+      was_empty = @ready.enqueue(sp) == 1
       drop_overflow unless immediate_delivery?
       @publish_count += 1
       if was_empty
@@ -464,7 +465,7 @@ module AvalancheMQ
       end
 
       if mlb = @max_length_bytes
-        if @ready.sum(&.bytesize) + sp.bytesize >= mlb
+        if @ready.bytesize + sp.bytesize >= mlb
           @log.debug { "Overflow reject message sp=#{sp}" }
           raise RejectOverFlow.new
         end
@@ -503,7 +504,6 @@ module AvalancheMQ
       MessageMetadata.from_io(seg)
     rescue e : KeyError
       @log.error { "Segment file not found for #{sp}, removing index" }
-      @ready.delete(sp)
       delete_message sp
       nil
     end
@@ -739,7 +739,6 @@ module AvalancheMQ
       Envelope.new(sp, msg, redelivered)
     rescue ex : KeyError
       @log.error { "Segment file not found for #{sp}, removing index" }
-      @ready.delete(sp)
       delete_message sp
       raise ex
     rescue ex
@@ -785,7 +784,7 @@ module AvalancheMQ
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue
-        was_empty = @ready.insert(sp) == 1
+        was_empty = @ready.requeue(sp) == 1
         @requeued << sp
         drop_overflow if @consumers.empty?
         message_available if was_empty
@@ -801,7 +800,7 @@ module AvalancheMQ
       return if sps.empty?
       @log.debug { "Returning #{sps.size} msgs to ready state" }
       @reject_count += sps.size
-      was_empty = @ready.insert(sps) == sps.size
+      was_empty = @ready.requeue(sps) == sps.size
       drop_overflow if @consumers.empty?
       message_available if was_empty
     end

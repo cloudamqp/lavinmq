@@ -85,7 +85,7 @@ describe AvalancheMQ::SegmentPosition do
       offsets = (0..4).to_a.map(&.to_i64)
       sps = offsets.map { |i| AvalancheMQ::SegmentPosition.from_i64(i) }
 
-      ready = AvalancheMQ::Queue::ReadyQueue.new(sps.size)
+      ready = AvalancheMQ::Queue::ReadyQueue.new("/tmp/spec")
       ready.insert(sps)
 
       ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)

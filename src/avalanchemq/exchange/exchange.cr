@@ -21,8 +21,6 @@ module AvalancheMQ
     getter? delayed = false
 
     @alternate_exchange : String?
-    @persistent_queue : PersistentExchangeQueue?
-    @delayed_queue : Queue?
     @log : Logger
     @deleted = false
 
@@ -51,9 +49,6 @@ module AvalancheMQ
         case k
         when "alternate-exchange"
           @alternate_exchange = v.as_s?
-        when "delayed-message"
-          @delayed = v.as?(Bool) == true
-          init_delayed_queue if @delayed
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
@@ -71,9 +66,6 @@ module AvalancheMQ
 
     def handle_arguments
       @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
-      init_persistent_queue
-      @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
-      init_delayed_queue if @delayed
     end
 
     def details_tuple
@@ -155,25 +147,6 @@ module AvalancheMQ
       @vhost.queues[q_name] = @persistent_queue.not_nil!
     end
 
-    private def init_delayed_queue
-      return if @delayed_queue
-      return unless @delayed
-      raise "Exchange can't be persistent and delayed" if persistent?
-      q_name = "amq.delayed.#{@name}"
-      raise "Exchange name too long" if q_name.size > MAX_NAME_LENGTH
-      @log.debug { "Declaring delayed queue: #{name}" }
-      arguments = Hash(String, AMQP::Field){
-        "x-dead-letter-exchange" => @name,
-        "auto-delete" =>  @auto_delete
-      }
-      @delayed_queue = if durable
-                         DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
-                       else
-                         DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
-                       end
-      @vhost.queues[q_name] = @delayed_queue.as(Queue)
-    end
-
     def referenced_sps(referenced_sps) : Nil
       if pq = @persistent_queue
         referenced_sps << VHost::SPQueue.new(pq.ready)
@@ -187,20 +160,6 @@ module AvalancheMQ
 
     private def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
       notify_observers(:bind, binding_details({routing_key, headers}, destination))
-      if (pq = @persistent_queue) && headers && !headers.empty?
-        method = headers.select(REPUBLISH_HEADERS).first_key?
-        return unless method
-        arg = headers[method].try &.as?(ArgumentNumber)
-        return true if arg.nil? || pq.empty?
-        persisted = pq.message_count
-        @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
-        case destination
-        when Queue
-          republish(destination.as(Queue), method, arg)
-        when Exchange
-          raise "Not Implemented"
-        end
-      end
       true
     end
 
@@ -248,8 +207,6 @@ module AvalancheMQ
     protected def delete
       return if @deleted
       @deleted = true
-      @delayed_queue.try &.delete
-      @persistent_queue.try &.delete
       @vhost.delete_exchange(@name)
       @log.info { "Deleted" }
       notify_observers(:delete)
@@ -264,12 +221,8 @@ module AvalancheMQ
     abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, &blk : Exchange -> _)
 
     def queue_matches(routing_key : String, headers = nil, &blk : Queue -> _)
-      if should_delay_message?(headers)
-        @delayed_queue.try { |q| yield q }
-      else
-        do_queue_matches(routing_key, headers, &blk)
-        @persistent_queue.try { |q| yield q } if persistent?
-      end
+      do_queue_matches(routing_key, headers, &blk)
+      @persistent_queue.try { |q| yield q } if persistent?
     end
 
     private def should_delay_message?(headers)

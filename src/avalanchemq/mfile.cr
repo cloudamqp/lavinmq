@@ -150,6 +150,7 @@ class MFile < IO
     len = Math.min(slice.size, @size - pos)
     (@buffer + pos).copy_to(slice.to_unsafe, len)
     @pos += len
+    len
   end
 
   def rewind
@@ -164,6 +165,16 @@ class MFile < IO
       @pos += offset
     in IO::Seek::End
       @pos = @size + offset
+    end
+  end
+
+  def seek(offset, whence : IO::Seek = IO::Seek::Set, &)
+    pos = @pos
+    begin
+      seek(offset, whence)
+      yield
+    ensure
+      seek(pos)
     end
   end
 
