@@ -39,6 +39,7 @@ module AvalancheMQ
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property raise_gc_warn : Bool = false
     property data_dir_lock : Bool = true
+    property tcp_keepalive : Tuple(Int32, Int32, Int32)? = { 60, 10 , 3 } # idle, interval, probes/count
 
     @@instance : Config = self.new
 
@@ -84,6 +85,7 @@ module AvalancheMQ
         when "file_buffer_size"     then @file_buffer_size = v.to_i32
         when "socket_buffer_size"   then @socket_buffer_size = v.to_i32
         when "tcp_nodelay"          then @tcp_nodelay = true?(v)
+        when "tcp_keepalive"        then @tcp_keepalive = tcp_keepalive?(v)
         when "tls_cert"             then @tls_cert_path = v
         when "tls_key"              then @tls_key_path = v
         when "tls_ciphers"          then @tls_ciphers = v
@@ -134,6 +136,21 @@ module AvalancheMQ
 
     private def true?(str : String?)
       {"true", "yes", "y", "1"}.includes? str
+    end
+
+    private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
+      return nil if false?(str)
+      if keepalive = str.try &.split(":")
+        {
+          keepalive[0]?.try(&.to_i?) || 60,
+          keepalive[1]?.try(&.to_i?) || 10,
+          keepalive[2]?.try(&.to_i?) || 3
+        }
+      end
+    end
+
+    private def false?(str : String?)
+      {"0", "false", "no", "off"}.includes? str
     end
   end
 end

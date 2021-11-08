@@ -1,79 +1,69 @@
 #!/bin/bash
-set -eux
-which dpkg-deb > /dev/null || (echo "dpkg-deb required"; exit 1)
-which fakeroot > /dev/null || (echo "fakeroot required"; exit 1)
-which help2man > /dev/null || (echo "help2man required"; exit 1)
+set -euo pipefail
+
+. /etc/os-release
+NAME=avalanchemq
+
 pkg_version=${1:-$(git describe --tags | cut -c2- )}
 pkg_revision=${2:-1}
 architecture=${3:-$(dpkg --print-architecture)}
 
 shards build --release --stats --production
+strip bin/*
 
-. /etc/os-release
-root=builds/$ID/$VERSION_CODENAME/avalanchemq_${pkg_version}-${pkg_revision}_$architecture
-rm -rf $root
-mkdir -p $root/DEBIAN
-mkdir -p $root/usr/bin
-mkdir -p $root/lib/systemd/system
-mkdir -p $root/etc/avalanchemq
-mkdir -p $root/usr/share/doc/avalanchemq
-mkdir -p $root/usr/share/man/man1
-cp bin/avalanchemq $root/usr/bin
-cp bin/avalanchemqctl $root/usr/bin
-cp bin/avalanchemqperf $root/usr/bin
-#strip --strip-unneeded --remove-section=.comment --remove-section=.note $root/usr/bin/*
-cp extras/avalanchemq.service $root/lib/systemd/system
-cp extras/config.ini $root/etc/avalanchemq/avalanchemq.ini
-cp NOTICE $root/usr/share/doc/avalanchemq/
-cp README.md $root/usr/share/doc/avalanchemq/README
-cp CHANGELOG.md $root/usr/share/doc/avalanchemq/changelog
-gzip -9 -n $root/usr/share/doc/avalanchemq/changelog
-cat > $root/usr/share/doc/avalanchemq/changelog.Debian << EOF
-avalanchemq ($pkg_version-$pkg_revision) whatever; urgency=medium
+mkdir debroot
+cd debroot
 
-  * New upstream release.
+mkdir -p usr/bin usr/share/doc/$NAME lib/systemd/system/ etc/$NAME usr/share/man/man1
+cp ../bin/* usr/bin/
+cp ../README.md usr/share/doc/$NAME/README
+cp ../CHANGELOG.md usr/share/doc/$NAME/changelog
+gzip -9 -n usr/share/doc/avalanchemq/changelog
+cp ../NOTICE usr/share/doc/$NAME/
+cp ../extras/avalanchemq.service lib/systemd/system
+cp ../extras/config.ini etc/$NAME/$NAME.ini
 
- -- AvalancheMQ Team <contact@84codes.com>  Wed, 17 Apr 2019 18:01:24 +0000
+cat > usr/share/doc/$NAME/changelog.Debian << EOF
+$NAME ($pkg_version-$pkg_revision) whatever; urgency=medium
+
+  * New upstream release. Closes: #00000
+
+ -- 84codes <contact@84codes.com>  Wed, 17 Apr 2019 18:01:24 +0000
 EOF
-gzip -9 -n $root/usr/share/doc/avalanchemq/changelog.Debian
-cat > $root/usr/share/doc/avalanchemq/copyright << EOF
+gzip -9 -n usr/share/doc/$NAME/changelog.Debian
+cat > usr/share/doc/$NAME/copyright << EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: AvalancheMQ
 Upstream-Contact: contact@84codes.com
 Source: https://github.com/cloudamqp/avalanchemq
-
 Files: *
 Copyright: 2019, 84codes AB
 License: Apache-2.0
 EOF
-# build native binaries for help2man if building foregin arch
-if [ "$architecture" != "$(dpkg --print-architecture)" ]
-then shards build --production
-fi
-help2man -Nn "fast and advanced message queue server" bin/avalanchemq > $root/usr/share/man/man1/avalanchemq.1
-help2man -Nn "control utility for avalanchemq server" bin/avalanchemqctl > $root/usr/share/man/man1/avalanchemqctl.1
-help2man -Nn "performance testing tool for amqp servers" bin/avalanchemqperf > $root/usr/share/man/man1/avalanchemqperf.1
-gzip -9 -n $root/usr/share/man/man1/avalanchemq.1
-gzip -9 -n $root/usr/share/man/man1/avalanchemqctl.1
-gzip -9 -n $root/usr/share/man/man1/avalanchemqperf.1
 
-cd $root
-find . -type f -not -path "./DEBIAN/*" | xargs md5sum > DEBIAN/md5sums
-cd - > /dev/null
+help2man -Nn "fast and advanced message queue server" usr/bin/avalanchemq > usr/share/man/man1/avalanchemq.1
+help2man -Nn "control utility for avalanchemq server" usr/bin/avalanchemqctl > usr/share/man/man1/avalanchemqctl.1
+help2man -Nn "performance testing tool for amqp servers" usr/bin/avalanchemqperf > usr/share/man/man1/avalanchemqperf.1
+gzip -9 -n usr/share/man/man1/avalanchemq.1
+gzip -9 -n usr/share/man/man1/avalanchemqctl.1
+gzip -9 -n usr/share/man/man1/avalanchemqperf.1
 
-cat > $root/DEBIAN/conffiles << EOF
+mkdir DEBIAN
+find . -type f -not -path "./DEBIAN/*" -print0 | xargs -0 md5sum > DEBIAN/md5sums
+
+cat > DEBIAN/conffiles << EOF
 /etc/avalanchemq/avalanchemq.ini
 EOF
 
-cat > $root/DEBIAN/control << EOF
+cat > DEBIAN/control << EOF
 Package: avalanchemq
 Version: $pkg_version-$pkg_revision
 Homepage: https://github.com/cloudamqp/avalanchemq
 Section: net
 Priority: optional
 Architecture: $architecture
-Depends: openssl, systemd, libc6, adduser, libgc1c2
-Installed-Size: $(du -ks $root/usr | cut -f 1)
+Depends: systemd,adduser,$(ldd ../bin/* | awk '/=>/ {print $3}' | xargs dpkg -S | awk -F: "/$architecture/ { print \$1 }" | sort -u | paste -sd,)
+Installed-Size: $(du -ks usr | cut -f1)
 Maintainer: AvalancheMQ Team <contact@avalanchemq.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
  Aims to be very fast, have low RAM requirements,
@@ -82,26 +72,31 @@ Description: message queue server that implements the AMQP 0-9-1 protocol
 
 EOF
 
-cat > $root/DEBIAN/postinst << EOF
+cat > DEBIAN/postinst << EOF
 #!/bin/sh -e
 adduser --system --group --quiet --no-create-home --home /nonexistent avalanchemq
 install --owner=avalanchemq --group=avalanchemq --mode=750 --directory /var/lib/avalanchemq
 deb-systemd-helper enable avalanchemq.service
 deb-systemd-invoke start avalanchemq.service
 EOF
-chmod +x $root/DEBIAN/postinst
+chmod +x DEBIAN/postinst
 
-cat > $root/DEBIAN/prerm << EOF
+cat > DEBIAN/prerm << EOF
 #!/bin/sh -e
 deb-systemd-invoke stop avalanchemq.service
 deb-systemd-helper purge avalanchemq.service
 EOF
-chmod +x $root/DEBIAN/prerm
+chmod +x DEBIAN/prerm
 
-chmod g-w -R $root
-fakeroot dpkg-deb --build $root
-rm -r $root
+cd ..
 
-#lintian $root.deb || true
+debdir=builds/$ID/$VERSION_CODENAME
+debname=${NAME}_${pkg_version}-${pkg_revision}_${architecture}.deb
+mkdir -p "$debdir"
 
-echo $root.deb
+echo 2.0 > debian-binary
+tar c --directory debroot/DEBIAN . | gzip -9 > control.tar.gz
+tar c --directory debroot --exclude=./DEBIAN . | gzip -9 > data.tar.gz
+ar rc "$debdir/$debname" debian-binary control.tar.gz data.tar.gz
+
+#lintian "$debdir/$debname" || true
