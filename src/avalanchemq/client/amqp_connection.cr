@@ -92,7 +92,7 @@ module AvalancheMQ
       username, password = credentials(start_ok)
       user = users[username]?
       return user if user && user.password && user.password.not_nil!.verify(password) &&
-        allow_guest_user?(remote_address, user)
+        guest_only_loopback?(remote_address, user)
 
       if user.nil?
         log.warn "User \"#{username}\" not found"
@@ -160,9 +160,9 @@ module AvalancheMQ
       nil
     end
 
-    private def self.allow_guest_user?(remote_address, user)
+    private def self.guest_only_loopback?(remote_address, user) : Boolean
       return true unless user.name == "guest"
-      return true if Config.instance.allow_guest_user_remotely
+      return true unless Config.instance. guest_only_loopback
       remote_address.loopback?
     end
   end

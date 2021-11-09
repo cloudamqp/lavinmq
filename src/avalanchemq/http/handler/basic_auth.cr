@@ -26,7 +26,7 @@ module AvalancheMQ
             begin
               username, password = Base64.decode_string(base64).split(":")
               if user = @user_store[username]?
-                if valid_auth?(user, password) && allow_guest_user?(context, user)
+                if valid_auth?(user, password) && guest_only_loopback?(context, user)
                   context.authenticated_username = username
                   return call_next(context)
                 end
@@ -59,9 +59,9 @@ module AvalancheMQ
         user.password.not_nil!.verify(password)
       end
 
-      private def allow_guest_user?(context, user)
+      private def guest_only_loopback?(context, user) : Boolean
         return true unless user.name == "guest"
-        return true if Config.instance.allow_guest_user_remotely
+        return true unless Config.instance.guest_only_loopback
         case context.request.remote_address
         when Socket::IPAddress
           return context.request.remote_address.as(Socket::IPAddress).loopback?

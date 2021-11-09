@@ -39,7 +39,7 @@ module AvalancheMQ
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property raise_gc_warn : Bool = false
     property data_dir_lock : Bool = true
-    property allow_guest_user_remotely : Bool = false
+    property guest_only_loopback : Bool = true
 
     @@instance : Config = self.new
 
@@ -85,7 +85,7 @@ module AvalancheMQ
         when "tls_key"              then @tls_key_path = v
         when "tls_ciphers"          then @tls_ciphers = v
         when "tls_min_version"      then @tls_min_version = v
-        when "allow_guest_user_remotely" then @allow_guest_user_remotely = true?(v)
+        when "guest_only_loopback" then @guest_only_loopback = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
