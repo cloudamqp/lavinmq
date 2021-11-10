@@ -3,6 +3,7 @@
     <h1>
       <a href="/"><img id="amq-logo" src="/img/logo-avalanche-mq.png"></a>
       <small id="version"></small>
+      <small id="cluster_name"></small>
     </h1>
     <ul>
       <li><a href="/">Overview</a></li>

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Option do configure tcp keepalive via config file
 - Allow or block guest user using loopback address. ([#305](https://github.com/cloudamqp/avalanchemq/pull/305))
 - Reject and requeue is now default option when getting messages in UI. ([#307](https://github.com/cloudamqp/avalanchemq/pull/307))
+- Show hostname in header ([#308](https://github.com/cloudamqp/avalanchemq/pull/308))
 
 ### Removed
 
