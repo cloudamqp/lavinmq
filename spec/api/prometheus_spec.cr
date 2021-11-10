@@ -31,7 +31,15 @@ describe AvalancheMQ::HTTP::ConsumersController do
 
   describe "GET /metrics" do
     it "should support specifying families" do
-      fail "TODO!"
+      response = get("/metrics/detailed?family=connection_churn_metrics")
+      response.status_code.should eq 200
+      lines = response.body.lines
+      lines.any?(&.starts_with? "lavinmq_detailed_connections_opened_total").should be_true
+
+      response = get("/metrics/detailed?family=family=queue_coarse_metrics")
+      response.status_code.should eq 200
+      lines = response.body.lines
+      lines.any?(&.starts_with? "lavinmq_detailed_connections_opened_total").should be_false
     end
   end
 end

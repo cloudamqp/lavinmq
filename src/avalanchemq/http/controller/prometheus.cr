@@ -158,19 +158,6 @@ module AvalancheMQ
                       value: @amqp_server.disk_free,
                       type: "gauge",
                       help: "Disk space available in bytes"})
-        # writer.write({name: "alarms_file_descriptor_limit", value: 0})
-        # writer.write({name: "alarms_free_disk_space_watermark", value: 0, type: "counter"})
-        # writer.write({name: "alarms_memory_used_watermark", value: 0})
-        # writer.write({name: "io_read_ops_total", value: 0, type: "counter", help: "Total number of I/O read operations"})
-        # writer.write({name: "io_read_bytes_total", value: 0, type: "counter", help: "Total number of I/O bytes read"})
-        # writer.write({name: "io_write_ops_total", value: 0, type: "counter", help: "Total number of I/O write operations"})
-        # writer.write({name: "io_write_bytes_total", value: 0, type: "counter", help: "Total number of I/O bytes written"})
-        # writer.write({name: "io_sync_ops_total", value: 0, type: "counter", help: "Total number of I/O sync operations"})
-        # writer.write({name: "io_seek_ops_total", value: 0, type: "counter", help: "Total number of I/O seek operations"})
-        # writer.write({name: "io_open_attempt_ops_total", value: 0, type: "counter", help: "Total number of file open attempts"})
-        # writer.write({name: "io_reopen_ops_total", value: 0, type: "counter", help: "Total number of times files have been reopened"})
-        # writer.write({name: "io_read_time_seconds_total", value: 0, type: "counter", help: "Total I/O read time"})
-        # writer.write({name: "io_write_time_seconds_total", value: 0, type: "counter", help: "Total I/O write time"})
       end
 
       private def overview_queue_metrics(u, writer)
@@ -214,26 +201,6 @@ module AvalancheMQ
                        value: ready + unacked,
                        type: "gauge",
                        help: "Sum of ready and unacknowledged messages - total queue depth"})
-        # writer.write({name: "queue_messages_persistent", value: 0, type: "gauge", help: "Persistent messages"})
-        # writer.write({name: "queue_messages_bytes", value: 0, type: "gauge", help: "Size in bytes of ready and unacknowledged messages"})
-        # writer.write({name: "queue_messages_ready_bytes", value: 0, type: "gauge", help: "Size in bytes of ready messages"})
-        # writer.write({name: "queue_messages_unacked_bytes", value: 0, type: "gauge", help: "Size in bytes of all unacknowledged messages"})
-        # writer.write({name: "channel_messages_unacked", value: 0, type: "gauge", help: "Delivered but not yet acknowledged messages"})
-        # writer.write({name: "channel_messages_unconfirmed", value: 0, type: "gauge", help: "Published but not yet confirmed messages"})
-        # writer.write({name: "channel_messages_published_total", value: 0, type: "counter", help: ""})
-        # writer.write({name: "channel_messages_confirmed_total", value: 0, type: "counter", help: "Total number of messages published into an exchange and confirmed on the channel"})
-        # writer.write({name: "channel_messages_unroutable_returned_total", value: 0, type: "counter", help: "Total number of messages published as mandatory into an exchange and returned to the publisher as unroutable"})
-        # writer.write({name: "channel_messages_unroutable_dropped_total", value: 0, type: "counter", help: "Total number of messages published as non-mandatory into an exchange and dropped as unroutable"})
-        # writer.write({name: "channel_get_ack_total", value: 0, type: "counter", help: "Total number of messages fetched with basic.get in manual acknowledgement mode"})
-        # writer.write({name: "channel_get_total", value: 0, type: "counter", help: "Total number of messages fetched with basic.get in automatic acknowledgement mode"})
-        # writer.write({name: "channel_messages_delivered_ack_total", value: 0, type: "counter", help: "Total number of messages delivered to consumers in manual acknowledgement mode"})
-        # writer.write({name: "channel_messages_delivered_total", value: 0, type: "counter", help: "Total number of messages delivered to consumers in automatic acknowledgement mode"})
-        # writer.write({name: "channel_messages_redelivered_total", value: 0, type: "counter", help: "Total number of messages redelivered to consumers"})
-        # writer.write({name: "channel_messages_acked_total", value: 0, type: "counter", help: "Total number of messages acknowledged by consumers"})
-        # writer.write({name: "channel_get_empty_total", value: 0, type: "counter", help: "Total number of times basic.get operations fetched no message"})
-        # writer.write({name: "connection_incoming_bytes_total", value: 0, type: "counter", help: "Total number of bytes received on a connection"})
-        # writer.write({name: "connection_outgoing_bytes_total", value: 0, type: "counter", help: "Total number of bytes sent on a connection"})
-        # writer.write({name: "queue_messages_published_total", value: 0, type: "gauge", help: "Total number of messages published to queues"})
       end
 
       private def custom_metrics(u, writer)
