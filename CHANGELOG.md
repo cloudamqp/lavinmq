@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Option do configure tcp keepalive via config file
+- Allow or block guest user using loopback address. ([#305](https://github.com/cloudamqp/avalanchemq/pull/305))
 
 ### Removed
 
