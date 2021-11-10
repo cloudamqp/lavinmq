@@ -41,7 +41,6 @@ module AvalancheMQ
     property data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = { 60, 10 , 3 } # idle, interval, probes/count
     property guest_only_loopback : Bool = true
-    
     @@instance : Config = self.new
 
     def self.instance : AvalancheMQ::Config
