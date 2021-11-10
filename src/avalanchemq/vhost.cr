@@ -49,13 +49,6 @@ module AvalancheMQ
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
       @segments = segments = load_segments_on_disk
-      @segment_references = ZeroReferenceCounter(UInt32).new do |segment|
-        next if segments.last_key == segment
-        if seg = segments.delete(segment)
-          seg.delete
-          seg.close
-        end
-      end
       @wfile = segments.last_value
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
@@ -133,10 +126,8 @@ module AvalancheMQ
       sp = write_to_disk(msg, ex.persistent?)
       flush = properties.delivery_mode == 2_u8
       ok = 0
-      seg_refs = @segment_references
       found_queues.each do |q|
         if q.publish(sp, flush)
-          seg_refs.inc(sp.segment)
           ex.publish_out_count += 1
           if confirm && q.is_a?(DurableQueue) && flush
             @queues_to_fsync_lock.synchronize do
@@ -150,14 +141,6 @@ module AvalancheMQ
     ensure
       visited.clear
       found_queues.clear
-    end
-
-    def increase_segment_references(segment : UInt32)
-      @segment_references.inc(segment)
-    end
-
-    def decrease_segment_references(segment : UInt32)
-      @segment_references.dec(segment)
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,

@@ -2,6 +2,8 @@ lib LibC
   MS_ASYNC       = 0x0001
   MREMAP_MAYMOVE =      1
   {% if flag?(:linux) %}
+    SEEK_DATA   =      3
+    SEEK_HOLE   =      4
     MS_SYNC     = 0x0004
     MADV_REMOVE =      9
   {% else %}

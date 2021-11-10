@@ -400,9 +400,6 @@ module AvalancheMQ
       close
       vhost = @vhost
       vhost.delete_queue(@name)
-      @ready.each do |sp|
-        vhost.decrease_segment_references(sp.segment)
-      end
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
       true
@@ -756,7 +753,6 @@ module AvalancheMQ
 
     protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
-      @vhost.decrease_segment_references(sp.segment)
     end
 
     def compact
@@ -832,9 +828,6 @@ module AvalancheMQ
 
     def purge : UInt32
       vhost = @vhost
-      @ready.each do |sp|
-        vhost.decrease_segment_references(sp.segment)
-      end
       count = @ready.purge
       @log.debug { "Purged #{count} messages" }
       count.to_u32

@@ -8,7 +8,6 @@ module AvalancheMQ
         puts_size_capacity vh.@awaiting_confirm, 4
         puts_size_capacity vh.@exchanges, 4
         puts_size_capacity vh.@queues, 4
-        puts_size_capacity vh.@segment_references, 4
         vh.queues.each do |_, q|
           puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
           puts_size_capacity q.@consumers, 6

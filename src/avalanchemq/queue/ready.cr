@@ -26,12 +26,12 @@ module AvalancheMQ
 
       def initialize(@index_dir : String)
         FileUtils.mkdir_p @index_dir
-        @ack = Hash(UInt32, MFile).new do |h, seg|
-          h[seg] = MFile.new(File.join(@index_dir, "ack.#{seg}"), capacity: 8 * 1024 * 1024)
+        @ack = Hash(UInt32, File).new do |h, seg|
+          h[seg] = File.new(File.join(@index_dir, "ack.#{seg}"), "a")
         end
         @acked = load_acked
-        @enq = Hash(UInt32, MFile).new do |h, seg|
-          h[seg] = MFile.new(File.join(@index_dir, "enq.#{seg}"), capacity: 8 * 1024 * 1024)
+        @enq = Hash(UInt32, File).new do |h, seg|
+          h[seg] = File.new(File.join(@index_dir, "enq.#{seg}"), "a+")
         end
         scan_enqueued
       end
