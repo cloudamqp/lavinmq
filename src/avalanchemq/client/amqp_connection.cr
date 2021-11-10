@@ -160,7 +160,7 @@ module AvalancheMQ
       nil
     end
 
-    private def self.guest_only_loopback?(remote_address, user) : Boolean
+    private def self.guest_only_loopback?(remote_address, user) : Bool
       return true unless user.name == "guest"
       return true unless Config.instance. guest_only_loopback
       remote_address.loopback?

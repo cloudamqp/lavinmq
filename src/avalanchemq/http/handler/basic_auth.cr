@@ -59,7 +59,7 @@ module AvalancheMQ
         user.password.not_nil!.verify(password)
       end
 
-      private def guest_only_loopback?(context, user) : Boolean
+      private def guest_only_loopback?(context, user) : Bool
         return true unless user.name == "guest"
         return true unless Config.instance.guest_only_loopback
         case context.request.remote_address
