@@ -6,6 +6,7 @@ module AvalancheMQ
     class ReadyQueue
       @lock = Mutex.new(:reentrant)
       @initial_capacity : Int32
+      getter bytesize = 0u64
 
       def initialize(initial_capacity = 1024)
         @initial_capacity = initial_capacity.to_i32
@@ -18,13 +19,18 @@ module AvalancheMQ
 
       def shift
         @lock.synchronize do
-          @ready.shift
+          sp = @ready.shift
+          @bytesize -= sp.bytesize
+          sp
         end
       end
 
       def shift?
         @lock.synchronize do
-          @ready.shift?
+          if sp = @ready.shift?
+            @bytesize -= sp.bytesize
+            sp
+          end
         end
       end
 
@@ -38,6 +44,7 @@ module AvalancheMQ
               @ready.unshift sp
               break
             end
+            @bytesize -= sp.bytesize
           end
         end
       end
@@ -84,6 +91,7 @@ module AvalancheMQ
           else
             @ready.push(sp)
           end
+          @bytesize += sp.bytesize
           @ready.size
         end
       end
@@ -97,6 +105,7 @@ module AvalancheMQ
             else
               @ready.push(sp)
             end
+            @bytesize += sp.bytesize
           end
           @ready.size
         end
@@ -109,11 +118,13 @@ module AvalancheMQ
         @lock.synchronize do
           if @ready.first == sp
             @ready.shift
+            @bytesize -= sp.bytesize
             return true
           else
             if idx = @ready.bsearch_index { |rsp| rsp >= sp }
               if @ready[idx] == sp
                 @ready.delete_at(idx)
+                @bytesize -= sp.bytesize
                 return true
               end
             end
@@ -133,8 +144,9 @@ module AvalancheMQ
 
       def limit_byte_size(bytesize, &blk : SegmentPosition -> Nil)
         @lock.synchronize do
-          while @ready.sum(&.bytesize) > bytesize
+          while @bytesize > bytesize
             sp = @ready.shift? || break
+            @bytesize -= sp.bytesize
             yield sp
           end
         end
@@ -145,6 +157,7 @@ module AvalancheMQ
       def push(sp : SegmentPosition) : Int32
         @lock.synchronize do
           @ready.push(sp)
+          @bytesize += sp.bytesize
           @ready.size
         end
       end
@@ -184,6 +197,7 @@ module AvalancheMQ
           else
             @ready = Deque(SegmentPosition).new(@initial_capacity)
           end
+          @bytesize = 0u64
           count
         end
       end
@@ -194,10 +208,6 @@ module AvalancheMQ
 
       def capacity
         @ready.capacity
-      end
-
-      def sum(&blk : SegmentPosition -> _) : UInt64
-        @ready.sum(0_u64, &blk)
       end
 
       def compact
@@ -244,6 +254,7 @@ module AvalancheMQ
 
     class ExpirationReadyQueue < SortedReadyQueue
       private def insert_sorted(sp)
+        @bytesize += sp.bytesize
         idx = @ready.bsearch_index do |rsp|
           rsp.expiration_ts > sp.expiration_ts
         end
@@ -253,6 +264,7 @@ module AvalancheMQ
 
     class PriorityReadyQueue < SortedReadyQueue
       private def insert_sorted(sp)
+        @bytesize += sp.bytesize
         idx = @ready.bsearch_index do |rsp|
           rsp.priority < sp.priority
         end
