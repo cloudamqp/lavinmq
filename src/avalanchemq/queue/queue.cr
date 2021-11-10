@@ -293,10 +293,7 @@ module AvalancheMQ
         end
       rescue Channel::ClosedError
         break
-      rescue ex
-        @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
-      @log.debug "Delivery loop closed"
     end
 
     private def time_to_expiration : Time::Span?
