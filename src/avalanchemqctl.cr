@@ -372,7 +372,7 @@ class AvalancheMQCtl
     abort @banner unless name
     puts "Closing connection #{name} ..." unless quiet?
     @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via avalanchemqctl"
-    resp = http.delete "/api/connections/#{URI.encode(name)}", @headers
+    resp = http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     handle_response(resp, 204)
   end
 
@@ -385,7 +385,7 @@ class AvalancheMQCtl
       next unless conn = u.as_h?
       name = conn["name"].to_s
       puts "Closing connection #{name} ..." unless quiet?
-      http.delete "/api/connections/#{URI.encode(name)}", @headers
+      http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     end
   end
 

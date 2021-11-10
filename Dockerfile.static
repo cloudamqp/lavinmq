@@ -7,8 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && npm ci
 
-FROM 84codes/crystal:1.2.1-ubuntu-20.04 AS builder
-
+FROM 84codes/crystal:1.2.1-alpine-latest AS builder
 WORKDIR /tmp
 
 # Copying and install dependencies
@@ -21,19 +20,12 @@ COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
-RUN shards build --production --release --no-debug -Dwithout_systemd
+RUN shards build --production --release --static --error-trace -Dwithout_systemd --no-debug
 
 # start from scratch and only copy the built binary
-FROM ubuntu:20.04
-EXPOSE 5672 15672
+FROM scratch
 VOLUME /data
 WORKDIR /data
-
-COPY --from=builder /tmp/bin/* /usr/bin/
-
-RUN apt-get update && \
-    apt-get install -y libssl1.1 libevent-2.1-* && \
-    apt-get clean && \
-    rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
-
-ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]
+EXPOSE 5672 15672 
+COPY --from=builder /tmp/bin/* /
+ENTRYPOINT ["/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]

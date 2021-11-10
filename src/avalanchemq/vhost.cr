@@ -476,34 +476,29 @@ module AvalancheMQ
       upstreams.stop_all
     end
 
-    def close(seamless_restart = false, reason = "Broker shutdown")
+    def close(reason = "Broker shutdown")
       @closed = true
       stop_shovels
       Fiber.yield
       stop_upstream_links
       Fiber.yield
-      if seamless_restart
-        # TODO: Handover FDs to systemd
-        SystemD.store_fds(@connections.map &.fd, "vhost=#{@name}")
-      else
-        @log.debug "Closing connections"
-        @connections.each &.close(reason)
-        # wait up to 10s for clients to gracefully close
-        100.times do
-          break if @connections.empty?
-          sleep 0.1
-        end
-        # then force close the remaining (close tcp socket)
-        @connections.each &.force_close
-        Fiber.yield # yield so that Client read_loops can shutdown
+      @log.debug "Closing connections"
+      @connections.each &.close(reason)
+      # wait up to 10s for clients to gracefully close
+      100.times do
+        break if @connections.empty?
+        sleep 0.1
       end
+      # then force close the remaining (close tcp socket)
+      @connections.each &.force_close
+      Fiber.yield # yield so that Client read_loops can shutdown
       @write_lock.synchronize do
         @queues.each_value &.close
         @segments.each_value &.close
       end
       @save.close
       Fiber.yield
-      compact!(include_transient: seamless_restart)
+      compact!
     end
 
     def delete
