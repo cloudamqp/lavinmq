@@ -22,7 +22,7 @@ module AvalancheMQ
 
     getter name, exchanges, queues, log, data_dir, policies, parameters,
       log, shovels, direct_reply_channels, default_user,
-      connections, dir
+      connections, dir, gc_runs, gc_timing
     property? flow = true
     property? dirty = false
     getter? closed = false
@@ -40,6 +40,8 @@ module AvalancheMQ
     @fsync = false
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
+    @gc_runs = 0
+    @gc_timing = Hash(String, Float64).new { |h,k| h[k] = 0 }
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User, @events : Server::Event)
@@ -746,6 +748,7 @@ module AvalancheMQ
           GC.collect
         end
         @dirty = false
+        @gc_runs += 1
       end
     rescue ex
       @log.fatal("Unhandled exception in #gc_segments_loop, " \
@@ -758,6 +761,7 @@ module AvalancheMQ
         mem = Benchmark.memory(&blk)
         @log.info { "GC segments, #{desc} used #{mem.humanize_bytes} memory" }
       end
+      @gc_timing[desc] += elapsed.total_milliseconds
       return if elapsed.total_milliseconds <= 10
       @log.info { "GC segments, #{desc} took #{elapsed.total_milliseconds} ms" }
     end
