@@ -58,6 +58,8 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           file: Dockerfile.deb
           platforms: linux/${{ matrix.arch }}
           build-args: |
