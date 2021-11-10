@@ -125,7 +125,6 @@ describe AvalancheMQ::Queue do
         response = post("/api/queues/%2f/#{q_name}/get", body: body)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        pp body
         body.size.should eq 1
         # can get from UI/API even though queue is paused
         body[0]["payload"].should eq "test message 2"
