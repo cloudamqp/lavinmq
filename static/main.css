@@ -205,6 +205,8 @@ aside h1 small {
   font-weight: 100;
   opacity: 0.6;
   margin-left: 10px;
+  text-align: center;
+  display: block;
 }
 
 #version:before {
