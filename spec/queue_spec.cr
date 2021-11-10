@@ -103,5 +103,39 @@ describe AvalancheMQ::Queue do
       s.vhosts["/"].delete_queue(q_name)
       s.vhosts["/"].delete_exchange(x_name)
     end
+
+    it "should be able to get messages from paused queue with force flag" do
+      with_channel do |ch|
+        x = ch.exchange(x_name, "direct")
+        q = ch.queue(q_name)
+        q.bind(x.name, q.name)
+        x.publish_confirm "test message", q.name
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
+
+        iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        iq.pause!
+
+        x.publish_confirm "test message 2", q.name
+        x.publish_confirm "test message 3", q.name
+
+        # cannot get from client, queue is paused
+        q.get(no_ack: true).should be_nil
+
+        body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
+        response = post("/api/queues/%2f/#{q_name}/get", body: body)
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.size.should eq 1
+        # can get from UI/API even though queue is paused
+        body[0]["payload"].should eq "test message 2"
+
+        # resume queue and consume next msg
+        iq.resume!
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
+      end
+    ensure
+      s.vhosts["/"].delete_queue(q_name)
+      s.vhosts["/"].delete_exchange(x_name)
+    end
   end
 end

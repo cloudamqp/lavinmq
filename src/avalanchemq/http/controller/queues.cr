@@ -143,7 +143,7 @@ module AvalancheMQ
             if q.internal?
               bad_request(context, "Not allowed to get from internal queue")
             end
-            if q.state != QueueState::Running
+            if q.state != QueueState::Running && q.state != QueueState::Paused
               forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
@@ -158,7 +158,7 @@ module AvalancheMQ
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
-                  env = q.basic_get(false)
+                  env = q.basic_get(false, true)
                   break if env.nil?
                   sps << env.segment_position
                   size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
