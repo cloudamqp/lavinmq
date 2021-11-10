@@ -681,7 +681,7 @@ module AvalancheMQ
     end
 
     def basic_get(no_ack, force = false) : Envelope?
-      return nil unless @state.running? || @state.paused? && force
+      return nil if !@state.running? && (@state.paused? && !force)
       @last_get_time = Time.monotonic
       @get_count += 1
       if env = get(no_ack)
