@@ -17,6 +17,7 @@ module AvalancheMQ
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, help: String) |
                      NamedTuple(name: String, value: MetricValue, type: String, help: String) |
+                     NamedTuple(name: String, value: MetricValue, help: String, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, type: String, help: String, labels: MetricLabels)
 
       getter :prefix
@@ -37,13 +38,14 @@ module AvalancheMQ
       def write(m : Metric)
         return unless m[:value]?
         io = @io
+        name = "#{@prefix}_#{m[:name]}"
         if t = m[:type]?
-          io << "# TYPE " << m[:name] << " " << t << "\n"
+          io << "# TYPE " << name << " " << t << "\n"
         end
         if h = m[:help]?
-          io << "# HELP " << m[:name] << " " << h << "\n"
+          io << "# HELP " << name << " " << h << "\n"
         end
-        io << @prefix << "_" << m[:name]
+        io << name
         if l = m[:labels]?
           write_labels(io, l)
         end
@@ -100,14 +102,22 @@ module AvalancheMQ
           mem = Benchmark.memory(&blk)
         end
         writer = PrometheusWriter.new(io, "telemetry")
-        writer.write({name: "scrape_duration_seconds", value: elapsed.total_seconds})
-        writer.write({name: "scrape_mem", value: mem})
+        writer.write({name: "scrape_duration_seconds",
+                      value: elapsed.total_seconds,
+                      help: "Duration for metrics collection in seconds"})
+        writer.write({name: "scrape_mem",
+                      value: mem,
+                      help: "Memory used for metrics collections in Kb"})
       end
 
       private def overview_broker_metrics(writer)
-        writer.write({name: "identity_info", value: 1, labels: {
+        writer.write({name: "identity_info",
+                      value: 1,
+                      help: "System information",
+                      labels: {
                         "#{writer.prefix}_version" => AvalancheMQ::VERSION,
-                        "#{writer.prefix}_cluster" => System.hostname}})
+                        "#{writer.prefix}_cluster" => System.hostname
+                      }})
         writer.write({name: "connections_opened_total",
                       value: @amqp_server.connection_created_count,
                       type: "counter",
@@ -154,10 +164,6 @@ module AvalancheMQ
                       value: System.physical_memory,
                       type: "gauge",
                       help: "Memory high watermark in bytes"})
-        writer.write({name: "disk_space_available_bytes",
-                      value: @amqp_server.disk_free,
-                      type: "gauge",
-                      help: "Disk space available in bytes"})
       end
 
       private def overview_queue_metrics(u, writer)
@@ -216,11 +222,9 @@ module AvalancheMQ
                       help: "Total CPU user time"})
         writer.write({name: "rss_bytes", value: @amqp_server.rss,
                       help: "Memory RSS in bytes"})
-        writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
-                      help: "Server uptime in seconds"})
         vhosts(u).each do |vhost|
           labels = { name:  vhost.name }
-          writer.write({name: "gc_runs",
+          writer.write({name: "gc_runs_total",
                         value: vhost.gc_runs,
                         labels: labels,
                         type: "counter",

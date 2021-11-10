@@ -5,9 +5,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
     it "should return metrics in prometheus style" do
       response = get("/metrics")
       response.status_code.should eq 200
-      response.body.lines.any? do |line|
-        line.starts_with? "telemetry_scrape_duration_seconds"
-      end.should eq true
+      response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
     end
 
     it "should support specifying prefix" do
