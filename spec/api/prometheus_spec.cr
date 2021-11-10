@@ -29,7 +29,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
     end
   end
 
-  describe "GET /metrics" do
+  describe "GET /metrics/detailed" do
     it "should support specifying families" do
       response = get("/metrics/detailed?family=connection_churn_metrics")
       response.status_code.should eq 200
