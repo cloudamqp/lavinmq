@@ -40,7 +40,7 @@ module AvalancheMQ
     property raise_gc_warn : Bool = false
     property data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = { 60, 10 , 3 } # idle, interval, probes/count
-
+    property guest_only_loopback : Bool = true
     @@instance : Config = self.new
 
     def self.instance : AvalancheMQ::Config
@@ -90,6 +90,7 @@ module AvalancheMQ
         when "tls_key"              then @tls_key_path = v
         when "tls_ciphers"          then @tls_ciphers = v
         when "tls_min_version"      then @tls_min_version = v
+        when "guest_only_loopback" then @guest_only_loopback = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
