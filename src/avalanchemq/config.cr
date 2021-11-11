@@ -4,8 +4,9 @@ module AvalancheMQ
   class Config
     DEFAULT_LOG_LEVEL = Logger::INFO
 
-    property data_dir : String = ENV.fetch("STATE_DIRECTORY", "")
-    property config_file : String = ENV.has_key?("CONFIGURATION_DIRECTORY") ? File.join(ENV["CONFIGURATION_DIRECTORY"], "avalanchemq.ini") : ""
+    property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/avalanchemq")
+    property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini")) ?
+                             File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini") : ""
     property log_file : String? = nil
     property log_level : Logger::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
