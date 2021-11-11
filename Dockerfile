@@ -21,7 +21,7 @@ COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
-RUN shards build --production --release --no-debug -Dwithout_systemd
+RUN shards build --production --release --no-debug
 
 # start from scratch and only copy the built binary
 FROM ubuntu:20.04
