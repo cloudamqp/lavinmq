@@ -328,6 +328,10 @@ class ChannelChurn < Perf
   end
 end
 
+{% unless flag?(:release) %}
+  STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"
+{% end %}
+
 mode = ARGV.shift?
 case mode
 when "throughput"       then Throughput.new.run
