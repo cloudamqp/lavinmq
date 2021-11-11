@@ -1,7 +1,6 @@
 require "./avalanchemq/version"
 require "./avalanchemq/config"
 require "./avalanchemq/http/http_server"
-require "./stdlib/http_client"
 require "json"
 require "option_parser"
 
