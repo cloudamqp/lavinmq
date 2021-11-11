@@ -26,8 +26,8 @@ RUN shards build --production --release --no-debug -Dwithout_systemd
 # start from scratch and only copy the built binary
 FROM ubuntu:20.04
 EXPOSE 5672 15672
-VOLUME /data
-WORKDIR /data
+VOLUME /var/lib/avalanchemq
+WORKDIR /var/lib/avalanchemq
 
 COPY --from=builder /tmp/bin/* /usr/bin/
 
@@ -36,4 +36,4 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
-ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "-D", "/data"]
+ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0"]
