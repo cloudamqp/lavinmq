@@ -6,6 +6,7 @@ require "../src/avalanchemq/server"
 require "../src/avalanchemq/log_formatter"
 require "../src/avalanchemq/http/http_server"
 require "http/client"
+require "socket"
 require "uri"
 
 FileUtils.rm_rf("/tmp/spec")
@@ -24,6 +25,15 @@ AMQP_BASE_URL  = "amqp://localhost:#{AMQP_PORT}"
 AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
 HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
+
+[AMQP_PORT, AMQPS_PORT, HTTP_PORT].each do |port|
+  sock = Socket.tcp(Socket::Family::INET)
+  sock.connect "localhost", port
+  puts "TCP port #{port} collision!"
+  Spec.abort!
+  sock.close
+rescue Socket::ConnectError
+end
 
 unless ENV["CI"]?
   Spec.override_default_formatter(Spec::VerboseFormatter.new)
