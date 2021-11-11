@@ -53,7 +53,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
         consumer = q.subscribe { }
         sleep 0.01
         conn = s.connections.to_a.last.name
-        response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/#{consumer}")
+        response = delete("/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/#{consumer}")
         response.status_code.should eq 204
         sleep 0.01
         ch.has_subscriber?(consumer).should be_false
@@ -65,7 +65,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
         q = ch.queue("")
         consumer = q.subscribe { }
         sleep 0.01
-        response = delete("/api/consumers/%2f/#{URI.encode("abc")}/#{ch.id}/#{consumer}")
+        response = delete("/api/consumers/%2f/#{URI.encode_path("abc")}/#{ch.id}/#{consumer}")
         response.status_code.should eq 404
       end
     end
@@ -76,7 +76,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
         q = ch.queue("")
         consumer = q.subscribe { }
         sleep 0.01
-        response = delete("/api/consumers/%2f/#{URI.encode(conn)}/123/#{consumer}")
+        response = delete("/api/consumers/%2f/#{URI.encode_path(conn)}/123/#{consumer}")
         response.status_code.should eq 404
       end
     end
@@ -87,7 +87,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
         q = ch.queue("")
         q.subscribe { }
         sleep 0.01
-        response = delete("/api/consumers/%2f/#{URI.encode(conn)}/#{ch.id}/test")
+        response = delete("/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/test")
         response.status_code.should eq 404
       end
     end
