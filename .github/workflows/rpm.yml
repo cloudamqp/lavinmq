@@ -5,6 +5,8 @@ on:
       - main
     tags:
       - 'v*.*.*'
+    paths-ignore:
+      - 'spec/**'
 
 jobs:
   build_docs:
