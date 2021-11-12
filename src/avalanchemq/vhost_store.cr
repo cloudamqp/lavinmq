@@ -40,8 +40,6 @@ module AvalancheMQ
         vhost.delete
         save!
       end
-    ensure
-      GC.collect
     end
 
     def close
