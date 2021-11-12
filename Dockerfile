@@ -25,15 +25,16 @@ RUN shards build --production --release --no-debug
 
 # start from scratch and only copy the built binary
 FROM ubuntu:20.04
-EXPOSE 5672 15672
-VOLUME /var/lib/avalanchemq
-WORKDIR /var/lib/avalanchemq
-
-COPY --from=builder /tmp/bin/* /usr/bin/
-
 RUN apt-get update && \
     apt-get install -y libssl1.1 libevent-2.1-* && \
     apt-get clean && \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
+COPY --from=builder /tmp/bin/* /usr/bin/
+
+EXPOSE 5672 15672
+VOLUME /var/lib/avalanchemq
+WORKDIR /var/lib/avalanchemq
+
+ENV GC_UNMAP_THRESHOLD=1
 ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0"]
