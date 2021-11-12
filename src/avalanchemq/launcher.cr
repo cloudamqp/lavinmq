@@ -44,7 +44,7 @@ module AvalancheMQ
         @log.info "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
       {% end %}
       @log.info "Pid: #{Process.pid}"
-      @log.info "@config file: #{@config.config_file}" unless @config.config_file.empty?
+      @log.info "Config file: #{@config.config_file}" unless @config.config_file.empty?
       @log.info "Data directory: #{@config.data_dir}"
     end
 
