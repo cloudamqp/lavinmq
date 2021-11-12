@@ -10,26 +10,29 @@ module AvalancheMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @log : Logger
-    @lock : File?
+    @lock_file : File?
 
     def initialize(@config : AvalancheMQ::Config)
       @log = create_logger
       print_environment_info
       maximize_fd_limit
       Dir.mkdir_p @config.data_dir
-      @lock = acquire_lock if @config.data_dir_lock
+      @lock_file = acquire_lock if @config.data_dir_lock
       @amqp_server = AvalancheMQ::Server.new(@config.data_dir, @log.dup)
       @http_server = AvalancheMQ::HTTP::Server.new(@amqp_server, @log.dup)
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
+    end
+
+    def run
       listen
       SystemD.notify("READY=1\n")
-      GC.collect
-      if @lock
-        hold_lock(@lock.not_nil!)
-      else
-        sleep
+      hostname = System.hostname.to_slice
+      loop do
+        GC.collect
+        sleep 10
+        @lock_file.try &.write_at(hostname, 0)
       end
     end
 
@@ -144,7 +147,7 @@ module AvalancheMQ
         @log.info "Shutting down gracefully..."
         @amqp_server.close
         @http_server.try &.close
-        @lock.try &.close
+        @lock_file.try &.close
         @log.info "Fibers: "
         Fiber.list { |f| @log.info f.inspect }
         exit 0

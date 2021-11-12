@@ -14,4 +14,4 @@ end
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./avalanchemq/launcher"
-AvalancheMQ::Launcher.new(config) # will block
+AvalancheMQ::Launcher.new(config).run # will block
