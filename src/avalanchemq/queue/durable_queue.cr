@@ -123,23 +123,28 @@ module AvalancheMQ
       end
     end
 
-    def purge
-      @log.info "Purging"
-      @enq_lock.synchronize do
-        @enq.close(truncate_to_size: false)
-        @enq = MFile.new(File.join(@index_dir, "enq.tmp"), ack_max_file_size)
-        SchemaVersion.prefix(@enq, :index)
-        @enq.move(File.join(@index_dir, "enq"))
-        @enq.advise(MFile::Advice::DontNeed)
+    def purge(max_count : Int? = nil) : UInt32
+      delete_count = super(max_count)
+      return 0_u32 if delete_count.zero?
+      if max_count.nil?
+        @enq_lock.synchronize do
+          @enq.close(truncate_to_size: false)
+          @enq = MFile.new(File.join(@index_dir, "enq.tmp"), ack_max_file_size)
+          SchemaVersion.prefix(@enq, :index)
+          @enq.move(File.join(@index_dir, "enq"))
+          @enq.advise(MFile::Advice::DontNeed)
+        end
+        @ack_lock.synchronize do
+          @ack.close(truncate_to_size: false)
+          @ack = MFile.new(File.join(@index_dir, "ack.tmp"), ack_max_file_size)
+          SchemaVersion.prefix(@ack, :index)
+          @ack.move(File.join(@index_dir, "ack"))
+          @ack.advise(MFile::Advice::DontNeed)
+        end
+      else
+        compact_index!
       end
-      @ack_lock.synchronize do
-        @ack.close(truncate_to_size: false)
-        @ack = MFile.new(File.join(@index_dir, "ack.tmp"), ack_max_file_size)
-        SchemaVersion.prefix(@ack, :index)
-        @ack.move(File.join(@index_dir, "ack"))
-        @ack.advise(MFile::Advice::DontNeed)
-      end
-      super
+      delete_count
     end
 
     def fsync_enq

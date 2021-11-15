@@ -249,13 +249,16 @@
         </form>
         <p> Pausing a queue will stop deliveries to all consumers. </p>
       </section>
+      <form method="delete" id="purgeQueue" class="form card cols-3">
+        <h3>Purge queue</h3>
+        <label>
+          <span>Number of messages</span>
+          <input type="count" name="count" placeholder="All">
+        </label>
+        <button type="submit" class="btn-danger">Purge queue</button>
+      </form>
       <section class="card cols-3">
-        <h3>Danger zone</h3>
-        <form method="delete" id="purgeQueue" class="form">
-          <label>
-            <button type="submit" class="btn-danger">Purge queue</button>
-          </label>
-        </form>
+        <h3>Delete queue</h3>
         <form method="delete" id="deleteQueue" class="form">
           <label>
             <button type="submit" class="btn-danger">Delete queue</button>

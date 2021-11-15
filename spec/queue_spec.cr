@@ -138,4 +138,71 @@ describe AvalancheMQ::Queue do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  describe "Purge" do
+    x_name = "purge"
+    q_name = "purge"
+    it "should purge the queue" do
+      with_channel do |ch|
+        x = ch.exchange(x_name, "direct")
+        q = ch.queue(q_name, durable: true)
+        q.bind(x.name, q.name)
+        x.publish_confirm "test message 1", q.name
+        x.publish_confirm "test message 2", q.name
+        x.publish_confirm "test message 3", q.name
+        x.publish_confirm "test message 4", q.name
+
+        internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        internal_queue.message_count.should eq 4
+
+        response = delete("/api/queues/%2f/#{q_name}/contents")
+        response.status_code.should eq 204
+
+        internal_queue.message_count.should eq 0
+      end
+    ensure
+      s.vhosts["/"].delete_queue(q_name)
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+
+    it "should purge only X messages from queue" do
+      with_channel do |ch|
+        x = ch.exchange(x_name, "direct")
+        q = ch.queue(q_name, durable: true)
+        q.bind(x.name, q.name)
+        10.times do |i|
+          x.publish_confirm "test message #{i}", q.name
+        end
+
+        vhost = s.vhosts["/"]
+        internal_queue = vhost.exchanges[x_name].queue_bindings[{q.name, nil}].first
+        internal_queue.message_count.should eq 10
+        index = File.join(vhost.data_dir, Digest::SHA1.hexdigest(internal_queue.name), "enq")
+        sps = Array(AvalancheMQ::SegmentPosition).new
+        File.open(index) do |f|
+          10.times do
+            sp = AvalancheMQ::SegmentPosition.from_io f
+            sp.should_not eq 0
+            sps << sp
+          end
+        end
+
+        response = delete("/api/queues/%2f/#{q_name}/contents?count=5")
+        response.status_code.should eq 204
+        File.open(index) do |f|
+          5.times do |i|
+            sp = AvalancheMQ::SegmentPosition.from_io f
+            sp.should_not eq 0
+            sp.should eq sps[i]
+          end
+          AvalancheMQ::SegmentPosition.from_io(f).zero?.should be_true
+        end
+
+        internal_queue.message_count.should eq 5
+      end
+    ensure
+      s.vhosts["/"].delete_queue(q_name)
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
 end

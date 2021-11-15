@@ -127,7 +127,15 @@ module AvalancheMQ
             unless user.can_read?(vhost, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
-            q.purge
+            count = context.request.query_params["count"]? || ""
+            if count.empty?
+              q.purge
+            else
+              count_i = count.to_i?
+              bad_request(context, "Count must be a number") if count_i.nil?
+              bad_request(context, "Count must be greater than 0") if count_i <= 0
+              q.purge(count_i)
+            end
             context.response.status_code = 204
           end
         end
