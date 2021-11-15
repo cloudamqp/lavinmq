@@ -785,6 +785,18 @@ describe AvalancheMQ::Server do
     end
   end
 
+  it "recover(requeue=false) for basic get actually reueues" do
+    with_channel do |ch|
+      q = ch.queue
+      q.publish "m1"
+      q.publish "m2"
+      ch.basic_get(q.name, no_ack: false)
+      ch.basic_recover(requeue: false)
+      msg = ch.basic_get(q.name, no_ack: false)
+      msg.not_nil!.body_io.to_s.should eq("m1")
+    end
+  end
+
   it "supports delivery-limit" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
