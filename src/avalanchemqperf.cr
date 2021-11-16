@@ -37,7 +37,7 @@ class Throughput < Perf
   @no_ack = true
   @rate = 0
   @consume_rate = 0
-  @confirm = false
+  @confirm = 0
   @persistent = false
   @prefetch = 0_u32
   @quiet = false
@@ -60,8 +60,8 @@ class Throughput < Perf
     @parser.on("-a", "--ack", "Ack consumed messages (default false)") do
       @no_ack = false
     end
-    @parser.on("-c", "--confirm", "Confirm publishes (default false)") do
-      @confirm = true
+    @parser.on("-c outstanding", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
+      @confirm = v.to_i
     end
     @parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
       @queue = v
@@ -192,8 +192,10 @@ class Throughput < Perf
       pubs_this_second = 0
       until @stopped
         data.rewind
-        if @confirm
-          ch.basic_publish_confirm data, @exchange, @routing_key, props: props
+        if @confirm > 0
+          ch.confirm_select
+          msgid = ch.basic_publish data, @exchange, @routing_key, props: props
+          ch.wait_for_confirm(msgid) if (msgid % @confirm) == 0
         else
           ch.basic_publish data, @exchange, @routing_key, props: props
         end
