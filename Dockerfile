@@ -37,4 +37,4 @@ VOLUME /var/lib/avalanchemq
 WORKDIR /var/lib/avalanchemq
 
 ENV GC_UNMAP_THRESHOLD=1
-ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0"]
+ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
