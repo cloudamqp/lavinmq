@@ -117,6 +117,9 @@ class AvalancheMQCtl
         @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
+    @parser.on("status", "Display server status") do
+      @cmd = "status"
+    end
     @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -157,6 +160,7 @@ class AvalancheMQCtl
     when "list_exchanges"        then list_exchanges
     when "create_exchange"       then create_exchange
     when "delete_exchange"       then delete_exchange
+    when "status"                then status
     when "stop_app"
     when "start_app"
     else
@@ -514,6 +518,23 @@ class AvalancheMQCtl
     url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{name}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  private def status
+    resp = http.get "/api/overview"
+    return handle_response(resp) unless resp.status_code == 200
+    body = JSON.parse(resp.body)
+    puts "Version: #{body.dig("avalanchemq_version")}"
+    puts "Node: #{body.dig("node")}"
+    puts "Uptime: #{body.dig("uptime")}"
+    puts "Connections: #{body.dig("object_totals", "connections")}"
+    puts "Channels: #{body.dig("object_totals", "channels")}"
+    puts "Consumers: #{body.dig("object_totals", "consumers")}"
+    puts "Exchanges: #{body.dig("object_totals", "exchanges")}"
+    puts "Queues: #{body.dig("object_totals", "queues")}"
+    puts "Messages: #{body.dig("queue_totals", "messages")}"
+    puts "Messages ready: #{body.dig("queue_totals", "messages_ready")}"
+    puts "Messages unacked: #{body.dig("queue_totals", "messages_unacknowledged")}"
   end
 end
 
