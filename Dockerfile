@@ -36,5 +36,6 @@ EXPOSE 5672 15672
 VOLUME /var/lib/avalanchemq
 WORKDIR /var/lib/avalanchemq
 
+HEALTHCHECK CMD /usr/bin/avalanchemqctl status
 ENV GC_UNMAP_THRESHOLD=1
 ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
