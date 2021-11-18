@@ -27,12 +27,11 @@ HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
 
 [AMQP_PORT, AMQPS_PORT, HTTP_PORT].each do |port|
-  sock = Socket.tcp(Socket::Family::INET)
-  sock.connect "localhost", port
-  puts "TCP port #{port} collision!"
-  Spec.abort!
-  sock.close
-rescue Socket::ConnectError
+  if TestHelpers.port_busy?(port)
+    puts "TCP port #{port} collision!"
+    puts "Make sure no other process is listening to port #{port}"
+    Spec.abort!
+  end
 end
 
 unless ENV["CI"]?
@@ -155,6 +154,16 @@ module TestHelpers
 
   def delete(path, headers = nil, body = nil)
     HTTP::Client.delete("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  end
+
+  # If we can connect to the port, it's busy by another listener
+  def self.port_busy?(port)
+    sock = Socket.tcp(Socket::Family::INET)
+    sock.connect "localhost", port
+    sock.close
+    true
+  rescue Socket::ConnectError
+    false
   end
 end
 
