@@ -74,6 +74,12 @@
     }
   }
 
+  function formatTimestamp(timestamp) {
+    const date = new Date(timestamp).toISOString().split("T");
+
+    return `${date[0]} ${date[1].split(".")[0]}`;
+  }
+
   /**
   * @param datalistID id of the datalist element linked to input
   * @param type input content, accepts: queues, exchanges, vhosts, users
@@ -101,7 +107,8 @@
       duration,
       argumentHelper,
       argumentHelperJSON,
-      autoCompleteDatalist
+      autoCompleteDatalist,
+      formatTimestamp
     }
   })
 })()

@@ -69,6 +69,16 @@
             <td id="q-unacked"></td>
             <td id="q-unacked-bytes"></td>
           </tr>
+          <tr>
+            <th>Timestamps</th>
+            <th>First</th>
+            <th>Last</th>
+          </tr>
+          <tr>
+            <td></td>
+            <td id="q-first-timestamp"> - </td>
+            <td id="q-last-timestamp"> - </td>
+          </tr>
         </table>
       </section>
       <section class="card cols-4">
@@ -345,6 +355,13 @@
           document.getElementById('q-ready').textContent = avalanchemq.helpers.formatNumber(item.ready)
           document.getElementById('q-ready-bytes').textContent = avalanchemq.helpers.nFormatter(item.ready_bytes) + 'B'
           document.getElementById('q-consumers').textContent = avalanchemq.helpers.formatNumber(item.consumers)
+          if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
+            document.getElementById('q-first-timestamp').textContent = avalanchemq.helpers.formatTimestamp(item.first_message_timestamp)
+            document.getElementById('q-last-timestamp').textContent = avalanchemq.helpers.formatTimestamp(item.last_message_timestamp)
+          } else {
+            document.getElementById('q-first-timestamp').textContent = " - "
+            document.getElementById('q-last-timestamp').textContent = " - "
+          }
           consumersTable.updateTable(item.consumer_details)
           if (all) {
             let features = ''
