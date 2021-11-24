@@ -41,6 +41,7 @@ class Throughput < Perf
   @persistent = false
   @prefetch = 0_u32
   @quiet = false
+  @poll = false
   @json_output = false
   @timeout = Time::Span.zero
   @pmessages = 0
@@ -85,6 +86,9 @@ class Throughput < Perf
     @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
       @prefetch = v.to_u32
     end
+    @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do |v|
+      @poll = true
+    end
     @parser.on("-j", "--json", "Output result as JSON") do
       @json_output = true
     end
@@ -111,7 +115,11 @@ class Throughput < Perf
 
     done = Channel(Nil).new
     @consumers.times do
-      spawn consume(done)
+      if @poll
+        spawn poll_consume(done)
+      else
+        spawn consume(done)
+      end
     end
 
     @publishers.times do
@@ -239,6 +247,43 @@ class Throughput < Perf
         if @stopped || @consumes == @cmessages
           ch.basic_cancel("c") unless canceled
           canceled = true
+        end
+        unless @consume_rate.zero?
+          consumes_this_second += 1
+          if consumes_this_second >= @consume_rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            consumes_this_second = 0
+          end
+        end
+      end
+    end
+  ensure
+    done.send nil
+  end
+
+  private def poll_consume(done)
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      q = begin
+        ch.queue @queue
+      rescue
+        ch = a.channel
+        ch.queue(@queue, passive: true)
+      end
+      ch.prefetch @prefetch unless @prefetch.zero?
+      q.bind(@exchange, @routing_key) unless @exchange.empty?
+      Fiber.yield
+      consumes_this_second = 0
+      start = Time.monotonic
+      loop do
+        if msg = q.get(no_ack: @ack.zero?)
+          @consumes += 1
+          msg.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+          break if @stopped || @consumes == @cmessages
         end
         unless @consume_rate.zero?
           consumes_this_second += 1
