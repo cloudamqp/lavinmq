@@ -696,16 +696,19 @@ module AvalancheMQ
       true
     end
 
-    def basic_get(no_ack, force = false) : Envelope?
-      return nil if !@state.running? && (@state.paused? && !force)
+    def basic_get(no_ack, force = false, &blk : Envelope -> Nil) : Bool
+      return false if !@state.running? && (@state.paused? && !force)
       @last_get_time = Time.monotonic
       @get_count += 1
       if env = get(no_ack)
+        yield env
+        # ack/unack the message after it has been delivered
         if no_ack
           delete_message(env.segment_position)
         end
-        env
+        return true
       end
+      false
     end
 
     # return the next message in the ready queue
