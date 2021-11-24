@@ -34,7 +34,7 @@ class Throughput < Perf
   @exchange = ""
   @queue = "perf-test"
   @routing_key = "perf-test"
-  @no_ack = true
+  @ack = 0
   @rate = 0
   @consume_rate = 0
   @confirm = 0
@@ -57,8 +57,8 @@ class Throughput < Perf
     @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
       @size = v.to_i
     end
-    @parser.on("-a", "--ack", "Ack consumed messages (default false)") do
-      @no_ack = false
+    @parser.on("-a MESSAGES", "--ack MESSAGES", "Ack after X consumed messages (default 0)") do |v|
+      @ack = v.to_i
     end
     @parser.on("-c outstanding", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
       @confirm = v.to_i
@@ -222,20 +222,20 @@ class Throughput < Perf
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
-            ch.queue @queue
-          rescue
-            ch = a.channel
-            ch.queue(@queue, passive: true)
-          end
+        ch.queue @queue
+      rescue
+        ch = a.channel
+        ch.queue(@queue, passive: true)
+      end
       ch.prefetch @prefetch unless @prefetch.zero?
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
       canceled = false
       consumes_this_second = 0
       start = Time.monotonic
-      q.subscribe(tag: "c", no_ack: @no_ack, block: true) do |m|
-        m.ack unless @no_ack
+      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true) do |m|
         @consumes += 1
+        m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
         if @stopped || @consumes == @cmessages
           ch.basic_cancel("c") unless canceled
           canceled = true
