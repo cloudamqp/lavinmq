@@ -166,34 +166,34 @@ module AvalancheMQ
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
-                  env = q.basic_get(false, true)
-                  break if env.nil?
-                  sps << env.segment_position
-                  size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
-                  payload = String.new(env.message.body[0, size])
-                  case encoding
-                  when "base64"
-                    content = Base64.urlsafe_encode(payload)
-                    payload_encoding = "base64"
-                  else
-                    if payload.valid_encoding?
-                      content = payload
-                      payload_encoding = "string"
-                    else
+                  q.basic_get(false, true) do |env|
+                    sps << env.segment_position
+                    size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
+                    payload = String.new(env.message.body[0, size])
+                    case encoding
+                    when "base64"
                       content = Base64.urlsafe_encode(payload)
                       payload_encoding = "base64"
+                    else
+                      if payload.valid_encoding?
+                        content = payload
+                        payload_encoding = "string"
+                      else
+                        content = Base64.urlsafe_encode(payload)
+                        payload_encoding = "base64"
+                      end
                     end
-                  end
-                  j.object do
-                    j.field("payload_bytes", env.message.size)
-                    j.field("redelivered", env.redelivered)
-                    j.field("exchange", env.message.exchange_name)
-                    j.field("routing_key", env.message.routing_key)
-                    j.field("message_count", q.message_count)
-                    j.field("properties", env.message.properties)
-                    j.field("payload", content)
-                    j.field("payload_encoding", payload_encoding)
-                  end
+                    j.object do
+                      j.field("payload_bytes", env.message.size)
+                      j.field("redelivered", env.redelivered)
+                      j.field("exchange", env.message.exchange_name)
+                      j.field("routing_key", env.message.routing_key)
+                      j.field("message_count", q.message_count)
+                      j.field("properties", env.message.properties)
+                      j.field("payload", content)
+                      j.field("payload_encoding", payload_encoding)
+                    end
+                  end || break
                 end
                 sps.each do |sp|
                   if ack
