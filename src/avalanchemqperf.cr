@@ -377,6 +377,21 @@ class ChannelChurn < Perf
   end
 end
 
+class ConsumerChurn < Perf
+  def run
+    super
+    c = AMQP::Client.new(@uri).connect
+    ch = c.channel
+    q = ch.queue_declare "", auto_delete: false
+    Benchmark.ips do |x|
+      x.report("open-close consumer") do
+        tag = ch.basic_consume(q[:queue_name]) { }
+        ch.basic_cancel(tag, no_wait: true)
+      end
+    end
+  end
+end
+
 {% unless flag?(:release) %}
   STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"
 {% end %}
@@ -388,6 +403,7 @@ when "bind-churn"       then BindChurn.new.run
 when "queue-churn"      then QueueChurn.new.run
 when "connection-churn" then ConnectionChurn.new.run
 when "channel-churn"    then ChannelChurn.new.run
+when "consumer-churn"   then ConsumerChurn.new.run
 when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
 end
