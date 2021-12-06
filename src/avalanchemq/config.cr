@@ -77,6 +77,7 @@ module AvalancheMQ
         when "data_dir"             then @data_dir = v
         when "data_dir_lock"        then @data_dir_lock = true?(v)
         when "log_level"            then @log_level = Logger::Severity.parse(v)
+        when "log_file"             then @log_file = v
         when "stats_interval"       then @stats_interval = v.to_i32
         when "stats_log_size"       then @stats_log_size = v.to_i32
         when "gc_segments_interval" then @gc_segments_interval = v.to_i32
