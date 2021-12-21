@@ -46,8 +46,10 @@
             </thead>
             <tbody></tbody>
           </table>
-          <div id="selected-controls" style="visibility: hidden;"> 
-            <button>Delete</button>
+          <div id="selected-controls" style="visibility: hidden; padding: 5px; border: solid; border-width: thin; display: inline-block;"> 
+              <button>Delete</button>
+              <button>Purge</button>
+              <button>Pause</button>
           </div>
         </div>
       </section>
@@ -144,20 +146,20 @@
           const view = item.internal ? 'queue_internal' : 'queue'
           queueLink.href = '/' + view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
           queueLink.textContent = item.name
+
           var checkbox = document.createElement('input')
           checkbox.type='checkbox'
-          checkbox.id='selected-checkbox'
+
           checkbox.addEventListener('change', function() {
-            //Needs fixing
-            if (document.getElementById('selected-checkbox').checked) {
-              document.getElementById('selected-controls').style.visibility="visible"
-              console.log(document.getElementById('selected-checkbox'))
+            if((this.hasAttribute('data-select'))){
+              this.removeAttribute('data-select')
             } else {
-              document.getElementById('selected-controls').style.visibility="hidden"
-              console.log(document.getElementById('selected-checkbox').checked == 'selected-checkbox')
+              this.setAttribute('data-select', '')
             }
-          }); 
-          
+
+            selectedCounter();
+          });
+      
           avalanchemq.table.renderCell(tr, 0, checkbox) 
           avalanchemq.table.renderCell(tr, 1, item.vhost)
           avalanchemq.table.renderCell(tr, 2, queueLink)
@@ -180,6 +182,15 @@
         avalanchemq.table.renderCell(tr, 11, avalanchemq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
         avalanchemq.table.renderCell(tr, 12, avalanchemq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
       })
+
+      function selectedCounter() {
+        var selectedList = document.querySelectorAll('[data-select]');
+        if (selectedList.length >= 1) {
+              document.getElementById('selected-controls').style.visibility="visible"
+            } else {
+              document.getElementById('selected-controls').style.visibility="hidden"
+            }
+      } 
 
       document.querySelector('#declare').addEventListener('submit', function (evt) {
         evt.preventDefault()
