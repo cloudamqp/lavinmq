@@ -46,10 +46,23 @@
             </thead>
             <tbody></tbody>
           </table>
+          <!-- ADD EVENTLISTENER FOR EACH FORM, AND SEND REQUESTS FOR ALL SELECTED ITEMS -->
           <div id="selected-controls" style="visibility: hidden; padding: 5px; border: solid; border-width: thin; display: inline-block;"> 
-              <button>Delete</button>
-              <button>Purge</button>
-              <button>Pause</button>
+            <form method="delete" id="deleteQueues" class="form">
+              <label>
+                <button type="submit" class="btn-danger">Delete selected queues</button>
+              </label>
+            </form>
+            <form method="delete" id="purgeQueues" class="form">
+              <label>
+                <button type="submit" class="btn-danger">Purge selected queues</button>
+              </label>
+            </form>
+            <form method="put" id="pauseQueues" class="form">
+              <label>
+                <button type="submit" class="btn-warn">Pause selected queues</button>
+              </label>
+            </form>
           </div>
         </div>
       </section>
@@ -117,6 +130,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
+
     <script>
       /* globals avalanchemq */
       avalanchemq.vhosts.addVhostOptions('declare')
@@ -149,14 +163,16 @@
 
           var checkbox = document.createElement('input')
           checkbox.type='checkbox'
+          checkbox.setAttribute('data-vhost', encodeURIComponent(item.vhost))
+          checkbox.setAttribute('data-name', encodeURIComponent(item.name))
 
           checkbox.addEventListener('change', function() {
+
             if((this.hasAttribute('data-select'))){
               this.removeAttribute('data-select')
             } else {
               this.setAttribute('data-select', '')
             }
-
             selectedCounter();
           });
       
@@ -214,6 +230,67 @@
       document.querySelector('#dataTags').onclick = e => {
         window.avalanchemq.helpers.argumentHelperJSON("arguments", e)
       }
+
+      document.querySelector("#deleteQueues").addEventListener('submit', function (evt) {
+        evt.preventDefault()
+
+        if (window.confirm('Are you sure? The selected queues are going to be deleted. Messages cannot be recovered after deletion.')) {
+          var selectedList = document.querySelectorAll('[data-select]')
+          var vhost; 
+          var name; 
+
+          for (let i = 0; i < selectedList.length; i++) {
+            vhost = selectedList[i].dataset.vhost
+            name = selectedList[i].dataset.name
+            const url = '/api/queues/' + vhost + '/' + name
+            avalanchemq.http.request('DELETE', url)
+            .then(() => { window.location = '/queues' })
+            .catch(avalanchemq.http.standardErrorHandler)
+          }
+        }
+
+      })
+
+      document.querySelector("#purgeQueues").addEventListener('submit', function (evt) {
+        evt.preventDefault()
+
+        if (window.confirm('Are you sure? Messages from the selected queues cannot be recovered after purging.')) {
+          var selectedList = document.querySelectorAll('[data-select]')
+          var vhost; 
+          var name; 
+
+          for (let i = 0; i < selectedList.length; i++) {
+            vhost = selectedList[i].dataset.vhost
+            name = selectedList[i].dataset.name
+            const url = '/api/queues/' + vhost + '/' + name + '/contents'
+            avalanchemq.http.request('DELETE', url)
+            .then(() => { avalanchemq.dom.toast('Queues purged!') })
+            .catch(avalanchemq.http.standardErrorHandler)
+          }
+        }
+      })
+
+      document.querySelector("#pauseQueues").addEventListener('submit', function (evt) {
+        evt.preventDefault()
+
+        if (window.confirm('Are you sure? This will suspend deliveries to all selected consumers.')) {
+          var selectedList = document.querySelectorAll('[data-select]')
+          var vhost; 
+          var name; 
+
+          for (let i = 0; i < selectedList.length; i++) {
+            vhost = selectedList[i].dataset.vhost
+            name = selectedList[i].dataset.name
+            const url = '/api/queues/' + vhost + '/' + name + '/pause'
+            avalanchemq.http.request('PUT', url)
+            .then(() => {
+              avalanchemq.dom.toast('Queues paused!')
+            })
+            .catch(avalanchemq.http.standardErrorHandler)
+          }
+        }
+      })
+
     </script>
   </body>
 
