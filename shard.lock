@@ -9,7 +9,7 @@ shards:
     version: 1.0.1
 
   amqp-client:
-    git: https://github.com/cloudamqp/amqp-client.cr.git
+    path: ../amqp-client.cr
     version: 1.0.4
 
   baked_file_system:

@@ -202,10 +202,10 @@ class Throughput < Perf
         data.rewind
         if @confirm > 0
           ch.confirm_select
-          msgid = ch.basic_publish data, @exchange, @routing_key, props: props
+          msgid = ch.basic_publish data, @exchange, @routing_key, properties: props
           ch.wait_for_confirm(msgid) if (msgid % @confirm) == 0
         else
-          ch.basic_publish data, @exchange, @routing_key, props: props
+          ch.basic_publish data, @exchange, @routing_key, properties: props
         end
         @pubs += 1
         break if @pubs == @pmessages

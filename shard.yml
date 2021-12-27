@@ -28,7 +28,8 @@ dependencies:
     github: schovi/baked_file_system
     branch: master
   amqp-client:
-    github: cloudamqp/amqp-client.cr
+    #github: cloudamqp/amqp-client.cr
+    path: ../amqp-client.cr
   http-protection:
     github: 84codes/http-protection
     branch: master
