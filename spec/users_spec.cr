@@ -90,7 +90,10 @@ describe AvalancheMQ::Server do
     s.vhosts.delete("v1")
   end
 
-  it "prohibits getting from queue if user doesn't have access" do
+  # Broken due to bug in amqp-client.cr
+  # Remove pending when PR pushed to new version:
+  # https://github.com/cloudamqp/amqp-client.cr/pull/29
+  pending "prohibits getting from queue if user doesn't have access" do
     s.vhosts.create("v1")
     s.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
     expect_raises(AMQP::Client::Channel::ClosedException, /403/) do
