@@ -7,7 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && npm ci
 
-FROM 84codes/crystal:1.2.2-alpine-latest AS builder
+FROM 84codes/crystal:1.3.0-alpine-latest AS builder
 WORKDIR /tmp
 
 # Copying and install dependencies
