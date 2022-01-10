@@ -7,7 +7,7 @@ describe "Flow" do
       q = ch.queue
       ch.prefetch 1
       q.publish "msg"
-      msgs = [] of AMQP::Client::Message
+      msgs = [] of AMQP::Client::DeliverMessage
       q.subscribe(no_ack: false) do |msg|
         msgs << msg
       end

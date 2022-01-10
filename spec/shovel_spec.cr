@@ -263,7 +263,7 @@ describe AvalancheMQ::Shovel do
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ssl_"
         spawn { shovel.not_nil!.run }
         x.publish "shovel me", "ssl_q1"
-        msgs = Channel(AMQP::Client::Message).new
+        msgs = Channel(AMQP::Client::DeliverMessage).new
         q2.subscribe { |m| msgs.send m }
         msg = msgs.receive
         msg.body_io.to_s.should eq "shovel me"
