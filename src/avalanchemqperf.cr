@@ -86,7 +86,7 @@ class Throughput < Perf
     @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
       @prefetch = v.to_u32
     end
-    @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do |v|
+    @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do
       @poll = true
     end
     @parser.on("-j", "--json", "Output result as JSON") do
