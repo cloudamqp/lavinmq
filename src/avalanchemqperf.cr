@@ -34,13 +34,14 @@ class Throughput < Perf
   @exchange = ""
   @queue = "perf-test"
   @routing_key = "perf-test"
-  @no_ack = true
+  @ack = 0
   @rate = 0
   @consume_rate = 0
-  @confirm = false
+  @confirm = 0
   @persistent = false
   @prefetch = 0_u32
   @quiet = false
+  @poll = false
   @json_output = false
   @timeout = Time::Span.zero
   @pmessages = 0
@@ -57,11 +58,11 @@ class Throughput < Perf
     @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
       @size = v.to_i
     end
-    @parser.on("-a", "--ack", "Ack consumed messages (default false)") do
-      @no_ack = false
+    @parser.on("-a MESSAGES", "--ack MESSAGES", "Ack after X consumed messages (default 0)") do |v|
+      @ack = v.to_i
     end
-    @parser.on("-c", "--confirm", "Confirm publishes (default false)") do
-      @confirm = true
+    @parser.on("-c outstanding", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
+      @confirm = v.to_i
     end
     @parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
       @queue = v
@@ -84,6 +85,9 @@ class Throughput < Perf
     end
     @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
       @prefetch = v.to_u32
+    end
+    @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do
+      @poll = true
     end
     @parser.on("-j", "--json", "Output result as JSON") do
       @json_output = true
@@ -111,7 +115,11 @@ class Throughput < Perf
 
     done = Channel(Nil).new
     @consumers.times do
-      spawn consume(done)
+      if @poll
+        spawn poll_consume(done)
+      else
+        spawn consume(done)
+      end
     end
 
     @publishers.times do
@@ -192,8 +200,10 @@ class Throughput < Perf
       pubs_this_second = 0
       until @stopped
         data.rewind
-        if @confirm
-          ch.basic_publish_confirm data, @exchange, @routing_key, props: props
+        if @confirm > 0
+          ch.confirm_select
+          msgid = ch.basic_publish data, @exchange, @routing_key, props: props
+          ch.wait_for_confirm(msgid) if (msgid % @confirm) == 0
         else
           ch.basic_publish data, @exchange, @routing_key, props: props
         end
@@ -220,21 +230,60 @@ class Throughput < Perf
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
-            ch.queue @queue
-          rescue
-            ch = a.channel
-            ch.queue(@queue, passive: true)
+        ch.queue @queue
+      rescue
+        ch = a.channel
+        ch.queue(@queue, passive: true)
+      end
+      ch.prefetch @prefetch unless @prefetch.zero?
+      q.bind(@exchange, @routing_key) unless @exchange.empty?
+      Fiber.yield
+      canceled = false
+      consumes_this_second = 0
+      start = Time.monotonic
+      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true) do |m|
+        @consumes += 1
+        m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+        if @stopped || @consumes == @cmessages
+          ch.basic_cancel("c") unless canceled
+          canceled = true
+        end
+        unless @consume_rate.zero?
+          consumes_this_second += 1
+          if consumes_this_second >= @consume_rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            consumes_this_second = 0
           end
+        end
+      end
+    end
+  ensure
+    done.send nil
+  end
+
+  private def poll_consume(done)
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      q = begin
+        ch.queue @queue
+      rescue
+        ch = a.channel
+        ch.queue(@queue, passive: true)
+      end
       ch.prefetch @prefetch unless @prefetch.zero?
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
       consumes_this_second = 0
       start = Time.monotonic
-      q.subscribe(tag: "c", no_ack: @no_ack, block: true) do |m|
-        m.ack unless @no_ack
-        @consumes += 1
-        if @stopped || @consumes == @cmessages
-          ch.basic_cancel("c")
+      loop do
+        if msg = q.get(no_ack: @ack.zero?)
+          @consumes += 1
+          msg.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+          break if @stopped || @consumes == @cmessages
         end
         unless @consume_rate.zero?
           consumes_this_second += 1
@@ -328,6 +377,21 @@ class ChannelChurn < Perf
   end
 end
 
+class ConsumerChurn < Perf
+  def run
+    super
+    c = AMQP::Client.new(@uri).connect
+    ch = c.channel
+    q = ch.queue_declare "", auto_delete: false
+    Benchmark.ips do |x|
+      x.report("open-close consumer") do
+        tag = ch.basic_consume(q[:queue_name]) { }
+        ch.basic_cancel(tag, no_wait: true)
+      end
+    end
+  end
+end
+
 {% unless flag?(:release) %}
   STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"
 {% end %}
@@ -339,6 +403,7 @@ when "bind-churn"       then BindChurn.new.run
 when "queue-churn"      then QueueChurn.new.run
 when "connection-churn" then ConnectionChurn.new.run
 when "channel-churn"    then ChannelChurn.new.run
+when "consumer-churn"   then ConsumerChurn.new.run
 when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
 end

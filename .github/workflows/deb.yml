@@ -65,7 +65,7 @@ jobs:
           file: Dockerfile.deb
           platforms: linux/${{ matrix.arch }}
           build-args: |
-            build_image=84codes/crystal:1.2.2-${{ matrix.os }}
+            build_image=84codes/crystal:1.3.0-${{ matrix.os }}
             pkg_version=${{ env.PKG_VERSION }}
           outputs: builds
 

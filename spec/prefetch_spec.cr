@@ -8,7 +8,7 @@ describe AvalancheMQ::Server do
         pmsg = "m1"
         q = ch.queue
         3.times { q.publish pmsg }
-        msgs = [] of AMQP::Client::Message
+        msgs = [] of AMQP::Client::DeliverMessage
         q.subscribe(no_ack: false) { |msg| msgs << msg }
         wait_for { msgs.size == 2 }
         msgs.size.should eq 2
@@ -36,8 +36,8 @@ describe AvalancheMQ::Server do
         pmsg = "m1"
         q = ch.queue
         4.times { q.publish pmsg }
-        msgs_c1 = [] of AMQP::Client::Message
-        msgs_c2 = [] of AMQP::Client::Message
+        msgs_c1 = [] of AMQP::Client::DeliverMessage
+        msgs_c2 = [] of AMQP::Client::DeliverMessage
         q.subscribe(no_ack: false) { |msg| msgs_c1 << msg }
         q.subscribe(no_ack: false) { |msg| msgs_c2 << msg }
         wait_for { msgs_c2.size == 2 }
@@ -52,8 +52,8 @@ describe AvalancheMQ::Server do
         pmsg = "m1"
         q = ch.queue
         4.times { q.publish pmsg }
-        msgs_c1 = [] of AMQP::Client::Message
-        msgs_c2 = [] of AMQP::Client::Message
+        msgs_c1 = [] of AMQP::Client::DeliverMessage
+        msgs_c2 = [] of AMQP::Client::DeliverMessage
         q.subscribe(no_ack: false) { |msg| msgs_c1 << msg }
         wait_for { msgs_c1.size == 2 }
         q.subscribe(no_ack: false) { |msg| msgs_c2 << msg }

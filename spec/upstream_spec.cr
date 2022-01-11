@@ -54,7 +54,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       x.publish "federate me", "federation_q1"
       upstream.link(vhost.queues["federation_q2"])
-      msgs = [] of AMQP::Client::Message
+      msgs = [] of AMQP::Client::DeliverMessage
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -89,7 +89,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       x.publish "federate me", "federation_q1"
       upstream.link(vhost.queues["federation_q2"])
-      msgs = [] of AMQP::Client::Message
+      msgs = [] of AMQP::Client::DeliverMessage
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -108,7 +108,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       x.publish "federate me", "federation_q1"
       upstream.link(vhost.queues["federation_q2"])
-      msgs = [] of AMQP::Client::Message
+      msgs = [] of AMQP::Client::DeliverMessage
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -121,7 +121,7 @@ describe AvalancheMQ::Federation::Upstream do
   it "should resume federation after downstream reconnects" do
     vhost = s.vhosts["/"]
     upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", AMQP_BASE_URL, nil, "federation_q1")
-    msgs = [] of AMQP::Client::Message
+    msgs = [] of AMQP::Client::DeliverMessage
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -160,7 +160,7 @@ describe AvalancheMQ::Federation::Upstream do
       wait_for { link.state.running? }
       upstream_ex = ch.exchange("upstream_ex", "topic", passive: true)
       upstream_ex.publish "federate me", "rk"
-      msgs = [] of AMQP::Client::Message
+      msgs = [] of AMQP::Client::DeliverMessage
       downstream_q.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
@@ -180,7 +180,7 @@ describe AvalancheMQ::Federation::Upstream do
       x, q2 = UpstreamSpecHelpers.setup_qs ch
       x.publish "federate me", "federation_q1", props: AMQP::Client::Properties.new(content_type: "application/json")
       upstream.link(vhost.queues["federation_q2"])
-      msgs = [] of AMQP::Client::Message
+      msgs = [] of AMQP::Client::DeliverMessage
       q2.subscribe { |msg| msgs << msg }
       wait_for { msgs.size == 1 }
       msgs.first.properties.content_type.should eq "application/json"
@@ -205,7 +205,7 @@ describe AvalancheMQ::Federation::Upstream do
         downstream_q.bind("downstream_ex", "#")
         upstream_ex.publish_confirm "federate me", "rk"
         wait_for { downstream_q.get }
-        msgs = [] of AMQP::Client::Message
+        msgs = [] of AMQP::Client::DeliverMessage
         downstream_q.subscribe { |msg| msgs << msg }
         upstream_ex.publish_confirm "federate me", "rk"
         wait_for { msgs.size == 1 }
@@ -232,7 +232,7 @@ describe AvalancheMQ::Federation::Upstream do
         wait_for { upstream.links.first?.try &.state.running? }
         downstream_q = downstream_ch.queue("downstream_q")
         downstream_q.bind("downstream_ex", "#")
-        msgs = [] of AMQP::Client::Message
+        msgs = [] of AMQP::Client::DeliverMessage
         downstream_q.subscribe do |msg|
           msgs << msg
         end

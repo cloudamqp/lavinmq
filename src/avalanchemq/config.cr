@@ -5,8 +5,7 @@ module AvalancheMQ
     DEFAULT_LOG_LEVEL = Logger::INFO
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/avalanchemq")
-    property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini")) ?
-                             File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini") : ""
+    property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini") : ""
     property log_file : String? = nil
     property log_level : Logger::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
@@ -14,7 +13,7 @@ module AvalancheMQ
     property amqps_port = -1
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
-    property tcp_proxy_protocol = 0_u8 # PROXY protocol version on amqp tcp connections
+    property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
     property unix_socket_tls_terminated = false
     property tls_cert_path = ""
     property tls_key_path = ""
@@ -40,7 +39,7 @@ module AvalancheMQ
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property raise_gc_warn : Bool = false
     property data_dir_lock : Bool = true
-    property tcp_keepalive : Tuple(Int32, Int32, Int32)? = { 60, 10 , 3 } # idle, interval, probes/count
+    property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
     property guest_only_loopback : Bool = true
     @@instance : Config = self.new
 
@@ -77,6 +76,7 @@ module AvalancheMQ
         when "data_dir"             then @data_dir = v
         when "data_dir_lock"        then @data_dir_lock = true?(v)
         when "log_level"            then @log_level = Logger::Severity.parse(v)
+        when "log_file"             then @log_file = v
         when "stats_interval"       then @stats_interval = v.to_i32
         when "stats_log_size"       then @stats_log_size = v.to_i32
         when "gc_segments_interval" then @gc_segments_interval = v.to_i32
@@ -91,7 +91,7 @@ module AvalancheMQ
         when "tls_key"              then @tls_key_path = v
         when "tls_ciphers"          then @tls_ciphers = v
         when "tls_min_version"      then @tls_min_version = v
-        when "guest_only_loopback" then @guest_only_loopback = true?(v)
+        when "guest_only_loopback"  then @guest_only_loopback = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
@@ -146,7 +146,7 @@ module AvalancheMQ
         {
           keepalive[0]?.try(&.to_i?) || 60,
           keepalive[1]?.try(&.to_i?) || 10,
-          keepalive[2]?.try(&.to_i?) || 3
+          keepalive[2]?.try(&.to_i?) || 3,
         }
       end
     end

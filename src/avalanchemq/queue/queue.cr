@@ -408,26 +408,35 @@ module AvalancheMQ
     end
 
     def details_tuple
-      {
-        name: @name,
-        durable: @durable,
-        exclusive: @exclusive,
-        auto_delete: @auto_delete,
-        arguments: @arguments,
-        consumers: @consumers.size,
-        vhost: @vhost.name,
-        messages: @ready.size + @unacked.size,
-        ready: @ready.size,
-        ready_bytes: @ready.sum &.bytesize,
-        unacked: @unacked.size,
-        unacked_bytes: @unacked.sum &.sp.bytesize,
-        policy: @policy.try &.name,
-        exclusive_consumer_tag: @exclusive ? @consumers.first?.try(&.tag) : nil,
-        state: @state.to_s,
+      details = {
+        name:                        @name,
+        durable:                     @durable,
+        exclusive:                   @exclusive,
+        auto_delete:                 @auto_delete,
+        arguments:                   @arguments,
+        consumers:                   @consumers.size,
+        vhost:                       @vhost.name,
+        messages:                    @ready.size + @unacked.size,
+        ready:                       @ready.size,
+        ready_bytes:                 @ready.sum &.bytesize,
+        unacked:                     @unacked.size,
+        unacked_bytes:               @unacked.sum &.sp.bytesize,
+        policy:                      @policy.try &.name,
+        exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
+        state:                       @state.to_s,
         effective_policy_definition: @policy,
-        message_stats: stats_details,
-        internal: @internal,
+        message_stats:               stats_details,
+        internal:                    @internal,
+        first_message_timestamp:     0,
+        last_message_timestamp:      0,
       }
+      return details if @ready.size.zero?
+      first_message = read(@ready.first?.not_nil!).message
+      last_message = read(@ready.last?.not_nil!).message
+      details.merge({
+        first_message_timestamp: first_message.timestamp,
+        last_message_timestamp:  last_message.timestamp,
+      })
     end
 
     class RejectOverFlow < Exception; end

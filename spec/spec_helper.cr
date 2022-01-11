@@ -6,6 +6,7 @@ require "../src/avalanchemq/server"
 require "../src/avalanchemq/log_formatter"
 require "../src/avalanchemq/http/http_server"
 require "http/client"
+require "socket"
 require "uri"
 
 FileUtils.rm_rf("/tmp/spec")
@@ -24,6 +25,14 @@ AMQP_BASE_URL  = "amqp://localhost:#{AMQP_PORT}"
 AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
 HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
+
+[AMQP_PORT, AMQPS_PORT, HTTP_PORT].each do |port|
+  if TestHelpers.port_busy?(port)
+    puts "TCP port #{port} collision!"
+    puts "Make sure no other process is listening to port #{port}"
+    Spec.abort!
+  end
+end
 
 unless ENV["CI"]?
   Spec.override_default_formatter(Spec::VerboseFormatter.new)
@@ -145,6 +154,16 @@ module TestHelpers
 
   def delete(path, headers = nil, body = nil)
     HTTP::Client.delete("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  end
+
+  # If we can connect to the port, it's busy by another listener
+  def self.port_busy?(port)
+    sock = Socket.tcp(Socket::Family::INET)
+    sock.connect "localhost", port
+    sock.close
+    true
+  rescue Socket::ConnectError
+    false
   end
 end
 

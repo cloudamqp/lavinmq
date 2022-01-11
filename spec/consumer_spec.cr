@@ -37,7 +37,7 @@ describe AvalancheMQ::Client::Channel::Consumer do
         q = ch.queue("consumer-priority")
         ch.prefetch 1
         subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 5})
-        msgs = Channel(AMQP::Client::Message?).new(1)
+        msgs = Channel(AMQP::Client::DeliverMessage?).new(1)
 
         q.subscribe(no_ack: false) do |_|
           msgs.send nil
@@ -50,7 +50,7 @@ describe AvalancheMQ::Client::Channel::Consumer do
         q.publish_confirm("priority")
         m = msgs.receive
         m.should be_truthy
-        if m.is_a?(AMQP::Client::Message)
+        if m.is_a?(AMQP::Client::DeliverMessage)
           m.ack
           m.body_io.to_s.should eq "priority"
         end
@@ -64,7 +64,7 @@ describe AvalancheMQ::Client::Channel::Consumer do
         q = ch.queue("consumer-priority")
         ch.prefetch 1
         subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 5})
-        msgs = Channel(AMQP::Client::Message?).new(1)
+        msgs = Channel(AMQP::Client::DeliverMessage?).new(1)
 
         q.subscribe(no_ack: false) do |_|
           msgs.send nil
@@ -77,7 +77,7 @@ describe AvalancheMQ::Client::Channel::Consumer do
         q.publish_confirm("priority")
         m = msgs.receive
         m.should be_truthy
-        if m.is_a?(AMQP::Client::Message)
+        if m.is_a?(AMQP::Client::DeliverMessage)
           m.ack
           m.body_io.to_s.should eq "priority"
         end
@@ -85,7 +85,7 @@ describe AvalancheMQ::Client::Channel::Consumer do
         q.publish_confirm("priority")
         m = msgs.receive
         m.should be_truthy
-        if m.is_a?(AMQP::Client::Message)
+        if m.is_a?(AMQP::Client::DeliverMessage)
           m.ack
           m.body_io.to_s.should eq "priority"
         end

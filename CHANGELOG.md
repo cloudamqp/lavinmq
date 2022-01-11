@@ -143,6 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Support for consumer priority
+- Display the timestamp of the first & last message in a Queue, reveals consumer lag
 
 ### Changed
 

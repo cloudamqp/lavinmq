@@ -27,7 +27,7 @@ module AvalancheMQ
 
     def run
       listen
-      SystemD.notify("READY=1\n")
+      SystemD.notify_ready
       hostname = System.hostname.to_slice
       loop do
         GC.collect
@@ -128,7 +128,7 @@ module AvalancheMQ
     end
 
     private def reload_server
-      SystemD.notify("RELOADING=1\n")
+      SystemD.notify_reloading
       if @config.config_file.empty?
         @log.info { "No configuration file to reload" }
       else
@@ -137,13 +137,13 @@ module AvalancheMQ
         reload_log
         reload_tls_context
       end
-      SystemD.notify("READY=1\n")
+      SystemD.notify_ready
     end
 
     private def shutdown_server
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
-        SystemD.notify("STOPPING=1\n")
+        SystemD.notify_stopping
         @log.info "Shutting down gracefully..."
         @amqp_server.close
         @http_server.try &.close

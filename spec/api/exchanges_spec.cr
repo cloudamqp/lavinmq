@@ -236,7 +236,7 @@ describe AvalancheMQ::HTTP::ExchangesController do
         q.bind(x.name, "*")
         response = post("/api/exchanges/%2f/str_enc/publish", body: body)
         response.status_code.should eq 200
-        msgs = [] of AMQP::Client::Message
+        msgs = [] of AMQP::Client::DeliverMessage
         q.subscribe { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
         msgs.first.not_nil!.body_io.to_s.should eq("test")
@@ -260,7 +260,7 @@ describe AvalancheMQ::HTTP::ExchangesController do
         q.bind(x.name, "*")
         response = post("/api/exchanges/%2f/str_enc/publish", body: body)
         response.status_code.should eq 200
-        msgs = [] of AMQP::Client::Message
+        msgs = [] of AMQP::Client::DeliverMessage
         q.subscribe { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
         msgs.first.not_nil!.body_io.to_s.should eq("test")

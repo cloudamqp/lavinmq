@@ -7,7 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && npm ci
 
-FROM 84codes/crystal:1.2.2-ubuntu-20.04 AS builder
+FROM 84codes/crystal:1.3.0-ubuntu-20.04 AS builder
 
 WORKDIR /tmp
 
@@ -36,5 +36,6 @@ EXPOSE 5672 15672
 VOLUME /var/lib/avalanchemq
 WORKDIR /var/lib/avalanchemq
 
+HEALTHCHECK CMD /usr/bin/avalanchemqctl status
 ENV GC_UNMAP_THRESHOLD=1
-ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0"]
+ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
