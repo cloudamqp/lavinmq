@@ -5,6 +5,7 @@ describe AvalancheMQ::DurableQueue do
     sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
     max_acks = AvalancheMQ::Config.instance.queue_max_acks
     with_channel do |ch|
+      ch.prefetch(1)
       q = ch.queue("d", durable: true)
       queue = s.vhosts["/"].queues["d"].as(AvalancheMQ::DurableQueue)
       queue.enq_file_size.should eq sizeof(Int32)
