@@ -5,11 +5,11 @@ module AvalancheMQ
     # ReadyQueue is a sorted Deque of SegmentPositions
     class ReadyQueue
       @lock = Mutex.new(:reentrant)
-      @inital_capacity : Int32
+      @initial_capacity : Int32
 
-      def initialize(inital_capacity = 1024)
-        @inital_capacity = inital_capacity.to_i32
-        @ready = Deque(SegmentPosition).new(@inital_capacity)
+      def initialize(initial_capacity = 1024)
+        @initial_capacity = initial_capacity.to_i32
+        @ready = Deque(SegmentPosition).new(@initial_capacity)
       end
 
       def includes?(sp)
@@ -179,11 +179,10 @@ module AvalancheMQ
       def purge
         @lock.synchronize do
           count = @ready.size
-          if @ready.capacity == @inital_capacity
+          if @ready.capacity == @initial_capacity
             @ready.clear
           else
-            @ready = Deque(SegmentPosition).new(@inital_capacity)
-            GC.collect
+            @ready = Deque(SegmentPosition).new(@initial_capacity)
           end
           count
         end
