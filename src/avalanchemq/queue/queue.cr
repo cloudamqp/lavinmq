@@ -843,11 +843,19 @@ module AvalancheMQ
       end
     end
 
-    def purge : UInt32
-      count = @ready.purge
-      @log.debug { "Purged #{count} messages" }
+    def purge(max_count : Int? = nil) : UInt32
+      @log.info "Purging"
+      delete_count = if max_count.nil?
+                       @ready.purge
+                     else
+                       Math.min(max_count, @ready.size)
+                         .times
+                         .compact_map { |_| @ready.shift? }
+                         .size
+                     end
+      @log.debug { "Purged #{delete_count} messages" }
       @vhost.trigger_gc!
-      count.to_u32
+      delete_count.to_u32
     end
 
     def match?(frame)
