@@ -248,7 +248,9 @@ class Throughput < Perf
           ch.basic_cancel("c") unless canceled
           canceled = true
         end
-        unless @consume_rate.zero?
+        if @consume_rate.zero?
+          Fiber.yield if @consumes % 128*1024 == 0
+        else
           consumes_this_second += 1
           if consumes_this_second >= @consume_rate
             until_next_second = (start + 1.seconds) - Time.monotonic
