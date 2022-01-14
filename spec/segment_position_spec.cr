@@ -101,7 +101,7 @@ describe AvalancheMQ::SegmentPosition do
         AvalancheMQ::SegmentPosition.new(0, 1, expiration_ts: 3_i64),
         AvalancheMQ::SegmentPosition.new(0, 2, expiration_ts: 1_i64),
         AvalancheMQ::SegmentPosition.new(0, 3, expiration_ts: 5_i64),
-        AvalancheMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64)
+        AvalancheMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64),
       ]
       ready = AvalancheMQ::Queue::ExpirationReadyQueue.new(sps.size)
       ready.insert(sps)
@@ -116,13 +116,13 @@ describe AvalancheMQ::SegmentPosition do
       ref_sps.to_a.map(&.to_i64).should eq (0..4).to_a.map(&.to_i64)
     end
 
-    it "should always be sorted (PriorityReadyQueue)"  do
+    it "should always be sorted (PriorityReadyQueue)" do
       sps = [
         AvalancheMQ::SegmentPosition.new(0, 0, priority: 1_u8),
         AvalancheMQ::SegmentPosition.new(0, 1, priority: 3_u8),
         AvalancheMQ::SegmentPosition.new(0, 2, priority: 1_u8),
         AvalancheMQ::SegmentPosition.new(0, 3, priority: 5_u8),
-        AvalancheMQ::SegmentPosition.new(0, 4, priority: 4_u8)
+        AvalancheMQ::SegmentPosition.new(0, 4, priority: 4_u8),
       ]
       ready = AvalancheMQ::Queue::PriorityReadyQueue.new(sps.size)
       ready.insert(sps)

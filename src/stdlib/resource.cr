@@ -21,7 +21,7 @@ end
 struct Time::Span
   def self.from_timeval(val)
     self.new(seconds: val.tv_sec.to_i64,
-             nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
+      nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
   end
 end
 
@@ -76,7 +76,7 @@ module System
     if LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
       raise Error.from_errno("getrlimit")
     end
-    { rlimit.rlim_cur, rlimit.rlim_max }
+    {rlimit.rlim_cur, rlimit.rlim_max}
   end
 
   def self.file_descriptor_limit=(limit) : Nil

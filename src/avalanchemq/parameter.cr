@@ -23,7 +23,7 @@ module AvalancheMQ
     end
 
     def name
-      { @component_name, @parameter_name }
+      {@component_name, @parameter_name}
     end
   end
 end

@@ -3,7 +3,6 @@ require "crypto/bcrypt/password"
 
 module AvalancheMQ
   class User
-
     module Password
       abstract def hash_algorithm : String
     end

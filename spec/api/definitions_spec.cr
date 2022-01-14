@@ -558,5 +558,4 @@ describe AvalancheMQ::HTTP::Server do
     ok = u.not_nil!.password.not_nil!.verify "test"
     {u.name, ok}.should eq({name, true})
   end
-
 end

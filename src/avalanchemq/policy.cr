@@ -46,12 +46,12 @@ module AvalancheMQ
 
     def details_tuple
       {
-        name: @name,
-        vhost: @vhost,
-        pattern: @pattern,
+        name:       @name,
+        vhost:      @vhost,
+        pattern:    @pattern,
         "apply-to": @apply_to,
-        priority: @priority,
-        definition: @definition
+        priority:   @priority,
+        definition: @definition,
       }
     end
   end

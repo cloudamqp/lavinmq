@@ -1,10 +1,10 @@
 class IO
   def self.copy(src, dst) : Int64
-    #if socket = dst.as?(Socket)
+    # if socket = dst.as?(Socket)
     #  if file = src.as?(File)
     #    return socket.sendfile file, file.size - file.pos
     #  end
-    #end
+    # end
 
     buffer = uninitialized UInt8[16384]
     count = 0_i64
@@ -23,13 +23,13 @@ class IO
     limit = limit.to_i64
 
     if file = src.as?(IO::FileDescriptor)
-      #if socket = dst.as?(Socket)
+      # if socket = dst.as?(Socket)
       #  # don't botter with small writes
       #  # as both the socket and file's buffer has to be flushed
       #  if limit > 16384
       #    return socket.sendfile(file, limit)
       #  end
-      #end
+      # end
       if file_dst = dst.as?(IO::FileDescriptor)
         {% if LibC.has_method?(:copy_file_range) %}
           return file_dst.copy_range_from(file, limit)

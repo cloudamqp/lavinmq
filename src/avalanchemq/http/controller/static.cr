@@ -71,15 +71,15 @@ module AvalancheMQ
 
       private def mime_type(path)
         case File.extname(path)
-        when ".txt"  then "text/plain;charset=utf-8"
-        when ".html" then "text/html;charset=utf-8"
-        when ".css"  then "text/css;charset=utf-8"
-        when ".js", ".mjs" then "application/javascript;charset=utf-8"
+        when ".txt"         then "text/plain;charset=utf-8"
+        when ".html"        then "text/html;charset=utf-8"
+        when ".css"         then "text/css;charset=utf-8"
+        when ".js", ".mjs"  then "application/javascript;charset=utf-8"
         when ".png", ".ico" then "image/png"
-        when ".jpg"  then "image/jpeg"
-        when ".gif"  then "image/gif"
-        when ".svg"  then "image/svg+xml"
-        else              "application/octet-stream"
+        when ".jpg"         then "image/jpeg"
+        when ".gif"         then "image/gif"
+        when ".svg"         then "image/svg+xml"
+        else                     "application/octet-stream"
         end
       end
 

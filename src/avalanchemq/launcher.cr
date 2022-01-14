@@ -161,8 +161,8 @@ module AvalancheMQ
     private def setup_signal_traps
       Signal::USR1.trap { dump_debug_info }
       Signal::USR2.trap { run_gc }
-      Signal::HUP.trap  { reload_server }
-      Signal::INT.trap  { shutdown_server }
+      Signal::HUP.trap { reload_server }
+      Signal::INT.trap { shutdown_server }
       Signal::TERM.trap { shutdown_server }
     end
 
@@ -210,8 +210,8 @@ module AvalancheMQ
       case @config.tls_min_version
       when "1.0"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
-                            OpenSSL::SSL::Options::NO_TLS_V1_1 |
-                            OpenSSL::SSL::Options::NO_TLS_V1)
+                           OpenSSL::SSL::Options::NO_TLS_V1_1 |
+                           OpenSSL::SSL::Options::NO_TLS_V1)
         tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
       when "1.1"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)

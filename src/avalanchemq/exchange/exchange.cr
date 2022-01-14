@@ -164,7 +164,7 @@ module AvalancheMQ
       @log.debug { "Declaring delayed queue: #{name}" }
       arguments = Hash(String, AMQP::Field){
         "x-dead-letter-exchange" => @name,
-        "auto-delete" =>  @auto_delete
+        "auto-delete"            => @auto_delete,
       }
       @delayed_queue = if durable
                          DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)

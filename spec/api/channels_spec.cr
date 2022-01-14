@@ -19,7 +19,7 @@ describe AvalancheMQ::HTTP::ChannelsController do
   describe "GET /api/vhosts/vhost/channels" do
     it "should return all channels for a vhost" do
       s.vhosts.create("my-connection")
-      s.users.add_permission("guest", "my-connection", /.*/, /.*/, /.*/ )
+      s.users.add_permission("guest", "my-connection", /.*/, /.*/, /.*/)
       with_channel(vhost: "my-connection") do
         response = get("/api/vhosts/my-connection/channels")
         response.status_code.should eq 200

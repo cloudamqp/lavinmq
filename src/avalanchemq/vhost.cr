@@ -41,7 +41,7 @@ module AvalancheMQ
     @connections = Array(Client).new(512)
     @segments : Hash(UInt32, MFile)
     @gc_runs = 0
-    @gc_timing = Hash(String, Float64).new { |h,k| h[k] = 0 }
+    @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
 
     def initialize(@name : String, @server_data_dir : String,
                    @log : Logger, @default_user : User, @events : Server::Event)
@@ -567,8 +567,8 @@ module AvalancheMQ
     private def load_definitions!
       exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
       queues = Hash(String, AMQP::Frame::Queue::Declare).new
-      queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h,k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
-      exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h,k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+      queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
+      exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
       should_compact = false
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
         io.buffer_size = Config.instance.file_buffer_size
@@ -589,8 +589,8 @@ module AvalancheMQ
               when AMQP::Frame::Exchange::Unbind
                 exchange_bindings[f.destination].reject! do |b|
                   b.source == f.source &&
-                  b.routing_key == f.routing_key &&
-                  b.arguments == f.arguments
+                    b.routing_key == f.routing_key &&
+                    b.arguments == f.arguments
                 end
                 should_compact = true
               when AMQP::Frame::Queue::Declare
@@ -604,8 +604,8 @@ module AvalancheMQ
               when AMQP::Frame::Queue::Unbind
                 queue_bindings[f.queue_name].reject! do |b|
                   b.exchange_name == f.exchange_name &&
-                  b.routing_key == f.routing_key &&
-                  b.arguments == f.arguments
+                    b.routing_key == f.routing_key &&
+                    b.arguments == f.arguments
                 end
                 should_compact = true
               else raise "Cannot apply frame #{f.class} in vhost #{@name}"
@@ -752,7 +752,7 @@ module AvalancheMQ
       end
     rescue ex
       @log.fatal("Unhandled exception in #gc_segments_loop, " \
-                  "killing process #{ex.inspect_with_backtrace}")
+                 "killing process #{ex.inspect_with_backtrace}")
       exit 1
     end
 
