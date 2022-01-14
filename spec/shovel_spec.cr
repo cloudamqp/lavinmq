@@ -80,8 +80,9 @@ describe AvalancheMQ::Shovel do
         x.publish_confirm "shovel me 1", "sf_q1"
         x.publish_confirm "shovel me 2", "sf_q1"
         spawn shovel.run
+        wait_for { shovel.running? }
         x.publish_confirm "shovel me 3", "sf_q1"
-        sleep 0.02
+        sleep 0.1
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
