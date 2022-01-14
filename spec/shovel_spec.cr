@@ -36,12 +36,10 @@ describe AvalancheMQ::Shovel do
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ql_"
-        x.publish "shovel me 1", "ql_q1"
-        x.publish "shovel me 2", "ql_q1"
+        x.publish_confirm "shovel me 1", "ql_q1"
+        x.publish_confirm "shovel me 2", "ql_q1"
         shovel.run
-        sleep 10.milliseconds
-        x.publish "shovel me 3", "ql_q1"
-        sleep 10.milliseconds
+        x.publish_confirm "shovel me 3", "ql_q1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
         q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
