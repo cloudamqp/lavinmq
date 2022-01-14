@@ -845,14 +845,12 @@ module AvalancheMQ
 
     def purge(max_count : Int? = nil) : UInt32
       @log.info "Purging"
-      delete_count = if max_count.nil?
-                       @ready.purge
-                     else
-                       Math.min(max_count, @ready.size)
-                         .times
-                         .compact_map { |_| @ready.shift? }
-                         .size
-                     end
+      delete_count = 0u32
+      if max_count.nil? || max_count >= @ready.size
+        delete_count = @ready.purge
+      else
+        max_count.times { @ready.shift? && (delete_count += 1) }
+      end
       @log.debug { "Purged #{delete_count} messages" }
       @vhost.trigger_gc!
       delete_count.to_u32
