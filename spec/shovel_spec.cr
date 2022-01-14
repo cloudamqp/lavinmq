@@ -77,11 +77,11 @@ describe AvalancheMQ::Shovel do
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "sf_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
-        x.publish "shovel me 1", "sf_q1"
-        x.publish "shovel me 2", "sf_q1"
-        spawn { shovel.not_nil!.run }
-        wait_for { shovel.not_nil!.running? }
+        x.publish_confirm "shovel me 1", "sf_q1"
+        x.publish_confirm "shovel me 2", "sf_q1"
+        spawn shovel.run
         x.publish_confirm "shovel me 3", "sf_q1"
+        sleep 0.02
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
@@ -110,7 +110,7 @@ describe AvalancheMQ::Shovel do
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ap_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
-        x.publish "shovel me", "ap_q1"
+        x.publish_confirm "shovel me", "ap_q1"
         spawn { shovel.not_nil!.run }
         wait_for { shovel.not_nil!.running? }
         sleep 0.1 # Give time for message to be shoveled
@@ -139,7 +139,7 @@ describe AvalancheMQ::Shovel do
       shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "na_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
-        x.publish "shovel me", "na_q1"
+        x.publish_confirm "shovel me", "na_q1"
         spawn { shovel.not_nil!.run }
         wait_for { shovel.not_nil!.running? }
         sleep 0.1 # Give time for message to be shoveled
@@ -170,7 +170,7 @@ describe AvalancheMQ::Shovel do
       with_channel do |ch|
         x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
         100.times do
-          x.publish "shovel me", "prefetch_q1"
+          x.publish_confirm "shovel me", "prefetch_q1"
         end
         wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
         shovel.run
@@ -198,7 +198,7 @@ describe AvalancheMQ::Shovel do
       with_channel do |ch|
         spawn { shovel.not_nil!.run }
         x, q2 = ShovelSpecHelpers.setup_qs ch, "od_"
-        x.publish "shovel me", "od_q1"
+        x.publish_confirm "shovel me", "od_q1"
         rmsg = nil
         wait_for { rmsg = q2.get(no_ack: true) }
         rmsg.not_nil!.body_io.to_s.should eq "shovel me"
@@ -260,7 +260,7 @@ describe AvalancheMQ::Shovel do
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ssl_"
         spawn { shovel.not_nil!.run }
-        x.publish "shovel me", "ssl_q1"
+        x.publish_confirm "shovel me", "ssl_q1"
         msgs = Channel(AMQP::Client::DeliverMessage).new
         q2.subscribe { |m| msgs.send m }
         msg = msgs.receive
@@ -392,7 +392,7 @@ describe AvalancheMQ::Shovel do
         headers = AMQP::Client::Arguments.new
         headers["a"] = "b"
         props = AMQP::Client::Properties.new("text/plain", nil, headers)
-        x.publish "shovel me", "ql_q1", props: props
+        x.publish_confirm "shovel me", "ql_q1", props: props
         shovel.run
         wait_for { shovel.running? || shovel.terminated? }
 
