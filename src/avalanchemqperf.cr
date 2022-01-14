@@ -191,8 +191,7 @@ class Throughput < Perf
 
   private def pub(done)
     data = IO::Memory.new(Bytes.new(@size))
-    props = AMQ::Protocol::Properties.new
-    props.delivery_mode = 2_u8 if @persistent
+    props = AMQ::Protocol::Properties.new(delivery_mode: @persistent ? 2u8 : nil)
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       Fiber.yield
