@@ -282,7 +282,7 @@ describe AvalancheMQ::Federation::Upstream do
         downstream_q.bind("downstream_ex", "after.link.#{i}")
         queues << downstream_q
       end
-      sleep 0.01
+      sleep 0.1
       upstream_q.bindings.size.should eq queues.size
       queues.each &.delete
       sleep 0.01
