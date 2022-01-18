@@ -359,7 +359,7 @@ module AvalancheMQ
 
     private def deliver_to_consumer(c)
       # @log.debug { "Getting a new message" }
-      if env = get(c.no_ack)
+      get(c.no_ack) do |env|
         sp = env.segment_position
         # @log.debug { "Delivering #{sp} to consumer" }
         if c.deliver(env.message, sp, env.redelivered)
@@ -378,9 +378,9 @@ module AvalancheMQ
           @ready.insert(sp)
           @log.debug { "Delivery failed, returning message to ready" }
         end
-      else
-        @log.debug { "Consumer found, but not a message" }
+        return
       end
+      @log.debug { "Consumer found, but not a message" }
     end
 
     def close : Bool
@@ -701,7 +701,7 @@ module AvalancheMQ
       return false if !@state.running? && (@state.paused? && !force)
       @last_get_time = Time.monotonic
       @get_count += 1
-      if env = get(no_ack)
+      get(no_ack) do |env|
         yield env
         # ack/unack the message after it has been delivered
         if no_ack
@@ -715,19 +715,22 @@ module AvalancheMQ
     end
 
     # return the next message in the ready queue
-    private def get(no_ack : Bool)
+    private def get(no_ack : Bool, &blk : Envelope -> _)
       return nil if @state.closed?
       if sp = @ready.shift?
-        env = read(sp)
-        if @delivery_limit && !no_ack
-          with_delivery_count_header(env)
-        else
-          env
+        begin
+          env = read(sp)
+          env = with_delivery_count_header(env) if @delivery_limit && !no_ack
+          return nil unless env
+          return yield env
+        rescue ex
+          @ready.insert(sp)
+          raise ex
         end
       end
     end
 
-    private def with_delivery_count_header(env)
+    private def with_delivery_count_header(env) : Envelope?
       if limit = @delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
