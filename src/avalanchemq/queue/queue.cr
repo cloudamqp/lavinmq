@@ -418,7 +418,7 @@ module AvalancheMQ
         vhost:                       @vhost.name,
         messages:                    @ready.size + @unacked.size,
         ready:                       @ready.size,
-        ready_bytes:                 @ready.sum &.bytesize,
+        ready_bytes:                 @ready.bytesize,
         unacked:                     @unacked.size,
         unacked_bytes:               @unacked.sum &.sp.bytesize,
         policy:                      @policy.try &.name,
@@ -470,7 +470,7 @@ module AvalancheMQ
       end
 
       if mlb = @max_length_bytes
-        if @ready.sum(&.bytesize) + sp.bytesize >= mlb
+        if @ready.bytesize + sp.bytesize >= mlb
           @log.debug { "Overflow reject message sp=#{sp}" }
           raise RejectOverFlow.new
         end
