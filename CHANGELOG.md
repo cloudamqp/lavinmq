@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow or block guest user using loopback address. ([#305](https://github.com/cloudamqp/avalanchemq/pull/305))
 - Reject and requeue is now default option when getting messages in UI. ([#307](https://github.com/cloudamqp/avalanchemq/pull/307))
 - Show hostname in header ([#308](https://github.com/cloudamqp/avalanchemq/pull/308))
+- Prometheus metrics
+- Make it possible to reque Get messages last with the HTTP API
+- Show server hostname in UI
+- Displaying timestamp of first and last message in each Queue (HTTP API/UI)
+- Option to set max count of how many messages to purge
+- avalanchemqperf throughput have a max uncofirmed messages option
+- avalanchemqperf throughput can multi ack X number of messages
+- avalanchemqperf consumer-churn command
+- avalanchemqctl status command
 
 ### Removed
 
@@ -20,7 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GC collect every 10s and unmap GC memory as soon as possible
+- No 2GB limit of MFiles (segments/queue indicies)
+- Messages are requeued correctly if delivery fails
+- Can log to file using log_file config option
 - Fix print build info on startup, log prefix on each line
+
+### Changed
+
+- Faster JSON generation for queues
+- Build with Crystal 1.3.1
+- Allow Get/Reject messages from paused queues in the HTTP API
+- Use /var/lib/avalanchemq as default path for data in containers
+- libsystemd is no longer a dependency
+- Faster ready messages bytesize counting
 
 ## [1.0.0-alpha.33] - 2021-10-28
 
