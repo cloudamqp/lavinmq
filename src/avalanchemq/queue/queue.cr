@@ -373,10 +373,10 @@ module AvalancheMQ
           else
             @deliver_count += 1
           end
-          # @log.debug { "Delivery done" }
+          # @log.debug { "Delivery of #{sp} done" }
         else
+          @log.debug { "Delivery failed, returning #{sp} to ready" }
           @ready.insert(sp)
-          @log.debug { "Delivery failed, returning message to ready" }
         end
         return
       end

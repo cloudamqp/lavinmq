@@ -913,4 +913,28 @@ describe AvalancheMQ::Server do
       end
     end
   end
+
+  it "will requeue messages that can't be delivered" do
+    qname = ("requeue-failed-delivery")
+    count = 0
+    with_channel do |ch|
+      ch.@connection.@io.as(TCPSocket).linger = 0
+      q = ch.queue(qname)
+      q.subscribe(no_ack: false) do |_msg|
+        count += 1
+      end
+      q.publish "1"
+      q.publish "2"
+      Fiber.yield
+      ch.@connection.@io.as(TCPSocket).close
+      Fiber.yield
+      count.should eq 0
+
+      Fiber.yield
+      s.vhosts["/"].queues[qname].@ready.size.should eq 2
+      s.vhosts["/"].queues[qname].@unacked.size.should eq 0
+    end
+  ensure
+    s.vhosts["/"].delete_queue(qname.not_nil!)
+  end
 end
