@@ -137,6 +137,7 @@ module AvalancheMQ
         @lock.synchronize do
           while @ready.size > size
             sp = @ready.shift? || break
+            @bytesize -= sp.bytesize
             yield sp
           end
         end
