@@ -7,7 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && npm ci
 
-FROM 84codes/crystal:1.3.0-ubuntu-20.04 AS builder
+FROM 84codes/crystal:1.3.1-ubuntu-20.04 AS builder
 
 WORKDIR /tmp
 
