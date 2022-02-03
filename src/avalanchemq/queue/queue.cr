@@ -506,8 +506,8 @@ module AvalancheMQ
 
     def metadata(sp) : MessageMetadata?
       seg = segment_file(sp.segment)
-      seg.seek(sp.position.to_i32, IO::Seek::Set)
-      MessageMetadata.from_io(seg)
+      bytes = seg.to_slice(sp.position.to_i32, sp.bytesize)
+      MessageMetadata.from_bytes(bytes)
     rescue e : KeyError
       @log.error { "Segment file not found for #{sp}, removing index" }
       @ready.delete(sp)
@@ -748,8 +748,8 @@ module AvalancheMQ
 
     def read(sp : SegmentPosition)
       seg = segment_file(sp.segment)
-      seg.seek(sp.position.to_i32, IO::Seek::Set)
-      msg = BytesMessage.from_io(seg)
+      bytes = seg.to_slice(sp.position.to_i32, sp.bytesize)
+      msg = BytesMessage.from_bytes(bytes)
       redelivered = @requeued.includes?(sp)
       Envelope.new(sp, msg, redelivered)
     rescue ex : KeyError

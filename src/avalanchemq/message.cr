@@ -27,6 +27,17 @@ module AvalancheMQ
       skipped
     end
 
+    def self.from_bytes(bytes, format = IO::ByteFormat::SystemEndian) : self
+      pos = 0
+      ts = format.decode(Int64, bytes[0, 8]); pos += 8
+      ex = AMQP::ShortString.from_bytes bytes + pos; pos += 1 + ex.bytesize
+      rk = AMQP::ShortString.from_bytes bytes + pos; pos += 1 + rk.bytesize
+      pr = AMQP::Properties.from_bytes bytes + pos, format; pos += pr.bytesize
+      sz = format.decode(UInt64, bytes[pos, 8]); pos += 8
+      body = bytes[pos, sz]
+      BytesMessage.new(ts, ex, rk, pr, sz, body)
+    end
+
     def self.from_io(io, format = IO::ByteFormat::SystemEndian) : self
       ts = Int64.from_io io, format
       ex = AMQP::ShortString.from_io io, format
@@ -89,6 +100,16 @@ module AvalancheMQ
 
     def persistent?
       @properties.delivery_mode == 2_u8
+    end
+
+    def self.from_bytes(bytes, format = IO::ByteFormat::SystemEndian) : self
+      pos = 0
+      ts = format.decode(Int64, bytes[0, 8]); pos += 8
+      ex = AMQP::ShortString.from_bytes bytes + pos; pos += 1 + ex.bytesize
+      rk = AMQP::ShortString.from_bytes bytes + pos; pos += 1 + rk.bytesize
+      pr = AMQP::Properties.from_bytes bytes + pos, format; pos += pr.bytesize
+      sz = format.decode(UInt64, bytes[pos, 8])
+      MessageMetadata.new(ts, ex, rk, pr, sz)
     end
 
     def self.from_io(io, format = IO::ByteFormat::SystemEndian)
