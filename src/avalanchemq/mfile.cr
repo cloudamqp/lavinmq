@@ -174,7 +174,7 @@ class MFile < IO
   end
 
   def to_slice(pos, size)
-    (@buffer + pos).to_slice(size)
+    Bytes.new(@buffer + pos, size, read_only: true)
   end
 
   def punch_hole(size : Int, offset : Int = 0i64) : Int64
