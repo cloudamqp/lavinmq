@@ -44,7 +44,6 @@ module LavinMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
-    @read_lock = Mutex.new(:reentrant)
     @consumers = ConsumerStore.new
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
@@ -52,6 +51,7 @@ module LavinMQ
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
     @paused = Channel(Nil).new(1)
+    @outgoing = Channel(SegmentPosition).new
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
@@ -269,25 +269,19 @@ module LavinMQ
       end
     end
 
-    private def deliver_loop # ameba:disable Metrics/CyclomaticComplexity
-      i = 0
+    private def deliver_loop
       loop do
         break if @state.closed?
         if @ready.empty?
-          i = 0
           receive_or_expire || break
         end
-        if @state.running? && (c = @consumers.next_consumer(i))
-          deliver_to_consumer(c)
-          # deliver 4096 msgs to a consumer then change consumer
-          if (i += 1) == 4096
-            Fiber.yield
-            i = 0
+        if @state.running?
+          sp = @ready.shift? || next
+          select
+          when @outgoing.send(sp)
+          else
+            consumer_or_expire
           end
-        else
-          break if @state.closed?
-          i = 0
-          consumer_or_expire || break
         end
       rescue Channel::ClosedError
         break

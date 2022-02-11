@@ -2,7 +2,6 @@ require "./client"
 
 module LavinMQ
   class ConsumerStore
-    @last_consumer_selected : Client::Channel::Consumer?
     getter size
 
     record ConsumerGroup, priority : Int32, consumers : Deque(Client::Channel::Consumer)
@@ -32,8 +31,6 @@ module LavinMQ
 
     def delete_consumer(consumer)
       @lock.synchronize do
-        @last_consumer_selected = nil if consumer == @last_consumer_selected
-
         if idx = @store.bsearch_index { |cg| cg.priority >= consumer.priority }
           cg = @store[idx]
           if cg.priority == consumer.priority
@@ -64,20 +61,12 @@ module LavinMQ
             return c
           end
         else
-          if i > 0 # reuse same consumer for a while if we're delivering fast
-            if last = @last_consumer_selected
-              if last.accepts?
-                return last
-              end
-            end
-          end
           @store.reverse_each do |cg|
             consumers = cg.consumers
             consumers.size.times do
               c = consumers.shift
               consumers.push c
               if c.accepts?
-                @last_consumer_selected = c
                 return c
               end
             end

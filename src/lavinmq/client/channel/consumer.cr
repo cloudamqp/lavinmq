@@ -96,6 +96,9 @@ module LavinMQ
             },
           }
         end
+
+        private def consume_loop
+        end
       end
     end
   end
