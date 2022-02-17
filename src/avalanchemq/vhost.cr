@@ -930,5 +930,23 @@ module AvalancheMQ
     def shovels
       @shovels.not_nil!
     end
+
+    def purge_all_queues!(max_count : Int? = nil) : UInt32
+      sum = 0_u32
+      @queues.each_value do |q|
+        sum += q.purge(max_count)
+      end
+      sum
+    end
+
+    def reset!(backup_data = true)
+      if backup_data
+        backup_dir = File.join(@server_data_dir, "#{@dir}_#{Time.utc.to_unix}")
+        @log.info { "vhost=#{@name} reset backup=#{backup_dir}" }
+        FileUtils.cp_r data_dir, backup_dir
+      end
+      purge_all_queues!
+      trigger_gc!
+    end
   end
 end

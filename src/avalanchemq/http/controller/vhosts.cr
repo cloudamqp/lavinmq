@@ -56,6 +56,15 @@ module AvalancheMQ
             end.to_json(context.response)
           end
         end
+
+        post "/api/vhosts/:name/reset" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          with_vhost(context, params, "name") do |vhost|
+            v = @amqp_server.vhosts[vhost]?
+            not_found(context, "Not Found") unless v
+            v.reset!
+          end
+        end
       end
     end
   end
