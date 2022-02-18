@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ['centos:8']
+        os: ['rockylinux:8.5']
     runs-on: ubuntu-20.04
     container: ${{ matrix.os }}
     steps:
