@@ -798,7 +798,7 @@ module AvalancheMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @unacked.delete(sp)
+      return unless @unacked.delete(sp)
       if requeue
         was_empty = @ready.insert(sp) == 1
         @requeued << sp
@@ -849,16 +849,16 @@ module AvalancheMQ
       end
     end
 
-    def purge(max_count : Int? = nil) : UInt32
+    def purge(max_count : Int? = nil, trigger_gc = true) : UInt32
       @log.info "Purging"
-      delete_count = 0u32
+      delete_count = @unacked.purge
       if max_count.nil? || max_count >= @ready.size
-        delete_count = @ready.purge
+        delete_count += @ready.purge
       else
         max_count.times { @ready.shift? && (delete_count += 1) }
       end
       @log.debug { "Purged #{delete_count} messages" }
-      @vhost.trigger_gc!
+      @vhost.trigger_gc! if trigger_gc
       delete_count.to_u32
     end
 

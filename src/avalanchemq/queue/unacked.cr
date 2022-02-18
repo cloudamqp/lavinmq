@@ -95,6 +95,14 @@ module AvalancheMQ
       def unlock
         @lock.unlock
       end
+
+      def purge
+        @lock.synchronize do
+          s = @unacked.size
+          @unacked.clear
+          s
+        end
+      end
     end
   end
 end
