@@ -63,6 +63,7 @@ module AvalancheMQ
             v = @amqp_server.vhosts[vhost]?
             not_found(context, "Not Found") unless v
             v.reset!
+            context.response.status_code = 204
           end
         end
       end

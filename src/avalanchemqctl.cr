@@ -23,6 +23,7 @@ class AvalancheMQCtl
     {"list_vhosts", "Lists virtual hosts", ""},
     {"add_vhost", "Creates a virtual host", "<vhost>"},
     {"delete_vhost", "Deletes a virtual host", "<vhost>"},
+    {"reset_vhost", "Purges all messages in all queues in the vhost, optionally back up the data", "vhost"},
     {"clear_policy", "Clears (removes) a policy", "<name>"},
     {"list_policies", "Lists all policies in a virtual host", ""},
     {"list_connections", "Lists AMQP 0.9.1 connections for the node", ""},
@@ -151,6 +152,7 @@ class AvalancheMQCtl
     when "list_vhosts"           then list_vhosts
     when "add_vhost"             then add_vhost
     when "delete_vhost"          then delete_vhost
+    when "reset_vhost"           then reset_vhost
     when "clear_policy"          then clear_policy
     when "list_policies"         then list_policies
     when "set_policy"            then set_policy
@@ -415,6 +417,13 @@ class AvalancheMQCtl
     name = ARGV.shift?
     abort @banner unless name
     resp = http.delete "/api/vhosts/#{name}", @headers
+    handle_response(resp, 204)
+  end
+
+  private def reset_vhost
+    name = ARGV.shift?
+    abort @banner unless name
+    resp = http.post "/api/vhosts/#{name}/reset", @headers
     handle_response(resp, 204)
   end
 
