@@ -51,7 +51,8 @@ module LavinMQ
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
     @paused = Channel(Nil).new(1)
-    @outgoing = Channel(SegmentPosition).new
+    @has_message = Channel(Bool).new
+    getter has_message
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
@@ -276,9 +277,8 @@ module LavinMQ
           receive_or_expire || break
         end
         if @state.running?
-          sp = @ready.shift? || next
           select
-          when @outgoing.send(sp)
+          when @has_message.send(true)
           else
             consumer_or_expire
           end
@@ -695,18 +695,27 @@ module LavinMQ
     def basic_get(no_ack, force = false, &blk : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @last_get_time = Time.monotonic
-      @get_count += 1
       get(no_ack) do |env|
         yield env
-        # ack/unack the message after it has been delivered
-        if no_ack
-          delete_message(env.segment_position)
-        else
-          @unacked.push(env.segment_position, nil)
-        end
+        @get_count += 1
         return true
       end
       false
+    end
+
+    # Consumer will call this when a new message is available
+    def next_message(no_ack, &blk)
+      get(no_ack) do |env|
+        begin
+          yield env
+        ensure
+          if env.redelivered
+            @redeliver_count += 1
+          else
+            @deliver_count += 1
+          end
+        end
+      end
     end
 
     # return the next message in the ready queue
@@ -718,11 +727,19 @@ module LavinMQ
           env = read(sp)
           env = with_delivery_count_header(env) if @delivery_limit && !no_ack
           return nil unless env
-          return yield env
+          # ack/unack the message after it has been delivered
+          res = yield env
+          if no_ack
+            delete_message(sp)
+          else
+            @unacked.push(sp, nil)
+          end
+          return res
         rescue ReadError
           @ready.insert(sp)
           close
         rescue ex
+          # requeue if delivery fails
           @ready.insert(sp)
           raise ex
         end

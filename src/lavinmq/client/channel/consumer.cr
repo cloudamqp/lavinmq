@@ -10,10 +10,12 @@ module LavinMQ
 
         @log : Log
         @unacked = 0_u32
+        @accepts = ::Channel(Bool).new
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
           @log = @channel.log.for "consumer=#{@tag}"
+          spawn consume_loop, name: "consume_loop vhost=#{@queue.vhost.name} queue=#{@queue.name} tag=#{@tag}"
         end
 
         def name
@@ -49,10 +51,12 @@ module LavinMQ
         end
 
         def ack(sp)
+          @accepts.send(true) unless accepts?
           @unacked -= 1
         end
 
         def reject(sp)
+          @accepts.send(true) unless accepts?
           @unacked -= 1
         end
 
@@ -98,6 +102,19 @@ module LavinMQ
         end
 
         private def consume_loop
+          no_ack = @no_ack
+          q = @queue
+          ch = q.has_message
+          loop do
+            if accepts?
+              ch.receive
+              q.next_message(no_ack) do |env|
+                deliver(env.message, env.segment_position, env.redelivered)
+              end
+            else
+              @accepts.receive
+            end
+          end
         end
       end
     end
