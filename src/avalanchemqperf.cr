@@ -46,6 +46,8 @@ class Throughput < Perf
   @timeout = Time::Span.zero
   @pmessages = 0
   @cmessages = 0
+  @queue_args = AMQP::Client::Arguments.new
+  @consumer_args = AMQP::Client::Arguments.new
 
   def initialize
     super
@@ -103,6 +105,14 @@ class Throughput < Perf
     end
     @parser.on("-D messages", "--cmessages=messages", "Consume max X number of messages") do |v|
       @cmessages = v.to_i
+    end
+    @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
+      args = JSON.parse(v).as_h.as(Hash(String, AMQ::Protocol::Field))
+      @queue_args = AMQP::Client::Arguments.new(args)
+    end
+    @parser.on("--consumer-args=JSON", "Consumer arguments as a JSON string") do |v|
+      args = JSON.parse(v).as_h.as(Hash(String, AMQ::Protocol::Field))
+      @consumer_args = AMQP::Client::Arguments.new(args)
     end
   end
 
@@ -229,7 +239,7 @@ class Throughput < Perf
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
-        ch.queue @queue
+        ch.queue @queue, args: @queue_args
       rescue
         ch = a.channel
         ch.queue(@queue, passive: true)
@@ -240,7 +250,7 @@ class Throughput < Perf
       canceled = false
       consumes_this_second = 0
       start = Time.monotonic
-      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true) do |m|
+      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
         @consumes += 1
         m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
         if @stopped || @consumes == @cmessages
