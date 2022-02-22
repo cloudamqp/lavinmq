@@ -23,7 +23,6 @@ class AvalancheMQCtl
     {"list_vhosts", "Lists virtual hosts", ""},
     {"add_vhost", "Creates a virtual host", "<vhost>"},
     {"delete_vhost", "Deletes a virtual host", "<vhost>"},
-    {"reset_vhost", "Purges all messages in all queues in the vhost, optionally back up the data", "vhost"},
     {"clear_policy", "Clears (removes) a policy", "<name>"},
     {"list_policies", "Lists all policies in a virtual host", ""},
     {"list_connections", "Lists AMQP 0.9.1 connections for the node", ""},
@@ -118,6 +117,17 @@ class AvalancheMQCtl
         @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
+    @parser.on("reset_vhost", "Purges all messages in all queues in the vhost, optionally back up the data") do
+      @cmd = "reset_vhost"
+      self.banner = "Usage: #{PROGRAM_NAME} reset_vhost <vhost>"
+      @parser.on("--backup-data", "Backup the vhost data folder") do
+        @options["backup"] = "true"
+      end
+      @parser.on("--backup-dir-name=", "Name of the backup folder, defaults to current unix timestamp") do |v|
+        pp v
+        @options["backup-dir-name"] = v
+      end
+    end
     @parser.on("status", "Display server status") do
       @cmd = "status"
     end
@@ -169,6 +179,8 @@ class AvalancheMQCtl
       puts @parser
       abort
     end
+  rescue ex : OptionParser::MissingOption
+    abort ex
   rescue ex : IO::Error
     abort ex
   ensure
@@ -423,7 +435,16 @@ class AvalancheMQCtl
   private def reset_vhost
     name = ARGV.shift?
     abort @banner unless name
-    resp = http.post "/api/vhosts/#{name}/reset", @headers
+    body = if @options.has_key? "backup"
+             dir_name = @options["backup-dir-name"]?.to_s
+             dir_name = Time.utc.to_unix.to_s if dir_name.empty?
+             {
+               "backup": true,
+               "backup_dir_name": dir_name,
+             }
+           end
+    body ||= {} of String => String
+    resp = http.post "/api/vhosts/#{name}/reset", @headers, body.to_json
     handle_response(resp, 204)
   end
 

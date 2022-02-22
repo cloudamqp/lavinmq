@@ -62,7 +62,14 @@ module AvalancheMQ
           with_vhost(context, params, "name") do |vhost|
             v = @amqp_server.vhosts[vhost]?
             not_found(context, "Not Found") unless v
-            v.reset!
+            body = parse_body(context)
+            backup = true == body["backup"]?
+            dir_name = body["backup_dir_name"]?.to_s
+            dir_name = Time.utc.to_unix.to_s if dir_name.empty?
+            unless dir_name.match(/^[a-z0-9]+$/)
+              bad_request(context, "Bad backup dir name, use only lower case letters and numbers")
+            end
+            v.reset!(backup, dir_name)
             context.response.status_code = 204
           end
         end

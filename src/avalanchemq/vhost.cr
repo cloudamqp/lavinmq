@@ -939,7 +939,7 @@ module AvalancheMQ
       sum
     end
 
-    def reset!(backup_data = true, suffix = Time.utc.to_unix.to_s)
+    def reset!(backup_data : Bool, suffix : String)
       if backup_data
         backup_dir = File.join(@server_data_dir, "#{@dir}_#{suffix}")
         @log.info { "vhost=#{@name} reset backup=#{backup_dir}" }

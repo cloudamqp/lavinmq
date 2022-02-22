@@ -89,7 +89,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  describe "Purge" do
+  describe "Purge vhost" do
     it "should purge all queues in the vhost" do
       with_channel do |ch|
         x = ch.exchange("purge", "direct")
@@ -106,7 +106,7 @@ describe AvalancheMQ::Server do
         vhost = s.vhosts["/"]
         vhost.message_details[:messages].should eq 4
 
-        vhost.reset!
+        vhost.reset!(false, "")
         vhost.message_details[:messages].should eq 0
       end
     ensure
