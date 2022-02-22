@@ -7,7 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && npm ci
 
-FROM 84codes/crystal:1.3.1-debian-11 AS builder
+FROM 84codes/crystal:1.3.1-ubuntu-20.04 AS builder
 
 WORKDIR /tmp
 
@@ -24,7 +24,7 @@ COPY ./src ./src
 RUN shards build --production --release --no-debug
 
 # start from scratch and only copy the built binary
-FROM gcr.io/distroless/base-debian11
+FROM ubuntu:20.04
 RUN apt-get update && \
     apt-get install -y libssl1.1 libevent-2.1-* && \
     apt-get clean && \
