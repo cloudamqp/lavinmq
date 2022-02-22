@@ -439,7 +439,7 @@ class AvalancheMQCtl
              dir_name = @options["backup-dir-name"]?.to_s
              dir_name = Time.utc.to_unix.to_s if dir_name.empty?
              {
-               "backup": true,
+               "backup":          true,
                "backup_dir_name": dir_name,
              }
            end
