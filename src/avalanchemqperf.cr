@@ -107,11 +107,11 @@ class Throughput < Perf
       @cmessages = v.to_i
     end
     @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
-      args = JSON.parse(v).as_h.as(Hash(String, AMQ::Protocol::Field))
+      args = JSON.parse(v).as_h
       @queue_args = AMQP::Client::Arguments.new(args)
     end
     @parser.on("--consumer-args=JSON", "Consumer arguments as a JSON string") do |v|
-      args = JSON.parse(v).as_h.as(Hash(String, AMQ::Protocol::Field))
+      args = JSON.parse(v).as_h
       @consumer_args = AMQP::Client::Arguments.new(args)
     end
   end
