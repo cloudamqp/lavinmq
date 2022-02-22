@@ -89,7 +89,7 @@ describe AvalancheMQ::Server do
     end
   end
 
-  describe "Purge", focus: true do
+  describe "Purge" do
     it "should purge all queues in the vhost" do
       with_channel do |ch|
         x = ch.exchange("purge", "direct")
