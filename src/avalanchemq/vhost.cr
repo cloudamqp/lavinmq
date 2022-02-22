@@ -931,7 +931,7 @@ module AvalancheMQ
       @shovels.not_nil!
     end
 
-    def purge_all_queues!(max_count : Int? = nil) : UInt32
+    private def purge_all_queues!(max_count : Int? = nil) : UInt32
       sum = 0_u32
       @queues.each_value do |q|
         sum += q.purge(max_count, false)
