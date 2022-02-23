@@ -73,7 +73,7 @@ module LavinMQ
 
       def client_flow(active : Bool)
         @client_flow = active
-        @consumers.each(&.queue.consumer_available) if active
+        @consumers.each(&.accepts.send(true)) if active
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
@@ -512,7 +512,7 @@ module LavinMQ
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
-        @consumers.each(&.queue.consumer_available) if notify_queues
+        @consumers.each(&.accepts.send(true)) if notify_queues
       end
 
       def basic_recover(frame) : Nil
@@ -523,8 +523,8 @@ module LavinMQ
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
         if frame.requeue
           @consumers.each do |c|
+            c.accepts.send(true)
             q = c.queue
-            q.consumer_available
             q.message_available
           end
         end
