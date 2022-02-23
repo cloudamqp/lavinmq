@@ -855,7 +855,7 @@ module AvalancheMQ
 
       # closing all channels will move all unacked back into ready queue
       # so we are purging all messages from the queue, not only ready
-      @consumers.each { |c| c.channel.close }
+      @consumers.each(&.channel.close)
 
       if max_count.nil? || max_count >= @ready.size
         delete_count += @ready.purge
