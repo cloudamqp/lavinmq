@@ -165,13 +165,13 @@ describe AvalancheMQ::Queue do
       s.vhosts["/"].delete_exchange(x_name)
     end
 
-    it "should cancel all consumers on the queue"  do
+    it "should cancel all consumers on the queue" do
       with_channel do |ch|
         ch.prefetch 5
         x = ch.exchange(x_name, "direct")
         q = ch.queue(q_name, durable: true)
         q.bind(x.name, q.name)
-        10.times do  |i|
+        10.times do |i|
           x.publish_confirm "test message #{i}", q.name
         end
 
