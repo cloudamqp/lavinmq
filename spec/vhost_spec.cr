@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Server do
+describe AvalancheMQ::VHost do
   it "should be able to create vhosts" do
     s.vhosts.create("test")
     s.vhosts["test"]?.should_not be_nil

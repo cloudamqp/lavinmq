@@ -798,7 +798,7 @@ module AvalancheMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      return unless @unacked.delete(sp)
+      @unacked.delete(sp)
       if requeue
         was_empty = @ready.insert(sp) == 1
         @requeued << sp
@@ -852,6 +852,11 @@ module AvalancheMQ
     def purge(max_count : Int? = nil, trigger_gc = true) : UInt32
       @log.info "Purging"
       delete_count = @unacked.purge
+
+      # closing all channels will move all unacked back into ready queue
+      # so we are purging all messages from the queue, not only ready
+      @consumers.each { |c|  c.channel.close }
+
       if max_count.nil? || max_count >= @ready.size
         delete_count += @ready.purge
       else
