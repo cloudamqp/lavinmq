@@ -1,4 +1,4 @@
-FROM node:16 AS docbuilder
+FROM --platform=$BUILDPLATFORM node:16 AS docbuilder
 
 WORKDIR /tmp
 
@@ -7,7 +7,7 @@ COPY build ./build
 COPY shard.yml package.json package-lock.json ./
 RUN npm config set unsafe-perm true && npm ci
 
-FROM 84codes/crystal:1.3.1-ubuntu-20.04 AS builder
+FROM --platform=$BUILDPLATFORM 84codes/crystal:1.3.2-debian-11 AS builder
 
 WORKDIR /tmp
 
@@ -21,16 +21,28 @@ COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
-RUN shards build --production --release --no-debug
+ARG TARGETOS TARGETARCH
+RUN crystal build src/avalanchemq.cr --cross-compile --target "$TARGETPLATFORM-unknown-$TARGETOS-gnu" | tee link.sh
+#RUN crystal build src/avalanchemq.cr --release --no-debug --cross-compile --target $TARGETPLATFORM | tee link.sh
+
+FROM debian:11-slim as target-builder
+WORKDIR /tmp
+RUN apt-get update && \
+    apt-get install -y build-essential pkg-config libpcre3-dev libevent-dev libssl-dev libgmp-dev libyaml-dev libxml2-dev zlib1g-dev \
+    libgc-dev # compile libgc from scratch in the future
+
+COPY --from=builder /tmp/avalanchemq.o .
+COPY --from=builder /tmp/link.sh .
+RUN sh link.sh
 
 # start from scratch and only copy the built binary
-FROM ubuntu:20.04
+FROM debian:11-slim
 RUN apt-get update && \
     apt-get install -y libssl1.1 libevent-2.1-* && \
     apt-get clean && \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
-COPY --from=builder /tmp/bin/* /usr/bin/
+COPY --from=target-builder /tmp/avalanchemq /usr/bin/
 
 EXPOSE 5672 15672
 VOLUME /var/lib/avalanchemq
