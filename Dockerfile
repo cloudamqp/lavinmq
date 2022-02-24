@@ -31,9 +31,8 @@ RUN apt-get update && \
     apt-get install -y build-essential pkg-config libpcre3-dev libevent-dev libssl-dev zlib1g-dev \
     libgc-dev # compile libgc from scratch in the future
 
-COPY --from=builder /tmp/avalanchemq.o .
-COPY --from=builder /tmp/link.sh .
-RUN sh link.sh
+COPY --from=builder /tmp/avalanchemq.o /tmp/link.sh .
+RUN sh -ex link.sh
 
 # start from scratch and only copy the built binary
 FROM debian:11-slim
