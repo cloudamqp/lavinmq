@@ -22,8 +22,8 @@ COPY ./src ./src
 
 # Build
 ARG TARGETOS TARGETARCH
-RUN crystal build src/avalanchemq.cr --cross-compile --target "$TARGETPLATFORM-unknown-$TARGETOS-gnu" | tee link.sh
-#RUN crystal build src/avalanchemq.cr --release --no-debug --cross-compile --target $TARGETPLATFORM | tee link.sh
+RUN crystal build src/avalanchemq.cr --cross-compile --target "$TARGETARCH-unknown-$TARGETOS-gnu" > link.sh
+#RUN crystal build src/avalanchemq.cr --release --no-debug --cross-compile --target $TARGETPLATFORM > link.sh
 
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
