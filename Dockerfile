@@ -19,7 +19,8 @@ COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
-ARG TARGETOS TARGETARCH
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 RUN echo -n "avalanchemq avalanchemqctl avalanchemqperf" | \
     xargs -d" " -P2 -I@ sh -c \
     "crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-$TARGETOS-gnu > @.sh"
