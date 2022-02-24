@@ -20,9 +20,7 @@ COPY ./src ./src
 
 # Build
 ARG TARGETOS TARGETARCH
-RUN crystal build src/avalanchemq.cr --release --no-debug --cross-compile --target "$TARGETARCH-unknown-$TARGETOS-gnu" > avalanchemq.sh
-RUN crystal build src/avalanchemqctl.cr --release --no-debug --cross-compile --target "$TARGETARCH-unknown-$TARGETOS-gnu" > avalanchemqctl.sh
-RUN crystal build src/avalanchemqperf.cr --release --no-debug --cross-compile --target "$TARGETARCH-unknown-$TARGETOS-gnu" > avalanchemqperf.sh
+RUN echo "avalanchemq avalanchemqctl avalanchemqperf" | xargs -d" " -P2 -I{} sh -c "crystal build src/{}.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-$TARGETOS-gnu > {}.sh"
 
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
@@ -38,7 +36,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
-COPY --from=target-builder /tmp/avalanchemq /usr/bin/
+COPY --from=target-builder /tmp/avalanchemq /tmp/avalanchemqctl /tmp/avalanchemqperf /usr/bin/
 
 EXPOSE 5672 15672
 VOLUME /var/lib/avalanchemq
