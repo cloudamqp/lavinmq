@@ -26,7 +26,9 @@ RUN echo -n "avalanchemq avalanchemqctl avalanchemqperf" | \
 
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
-RUN apt-get update && apt-get install -y build-essential pkg-config libpcre3-dev libevent-dev libssl-dev zlib1g-dev libgc-dev
+RUN apt-get update && \
+    apt-get install -y gcc libc-dev libpcre3-dev libevent-dev libssl-dev zlib1g-dev libgc-dev && \
+    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
 COPY --from=builder /tmp/*.o /tmp/*.sh .
 RUN sh -ex avalanchemq.sh && sh -ex avalanchemqctl.sh && sh -ex avalanchemqperf.sh
@@ -35,8 +37,7 @@ RUN sh -ex avalanchemq.sh && sh -ex avalanchemqctl.sh && sh -ex avalanchemqperf.
 FROM debian:11-slim
 RUN apt-get update && \
     apt-get install -y libssl1.1 libgc1 libevent-2.1-7 && \
-    apt-get clean && \
-    rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
 COPY --from=target-builder /tmp/avalanchemq /tmp/avalanchemqctl /tmp/avalanchemqperf /usr/bin/
 
