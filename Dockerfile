@@ -28,7 +28,7 @@ RUN crystal build src/avalanchemq.cr --cross-compile --target "$TARGETARCH-unkno
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
 RUN apt-get update && \
-    apt-get install -y build-essential pkg-config libpcre3-dev libevent-dev libssl-dev libgmp-dev libyaml-dev libxml2-dev zlib1g-dev \
+    apt-get install -y build-essential pkg-config libpcre3-dev libevent-dev libssl-dev zlib1g-dev \
     libgc-dev # compile libgc from scratch in the future
 
 COPY --from=builder /tmp/avalanchemq.o .
