@@ -936,6 +936,8 @@ describe AvalancheMQ::Server do
       s.vhosts["/"].queues[qname].@unacked.size.should eq 0
     end
   ensure
-    s.vhosts["/"].delete_queue(qname.not_nil!)
+    if n = qname
+      s.vhosts["/"].delete_queue(n)
+    end
   end
 end
