@@ -915,6 +915,7 @@ describe AvalancheMQ::Server do
   end
 
   it "will requeue messages that can't be delivered" do
+    {% if flag?(:freebsd) %} pending! {% end %}
     qname = ("requeue-failed-delivery")
     count = 0
     with_channel do |ch|
