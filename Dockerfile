@@ -19,11 +19,10 @@ COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
 # Build
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 RUN echo -n "avalanchemq avalanchemqctl avalanchemqperf" | \
     xargs -d" " -P2 -I@ sh -c \
-    "crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-$TARGETOS-gnu > @.sh"
+    "crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-linux-gnu > @.sh"
 
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
