@@ -37,7 +37,7 @@ RUN sh -ex link.sh
 # start from scratch and only copy the built binary
 FROM debian:11-slim
 RUN apt-get update && \
-    apt-get install -y libssl1.1 libgc1 libevent-2.1-* && \
+    apt-get install -y libssl1.1 libgc1 libevent-core-2.1-7 && \
     apt-get clean && \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
