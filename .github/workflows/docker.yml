@@ -1,6 +1,7 @@
 name: Docker images
 
 on:
+  pull_request:
   push:
     branches:
       - main
