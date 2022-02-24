@@ -1,5 +1,9 @@
 name: CI
-on: [push]
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'spec/**'
 
 jobs:
   lint:

@@ -915,6 +915,7 @@ describe AvalancheMQ::Server do
   end
 
   it "will requeue messages that can't be delivered" do
+    {% if flag?(:freebsd) %} pending! {% end %}
     qname = ("requeue-failed-delivery")
     count = 0
     with_channel do |ch|
@@ -935,6 +936,8 @@ describe AvalancheMQ::Server do
       s.vhosts["/"].queues[qname].@unacked.size.should eq 0
     end
   ensure
-    s.vhosts["/"].delete_queue(qname.not_nil!)
+    if n = qname
+      s.vhosts["/"].delete_queue(n)
+    end
   end
 end
