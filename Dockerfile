@@ -20,7 +20,9 @@ COPY ./src ./src
 
 # Build
 ARG TARGETOS TARGETARCH
-RUN echo "avalanchemq avalanchemqctl avalanchemqperf" | xargs -d" " -P2 -I{} sh -c "crystal build src/{}.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-$TARGETOS-gnu > {}.sh"
+RUN echo -n "avalanchemq avalanchemqctl avalanchemqperf" | \
+    xargs -d" " -P2 -I@ sh -c \
+    "crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-$TARGETOS-gnu > @.sh"
 
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
