@@ -886,12 +886,20 @@ module AvalancheMQ
     def fsync_ack
     end
 
-    def to_json(builder : JSON::Builder)
+    def to_json(builder : JSON::Builder, limit : Int32 = -1)
       builder.object do
         details_tuple.each do |k, v|
           builder.field(k, v) unless v.nil?
         end
-        builder.field("consumer_details", @consumers)
+        builder.field("consumer_details") do
+          builder.array do
+            @consumers.each do |c|
+              c.to_json(builder)
+              limit -= 1
+              break if limit.zero?
+            end
+          end
+        end
       end
     end
 

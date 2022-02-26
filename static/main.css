@@ -392,6 +392,20 @@ aside li.active a {
   box-shadow: inset -9px 0px 0px 0px #FFF, inset -10px 0px 0px 0px var(--font-color-dark);
 }
 
+.load-more {
+  color: var(--font-color-light);
+  display: none;
+  width: 100%;
+  background-color: #fafafa;
+  cursor: pointer;
+  border: 0;
+  box-shadow: none;
+  padding: 5px;
+}
+.load-more.visible {
+  display: block;
+}
+
 .details-table {
   margin-left: -1.5rem;
   margin-right: -1.5rem;
