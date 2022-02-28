@@ -391,10 +391,11 @@ module AvalancheMQ
       @consumer_available.close
       @consumers.cancel_consumers
       @consumers.clear
+      # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
-      @log.debug { "Closed" }
+      @log.info { "Closed" }
       true
     end
 
@@ -802,7 +803,7 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted
+      return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue

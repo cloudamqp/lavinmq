@@ -2,26 +2,28 @@ require "./spec_helper"
 
 describe AvalancheMQ::DurableQueue do
   context "with corrupt segments" do
-    it "should be closed" do
-      with_vhost("corrupt_vhost") do |vhost|
-        with_channel(vhost: vhost.name) do |ch|
-          q = ch.queue("corrupt_q")
-          queue = vhost.queues["corrupt_q"].as(AvalancheMQ::DurableQueue)
-          q.publish_confirm "test message"
+    context "when consumed" do
+      it "should be closed" do
+        with_vhost("corrupt_vhost") do |vhost|
+          with_channel(vhost: vhost.name) do |ch|
+            q = ch.queue("corrupt_q")
+            queue = vhost.queues["corrupt_q"].as(AvalancheMQ::DurableQueue)
+            q.publish_confirm "test message"
 
-          # Move to last position in segment
-          vhost.@segments.each do |_i, mfile|
-            # Make it corrupt
-            # mfile.pos = mfile.size
-            pos = mfile.pos
-            mfile.rewind
-            mfile.write("aaaaauaoeuaoeu".to_slice)
-            mfile.pos = pos
+            # Move to last position in segment
+            vhost.@segments.each do |_i, mfile|
+              # Make it corrupt
+              # mfile.pos = mfile.size
+              pos = mfile.pos
+              mfile.rewind
+              mfile.write("aaaaauaoeuaoeu".to_slice)
+              mfile.pos = pos
+            end
+
+            q.subscribe(tag: "tag", no_ack: false, &.ack)
+
+            should_eventually(be_true) { queue.state.closed? }
           end
-
-          q.subscribe(tag: "tag", no_ack: false, &.ack)
-
-          should_eventually(be_true) { queue.state.closed? }
         end
       end
     end
