@@ -8,7 +8,7 @@
   const resumeQueueForm = document.querySelector('#resumeQueue')
   document.title = queue + ' | AvalancheMQ'
   let consumerListLength = 20
-  const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item) {
+  const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: [] }, function (tr, item) {
     const channelLink = document.createElement('a')
     channelLink.href = '/channel?name=' + encodeURIComponent(item.channel_details.name)
     channelLink.textContent = item.channel_details.name
