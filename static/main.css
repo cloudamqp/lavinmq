@@ -833,6 +833,7 @@ fieldset.inline {
   margin-left: -75px;
   position: absolute;
   z-index: 1;
+  white-space: normal;
 }
 
 .arg-tooltip:hover .tooltiptext {
