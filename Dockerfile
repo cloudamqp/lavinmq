@@ -18,22 +18,23 @@ COPY ./static ./static
 COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
 
-# Build
+# Pre-build on build platform
 ARG TARGETARCH
-RUN echo -n "avalanchemq avalanchemqctl avalanchemqperf" | \
-    xargs -d" " -P2 -I@ sh -c \
-    "crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-linux-gnu > @.sh"
+RUN echo -n avalanchemq,avalanchemqctl,avalanchemqperf | \
+    xargs -d, -P2 -I@ crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-linux-gnu \
+    > build.sh
 
+# Finish the build on the target platform (emulated)
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
 RUN apt-get update && \
     apt-get install -y gcc libc-dev libpcre3-dev libevent-dev libssl-dev zlib1g-dev libgc-dev && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 
-COPY --from=builder /tmp/*.o /tmp/*.sh .
-RUN sh -ex avalanchemq.sh && sh -ex avalanchemqctl.sh && sh -ex avalanchemqperf.sh
+COPY --from=builder /tmp/*.o /tmp/build.sh .
+RUN sh -ex build.sh
 
-# start from scratch and only copy the built binary
+# start from scratch and only copy the built binaries as build tools shouldn't be in the resulting image
 FROM debian:11-slim
 RUN apt-get update && \
     apt-get install -y libssl1.1 libgc1 libevent-2.1-7 && \
@@ -45,6 +46,6 @@ EXPOSE 5672 15672
 VOLUME /var/lib/avalanchemq
 WORKDIR /var/lib/avalanchemq
 
-HEALTHCHECK CMD /usr/bin/avalanchemqctl status
 ENV GC_UNMAP_THRESHOLD=1
+HEALTHCHECK CMD ["/usr/bin/avalanchemqctl", "status"]
 ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
