@@ -1,10 +1,9 @@
-FROM --platform=$BUILDPLATFORM node:16 AS docbuilder
+FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
 WORKDIR /tmp
-
-COPY openapi ./openapi
-COPY build ./build
-COPY shard.yml package.json package-lock.json ./
-RUN npm config set unsafe-perm true && npm ci
+RUN npm install -g redoc-cli
+COPY shard.yml .
+COPY openapi openapi
+RUN redoc-cli bundle openapi/openapi.yaml
 
 FROM --platform=$BUILDPLATFORM 84codes/crystal:1.3.2-debian-11 AS builder
 WORKDIR /tmp
@@ -15,7 +14,7 @@ RUN shards install --production
 
 # Copying the rest of the code
 COPY ./static ./static
-COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
+COPY --from=docbuilder /tmp/redoc-static.html ./static/docs/index.html
 COPY ./src ./src
 
 # Pre-build on build platform

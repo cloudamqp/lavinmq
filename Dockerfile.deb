@@ -1,3 +1,10 @@
+FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
+WORKDIR /tmp
+RUN npm install -g redoc-cli
+COPY shard.yml .
+COPY openapi openapi
+RUN redoc-cli bundle openapi/openapi.yaml
+
 ARG build_image
 FROM $build_image AS build-stage
 
@@ -12,6 +19,7 @@ COPY shard.yml shard.lock README.md LICENSE NOTICE CHANGELOG.md ./
 COPY src src
 COPY build build
 COPY static static
+COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
 COPY extras extras
 
 # Build deb package

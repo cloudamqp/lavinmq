@@ -10,8 +10,7 @@
   },
   "devDependencies": {
     "eslint": "^7.20.0",
-    "eslint-plugin-html": "^6.0.0",
-    "redoc-cli": "^0.12.3"
+    "eslint-plugin-html": "^6.0.0"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
