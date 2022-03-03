@@ -1,28 +1,3 @@
-/*! *****************************************************************************
-Copyright (c) Microsoft Corporation.
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
-AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
-OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
-***************************************************************************** */
-
-function __awaiter(thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-}
-
 class AMQPError extends Error {
     constructor(message, connection) {
         super(message);
@@ -35,7 +10,7 @@ class AMQPView extends DataView {
     getUint64(byteOffset, littleEndian) {
         const left = this.getUint32(byteOffset, littleEndian);
         const right = this.getUint32(byteOffset + 4, littleEndian);
-        const combined = littleEndian ? left + Math.pow(2, 32) * right : Math.pow(2, 32) * left + right;
+        const combined = littleEndian ? left + 2 ** 32 * right : 2 ** 32 * left + right;
         if (!Number.isSafeInteger(combined))
             console.warn(combined, 'exceeds MAX_SAFE_INTEGER. Precision may be lost');
         return combined;
@@ -363,7 +338,7 @@ class AMQPView extends DataView {
                 i += 1;
                 const value = this.getUint32(i, littleEndian);
                 i += 4;
-                v = value / Math.pow(10, scale);
+                v = value / 10 ** scale;
                 break;
             }
             default:
@@ -393,7 +368,7 @@ class AMQPView extends DataView {
                 break;
             case "number":
                 if (Number.isInteger(field)) {
-                    if (-(Math.pow(2, 32)) < field && field < Math.pow(2, 32)) {
+                    if (-(2 ** 32) < field && field < 2 ** 32) {
                         this.setUint8(i, 'I'.charCodeAt(0));
                         i += 1;
                         this.setInt32(i, field, littleEndian);
@@ -407,7 +382,7 @@ class AMQPView extends DataView {
                     }
                 }
                 else {
-                    if (-(Math.pow(2, 32)) < field && field < Math.pow(2, 32)) {
+                    if (-(2 ** 32) < field && field < 2 ** 32) {
                         this.setUint8(i, 'f'.charCodeAt(0));
                         i += 1;
                         this.setFloat32(i, field, littleEndian);
@@ -595,10 +570,10 @@ class AMQPChannel {
         this.promises = [];
         this.unconfirmedPublishes = [];
         this.closed = false;
-        this.buffer = new AMQPView(new ArrayBuffer(4096));
         this.confirmId = 0;
         this.connection = connection;
         this.id = id;
+        this.buffer = new AMQPView(new ArrayBuffer(connection.frameMax));
     }
     queue(name = "", { passive = false, durable = name !== "", autoDelete = name === "", exclusive = name === "" } = {}, args = {}) {
         return new Promise((resolve, reject) => {
@@ -831,106 +806,104 @@ class AMQPChannel {
         j += 1;
         return this.sendRpc(frame, j);
     }
-    basicPublish(exchange, routingKey, data, properties = {}, mandatory = false, immediate = false) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (this.closed)
-                return this.rejectClosed();
-            if (this.connection.blocked)
-                return Promise.reject(new AMQPError(`Connection blocked by server: ${this.connection.blocked}`, this.connection));
-            let body;
-            if (typeof Buffer !== "undefined" && data instanceof Buffer) {
-                body = data;
-            }
-            else if (data instanceof Uint8Array) {
-                body = data;
-            }
-            else if (data instanceof ArrayBuffer) {
-                body = new Uint8Array(data);
-            }
-            else if (data === null) {
-                body = new Uint8Array(0);
-            }
-            else if (typeof data === "string") {
-                body = AMQPChannel.textEncoder.encode(data);
-            }
-            else {
-                throw new TypeError(`Invalid type ${typeof data} for parameter data`);
-            }
-            let j = 0;
-            const buffer = this.buffer;
-            buffer.setUint8(j, 1);
+    async basicPublish(exchange, routingKey, data, properties = {}, mandatory = false, immediate = false) {
+        if (this.closed)
+            return this.rejectClosed();
+        if (this.connection.blocked)
+            return Promise.reject(new AMQPError(`Connection blocked by server: ${this.connection.blocked}`, this.connection));
+        let body;
+        if (typeof Buffer !== "undefined" && data instanceof Buffer) {
+            body = data;
+        }
+        else if (data instanceof Uint8Array) {
+            body = data;
+        }
+        else if (data instanceof ArrayBuffer) {
+            body = new Uint8Array(data);
+        }
+        else if (data === null) {
+            body = new Uint8Array(0);
+        }
+        else if (typeof data === "string") {
+            body = AMQPChannel.textEncoder.encode(data);
+        }
+        else {
+            throw new TypeError(`Invalid type ${typeof data} for parameter data`);
+        }
+        let j = 0;
+        const buffer = this.buffer;
+        buffer.setUint8(j, 1);
+        j += 1;
+        buffer.setUint16(j, this.id);
+        j += 2;
+        j += 4;
+        buffer.setUint16(j, 60);
+        j += 2;
+        buffer.setUint16(j, 40);
+        j += 2;
+        buffer.setUint16(j, 0);
+        j += 2;
+        j += buffer.setShortString(j, exchange);
+        j += buffer.setShortString(j, routingKey);
+        let bits = 0;
+        if (mandatory)
+            bits = bits | (1 << 0);
+        if (immediate)
+            bits = bits | (1 << 1);
+        buffer.setUint8(j, bits);
+        j += 1;
+        buffer.setUint8(j, 206);
+        j += 1;
+        buffer.setUint32(3, j - 8);
+        const headerStart = j;
+        buffer.setUint8(j, 2);
+        j += 1;
+        buffer.setUint16(j, this.id);
+        j += 2;
+        j += 4;
+        buffer.setUint16(j, 60);
+        j += 2;
+        buffer.setUint16(j, 0);
+        j += 2;
+        buffer.setUint32(j, 0);
+        j += 4;
+        buffer.setUint32(j, body.byteLength);
+        j += 4;
+        j += buffer.setProperties(j, properties);
+        buffer.setUint8(j, 206);
+        j += 1;
+        buffer.setUint32(headerStart + 3, j - headerStart - 8);
+        if (body.byteLength === 0) {
+            await this.connection.send(new Uint8Array(buffer.buffer, 0, j));
+        }
+        else if (j >= buffer.byteLength - 8) {
+            await this.connection.send(new Uint8Array(buffer.buffer, 0, j));
+            j = 0;
+        }
+        for (let bodyPos = 0; bodyPos < body.byteLength;) {
+            const frameSize = Math.min(body.byteLength - bodyPos, buffer.byteLength - 8 - j);
+            const dataSlice = body.subarray(bodyPos, bodyPos + frameSize);
+            buffer.setUint8(j, 3);
             j += 1;
             buffer.setUint16(j, this.id);
             j += 2;
+            buffer.setUint32(j, frameSize);
             j += 4;
-            buffer.setUint16(j, 60);
-            j += 2;
-            buffer.setUint16(j, 40);
-            j += 2;
-            buffer.setUint16(j, 0);
-            j += 2;
-            j += buffer.setShortString(j, exchange);
-            j += buffer.setShortString(j, routingKey);
-            let bits = 0;
-            if (mandatory)
-                bits = bits | (1 << 0);
-            if (immediate)
-                bits = bits | (1 << 1);
-            buffer.setUint8(j, bits);
-            j += 1;
+            const bodyView = new Uint8Array(buffer.buffer, j, frameSize);
+            bodyView.set(dataSlice);
+            j += frameSize;
             buffer.setUint8(j, 206);
             j += 1;
-            buffer.setUint32(3, j - 8);
-            const headerStart = j;
-            buffer.setUint8(j, 2);
-            j += 1;
-            buffer.setUint16(j, this.id);
-            j += 2;
-            j += 4;
-            buffer.setUint16(j, 60);
-            j += 2;
-            buffer.setUint16(j, 0);
-            j += 2;
-            buffer.setUint32(j, 0);
-            j += 4;
-            buffer.setUint32(j, body.byteLength);
-            j += 4;
-            j += buffer.setProperties(j, properties);
-            buffer.setUint8(j, 206);
-            j += 1;
-            buffer.setUint32(headerStart + 3, j - headerStart - 8);
-            if (body.byteLength === 0) {
-                yield this.connection.send(new Uint8Array(buffer.buffer, 0, j));
-            }
-            else if (j >= 4096 - 8) {
-                yield this.connection.send(new Uint8Array(buffer.buffer, 0, j));
-                j = 0;
-            }
-            for (let bodyPos = 0; bodyPos < body.byteLength;) {
-                const frameSize = Math.min(body.byteLength - bodyPos, 4096 - 8 - j);
-                const dataSlice = body.subarray(bodyPos, bodyPos + frameSize);
-                buffer.setUint8(j, 3);
-                j += 1;
-                buffer.setUint16(j, this.id);
-                j += 2;
-                buffer.setUint32(j, frameSize);
-                j += 4;
-                const bodyView = new Uint8Array(buffer.buffer, j, frameSize);
-                bodyView.set(dataSlice);
-                j += frameSize;
-                buffer.setUint8(j, 206);
-                j += 1;
-                yield this.connection.send(new Uint8Array(buffer.buffer, 0, j));
-                bodyPos += frameSize;
-                j = 0;
-            }
-            if (this.confirmId) {
-                return new Promise((resolve, reject) => this.unconfirmedPublishes.push([this.confirmId++, resolve, reject]));
-            }
-            else {
-                return Promise.resolve(0);
-            }
-        });
+            await this.connection.send(new Uint8Array(buffer.buffer, 0, j));
+            bodyPos += frameSize;
+            j = 0;
+        }
+        if (this.confirmId) {
+            return new Promise((resolve, reject) => this.unconfirmedPublishes.push([this.confirmId++, resolve, reject]));
+        }
+        else {
+            return Promise.resolve(0);
+        }
     }
     basicQos(prefetchCount, prefetchSize = 0, global = false) {
         if (this.closed)
@@ -1003,7 +976,7 @@ class AMQPChannel {
         if (this.closed)
             return this.rejectClosed();
         let j = 0;
-        const declare = new AMQPView(new ArrayBuffer(4096));
+        const declare = this.buffer;
         declare.setUint8(j, 1);
         j += 1;
         declare.setUint16(j, this.id);
@@ -1068,7 +1041,7 @@ class AMQPChannel {
         if (this.closed)
             return this.rejectClosed();
         let j = 0;
-        const bind = new AMQPView(new ArrayBuffer(4096));
+        const bind = this.buffer;
         bind.setUint8(j, 1);
         j += 1;
         bind.setUint16(j, this.id);
@@ -1096,7 +1069,7 @@ class AMQPChannel {
         if (this.closed)
             return this.rejectClosed();
         let j = 0;
-        const unbind = new AMQPView(new ArrayBuffer(4096));
+        const unbind = this.buffer;
         unbind.setUint8(j, 1);
         j += 1;
         unbind.setUint16(j, this.id);
@@ -1122,7 +1095,7 @@ class AMQPChannel {
         if (this.closed)
             return this.rejectClosed();
         let j = 0;
-        const purge = new AMQPView(new ArrayBuffer(512));
+        const purge = this.buffer;
         purge.setUint8(j, 1);
         j += 1;
         purge.setUint16(j, this.id);
@@ -1207,7 +1180,7 @@ class AMQPChannel {
         if (this.closed)
             return this.rejectClosed();
         let j = 0;
-        const bind = new AMQPView(new ArrayBuffer(4096));
+        const bind = this.buffer;
         bind.setUint8(j, 1);
         j += 1;
         bind.setUint16(j, this.id);
@@ -1235,7 +1208,7 @@ class AMQPChannel {
         if (this.closed)
             return this.rejectClosed();
         let j = 0;
-        const unbind = new AMQPView(new ArrayBuffer(4096));
+        const unbind = this.buffer;
         unbind.setUint8(j, 1);
         j += 1;
         unbind.setUint16(j, this.id);
@@ -1363,7 +1336,7 @@ class AMQPChannel {
                 consumer.onMessage(message);
             }
             else {
-                throw (new AMQPError(`Consumer ${message.consumerTag} on channel ${this.id} doesn't exists`, this.connection));
+                console.warn("Consumer", message.consumerTag, "not available on channel", this.id);
             }
         });
     }
@@ -1403,13 +1376,11 @@ class AMQPMessage {
 }
 AMQPMessage.decoder = new TextDecoder();
 
-const VERSION = '1.3.2';
+const VERSION = '2.0.0';
 class AMQPBaseClient {
-    constructor(vhost, username, password, name, platform) {
+    constructor(vhost, username, password, name, platform, frameMax = 4096, heartbeat = 0) {
         this.closed = false;
         this.channelMax = 0;
-        this.frameMax = 4096;
-        this.heartbeat = 0;
         this.vhost = vhost;
         this.username = username;
         this.password = "";
@@ -1423,6 +1394,12 @@ class AMQPBaseClient {
             this.platform = platform;
         this.channels = [new AMQPChannel(this, 0)];
         this.closed = false;
+        if (frameMax < 4096)
+            throw new Error("frameMax must be 4096 or larger");
+        this.frameMax = frameMax;
+        if (heartbeat < 0)
+            throw new Error("heartbeat must be positive");
+        this.heartbeat = heartbeat;
     }
     channel(id) {
         if (this.closed)
@@ -1584,8 +1561,8 @@ class AMQPBaseClient {
                                     const heartbeat = view.getUint16(i);
                                     i += 2;
                                     this.channelMax = channelMax;
-                                    this.frameMax = Math.min(4096, frameMax);
-                                    this.heartbeat = Math.min(0, heartbeat);
+                                    this.frameMax = this.frameMax === 0 ? frameMax : Math.min(this.frameMax, frameMax);
+                                    this.heartbeat = this.heartbeat === 0 ? 0 : Math.min(this.heartbeat, heartbeat);
                                     const tuneOk = new AMQPView(new ArrayBuffer(20));
                                     tuneOk.setUint8(j, 1);
                                     j += 1;
@@ -1822,6 +1799,36 @@ class AMQPBaseClient {
                                     channel.resolvePromise(consumerTag);
                                     break;
                                 }
+                                case 30: {
+                                    const [consumerTag, len] = view.getShortString(i);
+                                    i += len;
+                                    const noWait = view.getUint8(i) === 1;
+                                    i += 1;
+                                    const consumer = channel.consumers.get(consumerTag);
+                                    if (consumer) {
+                                        consumer.setClosed(new AMQPError("Consumer cancelled by the server", this));
+                                        channel.consumers.delete(consumerTag);
+                                    }
+                                    if (!noWait) {
+                                        const frame = new AMQPView(new ArrayBuffer(512));
+                                        frame.setUint8(j, 1);
+                                        j += 1;
+                                        frame.setUint16(j, channel.id);
+                                        j += 2;
+                                        frame.setUint32(j, 0);
+                                        j += 4;
+                                        frame.setUint16(j, 60);
+                                        j += 2;
+                                        frame.setUint16(j, 31);
+                                        j += 2;
+                                        j += frame.setShortString(j, consumerTag);
+                                        frame.setUint8(j, 206);
+                                        j += 1;
+                                        frame.setUint32(3, j - 8);
+                                        this.send(new Uint8Array(frame.buffer, 0, j));
+                                    }
+                                    break;
+                                }
                                 case 31: {
                                     const [consumerTag, len] = view.getShortString(i);
                                     i += len;
@@ -1999,12 +2006,12 @@ class AMQPBaseClient {
 }
 
 class AMQPWebSocketClient extends AMQPBaseClient {
-    constructor(url, vhost = "/", username = "guest", password = "guest", name) {
-        super(vhost, username, password, name, AMQPWebSocketClient.platform());
+    constructor(url, vhost = "/", username = "guest", password = "guest", name, frameMax = 4096, heartbeat = 0) {
+        super(vhost, username, password, name, AMQPWebSocketClient.platform(), frameMax, heartbeat);
         this.framePos = 0;
         this.frameSize = 0;
-        this.frameBuffer = new Uint8Array(4096);
         this.url = url;
+        this.frameBuffer = new Uint8Array(frameMax);
     }
     connect() {
         const socket = new WebSocket(this.url);
@@ -2087,5 +2094,5 @@ class AMQPWebSocketClient extends AMQPBaseClient {
     }
 }
 
-export { AMQPWebSocketClient as default };
+export { AMQPWebSocketClient };
 //# sourceMappingURL=amqp-websocket-client.mjs.map
