@@ -21,7 +21,7 @@ static/js/lib/%: | static/js/lib
 
 static/js/lib/chart.js: | static/js/lib
 	wget -qO- https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
-		tar zx -C $(@D) --strip-components=2 package/dist/Chart.js -O > $@
+		tar zx package/dist/Chart.bundle.min.js -O > $@
 
 .PHONY: js
 js: $(JS)
