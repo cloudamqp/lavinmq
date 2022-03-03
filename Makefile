@@ -20,8 +20,9 @@ static/js/lib/%: | static/js/lib
 	wget -qP $(@D) https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
-	wget -qO- https://github.com/chartjs/Chart.js/releases/download/v3.7.1/chart.js-3.7.1.tgz | \
-		tar zx -C $(@D) --strip-components=2 package/dist/chart.js
+	wget -qO- https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
+		tar zx -C $(@D) --strip-components=2 package/dist/Chart.js
+	mv static/js/lib/Chart.js static/js/lib/chart.js
 
 .PHONY: js
 js: $(JS)
