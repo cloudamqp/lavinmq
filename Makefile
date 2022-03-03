@@ -1,40 +1,35 @@
 SOURCES := $(shell find src -name '*.cr')
+JS := static/js/lib/amqp-websocket-client.mjs \
+			static/js/lib/amqp-websocket-client.mjs.map \
+			static/js/lib/chart.js
+BINS := bin/avalanchemq bin/avalanchemqctl bin/avalanchemqperf
 
-bin/avalanchemq: $(SOURCES) lib | js bin
-	crystal build src/avalanchemq.cr -o $@ $(FLAGS)
+.PHONY: all
+all: $(BINS)
 
-bin/avalanchemqperf: $(SOURCES) lib | bin
-	crystal build src/avalanchemqperf.cr -o $@ $(FLAGS)
-
-bin/avalanchemqctl: $(SOURCES) lib | bin
-	crystal build src/avalanchemqctl.cr -o $@ $(FLAGS)
+bin/%: $(SOURCES) lib $(JS) | bin
+	crystal build src/$(@F).cr -o $@ $(FLAGS)
 
 lib: shard.yml shard.lock
 	shards install $(FLAGS)
 
-bin:
+bin static/js/lib:
 	mkdir $@
 
-static/js/lib:
-	mkdir $@
-
-static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map: | static/js/lib
+static/js/lib/%: | static/js/lib
 	wget -qP $(@D) https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
-	wget -qO- https://github.com/chartjs/Chart.js/releases/download/v3.7.1/chart.js-3.7.1.tgz | tar zx -C /tmp package/dist/chart.js
-	mv /tmp/package/dist/chart.js $@
+	wget -qO- https://github.com/chartjs/Chart.js/releases/download/v3.7.1/chart.js-3.7.1.tgz | \
+		tar zx -C $(@D) --strip-components=2 package/dist/chart.js
 
 .PHONY: js
-js: static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/chart.js
-
-.PHONY: all
-all: bin/avalanchemq bin/avalanchemqctl bin/avalanchemqperf
+js: $(JS)
 
 .PHONY: install
-install: bin/avalanchemq
-	install -s bin/avalanchemq /usr/local/bin/
+install: $(BINS)
+	install -s $^ /usr/local/bin/
 
 .PHONY: clean
 clean:
-	rm -f bin/*
+	rm -rf bin
