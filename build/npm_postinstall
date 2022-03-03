@@ -1,7 +1,0 @@
-#!/bin/bash
-set -ex
-
-echo "Copying javascript libraries to static/js/lib/"
-mkdir -p static/js/lib
-cp node_modules/chart.js/dist/Chart.bundle.min.js static/js/lib/chart.js
-cp node_modules/@cloudamqp/amqp-client/dist/amqp-websocket-client.mjs* static/js/lib/
