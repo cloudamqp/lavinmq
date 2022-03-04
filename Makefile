@@ -26,7 +26,7 @@ lib: shard.yml
 	shards install --production
 
 bin static/js/lib:
-	mkdir $@
+	mkdir -p $@
 
 static/js/lib/%: | static/js/lib
 	wget -qP $(@D) https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
@@ -43,6 +43,9 @@ docs: $(DOCS)
 
 .PHONY: js
 js: $(JS)
+
+.PHONY: deps
+deps: js lib docs
 
 .PHONY: install
 install: $(BINS)

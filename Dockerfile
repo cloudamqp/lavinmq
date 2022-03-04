@@ -8,14 +8,15 @@ RUN redoc-cli bundle openapi/openapi.yaml
 
 # Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM 84codes/crystal:1.3.2-debian-11 AS builder
+RUN apt-get update && apt-get install -y wget && \
+    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 WORKDIR /tmp
-COPY shard.yml shard.lock .
-RUN shards install --production
-COPY Makefile .
-COPY ./static ./static
-COPY ./src ./src
+COPY Makefile shard.yml shard.lock .
+RUN make js lib
 COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
 COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
+COPY ./static ./static
+COPY ./src ./src
 ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
