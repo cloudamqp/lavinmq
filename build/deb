@@ -8,17 +8,11 @@ pkg_version=${1:-$(git describe --tags | cut -c2- )}
 pkg_revision=${2:-1}
 architecture=${3:-$(dpkg --print-architecture)}
 
-shards build --stats --production --debug $NAME
-mv bin/$NAME bin/$NAME-debug
-
-shards build --stats --production --no-debug --release
-strip bin/*
-
 mkdir debroot
 cd debroot
 
 mkdir -p usr/bin usr/share/doc/$NAME lib/systemd/system/ etc/$NAME usr/share/man/man1
-cp ../bin/* usr/bin/
+cp ../bin/{avalanchemq,avalanchemqctl,avalanchemqperf,avalanchemq-debug} usr/bin/
 cp ../README.md usr/share/doc/$NAME/README
 cp ../CHANGELOG.md usr/share/doc/$NAME/changelog
 gzip -9 -n usr/share/doc/avalanchemq/changelog
