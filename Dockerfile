@@ -13,9 +13,8 @@ COPY shard.yml shard.lock .
 RUN shards install --production
 COPY Makefile .
 COPY ./static ./static
-COPY ./src ./src
-COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
 COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
+COPY ./src ./src
 ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
