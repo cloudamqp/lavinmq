@@ -272,7 +272,7 @@ for an example.
 Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/avalanchemq).
 Fetch and run the latest version with:
 
-`docker run --rm -it -p 15672:15672 -p 5672:5672 -v data:/tmp/amqp cloudamqp/avalanchemq`
+`docker run --rm -it -P -v /var/lib/avalanchemq:/tmp/amqp cloudamqp/avalanchemq`
 
 You are now able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
 start publishing/consuming messages to `amqp://guest:guest@localhost`.
