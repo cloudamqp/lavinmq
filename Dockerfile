@@ -28,7 +28,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 COPY Makefile .
 COPY --from=builder /tmp/bin bin
-RUN make all -j
+RUN make all -j && rm bin/*.o
 
 # Resulting image with minimal layers
 FROM debian:11-slim
