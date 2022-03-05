@@ -47,6 +47,10 @@ js: $(JS)
 .PHONY: deps
 deps: js lib docs
 
+.PHONY: lint
+lint: lib
+	lib/ameba/bin/ameba src/
+
 .PHONY: install
 install: $(BINS)
 	install -s $^ /usr/local/bin/
