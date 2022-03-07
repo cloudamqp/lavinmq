@@ -35,7 +35,7 @@ static/js/lib/chart.js: | static/js/lib
 	wget -qO- https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
 		tar zx package/dist/Chart.bundle.min.js -O > $@
 
-static/docs/index.html: openapi/openapi.yaml
+static/docs/index.html: openapi/openapi.yaml $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
 	npx redoc-cli bundle $< -o $@
 
 .PHONY: docs
