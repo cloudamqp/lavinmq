@@ -13,12 +13,46 @@
     columnSelector: true,
     search: true
   }
-  const multiSelectControls = document.getElementById("multiselect-controls")
-  console.log(multiSelectControls)
+  const performMultiAction = (el) => {
+    const action = el.target.dataset.action
+    const elems = document.querySelectorAll("input[data-name]:checked")
+    const totalCount = elems.length
+    let performed = 0
+    elems.forEach(el => {
+      const data = el.dataset;
+      const urlEncodedQueue = encodeURIComponent(data.name)
+      const urlEncodedVhost = encodeURIComponent(data.vhost)
+      let url;
+      switch(action) {
+      case "delete":
+        url = `/api/queues/${urlEncodedVhost}/${urlEncodedQueue}`
+        break
+      case "purge":
+        url = `/api/queues/${urlEncodedVhost}/${urlEncodedQueue}/contents`
+        break
+      }
+      if(!url) return;
+      avalanchemq.http.request('DELETE', url).then(() => {
+        performed += 1
+        if(performed == totalCount) {
+          multiSelectControls.classList.add("hide")
+          elems.forEach(e => e.checked = false)
+          queuesTable.fetchAndUpdate()
 
+        }
+      }).catch(e => {
+        avalanchemq.dom.toast(`Failed to perform action on ${data.name}`, "error")
+        queuesTable.fetchAndUpdate()
+      })
+    })
+  }
+  const multiSelectControls = document.getElementById("multiselect-controls")
+  document.querySelectorAll("#multiselect-controls [data-action]")
+    .forEach(e => e.addEventListener("click", performMultiAction))
   const rowCheckboxClicked = (e) => {
-    const checked = document.querySelectorAll("[data-name]:checked")
+    const checked = document.querySelectorAll("input[data-name]:checked")
     multiSelectControls.classList.toggle("hide", !checked.length > 0)
+    document.getElementById("multi-queue-count").textContent = checked.length;
   }
   const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
     if (all) {

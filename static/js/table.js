@@ -171,7 +171,6 @@
       for (let i = 0; i < data.length; i++) {
         const item = data[i]
         const foundIndex = findIndex(t.rows, start, item)
-        console.log(foundIndex)
         if (foundIndex !== -1) {
           if (foundIndex !== i) {
             renderRow(t.rows[i], item, true)
