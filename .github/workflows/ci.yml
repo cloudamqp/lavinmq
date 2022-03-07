@@ -4,7 +4,11 @@ on:
     paths:
       - 'src/**'
       - 'spec/**'
-      - 'openapi/**'
+      - '.github/workflows/ci.yml'
+      - 'build/build_docs_in_ci'
+      - 'openapi/openapi.yaml'
+      - 'openapi/paths/**'
+      - 'openapi/schemas/**'
 
 jobs:
   lint:
