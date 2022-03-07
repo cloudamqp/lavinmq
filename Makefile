@@ -4,7 +4,7 @@ JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/l
 DOCS := static/docs/index.html
 CRYSTAL_FLAGS := --cross-compile $(if $(target),--target $(target))
 LDFLAGS := -rdynamic
-LDFLAGS += $(if $(shell command -v crystal),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
+LDFLAGS += $(if $(shell crystal version &> /dev/null),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
 LDLIBS := -lz -lssl -lcrypto -lpcre -lm -lgc -lpthread -levent -lrt -ldl
 
 .PHONY: all
