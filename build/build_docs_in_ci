@@ -8,10 +8,8 @@ docker run --rm ${USE_TTY:-} -v $(pwd):/tmp stoplight/spectral:6 \
   --ruleset /tmp/openapi/.spectral.json \
   lint openapi/openapi.yaml
 
-# We need (redoc-cli) peer dependencies to be automatically installed
-# https://nodejs.org/en/blog/npm/peer-dependencies/#using-peer-dependencies
-echo "Installing latest npm release"
-sudo npm install -g npm@latest
+echo "Installing redoc-cli"
+npm install -g redoc-cli
 
-echo "Installing npm deps and building docs (via postinstall script)"
-npm ci
+echo "Building docs"
+make docs
