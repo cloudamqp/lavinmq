@@ -20,15 +20,13 @@
     let performed = 0
     elems.forEach(el => {
       const data = el.dataset;
-      const urlEncodedQueue = encodeURIComponent(data.name)
-      const urlEncodedVhost = encodeURIComponent(data.vhost)
       let url;
       switch(action) {
       case "delete":
-        url = `/api/queues/${urlEncodedVhost}/${urlEncodedQueue}`
+        url = `/api/queues/${data.vhost}/${data.name}`
         break
       case "purge":
-        url = `/api/queues/${urlEncodedVhost}/${urlEncodedQueue}/contents`
+        url = `/api/queues/${data.vhost}/${data.name}/contents`
         break
       }
       if(!url) return;
