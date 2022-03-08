@@ -49,11 +49,23 @@
   const multiSelectControls = document.getElementById("multiselect-controls")
   document.querySelectorAll("#multiselect-controls [data-action]")
     .forEach(e => e.addEventListener("click", performMultiAction))
-  const rowCheckboxClicked = (e) => {
-    const checked = document.querySelectorAll("input[data-name]:checked")
-    multiSelectControls.classList.toggle("hide", !checked.length > 0)
-    document.getElementById("multi-queue-count").textContent = checked.length;
+  const toggleMultiActionControls = (show, count) => {
+    multiSelectControls.classList.toggle("hide", !(show && count > 0))
+    document.getElementById("multi-queue-count").textContent = count;
   }
+  const rowCheckboxChanged = (e) => {
+    const checked = document.querySelectorAll("input[data-name]:checked")
+    toggleMultiActionControls(true, checked.length)
+  }
+  document.getElementById("multi-check-all").addEventListener("change", (el) => {
+    const checked = el.target.checked;
+    let c = 0;
+    document.querySelectorAll("input[data-name]").forEach((el) => {
+      el.checked = checked;
+      c += 1
+    })
+    toggleMultiActionControls(checked, c)
+  })
   const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
     if (all) {
       let features = ''
@@ -71,7 +83,7 @@
       checkbox.type='checkbox'
       checkbox.setAttribute('data-vhost', encodeURIComponent(item.vhost))
       checkbox.setAttribute('data-name', encodeURIComponent(item.name))
-      checkbox.addEventListener('change', rowCheckboxClicked)
+      checkbox.addEventListener('change', rowCheckboxChanged)
       avalanchemq.table.renderCell(tr, 0, checkbox)
       avalanchemq.table.renderCell(tr, 1, item.vhost)
       avalanchemq.table.renderCell(tr, 2, queueLink)

@@ -24,7 +24,7 @@
     <aside></aside>
     <main>
       <section class="card">
-        <div id="multiselect-controls" class="card hide" style="border: 3px solid blue; z-index: 1001; padding: 8px;position: fixed">
+        <div id="multiselect-controls" class="card hide" style="margin-left: 50px;border: 3px solid blue; z-index: 1001; padding: 8px;position: fixed">
           <h4>Queue actions (<em><span id="multi-queue-count">0</span> selected</em>)</h4>
           <button data-action="delete" class="btn-danger">Delete</button>
           <button data-action="purge" class="btn-danger">Purge</button>
@@ -35,7 +35,7 @@
           <table id="table" class="table">
             <thead>
               <tr>
-                <th></th>
+                <th><input type="checkbox" id="multi-check-all"></th>
                 <th data-sort-key="vhost">Virtual host</th>
                 <th data-sort-key="name" class="left">Name</th>
                 <th>Features</th>
