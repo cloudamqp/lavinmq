@@ -35,8 +35,8 @@
         if(performed == totalCount) {
           multiSelectControls.classList.add("hide")
           elems.forEach(e => e.checked = false)
+          document.getElementById("multi-check-all").checked = false
           queuesTable.fetchAndUpdate()
-
         }
       }).catch(e => {
         avalanchemq.dom.toast(`Failed to perform action on ${data.name}`, "error")
@@ -47,6 +47,9 @@
   const multiSelectControls = document.getElementById("multiselect-controls")
   document.querySelectorAll("#multiselect-controls [data-action]")
     .forEach(e => e.addEventListener("click", performMultiAction))
+  document.querySelector("#multiselect-controls .popup-close").addEventListener("click", () => {
+    toggleMultiActionControls(false, 0)
+  })
   const toggleMultiActionControls = (show, count) => {
     multiSelectControls.classList.toggle("hide", !(show && count > 0))
     document.getElementById("multi-queue-count").textContent = count;

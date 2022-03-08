@@ -24,8 +24,9 @@
     <aside></aside>
     <main>
       <section class="card">
-        <div id="multiselect-controls" class="card hide" style="margin-left: 50px;border: 3px solid blue; z-index: 1001; padding: 8px;position: fixed">
-          <h4>Queue actions (<em><span id="multi-queue-count">0</span> selected</em>)</h4>
+        <div id="multiselect-controls" class="popup-card">
+          <a class="popup-close" href="#" style="float: right">X</a>
+          <h4 class="popup-header">Queue actions (<em><span id="multi-queue-count">0</span> selected</em>)</h4>
           <button data-action="delete" class="btn-danger">Delete</button>
           <button data-action="purge" class="btn-danger">Purge</button>
         </div>
