@@ -893,7 +893,6 @@ module AvalancheMQ
         end
         builder.field("consumer_details") do
           builder.array do
-            # pp @consumers.each
             @consumers.each do |c|
               c.to_json(builder)
               limit -= 1
