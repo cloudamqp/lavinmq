@@ -861,3 +861,23 @@ pre.arguments > div {
   margin-left :150px;
   padding: 7px;
 }
+
+.popup-card {
+  padding: 1.5rem;
+  border-radius: 4px;
+  box-shadow: 0 1px 15px 1px rgba(39,39,39,.1);
+  background-color: #FFF;
+  grid-column: 1 / span 12;
+  position: fixed;
+  margin-left: 50px;
+  border: 3px solid blue;
+  z-index: 1001;
+  padding: 8px;
+}
+.popup-card .popup-header {
+  margin-top: 0;
+}
+.popup-close, .popup-close:hover {
+  text-decoration: none;
+  color: #000;
+}

@@ -24,11 +24,19 @@
     <aside></aside>
     <main>
       <section class="card">
+        <div id="multiselect-controls" class="popup-card hide">
+          <a class="popup-close" href="#" style="float: right">X</a>
+          <h4 class="popup-header">Queue actions (<em><span id="multi-queue-count">0</span> selected</em>)</h4>
+          <button data-action="delete" class="btn-danger">Delete</button>
+          <button data-action="purge" class="btn-danger">Purge</button>
+        </div>
+
         <div id="table-error"></div>
         <div class="table-wrapper">
           <table id="table" class="table">
             <thead>
               <tr>
+                <th><input type="checkbox" id="multi-check-all"></th>
                 <th data-sort-key="vhost">Virtual host</th>
                 <th data-sort-key="name" class="left">Name</th>
                 <th>Features</th>
@@ -111,80 +119,7 @@
     <script src="/js/overview.js"></script>
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
-    <script>
-      /* globals avalanchemq */
-      avalanchemq.vhosts.addVhostOptions('declare')
-
-      const vhost = window.sessionStorage.getItem('vhost')
-      let url = '/api/queues'
-      if (vhost && vhost !== '_all') {
-        url += '/' + encodeURIComponent(vhost)
-      }
-      const tableOptions = {
-        url,
-        keyColumns: ['vhost', 'name'],
-        interval: 5000,
-        pagination: true,
-        columnSelector: true,
-        search: true
-      }
-      const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
-        if (all) {
-          let features = ''
-          features += item.durable ? ' D' : ''
-          features += item.auto_delete ? ' AD' : ''
-          features += item.exclusive ? ' E' : ''
-          features += item.internal ? ' I' : ''
-          features += Object.keys(item.arguments).length > 0  ? ' Args ' : ''
-          const queueLink = document.createElement('a')
-          const view = item.internal ? 'queue_internal' : 'queue'
-          queueLink.href = '/' + view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
-          queueLink.textContent = item.name
-          avalanchemq.table.renderCell(tr, 0, item.vhost)
-          avalanchemq.table.renderCell(tr, 1, queueLink)
-          avalanchemq.table.renderCell(tr, 2, features, 'center')
-        }
-
-        let policyLink = ''
-        if (item.policy) {
-          policyLink = document.createElement('a')
-          policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
-          policyLink.textContent = item.policy
-        }
-        avalanchemq.table.renderCell(tr, 3, policyLink, 'center')
-        avalanchemq.table.renderCell(tr, 4, item.consumers, 'right')
-        avalanchemq.table.renderCell(tr, 5, null, 'center ' + 'state-' + item.state)
-        avalanchemq.table.renderCell(tr, 6, avalanchemq.helpers.formatNumber(item.ready), 'right')
-        avalanchemq.table.renderCell(tr, 7, avalanchemq.helpers.formatNumber(item.unacked), 'right')
-        avalanchemq.table.renderCell(tr, 8, avalanchemq.helpers.formatNumber(item.messages), 'right')
-        avalanchemq.table.renderCell(tr, 9, avalanchemq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
-        avalanchemq.table.renderCell(tr, 10, avalanchemq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
-        avalanchemq.table.renderCell(tr, 11, avalanchemq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
-      })
-
-      document.querySelector('#declare').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const vhost = encodeURIComponent(data.get('vhost'))
-        const queue = encodeURIComponent(data.get('name').trim())
-        const url = '/api/queues/' + vhost + '/' + queue
-        const body = {
-          durable: data.get('durable') === '1',
-          auto_delete: data.get('auto_delete') === '1',
-          arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
-        }
-        avalanchemq.http.request('PUT', url, { body })
-          .then(() => {
-            queuesTable.fetchAndUpdate()
-            evt.target.reset()
-            avalanchemq.dom.toast('Queue ' + queue + ' created')
-          }).catch(avalanchemq.http.standardErrorHandler)
-      })
-
-      document.querySelector('#dataTags').onclick = e => {
-        window.avalanchemq.helpers.argumentHelperJSON("arguments", e)
-      }
-    </script>
+    <script src="/js/queues.js"></script
   </body>
 
 </html>
