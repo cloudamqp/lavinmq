@@ -39,9 +39,10 @@ unless ENV["CI"]?
 end
 
 Spec.after_each do
-  vhost = s.vhosts["/"]
-  vhost.queues.each_key do |queue_name|
-    vhost.delete_queue(queue_name)
+  s.vhosts.each_value do |vhost|
+    vhost.queues.each_key do |queue_name|
+      vhost.delete_queue(queue_name)
+    end
   end
 end
 
@@ -72,6 +73,13 @@ module TestHelpers
     yield ch
   ensure
     conn.try &.close(no_wait: false)
+  end
+
+  def with_vhost(name)
+    vhost = s.vhosts.create(name)
+    yield vhost
+  ensure
+    s.vhosts.delete(name)
   end
 
   def with_ssl_channel(**args)

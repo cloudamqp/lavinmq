@@ -1,6 +1,30 @@
 require "./spec_helper"
 
 describe AvalancheMQ::DurableQueue do
+  context "with corrupt segments" do
+    context "when consumed" do
+      it "should be closed" do
+        with_vhost("corrupt_vhost") do |vhost|
+          with_channel(vhost: vhost.name) do |ch|
+            q = ch.queue("corrupt_q")
+            queue = vhost.queues["corrupt_q"].as(AvalancheMQ::DurableQueue)
+            q.publish_confirm "test message"
+
+            bytes = "aaaaauaoeuaoeu".to_slice
+            vhost.@segments.each do |_i, mfile|
+              mfile.seek(-bytes.size, IO::Seek::Current)
+              mfile.write(bytes)
+            end
+
+            q.subscribe(tag: "tag", no_ack: false, &.ack)
+
+            should_eventually(be_true) { queue.state.closed? }
+          end
+        end
+      end
+    end
+  end
+
   it "GC message index after MAX_ACKS" do
     sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
     max_acks = AvalancheMQ::Config.instance.queue_max_acks

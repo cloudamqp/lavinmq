@@ -151,6 +151,7 @@ module AvalancheMQ
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
       ex.queue_matches(routing_key, headers) do |q|
+        next if q.closed?
         queues.add? q
       end
 

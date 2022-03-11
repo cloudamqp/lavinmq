@@ -386,14 +386,16 @@ module AvalancheMQ
     def close : Bool
       return false if @closed
       @closed = true
+      @state = QueueState::Closed
       @message_available.close
       @consumer_available.close
       @consumers.cancel_consumers
       @consumers.clear
+      # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
-      @log.debug { "Closed" }
+      @log.info { "Closed" }
       true
     end
 
@@ -401,6 +403,7 @@ module AvalancheMQ
       return false if @deleted
       @deleted = true
       close
+      @state = QueueState::Deleted
       @vhost.delete_queue(@name)
       @vhost.trigger_gc!
       @log.info { "(messages=#{message_count}) Deleted" }
@@ -715,6 +718,7 @@ module AvalancheMQ
     end
 
     # return the next message in the ready queue
+    # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, &blk : Envelope -> _)
       return nil if @state.closed?
       if sp = @ready.shift?
@@ -723,6 +727,9 @@ module AvalancheMQ
           env = with_delivery_count_header(env) if @delivery_limit && !no_ack
           return nil unless env
           return yield env
+        rescue ReadError
+          @ready.insert(sp)
+          close
         rescue ex
           @ready.insert(sp)
           raise ex
@@ -759,7 +766,7 @@ module AvalancheMQ
       raise ex
     rescue ex
       @log.error { "Error reading message #{sp}, possible message loss. #{ex.inspect}" }
-      raise ex
+      raise ReadError.new(cause: ex)
     ensure
       @requeued.delete(sp) if redelivered
     end
@@ -796,7 +803,7 @@ module AvalancheMQ
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted
+      return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue
@@ -904,5 +911,7 @@ module AvalancheMQ
     end
 
     class Error < Exception; end
+
+    class ReadError < Exception; end
   end
 end

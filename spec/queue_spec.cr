@@ -139,6 +139,26 @@ describe AvalancheMQ::Queue do
     end
   end
 
+  describe "Close" do
+    q_name = "close"
+    it "should cancel consumer" do
+      tag = "consumer-to-be-canceled"
+      with_channel do |ch|
+        q = ch.queue(q_name)
+        queue = s.vhosts["/"].queues[q_name].as(AvalancheMQ::DurableQueue)
+        q.publish_confirm "m1"
+
+        # Should get canceled
+        q.subscribe(tag: tag, no_ack: false, &.ack)
+        queue.close
+      end
+
+      with_channel do |ch|
+        ch.has_subscriber?(tag).should eq false
+      end
+    end
+  end
+
   describe "Purge" do
     x_name = "purge"
     q_name = "purge"
