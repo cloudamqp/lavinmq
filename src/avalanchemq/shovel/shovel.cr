@@ -15,6 +15,7 @@ module AvalancheMQ
       Running
       Stopped
       Terminated
+      Error
     end
 
     enum DeleteAfter
@@ -302,7 +303,7 @@ module AvalancheMQ
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
           return if terminated?
-          @state = State::Stopped
+          @state = State::Error
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
             break
@@ -312,7 +313,7 @@ module AvalancheMQ
           sleep @reconnect_delay.seconds
         rescue ex
           break if terminated?
-          @state = State::Stopped
+          @state = State::Error
           @log.error ex.inspect_with_backtrace
           @error = ex.message
           sleep @reconnect_delay.seconds
