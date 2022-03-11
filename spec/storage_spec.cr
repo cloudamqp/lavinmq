@@ -10,14 +10,10 @@ describe AvalancheMQ::DurableQueue do
             queue = vhost.queues["corrupt_q"].as(AvalancheMQ::DurableQueue)
             q.publish_confirm "test message"
 
-            # Move to last position in segment
+            bytes = "aaaaauaoeuaoeu".to_slice
             vhost.@segments.each do |_i, mfile|
-              # Make it corrupt
-              # mfile.pos = mfile.size
-              pos = mfile.pos
-              mfile.rewind
-              mfile.write("aaaaauaoeuaoeu".to_slice)
-              mfile.pos = pos
+              mfile.seek(-bytes.size, IO::Seek::Current)
+              mfile.write(bytes)
             end
 
             q.subscribe(tag: "tag", no_ack: false, &.ack)
