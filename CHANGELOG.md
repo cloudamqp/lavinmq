@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+* Queue multi action UI, purge or delete multiple queues ([#330](https://github.com/cloudamqp/avalanchemq/pull/330))
+* Shovel error feedback, ability to see why a shovel failed without consulting the logs ([#328](https://github.com/cloudamqp/avalanchemq/pull/328))
+
+### Fixed
+
+* Fix potential corruption by race condition between multiple consumers
+* Stop Queue if unrecoverable read error (i.e. corruption) ([#318](https://github.com/cloudamqp/avalanchemq/pull/318))
+
+### Changed
+
+* Limit number of consumers listed on Queue page, improve load time if there's lots of consumers ([#327](https://github.com/cloudamqp/avalanchemq/pull/327))
+
 ## [1.0.0-alpha.34] - 2021-01-19
 
 ### Added
