@@ -20,7 +20,6 @@ bin/%.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $(@:.o=) --release --no-debug $(CRYSTAL_FLAGS) > /dev/null
 
 bin/%: bin/%.o
-	$(CC) $< -o $@ $(LDFLAGS) $(LDLIBS)
 
 lib: shard.yml
 	shards install --production
