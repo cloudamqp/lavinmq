@@ -68,7 +68,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y make libsystemd-dev
+          apt-get install -y make libsystemd-dev wget
 
       - name: Checkout
         uses: actions/checkout@v2
