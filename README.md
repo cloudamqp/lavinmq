@@ -302,7 +302,7 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 ## Contributing
 
 1. Fork, create feature branch
-1. Build with `make`
+1. Build with `make -j`
 1. Performance test with `bin/avalanchemqperf throughput` and compare against `main`
 1. Submit pull request
 
