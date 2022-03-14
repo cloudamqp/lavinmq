@@ -21,7 +21,6 @@ bin/%.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 
 bin/%: bin/%.o
 	$(CC) $< -o $@ $(LDFLAGS) $(LDLIBS)
-	rm $<
 
 lib: shard.yml
 	shards install --production
