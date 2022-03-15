@@ -5,7 +5,7 @@ DOCS := static/docs/index.html
 CRYSTAL_FLAGS := --cross-compile $(if $(target),--target $(target))
 LDFLAGS := -rdynamic
 LDFLAGS += $(if $(shell crystal version),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
-LDLIBS := -lz -lssl -lcrypto -lpcre -lm -lgc -lpthread -levent -lrt -ldl
+LDLIBS := -lz -lpcre -lm -lgc -lpthread -levent -lrt -ldl $(if $(shell pkg-config --version),$(shell pkg-config --libs --silence-errors libssl libcrypto),-lssl -lcrypto)
 
 .PHONY: all
 all: $(BINS)
@@ -20,6 +20,7 @@ bin/%.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $(@:.o=) --release --no-debug $(CRYSTAL_FLAGS) > /dev/null
 
 bin/%: bin/%.o
+	$(CC) $(LDFLAGS) $< $(LDLIBS) -o $@
 
 lib: shard.yml
 	shards install --production
