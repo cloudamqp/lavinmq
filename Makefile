@@ -6,6 +6,7 @@ CRYSTAL_FLAGS := --cross-compile $(if $(target),--target $(target))
 LDFLAGS := -rdynamic
 LDFLAGS += $(if $(shell crystal version),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
 LDLIBS := -lz -lpcre -lm -lgc -lpthread -levent $(if $(shell pkg-config --version),$(shell pkg-config --libs --silence-errors libssl libcrypto),-lssl -lcrypto)
+LDLIBS += $(if $(shell pkg-config --version),$(shell pkg-config --libs --silence-errors libiconv))
 
 .PHONY: all
 all: $(BINS)
