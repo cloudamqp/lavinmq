@@ -31,7 +31,7 @@ RUN apt-get update && \
 COPY README.md LICENSE NOTICE CHANGELOG.md build/deb Makefile .
 COPY extras extras
 COPY --from=builder /tmp/bin bin
-RUN make all -j && rm bin/*.o
+RUN make all -j && rm bin/*.*
 ARG pkg_version
 RUN ./deb $pkg_version
 
