@@ -16,7 +16,7 @@ all: $(BINS)
 objects: $(BINS:=.o)
 
 bin/%-debug.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(@:.o=) --debug $(CRYSTAL_FLAGS) > /dev/null
+	crystal build $< -o $(@:.o=) --debug -Dbake_static $(CRYSTAL_FLAGS) > /dev/null
 
 bin/%.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $(@:.o=) --release --no-debug $(CRYSTAL_FLAGS) > /dev/null

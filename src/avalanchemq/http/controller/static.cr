@@ -33,7 +33,7 @@ module AvalancheMQ
       private def serve(context, file_path)
         file = nil
         etag = nil
-        {% if flag?(:release) %}
+        {% if flag?(:release) || flag?(:bake_static) %}
           file = Release.get?(file_path)
           file = Release.get?("#{file_path}.html") unless file
           file = Release.get?("#{file_path}/index.html") unless file
