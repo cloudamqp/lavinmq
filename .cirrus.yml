@@ -1,10 +1,18 @@
 freebsd_instance:
   image_family: freebsd-13-0
 
-task:
+spec_task:
   install_script:
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
     - pkg install -y crystal shards security/openssl
-  script: |
+  spec_script: |
     shards install --production --ignore-crystal-version
     crystal spec
+
+build_task:
+  install_script:
+    - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
+    - pkg install -y crystal shards security/openssl
+  build_script: make -j DOCS= && rm bin/*.*
+  build_artifacts:
+    path: bin/*
