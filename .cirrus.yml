@@ -10,7 +10,7 @@ spec_task:
     crystal spec
 
 build_task:
-  install_script:
+  build_install_script:
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
     - pkg install -y crystal shards security/openssl
   build_script: make -j DOCS= && rm bin/*.*
