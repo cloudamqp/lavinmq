@@ -2,11 +2,10 @@ BINS := bin/avalanchemq bin/avalanchemqctl bin/avalanchemqperf bin/avalanchemq-d
 SOURCES := $(shell find src/avalanchemq src/stdlib -name '*.cr')
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
-CRYSTAL_FLAGS := --cross-compile $(if $(target),--target $(target))
+CRYSTAL_FLAGS := --cross-compile $(if $(target),--target $(target)) -Dwithout_iconv
 LDFLAGS := -rdynamic
 LDFLAGS += $(if $(shell crystal version),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
 LDLIBS := -lz -lpcre -lm -lgc -lpthread -levent -ldl $(if $(shell pkg-config --version),$(shell pkg-config --libs --silence-errors libssl libcrypto),-lssl -lcrypto)
-LDLIBS += $(if $(shell pkg-config --version),$(shell pkg-config --libs --silence-errors libiconv))
 
 .PHONY: all
 all: $(BINS)
