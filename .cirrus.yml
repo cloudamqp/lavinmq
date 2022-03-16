@@ -22,6 +22,7 @@ freebsd_build_task:
 #  macos_instance:
 #    image: monterey-base
 #  install_script:
+#    - brew update
 #    - brew install crystal
 #  script: |
 #    shards install --production
@@ -31,7 +32,8 @@ osx_build_task:
   macos_instance:
     image: monterey-base
   install_script:
-    - brew install crystal openssl@1.1 pkg-config
-  script: make -j2 DOCS= && rm bin/*.*
+    - brew update
+    - brew install crystal
+  script: PKG_CONFIG_PATH=/usr/local/opt/openssl/lib/pkgconfig make -j DOCS= && rm bin/*.*
   artifacts:
     path: bin/*
