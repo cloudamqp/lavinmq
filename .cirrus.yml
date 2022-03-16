@@ -31,7 +31,7 @@ osx_build_task:
   macos_instance:
     image: monterey-base
   install_script:
-    - brew install crystal openssl@1.1
+    - brew install crystal openssl@1.1 pkg-config
   script: make -j2 DOCS= && rm bin/*.*
   artifacts:
     path: bin/*
