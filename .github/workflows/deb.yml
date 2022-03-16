@@ -17,11 +17,11 @@ jobs:
         arch: [amd64, arm64]
         include:
           - os: ubuntu
-            version: 18.04
+            version: "18.04"
           - os: ubuntu
-            version: 20.04
+            version: "20.04"
           - os: debian
-            version: 11
+            version: "11"
 
     runs-on: ubuntu-latest
     steps:
