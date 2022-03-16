@@ -13,7 +13,7 @@ freebsd_build_task:
     image_family: freebsd-13-0
   install_script:
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
-    - pkg install -y crystal shards security/openssl gmake
+    - pkg install -y crystal shards security/openssl gmake wget
   script: gmake -j2 DOCS= && rm bin/*.*
   artifacts:
     path: bin/*
@@ -31,7 +31,7 @@ osx_build_task:
   macos_instance:
     image: monterey-base
   install_script:
-    - brew install crystal
+    - brew install crystal openssl@1.1
   script: make -j2 DOCS= && rm bin/*.*
   artifacts:
     path: bin/*
