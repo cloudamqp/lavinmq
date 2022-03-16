@@ -57,7 +57,7 @@ module AvalancheMQ
           end
         end
 
-        post "/api/vhosts/:name/reset" do |context, params|
+        post "/api/vhosts/:name/purge_and_close_consumers" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, "name") do |vhost|
             v = @amqp_server.vhosts[vhost]?
@@ -69,7 +69,7 @@ module AvalancheMQ
             unless dir_name.match(/^[a-z0-9]+$/)
               bad_request(context, "Bad backup dir name, use only lower case letters and numbers")
             end
-            v.reset!(backup, dir_name)
+            v.purge_queues_and_close_consumers(backup, dir_name)
             context.response.status_code = 204
           end
         end

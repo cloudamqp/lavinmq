@@ -106,7 +106,7 @@ describe AvalancheMQ::VHost do
         vhost = s.vhosts["/"]
         vhost.message_details[:messages].should eq 4
 
-        vhost.reset!(false, "")
+        vhost.purge_queues_and_close_consumers(false, "")
         vhost.message_details[:messages].should eq 0
       end
     ensure
@@ -129,7 +129,7 @@ describe AvalancheMQ::VHost do
         x.publish_confirm "test message 2.2", q2.name
 
         vhost = s.vhosts["/"]
-        vhost.reset!(true, "reset_spec")
+        vhost.purge_queues_and_close_consumers(true, "reset_spec")
 
         backup_dir = Path.new(vhost.data_dir, "..", "#{vhost.dir}_reset_spec").normalize
         Dir.exists?(backup_dir).should be_true

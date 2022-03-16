@@ -87,7 +87,7 @@
         <h3>Danger zone</h3>
         <form method="post" id="resetVhost" class="form">
           <label>
-            <button type="submit" class="btn-danger">Reset vhost</button>
+            <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
           </label>
         </form>
         <br />
@@ -182,10 +182,10 @@
       })
       document.querySelector('#resetVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const url = '/api/vhosts/' + urlEncodedVhost + '/reset'
-        if (window.confirm('Are you sure?')) {
+        const url = '/api/vhosts/' + urlEncodedVhost + '/purge_and_close_consumers'
+        if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
           avalanchemq.http.request('POST', url)
-            .then(() => { window.location = '/vhosts' })
+            .then(() => { window.location = 'vhost?name=' + urlEncodedVhost })
             .catch(avalanchemq.http.standardErrorHandler)
         }
       })

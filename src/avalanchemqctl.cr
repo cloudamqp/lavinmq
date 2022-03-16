@@ -117,7 +117,7 @@ class AvalancheMQCtl
         @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
-    @parser.on("reset_vhost", "Purges all messages in all queues in the vhost, optionally back up the data") do
+    @parser.on("reset_vhost", "Purges all messages in all queues in the vhost and close all consumers, optionally back up the data") do
       @cmd = "reset_vhost"
       self.banner = "Usage: #{PROGRAM_NAME} reset_vhost <vhost>"
       @parser.on("--backup-data", "Backup the vhost data folder") do
@@ -444,7 +444,7 @@ class AvalancheMQCtl
              }
            end
     body ||= {} of String => String
-    resp = http.post "/api/vhosts/#{name}/reset", @headers, body.to_json
+    resp = http.post "/api/vhosts/#{name}/purge_and_close_consumers", @headers, body.to_json
     handle_response(resp, 204)
   end
 

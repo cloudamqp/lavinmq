@@ -931,21 +931,17 @@ module AvalancheMQ
       @shovels.not_nil!
     end
 
-    private def purge_all_queues!(max_count : Int? = nil) : UInt32
-      sum = 0_u32
-      @queues.each_value do |q|
-        sum += q.purge(max_count, false)
-      end
-      sum
-    end
-
-    def reset!(backup_data : Bool, suffix : String)
+    def purge_queues_and_close_consumers(backup_data : Bool, suffix : String)
       if backup_data
         backup_dir = File.join(@server_data_dir, "#{@dir}_#{suffix}")
         @log.info { "vhost=#{@name} reset backup=#{backup_dir}" }
         FileUtils.cp_r data_dir, backup_dir
       end
-      purge_all_queues!
+      @queues.each_value do |queue|
+        purged_msgs = queue.purge_and_close_consumers
+        @log.info { "vhost=#{@name} queue=#{queue.name} action=purge_and_close_consumers "\
+                    "purged_messages=#{purged_msgs}" }
+      end
       trigger_gc!
     end
   end
