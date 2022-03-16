@@ -75,11 +75,11 @@ jobs:
 
       - name: Build avalanchemq
         run: |
-          make -j bin/avalanchemq bin/avalanchemqctl DOCS=
+          make -j bin/avalanchemq-debug bin/avalanchemqctl DOCS=
           rm bin/*.o
 
       - name: Print build info
-        run: bin/avalanchemq --build-info
+        run: bin/avalanchemq-debug --build-info
 
       - name: Upload bin/
         uses: actions/upload-artifact@v2
@@ -106,8 +106,8 @@ jobs:
 
       - name: Run avalanchemq in background
         run: |
-          chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp &
+          chmod +x bin/avalanchemq-debug
+          bin/avalanchemq-debug --data-dir /tmp/amqp &
 
       - name: Clone java client
         uses: actions/checkout@v2
@@ -148,8 +148,8 @@ jobs:
 
       - name: Run avalanchemq in background
         run: |
-          chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp &
+          chmod +x bin/avalanchemq-debug
+          bin/avalanchemq-debug --data-dir /tmp/amqp &
 
       - name: Import definitions
         run: |
@@ -192,8 +192,8 @@ jobs:
 
       - name: Run avalanchemq in background
         run: |
-          chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp &
+          chmod +x bin/avalanchemq-debug
+          bin/avalanchemq-debug --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
         uses: actions/checkout@v2
@@ -228,8 +228,8 @@ jobs:
 
       - name: Run avalanchemq in background
         run: |
-          chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp &
+          chmod +x bin/avalanchemq-debug
+          bin/avalanchemq-debug --data-dir /tmp/amqp &
 
       - name: Install Go
         uses: actions/setup-go@v2
@@ -265,8 +265,8 @@ jobs:
 
       - name: Run avalanchemq in background
         run: |
-          chmod +x bin/avalanchemq
-          bin/avalanchemq --data-dir /tmp/amqp &
+          chmod +x bin/avalanchemq-debug
+          bin/avalanchemq-debug --data-dir /tmp/amqp &
 
       - name: Test the static HTTP controller
         run: ./extras/static_requests.sh
