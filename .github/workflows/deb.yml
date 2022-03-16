@@ -15,11 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        os: [ubuntu]
-        version: ["20.04", "18.04"]
-        include:
-          - os: debian
-            version: 11
+        os: [ubuntu-20.04, ubuntu-18.04, debian-11]
 
     runs-on: ubuntu-latest
     steps:
@@ -28,8 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version
+      - name: Set package version
         run: echo "PKG_VERSION=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
+
+      - name: Set OS/Version env variables
+        run: |
+          echo "OS=$(echo ${{ matrix.os }} | cut -d- -f1)" >> $GITHUB_ENV
+          echo "VERSION=$(echo ${{ matrix.os }} | cut -d- -f2)" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
@@ -46,8 +47,8 @@ jobs:
           file: Dockerfile.deb
           platforms: linux/${{ matrix.arch }}
           build-args: |
-            build_image=84codes/crystal:1.3.2-${{ matrix.os }}-${{ matrix.version }}
-            target_image=${{ matrix.os }}:${{ matrix.version }}
+            build_image=84codes/crystal:1.3.2-${{ matrix.os }}
+            target_image=${{ env.OS }}:${{ env.VERSION }}
             pkg_version=${{ env.PKG_VERSION }}
           outputs: builds
 
