@@ -939,7 +939,7 @@ module AvalancheMQ
       end
       @queues.each_value do |queue|
         purged_msgs = queue.purge_and_close_consumers
-        @log.info { "vhost=#{@name} queue=#{queue.name} action=purge_and_close_consumers "\
+        @log.info { "vhost=#{@name} queue=#{queue.name} action=purge_and_close_consumers " \
                     "purged_messages=#{purged_msgs}" }
       end
       trigger_gc!
