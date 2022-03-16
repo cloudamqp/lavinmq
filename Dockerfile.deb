@@ -11,8 +11,7 @@ RUN redoc-cli bundle openapi/openapi.yaml
 
 # Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM $build_image AS builder
-RUN apt-get update && apt-get install -y make wget && \
-    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
+RUN apt-get update && apt-get install -y wget
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
 RUN make js lib

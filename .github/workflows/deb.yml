@@ -48,8 +48,8 @@ jobs:
           file: Dockerfile.deb
           platforms: linux/${{ matrix.arch }}
           build-args: |
-            target_image=84codes/crystal:1.3.2-${{ matrix.os }}-${{ matrix.version }}
-            build_image=${{ matrix.os }}:${{ matrix.version }}
+            build_image=84codes/crystal:1.3.2-${{ matrix.os }}-${{ matrix.version }}
+            target_image=${{ matrix.os }}:${{ matrix.version }}
             pkg_version=${{ env.PKG_VERSION }}
           outputs: builds
 
