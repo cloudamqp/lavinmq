@@ -85,6 +85,12 @@
       </form>
       <section class="card cols-4">
         <h3>Danger zone</h3>
+        <form method="post" id="resetVhost" class="form">
+          <label>
+            <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
+          </label>
+        </form>
+        <br />
         <form method="delete" id="deleteVhost" class="form">
           <label>
             <button type="submit" class="btn-danger">Delete vhost</button>
@@ -171,6 +177,15 @@
         if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
           avalanchemq.http.request('DELETE', url)
             .then(() => { window.location = '/vhosts' })
+            .catch(avalanchemq.http.standardErrorHandler)
+        }
+      })
+      document.querySelector('#resetVhost').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const url = '/api/vhosts/' + urlEncodedVhost + '/purge_and_close_consumers'
+        if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
+          avalanchemq.http.request('POST', url)
+            .then(() => { window.location = 'vhost?name=' + urlEncodedVhost })
             .catch(avalanchemq.http.standardErrorHandler)
         }
       })

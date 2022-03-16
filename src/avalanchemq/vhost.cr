@@ -931,5 +931,19 @@ module AvalancheMQ
     def shovels
       @shovels.not_nil!
     end
+
+    def purge_queues_and_close_consumers(backup_data : Bool, suffix : String)
+      if backup_data
+        backup_dir = File.join(@server_data_dir, "#{@dir}_#{suffix}")
+        @log.info { "vhost=#{@name} reset backup=#{backup_dir}" }
+        FileUtils.cp_r data_dir, backup_dir
+      end
+      @queues.each_value do |queue|
+        purged_msgs = queue.purge_and_close_consumers
+        @log.info { "vhost=#{@name} queue=#{queue.name} action=purge_and_close_consumers " \
+                    "purged_messages=#{purged_msgs}" }
+      end
+      trigger_gc!
+    end
   end
 end

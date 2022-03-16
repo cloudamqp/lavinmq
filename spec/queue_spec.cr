@@ -226,6 +226,51 @@ describe AvalancheMQ::Queue do
     end
   end
 
+  describe "#purge_and_close_consumers" do
+    x_name = "purge_and_close"
+    q_name = "purge_and_close"
+    it "should cancel all consumers on the queue" do
+      with_channel do |ch|
+        ch.prefetch 5
+        x = ch.exchange(x_name, "direct")
+        q = ch.queue(q_name, durable: true)
+        q.bind(x.name, q.name)
+        10.times do |i|
+          x.publish_confirm "test message #{i}", q.name
+        end
+
+        internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+
+        internal_queue.message_count.should eq 10
+
+        channel = Channel(String).new(1)
+        # Get one message of the queue
+        q.subscribe(no_ack: false) do |msg|
+          channel.send msg.body_io.to_s
+          ch.basic_ack(msg.delivery_tag)
+        end
+
+        # 10 messages in total, 5 unacked and 5 ready
+        internal_queue.message_count.should eq 5
+
+        # Here we have one active consumer with 5 unacked messages.
+        internal_queue.consumers.first.unacked.should eq 5
+
+        # Purge should remove all of those
+        internal_queue.purge_and_close_consumers
+
+        # No messages left in the queue
+        internal_queue.message_count.should eq 0
+
+        # No consumers lest on the queue and therefore no unacked
+        internal_queue.consumers.empty?.should be_true
+      end
+    ensure
+      s.vhosts["/"].delete_queue(q_name)
+      s.vhosts["/"].delete_exchange(x_name)
+    end
+  end
+
   describe "Message timestamps" do
     it "should be 0 when no messages" do
       queue_name = Random::Secure.hex

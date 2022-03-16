@@ -856,17 +856,25 @@ module AvalancheMQ
       end
     end
 
-    def purge(max_count : Int? = nil) : UInt32
+    def purge_and_close_consumers : UInt32
+      # closing all channels will move all unacked back into ready queue
+      # so we are purging all messages from the queue, not only ready
+      @consumers.each(&.channel.close)
+      count = @unacked.purge + purge(nil, trigger_gc: false)
+      count.to_u32
+    end
+
+    def purge(max_count : Int? = nil, trigger_gc = true) : UInt32
       @log.info "Purging"
-      delete_count = 0u32
+      delete_count = 0_u32
       if max_count.nil? || max_count >= @ready.size
-        delete_count = @ready.purge
+        delete_count += @ready.purge
       else
         max_count.times { @ready.shift? && (delete_count += 1) }
       end
       @log.debug { "Purged #{delete_count} messages" }
-      @vhost.trigger_gc!
-      delete_count.to_u32
+      @vhost.trigger_gc! if trigger_gc
+      delete_count
     end
 
     def match?(frame)
