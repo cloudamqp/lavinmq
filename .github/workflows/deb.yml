@@ -15,13 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
+        os: [ubuntu]
+        version: ["20.04", "18.04"]
         include:
-          - os: ubuntu
-            version: "18.04"
-          - os: ubuntu
-            version: "20.04"
           - os: debian
-            version: "11"
+            version: 11
 
     runs-on: ubuntu-latest
     steps:
