@@ -34,6 +34,6 @@ osx_build_task:
   install_script:
     - brew update
     - brew install crystal
-  script: PKG_CONFIG_PATH=/usr/local/opt/openssl/lib/pkgconfig make -j2 DOCS= && rm bin/*.*
+  script: PKG_CONFIG_PATH=/usr/local/opt/openssl@1.1/lib/pkgconfig make -j2 DOCS= && rm bin/*.*
   artifacts:
     path: bin/*
