@@ -7,7 +7,7 @@ LDFLAGS := -rdynamic
 LDFLAGS += $(if $(shell crystal version),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
 LDLIBS := -lz -lpcre -lm -lgc -lpthread -levent -ldl
 LDLIBS += $(if $(shell pkg-config --version),$(shell pkg-config --libs libssl libcrypto),-lssl -lcrypto)
-LDLIBS += $(if $(shell test "$(uname -r)" = "Linux"),,-liconv)
+LDLIBS += $(if $(findstring Linux,$(shell uname)),,-liconv)
 
 .PHONY: all
 all: $(BINS)
