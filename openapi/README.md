@@ -1,20 +1,22 @@
 # AvalancheMQ Management HTTP API OpenAPI spec
 
-Running `npm ci` will install dependencies and build the documentation.
+Run `make docs` to build docs (calls `npx redoc-cli`).
 
-It also copies it to `static/docs/index.html` so you can view the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/) if you have AvalancheMQ running.
-
-_**Note**: If you have set [`ignore-scripts`](https://blog.npmjs.org/post/141702881055/package-install-scripts-vulnerability) to `true`, you can build the docs with: `npm run postinstall`_
+It outputs to `static/docs/index.html` so you can view the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/) if you have AvalancheMQ running.
 
 The dependencies:
 
 * [Spectral] is used to lint the documentation. To run it manually: `docker run --rm -it -v $(pwd):/tmp stoplight/spectral:6 --ruleset /tmp/openapi/.spectral.json lint openapi/openapi.yaml`
 * [ReDoc] is to build the documentation.
-  To run it manually: `redoc-cli bundle openapi.yaml` (a file `redoc-static.html` will be created in your working directory)
+  To run it manually: `npx redoc-cli bundle openapi.yaml -o static/docs/index.html`
 
-You can use the [ReDoc Docker image] to watch for updates so you can preview the documentation as you work on it. (Note the gotcha: the browser caches the YAML files even if they have changed, open dev console in the browser to mitigate.)
+You can preview docs using:
 
-Start it with `./redoc-serve-and-watch`, then view the docs at [http://localhost:8080/](http://localhost:8080/).
+```
+npx redoc-cli serve openapi.yaml
+```
+
+(Note the gotcha: the browser caches the YAML files even if they have changed, open dev console in the browser to mitigate.)
 
 ## OpenAPI notes
 

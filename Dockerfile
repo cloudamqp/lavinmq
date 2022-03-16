@@ -1,51 +1,44 @@
-FROM --platform=$BUILDPLATFORM node:16 AS docbuilder
+# Build docs in npm container
+FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
 WORKDIR /tmp
+RUN npm install -g redoc-cli
+COPY shard.yml .
+COPY openapi openapi
+RUN redoc-cli bundle openapi/openapi.yaml
 
-COPY openapi ./openapi
-COPY build ./build
-COPY shard.yml package.json package-lock.json ./
-RUN npm config set unsafe-perm true && npm ci
-
+# Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM 84codes/crystal:1.3.2-debian-11 AS builder
+RUN apt-get update && apt-get install -y wget && \
+    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 WORKDIR /tmp
-
-# Copying and install dependencies
-COPY shard.yml shard.lock ./
-RUN shards install --production
-
-# Copying the rest of the code
+COPY Makefile shard.yml shard.lock .
+RUN make js lib
+COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
+COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
 COPY ./static ./static
-COPY --from=docbuilder /tmp/static/docs/index.html ./static/docs/index.html
 COPY ./src ./src
-
-# Pre-build on build platform
 ARG TARGETARCH
-RUN echo -n avalanchemq,avalanchemqctl,avalanchemqperf | \
-    xargs -d, -P2 -I@ crystal build src/@.cr --release --no-debug --cross-compile --target $TARGETARCH-unknown-linux-gnu \
-    > build.sh
+RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
-# Finish the build on the target platform (emulated)
+# Link object files on target platform
 FROM debian:11-slim as target-builder
 WORKDIR /tmp
 RUN apt-get update && \
-    apt-get install -y gcc libc-dev libpcre3-dev libevent-dev libssl-dev zlib1g-dev libgc-dev && \
+    apt-get install -y make gcc libc-dev libpcre3-dev libevent-dev libssl-dev zlib1g-dev libgc-dev && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
+COPY Makefile .
+COPY --from=builder /tmp/bin bin
+RUN make all -j && rm bin/*.o
 
-COPY --from=builder /tmp/*.o /tmp/build.sh .
-RUN sh -ex build.sh
-
-# start from scratch and only copy the built binaries as build tools shouldn't be in the resulting image
+# Resulting image with minimal layers
 FROM debian:11-slim
 RUN apt-get update && \
     apt-get install -y libssl1.1 libgc1 libevent-2.1-7 && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
-
-COPY --from=target-builder /tmp/avalanchemq /tmp/avalanchemqctl /tmp/avalanchemqperf /usr/bin/
-
+COPY --from=target-builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
 VOLUME /var/lib/avalanchemq
 WORKDIR /var/lib/avalanchemq
-
 ENV GC_UNMAP_THRESHOLD=1
 HEALTHCHECK CMD ["/usr/bin/avalanchemqctl", "status"]
 ENTRYPOINT ["/usr/bin/avalanchemq", "-b", "0.0.0.0", "--guest-only-loopback=false"]

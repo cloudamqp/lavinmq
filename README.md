@@ -249,8 +249,8 @@ From source:
 ```bash
 git clone git@github.com:cloudamqp/avalanchemq.git
 cd avalanchemq
-shards build --release --production
-install bin/avalanchemq /usr/local/bin/avalanchemq
+make
+sudo make install # optional
 ```
 
 Refer to
@@ -272,7 +272,7 @@ for an example.
 Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/avalanchemq).
 Fetch and run the latest version with:
 
-`docker run --rm -it -p 15672:15672 -p 5672:5672 -v data:/tmp/amqp cloudamqp/avalanchemq`
+`docker run --rm -it -P -v /var/lib/avalanchemq:/tmp/amqp cloudamqp/avalanchemq`
 
 You are now able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
 start publishing/consuming messages to `amqp://guest:guest@localhost`.
@@ -302,7 +302,7 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 ## Contributing
 
 1. Fork, create feature branch
-1. Build with `shards build --release`
+1. Build with `make -j`
 1. Performance test with `bin/avalanchemqperf throughput` and compare against `main`
 1. Submit pull request
 
@@ -310,6 +310,8 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 
 1. Run specs with `crystal spec`
 1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
+1. Pull js dependencies with `make js`
+1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
 
 ### Release

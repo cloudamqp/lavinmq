@@ -1,10 +1,41 @@
-freebsd_instance:
-  image_family: freebsd-13-0
-
-task:
+freebsd_spec_task:
+  freebsd_instance:
+    image_family: freebsd-13-0
   install_script:
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
     - pkg install -y crystal shards security/openssl
   script: |
-    shards install --production --ignore-crystal-version
+    shards install --production
     crystal spec
+
+freebsd_build_task:
+  freebsd_instance:
+    image_family: freebsd-13-0
+  install_script:
+    - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
+    - pkg install -y crystal shards security/openssl gmake wget
+  script: gmake -j2 DOCS= && rm bin/*.*
+  artifacts:
+    path: bin/*
+
+osx_spec_task:
+  macos_instance:
+    image: monterey-base
+  install_script:
+    - brew update
+    - brew install crystal
+  script: |
+    shards install --production
+    crystal spec
+
+osx_build_task:
+  macos_instance:
+    image: monterey-base
+  install_script:
+    - brew update
+    - brew install crystal
+  env:
+    PKG_CONFIG_PATH: /usr/local/opt/openssl@1.1/lib/pkgconfig
+  script: make -j2 DOCS= && rm bin/*.*
+  artifacts:
+    path: bin/*
