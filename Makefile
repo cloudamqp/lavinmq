@@ -31,10 +31,10 @@ bin static/js/lib:
 	mkdir -p $@
 
 static/js/lib/%: | static/js/lib
-	curl -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
+	curl --retry 8 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
-	curl -sL https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
+	curl --retry 8 -sL https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
 		tar -zxOf- package/dist/Chart.bundle.min.js > $@
 
 static/docs/index.html: openapi/openapi.yaml $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
