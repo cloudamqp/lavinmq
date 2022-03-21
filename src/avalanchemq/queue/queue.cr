@@ -69,7 +69,7 @@ module AvalancheMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = Time.monotonic
-      @log = Log.for "vhost=#{@vhost.name} queue=#{@name}"
+      @log = @vhost.log.for "queue=#{@name}"
       handle_arguments
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"

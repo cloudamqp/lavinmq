@@ -6,7 +6,7 @@ module AvalancheMQ
     @log : Log
 
     def initialize(@vhost : VHost)
-      @log = Log.for "vhost=#{@vhost.name} shovelstore"
+      @log = @vhost.log.for "shovelstore"
       @shovels = Hash(String, Shovel::Runner).new
     end
 

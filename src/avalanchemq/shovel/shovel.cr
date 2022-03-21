@@ -272,7 +272,7 @@ module AvalancheMQ
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
-        @log = Log.for "vhost=#{@vhost.name} shovel=#{@name}"
+        @log = @vhost.log.for "shovel=#{@name}"
       end
 
       def state

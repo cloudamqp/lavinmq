@@ -13,7 +13,7 @@ module AvalancheMQ
     @lock_file : File?
 
     def initialize(@config : AvalancheMQ::Config)
-      @log = Log.for("launcher")
+      @log = Log.for "launcher"
       reload_logger
 
       print_environment_info
