@@ -1,13 +1,11 @@
-require "logger"
-
 module AvalancheMQ
   class Config
-    DEFAULT_LOG_LEVEL = Logger::INFO
+    DEFAULT_LOG_LEVEL = Log::Severity::Info
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/avalanchemq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini") : ""
     property log_file : String? = nil
-    property log_level : Logger::Severity = DEFAULT_LOG_LEVEL
+    property log_level : Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
@@ -75,7 +73,7 @@ module AvalancheMQ
         case config
         when "data_dir"             then @data_dir = v
         when "data_dir_lock"        then @data_dir_lock = true?(v)
-        when "log_level"            then @log_level = Logger::Severity.parse(v)
+        when "log_level"            then @log_level = Log::Severity.parse(v)
         when "log_file"             then @log_file = v
         when "stats_interval"       then @stats_interval = v.to_i32
         when "stats_log_size"       then @stats_log_size = v.to_i32

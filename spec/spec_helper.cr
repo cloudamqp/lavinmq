@@ -12,11 +12,11 @@ require "uri"
 FileUtils.rm_rf("/tmp/spec")
 
 {% if flag?(:verbose) %}
-  LOG_LEVEL = Logger::DEBUG
+  LOG_LEVEL = Log::Severity::DEBUG
 {% elsif flag?(:warn) %}
-  LOG_LEVEL = Logger::WARN
+  LOG_LEVEL = Log::Severity::WARN
 {% else %}
-  LOG_LEVEL = Logger::ERROR
+  LOG_LEVEL = Log::Severity::ERROR
 {% end %}
 
 AMQP_PORT      = ENV.fetch("AMQP_PORT", "5672").to_i

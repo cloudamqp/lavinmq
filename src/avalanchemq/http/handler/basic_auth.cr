@@ -7,7 +7,7 @@ module AvalancheMQ
     class BasicAuthHandler
       include ::HTTP::Handler
 
-      def initialize(@user_store : UserStore, @log : Logger)
+      def initialize(@user_store : UserStore, @log : Log)
       end
 
       def call(context)

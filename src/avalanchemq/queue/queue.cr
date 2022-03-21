@@ -1,4 +1,3 @@
-require "logger"
 require "digest/sha1"
 require "../mfile"
 require "../segment_position"
@@ -33,7 +32,7 @@ module AvalancheMQ
     include SortableJSON
 
     @durable = false
-    @log : Logger
+    @log : Log
     @message_ttl : ArgumentNumber?
     @max_length : ArgumentNumber?
     @max_length_bytes : ArgumentNumber?
@@ -70,8 +69,7 @@ module AvalancheMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = Time.monotonic
-      @log = @vhost.log.dup
-      @log.progname += " queue=#{@name}"
+      @log = Log.for "vhost=#{@vhost.name} queue=#{@name}"
       handle_arguments
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
@@ -237,7 +235,7 @@ module AvalancheMQ
         if ttl = time_to_message_expiration
           select
           when @refresh_ttl_timeout.receive
-            @log.debug "Queue#expire_loop Refresh TTL timeout"
+            @log.debug { "Queue#expire_loop Refresh TTL timeout" }
           when timeout ttl
             expire_messages
           end
@@ -296,7 +294,7 @@ module AvalancheMQ
       rescue ex
         @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
-      @log.debug "Delivery loop closed"
+      @log.debug { "Delivery loop closed" }
     end
 
     private def time_to_expiration : Time::Span?
@@ -326,19 +324,19 @@ module AvalancheMQ
     end
 
     private def consumer_or_expire
-      @log.debug "No consumer available"
+      @log.debug { "No consumer available" }
       q_ttl = time_to_expiration
       m_ttl = time_to_message_expiration
       ttl = {q_ttl, m_ttl}.select(Time::Span).min?
       if ttl
-        @log.debug "Queue#consumer_or_expire TTL: #{ttl}"
+        @log.debug &.emit("Queue#consumer_or_expire", ttl: ttl.to_s)
         select
         when @paused.receive
           @log.debug { "Queue unpaused" }
         when @consumer_available.receive
-          @log.debug "Queue#consumer_or_expire Consumer available"
+          @log.debug { "Queue#consumer_or_expire Consumer available" }
         when @refresh_ttl_timeout.receive
-          @log.debug "Queue#consumer_or_expire Refresh TTL timeout"
+          @log.debug { "Queue#consumer_or_expire Refresh TTL timeout" }
         when timeout ttl
           return true if @state.closed?
           case ttl
@@ -695,7 +693,7 @@ module AvalancheMQ
 
     private def expire_queue(now = Time.monotonic) : Bool
       return false unless @consumers.empty?
-      @log.debug "Expired"
+      @log.debug { "Expired" }
       @vhost.delete_queue(@name)
       true
     end
@@ -865,7 +863,7 @@ module AvalancheMQ
     end
 
     def purge(max_count : Int? = nil, trigger_gc = true) : UInt32
-      @log.info "Purging"
+      @log.info { "Purging" }
       delete_count = 0_u32
       if max_count.nil? || max_count >= @ready.size
         delete_count += @ready.purge

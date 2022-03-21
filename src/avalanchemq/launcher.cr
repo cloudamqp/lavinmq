@@ -9,17 +9,19 @@ module AvalancheMQ
   class Launcher
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
-    @log : Logger
+    @log : Log
     @lock_file : File?
 
     def initialize(@config : AvalancheMQ::Config)
-      @log = create_logger
+      @log = Log.for("launcher")
+      reload_logger
+
       print_environment_info
       maximize_fd_limit
       Dir.mkdir_p @config.data_dir
       @lock_file = acquire_lock if @config.data_dir_lock
-      @amqp_server = AvalancheMQ::Server.new(@config.data_dir, @log.dup)
-      @http_server = AvalancheMQ::HTTP::Server.new(@amqp_server, @log.dup)
+      @amqp_server = AvalancheMQ::Server.new(@config.data_dir)
+      @http_server = AvalancheMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
@@ -38,24 +40,32 @@ module AvalancheMQ
 
     private def print_environment_info
       AvalancheMQ::BUILD_INFO.each_line do |line|
-        @log.info line
+        @log.info { line }
       end
       {% unless flag?(:release) %}
-        @log.warn "Not built in release mode"
+        @log.warn { "Not built in release mode" }
       {% end %}
       {% if flag?(:preview_mt) %}
-        @log.info "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
+        @log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
-      @log.info "Pid: #{Process.pid}"
-      @log.info "Config file: #{@config.config_file}" unless @config.config_file.empty?
-      @log.info "Data directory: #{@config.data_dir}"
+      @log.info { "Pid: #{Process.pid}" }
+      @log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
+      @log.info { "Data directory: #{@config.data_dir}" }
     end
 
-    private def create_logger
+    private def reload_logger
       log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
-      log = Logger.new(log_file, level: @config.log_level)
-      AvalancheMQ::LogFormatter.use(log)
-      log
+      backend = if ENV.has_key?("JOURNAL_STREAM")
+                  Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                else
+                  Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                end
+      Log.setup(@config.log_level, backend)
+      # Log.setup do |c|
+      #   c.bind "*", , backend
+      # end
+      target = (path = @config.log_file) ? path : "stdout"
+      @log.info &.emit("logger settings", level: @config.log_level.to_s, target: target)
     end
 
     private def listen
@@ -99,17 +109,17 @@ module AvalancheMQ
       _, fd_limit_max = System.file_descriptor_limit
       System.file_descriptor_limit = fd_limit_max
       fd_limit_current, _ = System.file_descriptor_limit
-      @log.info "FD limit: #{fd_limit_current}"
+      @log.info { "FD limit: #{fd_limit_current}" }
       if fd_limit_current < 1025
-        @log.warn "The file descriptor limit is very low, consider raising it."
-        @log.warn "You need one for each connection and two for each durable queue, and some more."
+        @log.warn { "The file descriptor limit is very low, consider raising it." }
+        @log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
     end
 
     private def dump_debug_info
       STDOUT.puts System.resource_usage
       STDOUT.puts GC.prof_stats
-      puts "Fibers:"
+      STDOUT.puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
       AvalancheMQ::Reporter.report(@amqp_server)
       STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
@@ -134,7 +144,7 @@ module AvalancheMQ
       else
         @log.info { "Reloading configuration file '#{@config.config_file}'" }
         @config.parse(@config.config_file)
-        reload_log
+        reload_logger
         reload_tls_context
       end
       SystemD.notify_ready
@@ -144,16 +154,16 @@ module AvalancheMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         SystemD.notify_stopping
-        @log.info "Shutting down gracefully..."
+        @log.info { "Shutting down gracefully..." }
         @amqp_server.close
         @http_server.try &.close
         @lock_file.try &.close
-        @log.info "Fibers: "
-        Fiber.list { |f| @log.info f.inspect }
+        @log.info { "Fibers: " }
+        Fiber.list { |f| @log.info { f.inspect } }
         exit 0
       else
-        @log.info "Fibers: "
-        Fiber.list { |f| @log.info f.inspect }
+        @log.info { "Fibers: " }
+        Fiber.list { |f| @log.info { f.inspect } }
         exit 1
       end
     end
@@ -176,10 +186,10 @@ module AvalancheMQ
       begin
         lock.flock_exclusive(blocking: false)
       rescue
-        @log.info "Data directory locked by '#{lock.gets_to_end}'"
-        @log.info "Waiting for file lock to be released"
+        @log.info { "Data directory locked by '#{lock.gets_to_end}'" }
+        @log.info { "Waiting for file lock to be released" }
         lock.flock_exclusive(blocking: true)
-        @log.info "Lock acquired"
+        @log.info { "Lock acquired" }
       end
       lock.truncate
       lock.print System.hostname
@@ -230,13 +240,6 @@ module AvalancheMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
-    end
-
-    private def reload_log
-      new_level = @config.log_level || AvalancheMQ::Config::DEFAULT_LOG_LEVEL
-      return if @log.level == new_level
-      @log.info { "Log level changed from #{@log.level} to #{new_level}" }
-      @log.level = @config.log_level.not_nil!
     end
   end
 end

@@ -1,16 +1,14 @@
 require "router"
-require "logger"
 require "../sortable_json"
 
 module AvalancheMQ
   module HTTP
     abstract class Controller
       include Router
+      @log : Log
 
-      @log : Logger
-
-      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
-        @log.progname += " " + self.class.name.split("::").last
+      def initialize(@amqp_server : AvalancheMQ::Server, log : Log)
+        @log = log.for self.class.name.split("::").last
         register_routes
       end
 
@@ -169,7 +167,7 @@ module AvalancheMQ
           user = @amqp_server.users[username]?
         end
         unless user
-          @log.warn "Authorized user=#{context.authenticated_username?} not in user store"
+          @log.warn { "Authorized user=#{context.authenticated_username?} not in user store" }
           access_refused(context)
         end
         user

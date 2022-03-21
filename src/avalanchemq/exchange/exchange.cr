@@ -1,4 +1,3 @@
-require "logger"
 require "../policy"
 require "../stats"
 require "../amqp"
@@ -23,7 +22,7 @@ module AvalancheMQ
     @alternate_exchange : String?
     @persistent_queue : PersistentExchangeQueue?
     @delayed_queue : Queue?
-    @log : Logger
+    @log : Log
     @deleted = false
 
     rate_stats(%w(publish_in publish_out unroutable))
@@ -38,8 +37,7 @@ module AvalancheMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
-      @log = @vhost.log.dup
-      @log.progname += " exchange=#{@name}"
+      @log = Log.for "vhost=#{@vhost.name} exchange=#{@name}"
       handle_arguments
     end
 

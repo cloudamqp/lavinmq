@@ -1,8 +1,8 @@
 module AvalancheMQ
   module AMQPConnection
-    def self.start(socket, connection_info, vhosts, users, log, events)
+    def self.start(socket, connection_info, vhosts, users, events)
       remote_address = connection_info.src
-      log.progname += " client=#{remote_address}"
+      log = Log.for "client=#{remote_address}"
       socket.read_timeout = 15
       if confirm_header(socket, log)
         if start_ok = start(socket, log)
@@ -17,10 +17,10 @@ module AvalancheMQ
         end
       end
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
-      log.warn "#{(ex.cause || ex).inspect} while #{remote_address} tried to establish connection"
+      Log.warn(exception: ex) { "error while #{remote_address} tried to establish connection" }
       nil
     rescue ex
-      log.error "Error while #{remote_address} tried to establish connection #{ex.inspect_with_backtrace}"
+      Log.error(exception: ex) { "Error while #{remote_address} tried to establish connection" }
       nil
     end
 
@@ -95,9 +95,9 @@ module AvalancheMQ
                      guest_only_loopback?(remote_address, user)
 
       if user.nil?
-        log.warn "User \"#{username}\" not found"
+        log.warn { "User \"#{username}\" not found" }
       else
-        log.warn "Authentication failure for user \"#{username}\""
+        log.warn { "Authentication failure for user \"#{username}\"" }
       end
       props = start_ok.client_properties
       capabilities = props["capabilities"]?.try &.as(AMQP::Table)
@@ -145,14 +145,14 @@ module AvalancheMQ
           socket.flush
           return vhost
         else
-          log.warn "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\""
+          log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
           reply_text = "NOT_ALLOWED - '#{user.name}' doesn't have access to '#{vhost.name}'"
           socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
             open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
           socket.flush
         end
       else
-        log.warn "VHost \"#{vhost_name}\" not found"
+        log.warn { "VHost \"#{vhost_name}\" not found" }
         socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, "NOT_ALLOWED - vhost not found",
           open.class_id, open.method_id), IO::ByteFormat::NetworkEndian
         socket.flush

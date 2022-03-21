@@ -1,4 +1,3 @@
-require "logger"
 require "openssl"
 require "socket"
 require "../vhost"
@@ -26,7 +25,7 @@ module AvalancheMQ
     getter auth_mechanism : String
     getter client_properties : AMQP::Table
     getter direct_reply_consumer_tag : String?
-    getter log : Logger
+    getter log : Log
 
     @connected_at : Int64
     @heartbeat_interval : Time::Span?
@@ -45,10 +44,9 @@ module AvalancheMQ
                    @events : Server::Event,
                    tune_ok,
                    start_ok)
-      @log = vhost.log.dup
       @remote_address = @connection_info.src
       @local_address = @connection_info.dst
-      @log.progname += " client=#{@remote_address}"
+
       @max_frame_size = tune_ok.frame_max
       @channel_max = tune_ok.channel_max
       @heartbeat_timeout = tune_ok.heartbeat
@@ -56,9 +54,11 @@ module AvalancheMQ
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
       @client_properties = start_ok.client_properties
+      progname = "client=#{@remote_address}"
       if connection_name = @client_properties["connection_name"]?.try(&.as?(String))
-        @log.progname += " (#{connection_name})"
+        progname += " (#{connection_name})"
       end
+      @log = vhost.log.for progname
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
@@ -137,7 +137,7 @@ module AvalancheMQ
             send AMQP::Frame::Connection::CloseOk.new
             return
           when AMQP::Frame::Connection::CloseOk
-            @log.debug "Confirmed disconnect"
+            @log.debug { "Confirmed disconnect" }
             return
           end
           if @running
@@ -172,7 +172,7 @@ module AvalancheMQ
     ensure
       cleanup
       close_socket
-      @log.info "Connection (#{@name}) disconnected for user=#{@user.name} "
+      @log.info { "Connection (#{@name}) disconnected for user=#{@user.name} " }
     end
 
     private def frame_size_ok?(frame) : Bool
@@ -303,8 +303,8 @@ module AvalancheMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, conn_props, vhosts, users, log, events)
-      AMQPConnection.start(socket, conn_props, vhosts, users, log.dup, events)
+    def self.start(socket, conn_props, vhosts, users, events)
+      AMQPConnection.start(socket, conn_props, vhosts, users, events)
     end
 
     private def with_channel(frame)

@@ -1,7 +1,6 @@
 require "http/server"
 require "http-protection"
 require "json"
-require "logger"
 require "router"
 require "./handler/*"
 require "./controller"
@@ -20,33 +19,33 @@ module AvalancheMQ
     {% end %}
 
     class Server
-      def initialize(@amqp_server : AvalancheMQ::Server, @log : Logger)
-        @log.progname = "httpserver"
+      def initialize(@amqp_server : AvalancheMQ::Server)
+        @log = Log.for "httpserver"
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
           ::HTTP::CompressHandler.new,
           AMQPWebsocket.new(@amqp_server),
           ApiDefaultsHandler.new,
-          ApiErrorHandler.new(@log.dup),
+          ApiErrorHandler.new(@log),
           StaticController.new,
-          BasicAuthHandler.new(@amqp_server.users, @log.dup),
-          MainController.new(@amqp_server, @log.dup).route_handler,
-          DefinitionsController.new(@amqp_server, @log.dup).route_handler,
-          ConnectionsController.new(@amqp_server, @log.dup).route_handler,
-          ChannelsController.new(@amqp_server, @log.dup).route_handler,
-          ConsumersController.new(@amqp_server, @log.dup).route_handler,
-          ExchangesController.new(@amqp_server, @log.dup).route_handler,
-          QueuesController.new(@amqp_server, @log.dup).route_handler,
-          BindingsController.new(@amqp_server, @log.dup).route_handler,
-          VHostsController.new(@amqp_server, @log.dup).route_handler,
-          UsersController.new(@amqp_server, @log.dup).route_handler,
-          PermissionsController.new(@amqp_server, @log.dup).route_handler,
-          ParametersController.new(@amqp_server, @log.dup).route_handler,
-          NodesController.new(@amqp_server, @log.dup).route_handler,
-          PrometheusController.new(@amqp_server, @log.dup).route_handler,
+          BasicAuthHandler.new(@amqp_server.users, @log),
+          MainController.new(@amqp_server, @log).route_handler,
+          DefinitionsController.new(@amqp_server, @log).route_handler,
+          ConnectionsController.new(@amqp_server, @log).route_handler,
+          ChannelsController.new(@amqp_server, @log).route_handler,
+          ConsumersController.new(@amqp_server, @log).route_handler,
+          ExchangesController.new(@amqp_server, @log).route_handler,
+          QueuesController.new(@amqp_server, @log).route_handler,
+          BindingsController.new(@amqp_server, @log).route_handler,
+          VHostsController.new(@amqp_server, @log).route_handler,
+          UsersController.new(@amqp_server, @log).route_handler,
+          PermissionsController.new(@amqp_server, @log).route_handler,
+          ParametersController.new(@amqp_server, @log).route_handler,
+          NodesController.new(@amqp_server, @log).route_handler,
+          PrometheusController.new(@amqp_server, @log).route_handler,
         ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new) if @log.level == Logger::DEBUG
+        handlers.unshift(::HTTP::LogHandler.new) if @log.level == Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
       end
 

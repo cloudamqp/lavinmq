@@ -34,8 +34,6 @@ dependencies:
     branch: master
   systemd:
     github: 84codes/systemd.cr
-  logger:
-    github: 84codes/logger.cr
 
 development_dependencies:
   ameba:

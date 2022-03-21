@@ -1,4 +1,3 @@
-require "logger"
 require "./channel/consumer"
 require "../queue"
 require "../exchange"
@@ -24,7 +23,7 @@ module AvalancheMQ
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
-      @log : Logger
+      @log : Log
       @client_flow = true
       @prefetch_size = 0_u32
       @prefetch_count = 0_u16
@@ -41,8 +40,7 @@ module AvalancheMQ
       property deliver_count, redeliver_count
 
       def initialize(@client : Client, @id : UInt16, @events : Server::Event)
-        @log = @client.log.dup
-        @log.progname += " channel=#{@id}"
+        @log = @client.log.for "channel=#{@id}"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @events.send(EventType::ChannelCreated)
         @next_msg_body_tmp = IO::Memory.new
