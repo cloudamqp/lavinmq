@@ -8,7 +8,7 @@ RUN redoc-cli bundle openapi/openapi.yaml
 
 # Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM 84codes/crystal:1.3.2-debian-11 AS builder
-RUN apt-get update && apt-get install -y wget && \
+RUN apt-get update && apt-get install -y curl && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
