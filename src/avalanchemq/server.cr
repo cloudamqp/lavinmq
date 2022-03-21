@@ -198,7 +198,7 @@ module AvalancheMQ
     end
 
     def stop_shovels
-      @log.info("Stopping shovels")
+      @log.info { "Stopping shovels" }
       @vhosts.each_value &.stop_shovels
     end
 

@@ -43,9 +43,6 @@ module UpstreamSpecHelpers
 end
 
 describe AvalancheMQ::Federation::Upstream do
-  log = Logger.new(STDOUT)
-  log.level = LOG_LEVEL
-
   it "should federate queue" do
     vhost = s.vhosts["/"]
     upstream = AvalancheMQ::Federation::Upstream.new(vhost, "qf test upstream", AMQP_BASE_URL, nil, "federation_q1")
