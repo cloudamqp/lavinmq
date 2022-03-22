@@ -19,6 +19,8 @@ COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
 COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
 COPY ./static ./static
 COPY ./src ./src
+ARG pkg_version
+RUN sed -i "s/VERSION = .*/VERSION = \"${pkg_version}\"/" src/avalanchemq/version.cr
 ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
