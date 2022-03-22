@@ -157,7 +157,7 @@ module AvalancheMQ
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
           @federated_q.register_observer(self)
           consumer_available if @federated_q.immediate_delivery?
-          log = Log.for "QueueLink{vhost:#{@upstream.vhost.name} upstream:#{@upstream.name} " \
+          log = Log.for "QueueLink{vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
                         "link=#{@federated_q.name}}"
           super(@upstream, log)
         end
@@ -247,7 +247,7 @@ module AvalancheMQ
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
-          log = Log.for "ExchangeLink{vhost:#{@upstream.vhost.name} upstream:#{@upstream.name} " \
+          log = Log.for "ExchangeLink{vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
                         "link=#{@federated_ex.name}}"
           super(@upstream, log)
         end

@@ -37,7 +37,7 @@ module AvalancheMQ
                      consumer_tag = nil)
         @consumer_tag = "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
-        @log = Log.for "upstream{vhost:#{@vhost.name} name:#{@name}}"
+        @log = Log.for "upstream{vhost=#{@vhost.name} name=#{@name}}"
       end
 
       # delete x-federation-upstream exchange on upstream
