@@ -37,7 +37,7 @@ module AvalancheMQ
                      consumer_tag = nil)
         @consumer_tag = "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
-        @log = @vhost.log.for "upstream=#{@name}"
+        @log = Log.for "upstream{vhost:#{@vhost.name} name:#{@name}}"
       end
 
       # delete x-federation-upstream exchange on upstream
@@ -68,7 +68,7 @@ module AvalancheMQ
         end
         upstream_exchange = @exchange ||= federated_exchange.name
         upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
-        link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange, @log)
+        link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
         @ex_links[federated_exchange.name] = link
         link.run
         link
@@ -82,7 +82,7 @@ module AvalancheMQ
           return link
         end
         upstream_q = @queue ||= federated_q.name
-        link = QueueLink.new(self, federated_q, upstream_q, @log)
+        link = QueueLink.new(self, federated_q, upstream_q)
         @q_links[federated_q.name] = link
         link.run
         link

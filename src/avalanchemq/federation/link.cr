@@ -154,11 +154,12 @@ module AvalancheMQ
         @consumer_available = Channel(Nil).new(1)
         EXCHANGE = ""
 
-        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String, @log : Log)
+        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
           @federated_q.register_observer(self)
           consumer_available if @federated_q.immediate_delivery?
-          super(@upstream, @log)
-          @log = @log.for "link=#{@federated_q.name}"
+          log = Log.for "QueueLink{vhost:#{@upstream.vhost.name} upstream:#{@upstream.name} " \
+                        "link=#{@federated_q.name}}"
+          super(@upstream, log)
         end
 
         def name : String
@@ -245,9 +246,10 @@ module AvalancheMQ
         @consumer_q : ::AMQP::Client::Queue?
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
-                       @upstream_exchange : String, @log : Log)
-          super(@upstream, @log)
-          @log = @log.for "link=#{@federated_ex.name}"
+                       @upstream_exchange : String)
+          log = Log.for "ExchangeLink{vhost:#{@upstream.vhost.name} upstream:#{@upstream.name} " \
+                        "link=#{@federated_ex.name}}"
+          super(@upstream, log)
         end
 
         def name : String

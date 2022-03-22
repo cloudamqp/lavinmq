@@ -4,10 +4,8 @@ require "./parameter"
 module AvalancheMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
-    @log : Log
 
-    def initialize(@data_dir : String, @file_name : String, log : Log)
-      @log = log.for "params"
+    def initialize(@data_dir : String, @file_name : String, @log : Log)
       @parameters = Hash(ParameterId?, T).new
       load!
     end

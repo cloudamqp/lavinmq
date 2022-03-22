@@ -20,7 +20,7 @@ module AvalancheMQ
 
     class Server
       def initialize(@amqp_server : AvalancheMQ::Server)
-        @log = Log.for "httpserver"
+        @log = Log.for "http"
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
@@ -45,7 +45,7 @@ module AvalancheMQ
           NodesController.new(@amqp_server, @log).route_handler,
           PrometheusController.new(@amqp_server, @log).route_handler,
         ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new) if @log.level == Log::Severity::Debug
+        handlers.unshift(::HTTP::LogHandler.new(@log)) if @log.level == Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
       end
 

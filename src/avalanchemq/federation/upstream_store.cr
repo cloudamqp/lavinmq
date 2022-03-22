@@ -9,7 +9,7 @@ module AvalancheMQ
       @log : Log
 
       def initialize(@vhost : VHost)
-        @log = @vhost.log.for "upstreamstore"
+        @log = Log.for "UpstreamStore{vhost:#{@vhost}}"
       end
 
       def each

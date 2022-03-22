@@ -25,11 +25,12 @@ module AvalancheMQ
     getter auth_mechanism : String
     getter client_properties : AMQP::Table
     getter direct_reply_consumer_tag : String?
-    getter log : Log
+    # getter log : Log
+    getter remote_address : Socket::IPAddress
 
     @connected_at : Int64
     @heartbeat_interval : Time::Span?
-    @remote_address : Socket::IPAddress
+    # @remote_address : Socket::IPAddress
     @local_address : Socket::IPAddress
     @running = true
     @last_recv_frame = RoughTime.utc
@@ -54,11 +55,10 @@ module AvalancheMQ
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
       @client_properties = start_ok.client_properties
-      progname = "client=#{@remote_address}"
-      if connection_name = @client_properties["connection_name"]?.try(&.as?(String))
-        progname += " (#{connection_name})"
-      end
-      @log = vhost.log.for progname
+      connection_name = if name = @client_properties["connection_name"]?.try(&.as?(String))
+                          "name:#{name}"
+                        end
+      @log = Log.for "client{vhost:#{@vhost.name} client:#{@remote_address} #{connection_name}}"
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new

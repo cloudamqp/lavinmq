@@ -16,7 +16,6 @@ module AvalancheMQ
       string " "
       source(after: " ")
       message
-      data(before: " -- ")
       exception
     end
   end

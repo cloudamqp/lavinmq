@@ -37,7 +37,7 @@ module AvalancheMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
-      @log = Log.for "vhost=#{@vhost.name} exchange=#{@name}"
+      @log = Log.for "exchange{vhost:#{@vhost.name} name=#{@name}}"
       handle_arguments
     end
 
