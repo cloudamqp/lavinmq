@@ -1,10 +1,8 @@
 module AvalancheMQ
   struct JournalLogFormat < Log::StaticFormatter
     def run
-      source
-      string ": "
+      source(after: " ")
       message
-      data
       exception
     end
   end
