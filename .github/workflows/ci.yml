@@ -68,7 +68,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y make libsystemd-dev wget
+          apt-get install -y make libsystemd-dev curl
 
       - name: Checkout
         uses: actions/checkout@v2
@@ -76,7 +76,7 @@ jobs:
       - name: Build avalanchemq
         run: |
           make -j bin/avalanchemq-debug bin/avalanchemqctl DOCS=
-          rm bin/*.o
+          rm bin/*.*
 
       - name: Print build info
         run: bin/avalanchemq-debug --build-info
