@@ -58,7 +58,7 @@ module AvalancheMQ
       connection_name = if name = @client_properties["connection_name"]?.try(&.as?(String))
                           " name=#{name}"
                         end
-      @log = Log.for "client{vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}}"
+      @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
       @connected_at = Time.utc.to_unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new

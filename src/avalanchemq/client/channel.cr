@@ -40,7 +40,7 @@ module AvalancheMQ
       property deliver_count, redeliver_count
 
       def initialize(@client : Client, @id : UInt16, @events : Server::Event)
-        @log = Log.for "channel{client=#{@client.remote_address} id=#{@id}}"
+        @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @events.send(EventType::ChannelCreated)
         @next_msg_body_tmp = IO::Memory.new
