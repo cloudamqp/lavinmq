@@ -64,7 +64,7 @@ module AvalancheMQ
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
       @events.send(EventType::ConnectionCreated)
-      @log.info { "Connection (#{@name}) established for user=#{@user.name}" }
+      @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -172,7 +172,7 @@ module AvalancheMQ
     ensure
       cleanup
       close_socket
-      @log.info { "Connection (#{@name}) disconnected for user=#{@user.name} " }
+      @log.info { "Connection disconnected for user=#{@user.name}" }
     end
 
     private def frame_size_ok?(frame) : Bool
