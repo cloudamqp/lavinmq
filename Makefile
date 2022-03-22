@@ -2,12 +2,7 @@ BINS := bin/avalanchemq bin/avalanchemqctl bin/avalanchemqperf bin/avalanchemq-d
 SOURCES := $(shell find src/avalanchemq src/stdlib -name '*.cr')
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
-CRYSTAL_FLAGS := --cross-compile $(if $(target),--target $(target))
-LDFLAGS := -rdynamic
-LDFLAGS += $(if $(shell crystal version),-L$(shell crystal env CRYSTAL_LIBRARY_PATH))
-LDLIBS := -lz -lpcre -lm -lgc -lpthread -levent -ldl
-LDLIBS += $(if $(shell pkg-config --version),$(shell pkg-config --libs libssl libcrypto),-lssl -lcrypto)
-LDLIBS += $(if $(findstring Linux,$(shell uname)),,-liconv)
+override CRYSTAL_FLAGS += --cross-compile $(if $(target),--target $(target))
 
 .PHONY: all
 all: $(BINS)
@@ -15,16 +10,16 @@ all: $(BINS)
 .PHONY: objects
 objects: $(BINS:=.o)
 
-bin/%-debug.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(@:.o=) --debug -Dbake_static $(CRYSTAL_FLAGS) > /dev/null
+bin/%-debug.o bin/%-debug.sh: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $(basename $@) --debug -Dbake_static $(CRYSTAL_FLAGS) > $(basename $@).sh
 
-bin/%.o: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(@:.o=) --release --no-debug $(CRYSTAL_FLAGS) > /dev/null
+bin/%.o bin/%.sh: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $(basename $@) --release --no-debug $(CRYSTAL_FLAGS) > $(basename $@).sh
 
-bin/%: bin/%.o
-	$(CC) $(LDFLAGS) $< $(LDLIBS) -o $@
+bin/%: bin/%.sh bin/%.o
+	$(file < $<)
 
-lib: shard.yml
+lib: shard.yml shard.lock
 	shards install --production
 
 bin static/js/lib:
