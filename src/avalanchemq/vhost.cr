@@ -43,9 +43,7 @@ module AvalancheMQ
 
     def initialize(@name : String, @server_data_dir : String,
                    @default_user : User, @events : Server::Event)
-      # @log = Log.for "vhost=#{@name}"
       @log = Log.for "vhost{name=#{@name}}"
-      # @log.context = Log::Metadata.build({name: @name})
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
