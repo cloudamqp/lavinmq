@@ -863,14 +863,14 @@ module AvalancheMQ
     end
 
     def purge(max_count : Int? = nil, trigger_gc = true) : UInt32
-      @log.info { "Purging" }
+      @log.info { "Purging at most #{max_count || "all"} messages" }
       delete_count = 0_u32
       if max_count.nil? || max_count >= @ready.size
         delete_count += @ready.purge
       else
         max_count.times { @ready.shift? && (delete_count += 1) }
       end
-      @log.debug { "Purged #{delete_count} messages" }
+      @log.info { "Purged #{delete_count} messages" }
       @vhost.trigger_gc! if trigger_gc
       delete_count
     end
