@@ -436,7 +436,7 @@ class ConnectionCount < Perf
           ch = c.channel
           @consumers.times do |k|
             ch.queue_declare @queue if i == j == k == 0
-            # Send raw basic_consume frame no wait, no fiber for consuming
+            # Send raw frame, no wait, no fiber
             c.write BasicConsumeFrame.new(ch.id, 0_u16, @queue, "", false, true, false, true, AMQP::Client::Arguments.new)
           end
         end
