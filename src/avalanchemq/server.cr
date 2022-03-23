@@ -300,7 +300,8 @@ module AvalancheMQ
             cgroup_memory_current = File.open(cgroup_memory_current_path).tap &.read_buffering = false
           end
         end
-      elsif File.exists?("/proc/self/statm")
+      end
+      if cgroup_memory_current.nil? && File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
       loop do
