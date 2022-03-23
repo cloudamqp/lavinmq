@@ -403,6 +403,60 @@ class ConsumerChurn < Perf
   end
 end
 
+class ConnectionCount < Perf
+  @connections = 100
+  @channels = 1
+  @consumers = 0
+  @queue = "connection-count"
+
+  def initialize
+    super
+    @parser.on("-x count", "--count=number", "Number of connections (default 100)") do |v|
+      @connections = v.to_i
+    end
+    @parser.on("-c channels", "--channels=number", "Number of channels per connection (default 1)") do |v|
+      @channels = v.to_i
+    end
+    @parser.on("-C consumers", "--consumers=number", "Number of consumers per channel (default 0)") do |v|
+      @consumers = v.to_i
+    end
+    @parser.on("-u queue", "--queue=name", "Queue name (default #{@queue})") do |v|
+      @queue = v
+    end
+  end
+
+  def run
+    super
+    count = 0
+    loop do
+      @connections.times do |i|
+        c = AMQP::Client.new(@uri).connect
+        @channels.times do |j|
+          ch = c.channel
+          @consumers.times do |k|
+            ch.queue_declare @queue if i == j == k == 0
+            ch.basic_consume(@queue) { }
+          end
+        end
+        print '.'
+        puts i + 1 if (i + 1) % 100 == 0
+        c
+      end
+      puts
+      print "#{count += @connections} connections "
+      print "#{count * @channels} channels "
+      print "#{count * @channels * @consumers} consumers. "
+      puts "Using #{rss.humanize_bytes} memory."
+      puts "Press any key to do add #{@connections} connections (or ctrl-c to abort)"
+      gets
+    end
+  end
+
+  def rss
+    (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+  end
+end
+
 {% unless flag?(:release) %}
   STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"
 {% end %}
@@ -415,6 +469,7 @@ when "queue-churn"      then QueueChurn.new.run
 when "connection-churn" then ConnectionChurn.new.run
 when "channel-churn"    then ChannelChurn.new.run
 when "consumer-churn"   then ConsumerChurn.new.run
+when "connection-count" then ConnectionCount.new.run
 when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
 end
