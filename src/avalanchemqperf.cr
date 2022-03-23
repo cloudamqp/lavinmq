@@ -404,6 +404,7 @@ class ConsumerChurn < Perf
 end
 
 class ConnectionCount < Perf
+  alias BasicConsumeFrame = AMQP::Client::Frame::Basic::Consume
   @connections = 100
   @channels = 1
   @consumers = 0
@@ -435,7 +436,8 @@ class ConnectionCount < Perf
           ch = c.channel
           @consumers.times do |k|
             ch.queue_declare @queue if i == j == k == 0
-            ch.basic_consume(@queue) { }
+            # Send raw basic_consume frame no wait, no fiber for consuming
+            c.write BasicConsumeFrame.new(ch.id, 0_u16, @queue, "", false, true, false, true, AMQP::Client::Arguments.new)
           end
         end
         print '.'
