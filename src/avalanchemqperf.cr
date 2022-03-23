@@ -17,7 +17,7 @@ class Perf
     @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
-    @parser.on("--uri=URI", "URI to connect to (default amqp://guest:guest@localhost)") do |v|
+    @parser.on("--uri=URI", "URI to connect to (default #{@uri})") do |v|
       @uri = v
     end
   end
@@ -409,6 +409,7 @@ class ConnectionCount < Perf
   @channels = 1
   @consumers = 0
   @queue = "connection-count"
+  @localhost = false
 
   def initialize
     super
@@ -424,6 +425,10 @@ class ConnectionCount < Perf
     @parser.on("-u queue", "--queue=name", "Queue name (default #{@queue})") do |v|
       @queue = v
     end
+    @parser.on("-l", "--localhost", "Connect to localhost 127.0.0.0/16 guest/guest, for large number of local connections") do
+      @localhost = true
+    end
+    @client = AMQP::Client.new(@uri)
   end
 
   def run
@@ -431,7 +436,7 @@ class ConnectionCount < Perf
     count = 0
     loop do
       @connections.times do |i|
-        c = AMQP::Client.new(@uri).connect
+        c = client.connect
         @channels.times do |j|
           ch = c.channel
           @consumers.times do |k|
@@ -454,7 +459,15 @@ class ConnectionCount < Perf
     end
   end
 
-  def rss
+  private def client
+    if @localhost
+      AMQP::Client.new(host: "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}")
+    else
+      @client
+    end
+  end
+
+  private def rss
     (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
   end
 end
