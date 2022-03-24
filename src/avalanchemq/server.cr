@@ -276,8 +276,12 @@ module AvalancheMQ
       update_rates()
     end
 
+    ASCII_SPACE = ' '.ord.to_u8
+    PAGE_SIZE   = LibC.getpagesize
+
     private def stats_loop
       statm = File.open("/proc/self/statm") if File.exists?("/proc/self/statm")
+      statm_bytes = Bytes.new(128)
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
@@ -309,12 +313,12 @@ module AvalancheMQ
         rss = 0i64
         if statm
           statm.rewind
-          output = statm.gets_to_end
-          if idx = output.index(' ')
+          statm.read(statm_bytes)
+          if idx = statm_bytes.index(ASCII_SPACE, offset: 1)
             idx += 1
-            if idx2 = output[idx..].index(' ')
-              idx2 += idx - 1
-              rss = output[idx..idx2].to_i64 * LibC.getpagesize
+            if idx2 = statm_bytes.index(ASCII_SPACE, offset: idx)
+              idx2 -= 1
+              rss = String.new(statm_bytes[idx..idx2]).to_i64 * PAGE_SIZE
             end
           end
         else
