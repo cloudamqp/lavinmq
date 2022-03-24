@@ -34,11 +34,13 @@ module AvalancheMQ
         value[:name]? || value["name"]?
       end
 
+      MAX_PAGE_SIZE = 10_000
+
       private def page(context, iterator : Iterator(SortableJSON))
         params = query_params(context)
         page = params["page"]?.try(&.to_i) || 1
         page_size = params["page_size"]?.try(&.to_i) || 100
-        if page_size > 10_000
+        if page_size > MAX_PAGE_SIZE
           context.response.status_code = 413
           {error: "payload_too_large", reason: "Max allowed page_size 10000"}.to_json(context.response)
           return context
@@ -61,6 +63,15 @@ module AvalancheMQ
           end
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
+        end
+        unless params.has_key?("page")
+          JSON.build(context.response) do |json|
+            items, total = array_iterator_to_json(json, all_items, 0, MAX_PAGE_SIZE)
+            if total > MAX_PAGE_SIZE
+              @log.warn { "Result set truncated: #{items}/#{total}" }
+            end
+          end
+          return context
         end
         JSON.build(context.response) do |json|
           json.object do
