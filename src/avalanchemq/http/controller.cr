@@ -36,6 +36,13 @@ module AvalancheMQ
 
       private def page(context, iterator : Iterator(SortableJSON))
         params = query_params(context)
+        page = params["page"]?.try(&.to_i) || 1
+        page_size = params["page_size"]?.try(&.to_i) || 100
+        if page_size > 10_000
+          context.response.status_code = 413
+          {error: "payload_too_large", reason: "Max allowed page_size 10000"}.to_json(context.response)
+          return context
+        end
         all_items = filter_values(params, iterator.map(&.details_tuple))
         if sort_by = params.fetch("sort", nil)
           sorted_items = all_items.to_a
@@ -55,18 +62,10 @@ module AvalancheMQ
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
-        unless params.has_key?("page")
-          JSON.build(context.response) do |json|
-            array_iterator_to_json(json, all_items, 0, nil)
-          end
-          return context
-        end
-        page = params["page"].to_i
-        page_size = params["page_size"]?.try(&.to_i) || 100
-        start = (page - 1) * page_size
         JSON.build(context.response) do |json|
           json.object do
             item_count, total_count = json.field("items") do
+              start = (page - 1) * page_size
               array_iterator_to_json(json, all_items, start, page_size)
             end
             filtered_count ||= total_count
@@ -81,15 +80,13 @@ module AvalancheMQ
         context
       end
 
-      private def array_iterator_to_json(json, iterator, start, page_size)
+      private def array_iterator_to_json(json, iterator, start : Int, page_size : Int)
         size = 0
         total = 0
         json.array do
           iterator.each_with_index do |o, i|
-            raise Server::PayloadTooLarge.new if i > 10000
             total += 1
-            next if i < start
-            next unless page_size.nil? || i < start + page_size
+            next if i < start || start + page_size < i
             o.to_json(json)
             size += 1
           end
