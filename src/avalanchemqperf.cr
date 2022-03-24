@@ -435,6 +435,7 @@ class ConnectionCount < Perf
     super
     count = 0
     loop do
+      start = Time.monotonic
       @connections.times do |i|
         c = client.connect
         @channels.times do |j|
@@ -446,8 +447,12 @@ class ConnectionCount < Perf
           end
         end
         print '.'
-        puts i + 1 if (i + 1) % 100 == 0
-        c
+        if (i + 1) % 100 == 0
+          print i + 1
+          stop = Time.monotonic
+          puts " #{(stop - start).total_milliseconds.round}ms"
+          start = stop
+        end
       end
       puts
       print "#{count += @connections} connections "
