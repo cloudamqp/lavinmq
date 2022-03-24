@@ -460,6 +460,8 @@ class ConnectionCount < Perf
           puts " #{(stop - start).total_milliseconds.round}ms"
           start = stop
         end
+      rescue ex : AMQP::Client::Error
+        puts nil, ex.message
       end
       puts
       print "#{count += @connections} connections "
