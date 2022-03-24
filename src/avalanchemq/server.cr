@@ -281,7 +281,7 @@ module AvalancheMQ
 
     private def stats_loop
       statm = File.open("/proc/self/statm") if File.exists?("/proc/self/statm")
-      statm_bytes = Bytes.new(128)
+      statm_bytes = Bytes.new(32)
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
