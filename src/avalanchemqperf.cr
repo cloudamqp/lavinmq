@@ -429,6 +429,7 @@ class ConnectionCount < Perf
       @localhost = true
     end
     @client = AMQP::Client.new(@uri)
+    maximize_fd_limit
   end
 
   def run
@@ -474,6 +475,13 @@ class ConnectionCount < Perf
 
   private def rss
     (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+  end
+
+  private def maximize_fd_limit
+    _, fd_limit_max = System.file_descriptor_limit
+    System.file_descriptor_limit = fd_limit_max
+    fd_limit_current, _ = System.file_descriptor_limit
+    puts "FD limit: #{fd_limit_current}"
   end
 end
 
