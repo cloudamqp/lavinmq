@@ -410,6 +410,7 @@ class ConnectionCount < Perf
   @consumers = 0
   @queue = "connection-count"
   @localhost = false
+  @keepalive = {idle: 60, count: 3, interval: 10}
 
   def initialize
     super
@@ -428,7 +429,12 @@ class ConnectionCount < Perf
     @parser.on("-l", "--localhost", "Connect to localhost 127.0.0.0/16 guest/guest, for large number of local connections") do
       @localhost = true
     end
-    @client = AMQP::Client.new(@uri)
+    @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive IDLE:COUNT:INTERVAL",
+      "TCP keepalive values (default #{@keepalive})") do |v|
+      vals = v.split(':', 3).map &.to_i
+      @keepalive = {idle: vals[0], count: vals[1], interval: vals[2]}
+    end
+    @client = AMQP::Client.new(@uri, tcp_keepalive: @keepalive)
     maximize_fd_limit
   end
 
@@ -467,7 +473,8 @@ class ConnectionCount < Perf
 
   private def client
     if @localhost
-      AMQP::Client.new(host: "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}")
+      AMQP::Client.new(host: "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}",
+        tcp_keepalive: @keepalive)
     else
       @client
     end
