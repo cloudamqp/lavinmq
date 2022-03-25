@@ -217,8 +217,7 @@
           const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange
           msgNode.querySelector('.message-exchange').textContent = exchange
           msgNode.querySelector('.message-routing-key').textContent = message.routing_key
-          const mode = message.redelivered ? 'redelivered' : 'get'
-          msgNode.querySelector('.message-mode').textContent = mode
+          msgNode.querySelector('.message-redelivered').textContent = message.redelivered
           msgNode.querySelector('.message-properties').textContent = JSON.stringify(message.properties)
           msgNode.querySelector('.message-size').textContent = message.payload_bytes
           msgNode.querySelector('.message-encoding').textContent = message.payload_encoding
