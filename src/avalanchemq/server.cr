@@ -277,6 +277,7 @@ module AvalancheMQ
     end
 
     private def stats_loop
+      # cgroup v2
       if File.exists?("/proc/self/cgroup")
         if cgroup = File.read("/proc/self/cgroup").chomp.split("::", 2)[1]?
           cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
@@ -289,6 +290,14 @@ module AvalancheMQ
           end
         end
       end
+      # cgroup v1
+      if cgroup_memory_max.nil? && File.exists? "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+        cgroup_memory_max = File.open("/sys/fs/cgroup/memory/memory.limit_in_bytes").tap &.read_buffering = false
+      end
+      if cgroup_memory_current.nil? && File.exists? "/sys/fs/cgroup/memory/memory.usage_in_bytes"
+        cgroup_memory_current = File.open("/sys/fs/cgroup/memory/memory.usage_in_bytes").tap &.read_buffering = false
+      end
+      # general linux
       if cgroup_memory_current.nil? && File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
@@ -331,7 +340,7 @@ module AvalancheMQ
 
         mem_limit = if cgroup_memory_max
                       cgroup_memory_max.rewind
-                      cgroup_memory_max.gets_to_end.to_i64?
+                      cgroup_memory_max.gets_to_end.to_i64? # might be 'max'
                     end
         mem_limit ||= System.physical_memory.to_i64
         @mem_limit = mem_limit
