@@ -8,15 +8,12 @@ module AvalancheMQ
       def initialize(@log : Logger)
       end
 
-      def call(context) # ameba:disable Metrics/CyclomaticComplexity
+      def call(context)
         call_next(context)
       rescue ex : Server::UnknownContentType
         context.response.content_type = "text/plain"
         context.response.status_code = 415
         context.response.print ex.message
-      rescue ex : Server::PayloadTooLarge
-        context.response.status_code = 413
-        {error: "payload_too_large", reason: "Result set too large, use pagination"}.to_json(context.response)
       rescue ex : Server::NotFoundError
         @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
         not_found(context, ex.message)

@@ -93,8 +93,6 @@ module AvalancheMQ
         @http.closed?
       end
 
-      class PayloadTooLarge < Exception; end
-
       class NotFoundError < Exception; end
 
       class ExpectedBodyError < ArgumentError; end
