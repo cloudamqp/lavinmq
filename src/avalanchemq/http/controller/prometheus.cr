@@ -105,7 +105,7 @@ module AvalancheMQ
                       help:  "Duration for metrics collection in seconds"})
         writer.write({name:  "scrape_mem",
                       value: mem,
-                      help:  "Memory used for metrics collections in Kb"})
+                      help:  "Memory used for metrics collections in bytes"})
       end
 
       private def overview_broker_metrics(writer)
@@ -173,8 +173,10 @@ module AvalancheMQ
           connections += vhost.connections.size
           vhost.connections.each do |conn|
             channels += conn.channels.size
+            conn.channels.each_value do |ch|
+              consumers += ch.consumers.size
+            end
           end
-          consumers += vhost.consumers.size
           queues += vhost.queues.size
         end
         writer.write({name:  "connections",

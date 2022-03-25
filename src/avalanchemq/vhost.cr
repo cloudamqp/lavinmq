@@ -510,10 +510,6 @@ module AvalancheMQ
       FileUtils.rm_rf @data_dir
     end
 
-    def consumers
-      @connections.flat_map { |conn| conn.channels.each_value.flat_map &.consumers }
-    end
-
     def trigger_gc!
       return if @closed
       @dirty = true
