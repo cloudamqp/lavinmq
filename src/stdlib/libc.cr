@@ -64,7 +64,7 @@ lib LibC
 end
 
 lib LibC
-  {% if flag?(:linux) && flag?(:gnu) && compare_versions(`ldd --version |  awk 'NR==1{ print $NF }'`.chomp + ".0", "2.27.0") >= 0 %}
+  {% if flag?(:linux) %}
     fun copy_file_range(fd_in : Int, offset_in : OffT*, fd_out : Int, offset_out : OffT*, len : SizeT, flags : UInt) : Int
   {% end %}
 end
