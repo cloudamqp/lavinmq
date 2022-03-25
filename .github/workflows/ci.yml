@@ -4,6 +4,8 @@ on:
     paths:
       - 'src/**'
       - 'spec/**'
+      - 'shard.*'
+      - 'static/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/openapi.yaml'
