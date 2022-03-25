@@ -37,7 +37,7 @@ module AvalancheMQ
     def initialize(@data_dir : String, @log : Logger)
       @log.progname = "amqpserver"
       Dir.mkdir_p @data_dir
-      @listeners = Array(Socket::Server).new(3)
+      @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
       @users = UserStore.instance(@data_dir, @log)
       @events = Event.new(16384)
       spawn events_loop, name: "Server#events"
@@ -56,7 +56,7 @@ module AvalancheMQ
     end
 
     def listen(s : TCPServer)
-      @listeners << s
+      @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
@@ -83,7 +83,7 @@ module AvalancheMQ
     end
 
     def listen(s : UNIXServer)
-      @listeners << s
+      @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
       while client = s.accept?
         begin
@@ -118,7 +118,7 @@ module AvalancheMQ
 
     def listen_tls(bind, port, context)
       s = TCPServer.new(bind, port)
-      @listeners << s
+      @listeners[s] = :amqps
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do
         begin
@@ -162,7 +162,7 @@ module AvalancheMQ
     def close
       @closed = true
       @log.debug "Closing listeners"
-      @listeners.each &.close
+      @listeners.each_key &.close
       @log.debug "Closing vhosts"
       @vhosts.close
       @log.debug "Closing #events channel"
@@ -179,19 +179,19 @@ module AvalancheMQ
     end
 
     def listeners
-      @listeners.map do |l|
+      @listeners.map do |l, protocol|
         case l
         when UNIXServer
           addr = l.local_address
           {
             "path":     addr.path,
-            "protocol": "amqp",
+            "protocol": protocol,
           }
         when TCPServer
           addr = l.local_address
           {
             "ip_address": addr.address,
-            "protocol":   "amqp",
+            "protocol":   protocol,
             "port":       addr.port,
           }
         else raise "Unexpected listener '#{l.class}'"
