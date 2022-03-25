@@ -35,7 +35,7 @@ dependencies:
   systemd:
     github: 84codes/systemd.cr
   logger:
-    github: crystal-lang/logger.cr
+    github: 84codes/logger.cr
 
 development_dependencies:
   ameba:

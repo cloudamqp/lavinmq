@@ -159,7 +159,7 @@ module AvalancheMQ
                       type:  "gauge",
                       help:  "Open file descriptors limit"})
         writer.write({name:  "resident_memory_limit_bytes",
-                      value: System.physical_memory,
+                      value: @amqp_server.mem_limit,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
       end

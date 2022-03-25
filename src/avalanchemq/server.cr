@@ -277,7 +277,30 @@ module AvalancheMQ
     end
 
     private def stats_loop
-      statm = File.open("/proc/self/statm") if File.exists?("/proc/self/statm")
+      # cgroup v2
+      if File.exists?("/proc/self/cgroup")
+        if cgroup = File.read("/proc/self/cgroup").chomp.split("::", 2)[1]?
+          cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
+          if File.exists?(cgroup_memory_max_path)
+            cgroup_memory_max = File.open(cgroup_memory_max_path).tap &.read_buffering = false
+          end
+          cgroup_memory_current_path = "/sys/fs/cgroup#{cgroup}/memory.current"
+          if File.exists?(cgroup_memory_current_path)
+            cgroup_memory_current = File.open(cgroup_memory_current_path).tap &.read_buffering = false
+          end
+        end
+      end
+      # cgroup v1
+      if cgroup_memory_max.nil? && File.exists? "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+        cgroup_memory_max = File.open("/sys/fs/cgroup/memory/memory.limit_in_bytes").tap &.read_buffering = false
+      end
+      if cgroup_memory_current.nil? && File.exists? "/sys/fs/cgroup/memory/memory.usage_in_bytes"
+        cgroup_memory_current = File.open("/sys/fs/cgroup/memory/memory.usage_in_bytes").tap &.read_buffering = false
+      end
+      # general linux
+      if cgroup_memory_current.nil? && File.exists?("/proc/self/statm")
+        statm = File.open("/proc/self/statm").tap &.read_buffering = false
+      end
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
@@ -306,23 +329,21 @@ module AvalancheMQ
           @rss_log.shift
         end
 
-        rss = 0i64
-        if statm
-          statm.rewind
-          output = statm.gets_to_end
-          if idx = output.index(' ')
-            idx += 1
-            if idx2 = output[idx..].index(' ')
-              idx2 += idx - 1
-              rss = output[idx..idx2].to_i64 * LibC.getpagesize
-            end
-          end
-        else
-          rss = (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
-        end
-
-        @rss_log.push rss
+        rss = if cgroup_memory_current
+                cgroup_memory_current.rewind
+                cgroup_memory_current.gets_to_end.to_i64
+              end
+        rss ||= statm_rss(statm) || (statm = nil) if statm
+        rss ||= (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
         @rss = rss
+        @rss_log.push @rss
+
+        mem_limit = if cgroup_memory_max
+                      cgroup_memory_max.rewind
+                      cgroup_memory_max.gets_to_end.to_i64? # might be 'max'
+                    end
+        mem_limit ||= System.physical_memory.to_i64
+        @mem_limit = mem_limit
 
         fs_stats = Filesystem.info(@data_dir)
         until @disk_free_log.size < log_size
@@ -345,12 +366,30 @@ module AvalancheMQ
       statm.try &.close
     end
 
+    PAGE_SIZE = LibC.getpagesize
+
+    # statm: https://man7.org/linux/man-pages/man5/proc.5.html
+    # the second number in the output is the estimated RSS in pages
+    private def statm_rss(statm) : Int64?
+      statm.rewind
+      output = statm.gets_to_end
+      if idx = output.index(' ', offset: 1)
+        idx += 1
+        if idx2 = output.index(' ', offset: idx)
+          idx2 -= 1
+          return output[idx..idx2].to_i64 * PAGE_SIZE
+        end
+      end
+      @log.warn { "Could not parse /proc/self/statm: #{output}" }
+    end
+
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
       getter {{m.id}} = 0_i64
       getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
     {% end %}
+    getter mem_limit = 0_i64
     getter rss = 0_i64
     getter rss_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_total = 0_i64

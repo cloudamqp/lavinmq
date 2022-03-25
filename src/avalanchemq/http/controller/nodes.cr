@@ -11,7 +11,7 @@ module AvalancheMQ
           fd_total:                   System.file_descriptor_limit[0],
           fd_used:                    System.file_descriptor_count,
           processors:                 System.cpu_count,
-          mem_limit:                  System.physical_memory,
+          mem_limit:                  @amqp_server.mem_limit,
           mem_used:                   @amqp_server.rss,
           mem_used_details:           {log: @amqp_server.rss_log},
           io_write_count:             @amqp_server.blocks_out,
