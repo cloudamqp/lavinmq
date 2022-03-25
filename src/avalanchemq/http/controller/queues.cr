@@ -159,7 +159,7 @@ module AvalancheMQ
             end
             body = parse_body(context)
             get_count = body["count"]?.try(&.as_i) || 1
-            ack_mode = body["ack_mode"]?.try(&.as_s) || "get"
+            ack_mode = (body["ack_mode"]? || body["ackmode"]?).try(&.as_s) || "get"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
