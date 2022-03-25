@@ -173,8 +173,10 @@ module AvalancheMQ
           connections += vhost.connections.size
           vhost.connections.each do |conn|
             channels += conn.channels.size
+            conn.channels.each_value do |ch|
+              consumers += ch.consumers.size
+            end
           end
-          consumers += vhost.consumers.size
           queues += vhost.queues.size
         end
         writer.write({name:  "connections",
