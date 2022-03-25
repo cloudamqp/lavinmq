@@ -257,7 +257,12 @@
 
   document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
     evt.preventDefault()
-    const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
+    let params = ""
+    let countElem = evt.target.querySelector("input[name='count']")
+    if(countElem && countElem.value) {
+      params = `?count=${countElem.value}`
+    }
+    const url = `/api/queues/${urlEncodedVhost}/${urlEncodedQueue}/contents${params}`
     if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
       avalanchemq.http.request('DELETE', url)
         .then(() => { avalanchemq.dom.toast('Queue purged!') })
