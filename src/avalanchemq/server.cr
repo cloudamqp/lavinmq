@@ -368,6 +368,8 @@ module AvalancheMQ
 
     PAGE_SIZE = LibC.getpagesize
 
+    # statm: https://man7.org/linux/man-pages/man5/proc.5.html
+    # the second number in the output is the estimated RSS in pages
     private def statm_rss(statm) : Int64?
       statm.rewind
       output = statm.gets_to_end
@@ -378,6 +380,7 @@ module AvalancheMQ
           return output[idx..idx2].to_i64 * PAGE_SIZE
         end
       end
+      @log.warn { "Could not parse /proc/self/statm: #{output}" }
     end
 
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
