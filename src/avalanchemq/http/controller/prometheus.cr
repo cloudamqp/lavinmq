@@ -105,7 +105,7 @@ module AvalancheMQ
                       help:  "Duration for metrics collection in seconds"})
         writer.write({name:  "scrape_mem",
                       value: mem,
-                      help:  "Memory used for metrics collections in Kb"})
+                      help:  "Memory used for metrics collections in bytes"})
       end
 
       private def overview_broker_metrics(writer)
