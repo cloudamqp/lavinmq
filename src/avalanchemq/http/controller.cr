@@ -97,7 +97,7 @@ module AvalancheMQ
         json.array do
           iterator.each_with_index do |o, i|
             total += 1
-            next if i < start || start + page_size < i
+            next if i < start || start + page_size <= i
             o.to_json(json)
             size += 1
           end
