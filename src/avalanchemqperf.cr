@@ -483,7 +483,11 @@ class ConnectionCount < Perf
   end
 
   private def rss
-    (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+    if File.exists?("/proc/self/statm")
+      File.read("/proc/self/statm").split[2].to_i * 4096
+    else
+      (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+    end
   end
 
   private def maximize_fd_limit
