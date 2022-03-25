@@ -172,7 +172,7 @@ module AvalancheMQ
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections.size
           vhost.connections.each do |conn|
-            channels += conn.channel_count
+            channels += conn.channels.size
           end
           consumers += vhost.consumers.size
           queues += vhost.queues.size

@@ -27,7 +27,6 @@ module AvalancheMQ
     getter client_properties : AMQP::Table
     getter direct_reply_consumer_tag : String?
     getter log : Logger
-    getter channel_count : UInt32 = 0
 
     @connected_at : Int64
     @heartbeat_interval : Time::Span?
@@ -96,7 +95,7 @@ module AvalancheMQ
 
     def details_tuple
       {
-        channels:          @channel_count,
+        channels:          @channels.size,
         connected_at:      @connected_at,
         type:              "network",
         channel_max:       @channel_max,
@@ -340,7 +339,6 @@ module AvalancheMQ
     private def open_channel(frame)
       @channels[frame.channel] = Client::Channel.new(self, frame.channel, @events)
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
-      @channel_count += 1
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -351,16 +349,10 @@ module AvalancheMQ
       when AMQP::Frame::Channel::Open
         open_channel(frame)
       when AMQP::Frame::Channel::Close
-        if ch = @channels.delete(frame.channel)
-          ch.close
-          send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
-          @channel_count -= 1
-        end
+        @channels.delete(frame.channel).try &.close
+        send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
       when AMQP::Frame::Channel::CloseOk
-        if ch = @channels.delete(frame.channel)
-          ch.close
-          @channel_count -= 1
-        end
+        @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow
         with_channel frame, &.client_flow(frame.active)
       when AMQP::Frame::Channel::FlowOk
@@ -429,7 +421,6 @@ module AvalancheMQ
       @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
-      @channel_count = 0
       @events.send(EventType::ConnectionClosed) unless @events.closed?
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
@@ -468,10 +459,7 @@ module AvalancheMQ
       else
         send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
       end
-      if ch = @channels.delete(frame.channel)
-        ch.close
-        @channel_count -= 1
-      end
+      @channels.delete(frame.channel).try &.close
     end
 
     def close_connection(frame, code, text)
