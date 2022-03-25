@@ -276,14 +276,16 @@ module AvalancheMQ
       update_rates()
     end
 
+    PAGE_SIZE = LibC.getpagesize
+
     private def statm_rss(statm) : Int64?
       statm.rewind
       output = statm.gets_to_end
-      if idx = output.index(' ')
+      if idx = output.index(' ', offset: 1)
         idx += 1
-        if idx2 = output[idx..].index(' ')
-          idx2 += idx - 1
-          return output[idx..idx2].to_i64 * LibC.getpagesize
+        if idx2 = output.index(' ', offset: idx)
+          idx2 -= 1
+          return output[idx..idx2].to_i64 * PAGE_SIZE
         end
       end
     end
