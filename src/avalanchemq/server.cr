@@ -239,11 +239,12 @@ module AvalancheMQ
           socket.tcp_keepalive_count = keepalive[2]
         end
       end
-      socket.tcp_nodelay = Config.instance.tcp_nodelay
+      socket.tcp_nodelay = true if Config.instance.tcp_nodelay
+      Config.instance.tcp_read_buffer_size.try { |v| socket.read_buffer_size = v }
+      Config.instance.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
       socket.buffer_size = Config.instance.socket_buffer_size
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def events_loop
       while type = @events.receive?
         case type
