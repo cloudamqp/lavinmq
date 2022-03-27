@@ -6,7 +6,7 @@ require "benchmark"
 require "json"
 
 class Perf
-  @uri = "amqp://guest:guest@localhost"
+  @uri = URI.parse "amqp://guest:guest@localhost"
   getter banner
 
   def initialize
@@ -18,7 +18,7 @@ class Perf
     @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
     @parser.on("--uri=URI", "URI to connect to (default #{@uri})") do |v|
-      @uri = v
+      @uri = URI.parse(v)
     end
   end
 
@@ -411,6 +411,7 @@ class ConnectionCount < Perf
   @queue = "connection-count"
   @localhost = false
   @keepalive = {idle: 60, count: 3, interval: 10}
+  @tls = false
 
   def initialize
     super
@@ -429,12 +430,15 @@ class ConnectionCount < Perf
     @parser.on("-l", "--localhost", "Connect to localhost 127.0.0.0/16 guest/guest, for large number of local connections") do
       @localhost = true
     end
+    @parser.on("-t", "--tls", "Reuse (unsafe) TLS context between connections in --localhost mode") do
+      @tls = OpenSSL::SSL::Context::Client.insecure
+    end
     @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive IDLE:COUNT:INTERVAL",
       "TCP keepalive values (default #{@keepalive})") do |v|
       vals = v.split(':', 3).map &.to_i
       @keepalive = {idle: vals[0], count: vals[1], interval: vals[2]}
+      @uri.query_params["tcp_keepalive"] = v
     end
-    @client = AMQP::Client.new(@uri, tcp_keepalive: @keepalive)
     maximize_fd_limit
   end
 
@@ -476,9 +480,10 @@ class ConnectionCount < Perf
   private def client
     if @localhost
       AMQP::Client.new(host: "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}",
+        tls: @tls, verify_mode: OpenSSL::SSL::VerifyMode::None, port: @tls ? 5671 : 5672,
         tcp_keepalive: @keepalive)
     else
-      @client
+      AMQP::Client.new(@uri)
     end
   end
 
