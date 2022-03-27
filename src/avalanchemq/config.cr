@@ -40,7 +40,7 @@ module AvalancheMQ
     property raise_gc_warn : Bool = false
     property data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
-    property tcp_read_buffer_size : Int32? = nil
+    property tcp_recv_buffer_size : Int32? = nil
     property tcp_send_buffer_size : Int32? = nil
     property guest_only_loopback : Bool = true
     @@instance : Config = self.new
@@ -89,7 +89,7 @@ module AvalancheMQ
         when "socket_buffer_size"   then @socket_buffer_size = v.to_i32
         when "tcp_nodelay"          then @tcp_nodelay = true?(v)
         when "tcp_keepalive"        then @tcp_keepalive = tcp_keepalive?(v)
-        when "tcp_read_buffer_size" then @tcp_read_buffer_size = v.to_i32?
+        when "tcp_recv_buffer_size" then @tcp_recv_buffer_size = v.to_i32?
         when "tcp_send_buffer_size" then @tcp_send_buffer_size = v.to_i32?
         when "tls_cert"             then @tls_cert_path = v
         when "tls_key"              then @tls_key_path = v

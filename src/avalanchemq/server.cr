@@ -240,7 +240,7 @@ module AvalancheMQ
         end
       end
       socket.tcp_nodelay = true if Config.instance.tcp_nodelay
-      Config.instance.tcp_read_buffer_size.try { |v| socket.read_buffer_size = v }
+      Config.instance.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       Config.instance.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
       socket.buffer_size = Config.instance.socket_buffer_size
     end
@@ -360,6 +360,7 @@ module AvalancheMQ
     # statm: https://man7.org/linux/man-pages/man5/proc.5.html
     # the second number in the output is the estimated RSS in pages
     private def statm_rss(statm) : Int64?
+      return unless statm
       statm.rewind
       output = statm.gets_to_end
       if idx = output.index(' ', offset: 1)
