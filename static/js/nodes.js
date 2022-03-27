@@ -62,17 +62,16 @@
     document.getElementById('tr-name').textContent = nodeStats.name
     document.getElementById('tr-uptime').textContent = avalanchemq.helpers.duration((nodeStats.uptime / 1000).toFixed(0))
     document.getElementById('tr-vcpu').textContent = nodeStats.processors
-    document.getElementById('tr-memory').textContent = (
-      nodeStats.mem_used / 10 ** 9
-    ).toFixed(2) + ' GB (' + ((nodeStats.mem_used / nodeStats.mem_limit) * 100).toFixed(2) + '%)'
-    document.getElementById('tr-cpu').textContent = (
-      ((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100
-    ).toFixed(2) + '%'
-    document.getElementById('tr-disk').textContent = (
-      (nodeStats.disk_total - nodeStats.disk_free) / 10 ** 9
-    ).toFixed(2) + ' GB (' + (
-      ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total) * 100
-    ).toFixed(2) + '%)'
+    const mem_used_gb = (nodeStats.mem_used / 1024 ** 3).toFixed(3)
+    const mem_limit_gb = (nodeStats.mem_limit / 1024 ** 3).toFixed(3)
+    const mem_pcnt = (nodeStats.mem_used / nodeStats.mem_limit * 100).toFixed(2)
+    document.getElementById('tr-memory').textContent = `${mem_used_gb}/${mem_limit_gb} GiB (${mem_pcnt}%)`
+    const cpu_pcnt = (((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100).toFixed(2)
+    document.getElementById('tr-cpu').textContent = `${cpu_pcnt}%`
+    const disk_usage_gb = ((nodeStats.disk_total - nodeStats.disk_free) / 1024 ** 3).toFixed(3)
+    const disk_total_gb = (nodeStats.disk_total / 1024 ** 3).toFixed(0)
+    const disk_pcnt = ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total * 100).toFixed(2)
+    document.getElementById('tr-disk').textContent = `${disk_usage_gb}/${disk_total_gb} GiB (${disk_pcnt}%)`
   }
 
   const stats = [
