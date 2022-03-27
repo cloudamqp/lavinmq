@@ -279,14 +279,10 @@ module AvalancheMQ
     private def stats_loop
       # cgroup v2
       if File.exists?("/proc/self/cgroup")
-        if cgroup = File.read("/proc/self/cgroup").chomp.split("::", 2)[1]?
+        if cgroup = File.read("/proc/self/cgroup")[/^0::(.*)\n/, 1]?
           cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
           if File.exists?(cgroup_memory_max_path)
             cgroup_memory_max = File.open(cgroup_memory_max_path).tap &.read_buffering = false
-          end
-          cgroup_memory_current_path = "/sys/fs/cgroup#{cgroup}/memory.current"
-          if File.exists?(cgroup_memory_current_path)
-            cgroup_memory_current = File.open(cgroup_memory_current_path).tap &.read_buffering = false
           end
         end
       end
@@ -294,11 +290,8 @@ module AvalancheMQ
       if cgroup_memory_max.nil? && File.exists? "/sys/fs/cgroup/memory/memory.limit_in_bytes"
         cgroup_memory_max = File.open("/sys/fs/cgroup/memory/memory.limit_in_bytes").tap &.read_buffering = false
       end
-      if cgroup_memory_current.nil? && File.exists? "/sys/fs/cgroup/memory/memory.usage_in_bytes"
-        cgroup_memory_current = File.open("/sys/fs/cgroup/memory/memory.usage_in_bytes").tap &.read_buffering = false
-      end
-      # general linux
-      if cgroup_memory_current.nil? && File.exists?("/proc/self/statm")
+      # statm holds rss value in linux
+      if File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
       loop do
@@ -329,12 +322,7 @@ module AvalancheMQ
           @rss_log.shift
         end
 
-        rss = if cgroup_memory_current
-                cgroup_memory_current.rewind
-                cgroup_memory_current.gets_to_end.to_i64
-              end
-        rss ||= statm_rss(statm) || (statm = nil) if statm
-        rss ||= (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+        rss = statm_rss(statm) || ps_rss
         @rss = rss
         @rss_log.push @rss
 
@@ -381,6 +369,11 @@ module AvalancheMQ
         end
       end
       @log.warn { "Could not parse /proc/self/statm: #{output}" }
+    end
+
+    # used on non linux systems
+    private def ps_rss
+      (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
     end
 
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
