@@ -489,9 +489,11 @@ class ConnectionCount < Perf
 
   private def rss
     if File.exists?("/proc/self/statm")
-      File.read("/proc/self/statm").split[1].to_i * 4096
+      File.read("/proc/self/statm").split[1].to_i64 * 4096
+    elsif ps_rss = `ps -o rss= -p $PPID`.to_i64?
+      ps_rss * 1024
     else
-      (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+      0
     end
   end
 
