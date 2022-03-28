@@ -60,9 +60,8 @@ module AvalancheMQ
       @log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
-        client.sync = false
-        client.read_buffering = true
         set_socket_options(client)
+        set_buffer_size(client)
         case Config.instance.tcp_proxy_protocol
         when 1
           spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
@@ -87,9 +86,7 @@ module AvalancheMQ
       @log.info { "Listening on #{s.local_address}" }
       while client = s.accept?
         begin
-          client.sync = false
-          client.read_buffering = true
-          client.buffer_size = Config.instance.socket_buffer_size
+          set_buffer_size(client)
           case Config.instance.unix_proxy_protocol
           when 1
             spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
@@ -120,18 +117,13 @@ module AvalancheMQ
       s = TCPServer.new(bind, port)
       @listeners[s] = :amqps
       @log.info { "Listening on #{s.local_address} (TLS)" }
-      loop do
+      while client = s.accept?
+        remote_addr = client.remote_address
         begin
-          client = s.accept? || break
-          remote_addr = client.remote_address
+          set_socket_options(client)
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
           @log.info { "Connected #{ssl_client.tls_version} #{ssl_client.cipher}" }
-          client.sync = true
-          client.read_buffering = false
-          # only do buffering on the tls socket
-          ssl_client.sync = false
-          ssl_client.read_buffering = true
-          set_socket_options(client)
+          set_buffer_size(ssl_client)
           conn_info = ConnectionInfo.new(remote_addr, client.local_address)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
@@ -242,7 +234,17 @@ module AvalancheMQ
       socket.tcp_nodelay = true if Config.instance.tcp_nodelay
       Config.instance.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       Config.instance.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
-      socket.buffer_size = Config.instance.socket_buffer_size
+    end
+
+    private def set_buffer_size(socket)
+      if Config.instance.socket_buffer_size.positive?
+        socket.buffer_size = Config.instance.socket_buffer_size
+        socket.sync = false
+        socket.read_buffering = true
+      else
+        socket.sync = true
+        socket.read_buffering = false
+      end
     end
 
     private def events_loop
