@@ -409,9 +409,7 @@ class ConnectionCount < Perf
   @channels = 1
   @consumers = 0
   @queue = "connection-count"
-  @localhost = false
-  @keepalive = {idle: 60, count: 3, interval: 10}
-  @tls = false
+  @random_localhost = false
 
   def initialize
     super
@@ -427,16 +425,10 @@ class ConnectionCount < Perf
     @parser.on("-u queue", "--queue=name", "Queue name (default #{@queue})") do |v|
       @queue = v
     end
-    @parser.on("-l", "--localhost", "Connect to localhost 127.0.0.0/16 guest/guest, for large number of local connections") do
-      @localhost = true
+    @parser.on("-l", "--localhost", "Connect to random localhost 127.0.0.0/16 address") do
+      @random_localhost = true
     end
-    @parser.on("-t", "--tls", "Reuse (unsafe) TLS context between connections in --localhost mode") do
-      @tls = OpenSSL::SSL::Context::Client.insecure
-    end
-    @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive IDLE:COUNT:INTERVAL",
-      "TCP keepalive values (default #{@keepalive})") do |v|
-      vals = v.split(':', 3).map &.to_i
-      @keepalive = {idle: vals[0], count: vals[1], interval: vals[2]}
+    @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive=IDLE:COUNT:INTERVAL", "TCP keepalive values") do |v|
       @uri.query_params["tcp_keepalive"] = v
     end
     maximize_fd_limit
@@ -472,19 +464,15 @@ class ConnectionCount < Perf
       print "#{count * @channels} channels "
       print "#{count * @channels * @consumers} consumers. "
       puts "Using #{rss.humanize_bytes} memory."
-      puts "Press any key to do add #{@connections} connections (or ctrl-c to abort)"
+      puts "Press enter to do add #{@connections} connections or ctrl-c to abort"
       gets
     end
   end
 
-  private def client
-    if @localhost
-      AMQP::Client.new(host: "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}",
-        tls: @tls, verify_mode: OpenSSL::SSL::VerifyMode::None, port: @tls ? 5671 : 5672,
-        tcp_keepalive: @keepalive)
-    else
-      AMQP::Client.new(@uri)
-    end
+  private def client : AMQP::Client
+    client = @client ||= AMQP::Client.new(@uri)
+    client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
+    client
   end
 
   private def rss
