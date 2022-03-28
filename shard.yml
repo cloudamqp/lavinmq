@@ -29,6 +29,7 @@ dependencies:
     branch: master
   amqp-client:
     github: cloudamqp/amqp-client.cr
+    branch: master
   http-protection:
     github: 84codes/http-protection
     branch: master
