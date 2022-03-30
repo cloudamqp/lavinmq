@@ -103,8 +103,18 @@ module AvalancheMQ
     end
 
     def listen_tls(bind, port, context)
-      status = Process.run PROGRAM_NAME, ["tls-proxy"].concat(ARGV), output: STDOUT, error: STDERR
-      raise "tls-proxy exited with code #{status.exit_code}"
+      proxies = System.cpu_count.times.map do
+        Process.new PROGRAM_NAME, ["tls-proxy"].concat(ARGV), output: STDOUT, error: STDERR
+      end
+      loop do
+        if proxy = proxies.find(&.terminated?)
+          proxies.each &.terminate # terminate all other proxies
+          status = proxy.wait
+          raise "tls-proxy exited with code #{status.exit_code}"
+        else
+          sleep 1
+        end
+      end
     end
 
     def listen_unix(path : String)
