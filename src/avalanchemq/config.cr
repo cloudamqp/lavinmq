@@ -1,3 +1,5 @@
+require "log"
+
 module AvalancheMQ
   class Config
     DEFAULT_LOG_LEVEL = Log::Severity::Info
