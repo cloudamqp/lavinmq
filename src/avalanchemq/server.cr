@@ -280,19 +280,6 @@ module AvalancheMQ
     end
 
     private def stats_loop
-      # cgroup v2
-      if File.exists?("/proc/self/cgroup")
-        if cgroup = File.read("/proc/self/cgroup")[/^0::(.*)\n/, 1]?
-          cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
-          if File.exists?(cgroup_memory_max_path)
-            cgroup_memory_max = File.open(cgroup_memory_max_path).tap &.read_buffering = false
-          end
-        end
-      end
-      # cgroup v1
-      if cgroup_memory_max.nil? && File.exists? "/sys/fs/cgroup/memory/memory.limit_in_bytes"
-        cgroup_memory_max = File.open("/sys/fs/cgroup/memory/memory.limit_in_bytes").tap &.read_buffering = false
-      end
       # statm holds rss value in linux
       if File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
@@ -329,12 +316,7 @@ module AvalancheMQ
         @rss = rss
         @rss_log.push @rss
 
-        mem_limit = if cgroup_memory_max
-                      cgroup_memory_max.rewind
-                      cgroup_memory_max.gets_to_end.to_i64? # might be 'max'
-                    end
-        mem_limit ||= System.physical_memory.to_i64
-        @mem_limit = mem_limit
+        @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
 
         fs_stats = Filesystem.info(@data_dir)
         until @disk_free_log.size < log_size
@@ -378,6 +360,23 @@ module AvalancheMQ
     # used on non linux systems
     private def ps_rss
       (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+    end
+
+    # Available memory might be limited by a cgroup
+    private def cgroup_memory_max : Int64?
+      # cgroup v2
+      if File.exists?("/proc/self/cgroup")
+        if cgroup = File.read("/proc/self/cgroup")[/^0::(.*)\n/, 1]?
+          cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
+          if File.exists?(cgroup_memory_max_path)
+            return File.read(cgroup_memory_max_path).to_i64?
+          end
+        end
+      end
+      # cgroup v1
+      if File.exists? "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+        return File.read("/sys/fs/cgroup/memory/memory.limit_in_bytes").to_i64?
+      end
     end
 
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
