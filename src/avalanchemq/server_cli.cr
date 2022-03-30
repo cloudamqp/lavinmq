@@ -7,7 +7,7 @@ module AvalancheMQ
     getter parser
 
     def initialize(@config : Config)
-      @parser = OptionParser.parse do |parser|
+      @parser = OptionParser.new do |parser|
         parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
         parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| config.config_file = v }
         parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| config.data_dir = v }
@@ -61,9 +61,9 @@ module AvalancheMQ
     end
 
     def parse
-      @parser.parse # only parse args to get config_file
+      @parser.parse(ARGV.clone) # only parse args to get config_file
       @config.parse(@config.config_file) unless @config.config_file.empty?
-      @parser.parse # then override any config_file parameters with the cmd line args
+      @parser.parse(ARGV.clone) # then override any config_file parameters with the cmd line args
       if @config.data_dir.empty?
         STDERR.puts "No data directory specified"
         STDERR.puts @parser

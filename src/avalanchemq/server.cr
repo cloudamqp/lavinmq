@@ -103,12 +103,7 @@ module AvalancheMQ
     end
 
     def listen_tls(bind, port, context)
-      dir = ENV.fetch("XDG_RUNTIME_DIR", File.tempdir)
-      unix_path = "#{dir}/avalanchemq_tls_#{port}.sock"
-      spawn listen_unix(unix_path)
-      Fiber.yield
-      args = ["--bind", bind, "--port", port, "--target", unix_path]
-      status = Process.new "tls-proxy", args, output: STDOUT, error: STDERR
+      status = Process.run PROGRAM_NAME, ["tls-proxy"].concat(ARGV), output: STDOUT, error: STDERR
       raise "tls-proxy exited with code #{status.exit_code}"
     end
 
