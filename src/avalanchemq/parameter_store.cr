@@ -5,7 +5,7 @@ module AvalancheMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 
-    def initialize(@data_dir : String, @file_name : String, @log : Logger)
+    def initialize(@data_dir : String, @file_name : String, @log : Log)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
@@ -63,7 +63,7 @@ module AvalancheMQ
     end
 
     def save!
-      @log.debug "Saving #{@file_name}"
+      @log.debug { "Saving #{@file_name}" }
       tmpfile = File.join(@data_dir, "#{@file_name}.tmp")
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
       File.rename tmpfile, File.join(@data_dir, @file_name)
@@ -75,10 +75,10 @@ module AvalancheMQ
         File.open(file, "r") do |f|
           Array(T).from_json(f).each { |p| create(p, save: false) }
         rescue JSON::ParseException
-          @log.warn("#{@file_name} is not vaild json")
+          @log.warn { "#{@file_name} is not vaild json" }
         end
       end
-      @log.debug("#{size} items loaded from #{@file_name}")
+      @log.debug { "#{size} items loaded from #{@file_name}" }
     end
   end
 end

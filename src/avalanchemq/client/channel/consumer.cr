@@ -1,4 +1,3 @@
-require "logger"
 require "../../sortable_json"
 
 module AvalancheMQ
@@ -9,13 +8,12 @@ module AvalancheMQ
 
         getter no_ack, queue, unacked, tag, exclusive, channel, priority
 
-        @log : Logger
+        @log : Log
         @unacked = 0_u32
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
-          @log = @channel.log.dup
-          @log.progname += " consumer=#{@tag}"
+          @log = @channel.log.for "consumer=#{@tag}"
         end
 
         def name

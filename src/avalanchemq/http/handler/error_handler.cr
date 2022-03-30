@@ -5,7 +5,7 @@ module AvalancheMQ
     class ApiErrorHandler
       include ::HTTP::Handler
 
-      def initialize(@log : Logger)
+      def initialize(@log : Log)
       end
 
       def call(context)
@@ -18,8 +18,8 @@ module AvalancheMQ
         @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
         not_found(context, ex.message)
       rescue ex : JSON::Error | Server::ExpectedBodyError | ArgumentError | TypeCastError
-        error = @log.level == Logger::DEBUG ? ex.inspect_with_backtrace : "\"#{ex.message}\""
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}"
+        error = @log.level == Log::Severity::Debug ? ex.inspect_with_backtrace : "\"#{ex.message}\""
+        @log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}" }
         context.response.status_code = 400
         message = ex.message.to_s.split(", at /").first || "Unknown error"
         {error: "bad_request", reason: "#{message}"}.to_json(context.response)
@@ -30,7 +30,7 @@ module AvalancheMQ
       rescue ex : IO::Error
         @log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.message}\"" }
       rescue ex : Exception
-        @log.error "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}"
+        @log.error { "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 500
         {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response)
       end

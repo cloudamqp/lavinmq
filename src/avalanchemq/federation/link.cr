@@ -18,7 +18,7 @@ module AvalancheMQ
         @upstream_connection : ::AMQP::Client::Connection?
         @downstream_connection : ::AMQP::Client::Connection?
 
-        def initialize(@upstream : Upstream, @log : Logger)
+        def initialize(@upstream : Upstream, @log : Log)
           user = UserStore.instance.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
           port = Config.instance.amqp_port
@@ -154,11 +154,12 @@ module AvalancheMQ
         @consumer_available = Channel(Nil).new(1)
         EXCHANGE = ""
 
-        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String, @log : Logger)
-          @log.progname += " link=#{@federated_q.name}"
+        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
           @federated_q.register_observer(self)
           consumer_available if @federated_q.immediate_delivery?
-          super(@upstream, @log)
+          log = Log.for "QueueLink[vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
+                        "link=#{@federated_q.name}]"
+          super(@upstream, log)
         end
 
         def name : String
@@ -245,9 +246,10 @@ module AvalancheMQ
         @consumer_q : ::AMQP::Client::Queue?
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
-                       @upstream_exchange : String, @log : Logger)
-          @log.progname += " link=#{@federated_ex.name}"
-          super(@upstream, @log)
+                       @upstream_exchange : String)
+          log = Log.for "ExchangeLink[vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
+                        "link=#{@federated_ex.name}]"
+          super(@upstream, log)
         end
 
         def name : String
@@ -307,7 +309,7 @@ module AvalancheMQ
             ch.queue_delete(@upstream_q)
           end
         rescue e
-          @log.warn "cleanup interrupted with #{e.inspect}"
+          @log.warn(exception: e) { "cleanup interrupted " }
         end
 
         private def unregister_observer

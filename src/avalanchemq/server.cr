@@ -1,5 +1,4 @@
 require "socket"
-require "logger"
 require "openssl"
 require "systemd"
 require "./amqp"
@@ -10,7 +9,6 @@ require "./user_store"
 require "./exchange"
 require "./queue"
 require "./parameter"
-require "./chained_logger"
 require "./config"
 require "./connection_info"
 require "./proxy_protocol"
@@ -20,7 +18,7 @@ require "./event_type"
 
 module AvalancheMQ
   class Server
-    getter vhosts, users, data_dir, log, parameters
+    getter vhosts, users, data_dir, parameters
     getter? closed, flow
     alias Event = Channel(EventType)
     include ParameterTarget
@@ -34,14 +32,14 @@ module AvalancheMQ
     rate_stats(%w(channel_closed channel_created connection_closed connection_created
       queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
-    def initialize(@data_dir : String, @log : Logger)
-      @log.progname = "amqpserver"
+    def initialize(@data_dir : String)
+      @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
-      @users = UserStore.instance(@data_dir, @log)
+      @users = UserStore.instance(@data_dir)
       @events = Event.new(16384)
       spawn events_loop, name: "Server#events"
-      @vhosts = VHostStore.new(@data_dir, @log, @users, @events)
+      @vhosts = VHostStore.new(@data_dir, @users, @events)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -72,7 +70,7 @@ module AvalancheMQ
           spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
         end
       rescue ex : IO::Error
-        @log.warn "#{ex.inspect} while accepting connection"
+        Log.warn(exception: ex) { "while accepting connection" }
         client.try &.close rescue nil
       end
     rescue ex : IO::Error
@@ -98,7 +96,7 @@ module AvalancheMQ
             spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
           end
         rescue ex : IO::Error
-          @log.warn "#{ex.inspect} while accepting connection"
+          @log.warn(exception: ex) { "IO::Error while accepting connection" }
           client.try &.close rescue nil
         end
       end
@@ -130,11 +128,11 @@ module AvalancheMQ
           conn_info.ssl_cipher = ssl_client.cipher
           spawn handle_connection(ssl_client, conn_info), name: "Server#handle_connection(tls)"
         rescue ex
-          @log.error "Error accepting TLS connection from #{remote_addr}: #{ex.inspect}"
+          @log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
           begin
             client.try &.close
           rescue ex2
-            @log.error "Error closing socket: #{ex2.inspect}"
+            @log.error(exception: ex2) { "Error closing socket" }
           end
         end
       end
@@ -153,11 +151,11 @@ module AvalancheMQ
 
     def close
       @closed = true
-      @log.debug "Closing listeners"
+      @log.debug { "Closing listeners" }
       @listeners.each_key &.close
-      @log.debug "Closing vhosts"
+      @log.debug { "Closing vhosts" }
       @vhosts.close
-      @log.debug "Closing #events channel"
+      @log.debug { "Closing #events channel" }
       @events.close
     end
 
@@ -192,18 +190,18 @@ module AvalancheMQ
     end
 
     def stop_shovels
-      @log.info("Stopping shovels")
+      @log.info { "Stopping shovels" }
       @vhosts.each_value &.stop_shovels
     end
 
     private def apply_parameter(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
-        @log.warn("No action when applying parameter #{p.parameter_name}")
+        @log.warn { "No action when applying parameter #{p.parameter_name}" }
       end
     end
 
     def handle_connection(socket, connection_info)
-      client = Client.start(socket, connection_info, @vhosts, @users, @log, @events)
+      client = Client.start(socket, connection_info, @vhosts, @users, @events)
     ensure
       socket.close if client.nil?
     end

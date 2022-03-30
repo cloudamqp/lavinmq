@@ -12,11 +12,11 @@ require "uri"
 FileUtils.rm_rf("/tmp/spec")
 
 {% if flag?(:verbose) %}
-  LOG_LEVEL = Logger::DEBUG
+  LOG_LEVEL = Log::Severity::Debug
 {% elsif flag?(:warn) %}
-  LOG_LEVEL = Logger::WARN
+  LOG_LEVEL = Log::Severity::Warn
 {% else %}
-  LOG_LEVEL = Logger::ERROR
+  LOG_LEVEL = Log::Severity::Error
 {% end %}
 
 AMQP_PORT      = ENV.fetch("AMQP_PORT", "5672").to_i
@@ -123,8 +123,7 @@ module TestHelpers
   end
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    log = Logger.new(STDERR, level: level)
-    AvalancheMQ::LogFormatter.use(log)
+    Log.setup(level)
     cfg = AvalancheMQ::Config.instance
     cfg.gc_segments_interval = 1
     cfg.queue_max_acks = 10
@@ -134,8 +133,8 @@ module TestHelpers
     cfg.amqps_port = AMQPS_PORT
     cfg.http_bind = "localhost"
     cfg.http_port = HTTP_PORT
-    @@s = AvalancheMQ::Server.new(dir, log.dup)
-    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!, log.dup)
+    @@s = AvalancheMQ::Server.new(dir)
+    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!)
     @@h.not_nil!.bind_tcp(cfg.http_bind, cfg.http_port)
     spawn { @@s.try &.listen(cfg.amqp_bind, cfg.amqp_port) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"

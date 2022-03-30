@@ -1,4 +1,3 @@
-require "logger"
 require "../sortable_json"
 require "amqp-client"
 require "http/client"
@@ -264,7 +263,7 @@ module AvalancheMQ
 
     class Runner
       include SortableJSON
-      @log : Logger
+      @log : Log
       @state = State::Stopped
       @error : String?
       @message_count : UInt64 = 0
@@ -273,8 +272,7 @@ module AvalancheMQ
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
-        @log = @vhost.log.dup
-        @log.progname += " shovel=#{@name}"
+        @log = @vhost.log.for "shovel=#{@name}"
       end
 
       def state
@@ -308,13 +306,13 @@ module AvalancheMQ
           if ex.message.to_s.starts_with?("404")
             break
           end
-          @log.error ex.message
+          @log.error(exception: ex) { ex.message }
           @error = ex.message
           sleep @reconnect_delay.seconds
         rescue ex
           break if terminated?
           @state = State::Error
-          @log.error ex.inspect_with_backtrace
+          @log.error(exception: ex) { ex.message }
           @error = ex.message
           sleep @reconnect_delay.seconds
         end

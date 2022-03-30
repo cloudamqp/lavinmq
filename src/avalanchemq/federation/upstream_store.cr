@@ -6,8 +6,10 @@ module AvalancheMQ
       include Enumerable(Upstream)
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
+      @log : Log
 
       def initialize(@vhost : VHost)
+        @log = Log.for "UpstreamStore[vhost=#{@vhost}]"
       end
 
       def each
@@ -32,7 +34,7 @@ module AvalancheMQ
         queue = config["queue"]?.try(&.as_s)
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
-        @vhost.log.info { "Upstream '#{name}' created" }
+        @log.info { "Upstream '#{name}' created" }
         @upstreams[name]
       end
 
@@ -43,7 +45,7 @@ module AvalancheMQ
 
       def delete_upstream(name)
         do_delete_upstream(name)
-        @vhost.log.info { "Upstream '#{name}' deleted" }
+        @log.info { "Upstream '#{name}' deleted" }
       end
 
       private def do_delete_upstream(name)
@@ -92,7 +94,7 @@ module AvalancheMQ
 
       def delete_upstream_set(name)
         @upstream_sets.delete(name)
-        @vhost.log.info { "Upstream set '#{name}' deleted" }
+        @log.info { "Upstream set '#{name}' deleted" }
       end
 
       def link_set(name, resource : Exchange | Queue)

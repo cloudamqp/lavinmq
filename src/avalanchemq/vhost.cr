@@ -1,6 +1,5 @@
 require "benchmark"
 require "json"
-require "logger"
 require "../stdlib/*"
 require "./segment_position"
 require "./vhost/*"
@@ -20,9 +19,8 @@ module AvalancheMQ
   class VHost
     include SortableJSON
 
-    getter name, exchanges, queues, log, data_dir, policies, parameters,
-      log, shovels, direct_reply_channels, default_user,
-      connections, dir, gc_runs, gc_timing
+    getter name, exchanges, queues, data_dir, policies, parameters, shovels,
+      direct_reply_channels, default_user, connections, dir, gc_runs, gc_timing, log
     property? flow = true
     property? dirty = false
     getter? closed = false
@@ -33,7 +31,6 @@ module AvalancheMQ
     @save = Channel(AMQP::Frame).new(128)
     @write_lock = Mutex.new(:checked)
     @wfile : MFile
-    @log : Logger
     @direct_reply_channels = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
@@ -42,10 +39,11 @@ module AvalancheMQ
     @segments : Hash(UInt32, MFile)
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
+    @log : Log
 
     def initialize(@name : String, @server_data_dir : String,
-                   @log : Logger, @default_user : User, @events : Server::Event)
-      @log.progname = "vhost=#{@name}"
+                   @default_user : User, @events : Server::Event)
+      @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
@@ -485,7 +483,7 @@ module AvalancheMQ
       Fiber.yield
       stop_upstream_links
       Fiber.yield
-      @log.debug "Closing connections"
+      @log.debug { "Closing connections" }
       @connections.each &.close(reason)
       # wait up to 10s for clients to gracefully close
       100.times do
@@ -624,7 +622,7 @@ module AvalancheMQ
     end
 
     private def load_default_definitions
-      @log.info "Loading default definitions"
+      @log.info { "Loading default definitions" }
       @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
       @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
       @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
@@ -634,7 +632,7 @@ module AvalancheMQ
     end
 
     private def compact!(include_transient = false)
-      @log.info "Compacting definitions"
+      @log.info { "Compacting definitions" }
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
         io.buffer_size = Config.instance.file_buffer_size
@@ -748,8 +746,7 @@ module AvalancheMQ
         @gc_runs += 1
       end
     rescue ex
-      @log.fatal("Unhandled exception in #gc_segments_loop, " \
-                 "killing process #{ex.inspect_with_backtrace}")
+      @log.fatal(exception: ex) { "Unhandled exception in #gc_segments_loop, killing process" }
       exit 1
     end
 

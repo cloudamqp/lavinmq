@@ -10,15 +10,16 @@ module AvalancheMQ
       DIRECT_USER == name
     end
 
-    def self.instance(data_dir : String, log : Logger)
-      @@instance = UserStore.new(data_dir, log)
+    def self.instance(data_dir : String)
+      @@instance = UserStore.new(data_dir)
     end
 
     def self.instance
       @@instance.not_nil!
     end
 
-    def initialize(@data_dir : String, @log : Logger)
+    def initialize(@data_dir : String)
+      @log = Log.for("userstore")
       @users = Hash(String, User).new
       load!
     end
@@ -54,7 +55,7 @@ module AvalancheMQ
       perm = {config: config, read: read, write: write}
       @users[user].permissions[vhost] = perm
       @users[user].invalidate_acl_caches
-      @log.info("Updated permissions to vhost=#{vhost} for user=#{user}")
+      @log.info { "Updated permissions to vhost=#{vhost} for user=#{user}" }
       save!
       perm
     end
@@ -62,7 +63,7 @@ module AvalancheMQ
     def rm_permission(user, vhost)
       if perm = @users[user].permissions.delete vhost
         @users[user].invalidate_acl_caches
-        @log.info("Removed permissions to vhost=#{vhost} for user=#{user}")
+        @log.info { "Removed permissions to vhost=#{vhost} for user=#{user}" }
         save!
         perm
       end
@@ -108,24 +109,24 @@ module AvalancheMQ
     private def load!
       path = File.join(@data_dir, "users.json")
       if File.exists? path
-        @log.debug "Loading users from file"
+        @log.debug { "Loading users from file" }
         File.open(path) do |f|
           Array(User).from_json(f) do |user|
             @users[user.name] = user
           end
         rescue JSON::ParseException
-          @log.warn("#{path} is not vaild json")
+          @log.warn { "#{path} is not vaild json" }
         end
       else
         tags = [Tag::Administrator]
-        @log.debug "Loading default users"
+        @log.debug { "Loading default users" }
         create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
         create_direct_user
         save!
       end
       create_direct_user
-      @log.debug("#{size} users loaded")
+      @log.debug { "#{size} users loaded" }
     end
 
     private def create_direct_user
@@ -135,7 +136,7 @@ module AvalancheMQ
     end
 
     def save!
-      @log.debug "Saving users to file"
+      @log.debug { "Saving users to file" }
       tmpfile = File.join(@data_dir, "users.json.tmp")
       File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
       File.rename tmpfile, File.join(@data_dir, "users.json")

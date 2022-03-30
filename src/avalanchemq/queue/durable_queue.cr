@@ -162,7 +162,7 @@ module AvalancheMQ
     SP_SIZE = SegmentPosition::BYTESIZE.to_i64
 
     private def restore_index : Nil
-      @log.info "Restoring index"
+      @log.info { "Restoring index" }
       SchemaVersion.migrate(File.join(@index_dir, "enq"), :index)
       SchemaVersion.migrate(File.join(@index_dir, "ack"), :index)
       File.open(File.join(@index_dir, "enq")) do |enq|
