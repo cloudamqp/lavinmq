@@ -103,34 +103,13 @@ module AvalancheMQ
     end
 
     def listen_tls(bind, port, context)
-      s = TCPServer.new(bind, port)
-      @listeners[s] = :amqps
-      @log.info { "Listening on #{s.local_address} (TLS)" }
-      while client = s.accept?
-        remote_addr = client.remote_address
-        begin
-          set_socket_options(client)
-          ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          @log.info { "Connected #{ssl_client.tls_version} #{ssl_client.cipher}" }
-          set_buffer_size(ssl_client)
-          conn_info = ConnectionInfo.new(remote_addr, client.local_address)
-          conn_info.ssl = true
-          conn_info.ssl_version = ssl_client.tls_version
-          conn_info.ssl_cipher = ssl_client.cipher
-          spawn handle_connection(ssl_client, conn_info), name: "Server#handle_connection(tls)"
-        rescue ex
-          @log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
-          begin
-            client.try &.close
-          rescue ex2
-            @log.error(exception: ex2) { "Error closing socket" }
-          end
-        end
-      end
-    rescue ex : IO::Error | OpenSSL::Error
-      abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
-    ensure
-      @listeners.delete(s)
+      dir = ENV.fetch("XDG_RUNTIME_DIR", File.tempdir)
+      unix_path = "#{dir}/avalanchemq_tls_#{port}.sock"
+      spawn listen_unix(unix_path)
+      Fiber.yield
+      args = ["--bind", bind, "--port", port, "--target", unix_path]
+      status = Process.new "tls-proxy", args, output: STDOUT, error: STDERR
+      raise "tls-proxy exited with code #{status.exit_code}"
     end
 
     def listen_unix(path : String)
