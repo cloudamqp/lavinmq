@@ -23,12 +23,6 @@ module AvalancheMQ
       private def register_routes
         get "/api/queues" do |context, _|
           itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
-          @log.debug { "list_queue" }
-          @log.info { "list_queue" }
-          @log.warn { "list_queue" }
-          @log.warn &.emit("log_queues", length: 10)
-          @log.error { "list_queue" }
-          @log.error(exception: Error.new("aaa")) { "list_queue" }
           page(context, itr)
         end
 
