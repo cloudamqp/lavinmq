@@ -297,10 +297,10 @@ describe AvalancheMQ::Queue do
       queue_name = Random::Secure.hex
       with_channel do |ch|
         q = ch.queue(queue_name)
-        q.publish("message 1")
+        q.publish_confirm("message 1")
         # Need to sleep for 1 second to get a new RoughTime value.
-        sleep 1
-        q.publish("message 2")
+        sleep 1.1
+        q.publish_confirm("message 2")
         sleep 0.1
         details = s.vhosts["/"].queues[queue_name].details_tuple
         details[:ready].should eq 2
