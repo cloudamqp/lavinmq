@@ -56,7 +56,7 @@ jobs:
         run: crystal -v
 
       - name: Shards install
-        run: shards install
+        run: shards install --without-development --frozen
 
       - name: Spec
         run: crystal spec --no-color --order random
