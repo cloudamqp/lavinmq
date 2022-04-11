@@ -1,5 +1,5 @@
 BINS := bin/avalanchemq bin/avalanchemqctl bin/avalanchemqperf bin/avalanchemq-debug
-SOURCES := $(shell find src/avalanchemq src/stdlib -name '*.cr')
+SOURCES := $(shell find src/avalanchemq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
 override CRYSTAL_FLAGS += --cross-compile $(if $(target),--target $(target))
@@ -33,7 +33,7 @@ static/js/lib/chart.js: | static/js/lib
 		tar -zxOf- package/dist/Chart.bundle.min.js > $@
 
 static/docs/index.html: openapi/openapi.yaml $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
-	npx redoc-cli bundle $< -o $@
+	npx redoc-cli build $< -o $@
 
 .PHONY: docs
 docs: $(DOCS)

@@ -2,9 +2,9 @@
 FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
 WORKDIR /tmp
 RUN npm install -g redoc-cli
-COPY shard.yml .
+COPY Makefile shard.yml .
 COPY openapi openapi
-RUN redoc-cli bundle openapi/openapi.yaml
+RUN make docs
 
 # Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM 84codes/crystal:1.3.2-debian-11 AS builder
@@ -13,7 +13,7 @@ WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
 RUN make js lib
 COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
-COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
+COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
 COPY ./static ./static
 COPY ./src ./src
 ARG TARGETARCH
