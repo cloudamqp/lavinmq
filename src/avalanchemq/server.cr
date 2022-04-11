@@ -362,18 +362,19 @@ module AvalancheMQ
 
     # Available memory might be limited by a cgroup
     private def cgroup_memory_max : Int64?
+      cgroup = File.read("/proc/self/cgroup")[/0::(.*)\n/, 1]? if File.exists?("/proc/self/cgroup")
+      cgroup ||= "/"
       # cgroup v2
-      if File.exists?("/proc/self/cgroup")
-        if cgroup = File.read("/proc/self/cgroup")[/^0::(.*)\n/, 1]?
-          cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
-          if File.exists?(cgroup_memory_max_path)
-            return File.read(cgroup_memory_max_path).to_i64?
-          end
-        end
+      cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
+      if File.exists?(cgroup_memory_max_path)
+        return File.read(cgroup_memory_max_path).to_i64?
       end
       # cgroup v1
-      if File.exists? "/sys/fs/cgroup/memory/memory.limit_in_bytes"
-        return File.read("/sys/fs/cgroup/memory/memory.limit_in_bytes").to_i64?
+      cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.limit_in_bytes"
+      if File.exists?(cgroup_memory_max_path)
+        l = File.read(cgroup_memory_max_path)
+        return nil if l == "9223372036854771712\n" # Max in cgroup v1
+        return l.to_i64?
       end
     end
 
