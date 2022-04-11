@@ -2,15 +2,11 @@ require "./queue"
 require "./durable_queue"
 
 module AvalancheMQ
-  module PriorityQueueMixin
-    @ready : Queue::ReadyQueue = Queue::PriorityReadyQueue.new
-  end
-
   class PriorityQueue < Queue
-    include PriorityQueueMixin
+    @ready = Queue::PriorityReadyQueue.new
   end
 
   class DurablePriorityQueue < DurableQueue
-    include PriorityQueueMixin
+    @ready = Queue::PriorityReadyQueue.new
   end
 end
