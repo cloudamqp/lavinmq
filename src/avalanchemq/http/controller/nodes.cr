@@ -56,11 +56,13 @@ module AvalancheMQ
 
       private def register_routes
         get "/api/nodes" do |context, _params|
+          refuse_unless_administrator(context, user(context))
           nodes_info.to_json(context.response)
           context
         end
 
         get "/api/nodes/:name" do |context, params|
+          refuse_unless_administrator(context, user(context))
           node = nodes_info.find { |n| n[:name] == params["name"] }
           context.response.status_code = 404 unless node
           node.to_json(context.response) if node
