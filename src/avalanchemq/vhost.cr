@@ -14,10 +14,18 @@ require "digest/sha1"
 require "./queue"
 require "./mfile"
 require "./schema"
+require "./event_type"
+require "./stats"
 
 module AvalancheMQ
   class VHost
     include SortableJSON
+    include Stats
+
+    alias Event = Channel(EventType)
+
+    rate_stats(%w(channel_closed channel_created connection_closed connection_created
+      queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
     getter name, exchanges, queues, data_dir, policies, parameters, shovels,
       direct_reply_channels, default_user, connections, dir, gc_runs, gc_timing, log
@@ -40,9 +48,10 @@ module AvalancheMQ
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
+    getter events = Event.new(16384)
 
     def initialize(@name : String, @server_data_dir : String,
-                   @default_user : User, @events : Server::Event)
+                   @default_user : User)
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -57,6 +66,8 @@ module AvalancheMQ
       load!
       spawn save!, name: "VHost/#{@name}#save!"
       spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
+
+      spawn events_loop, name: "VHost/#{name}#events"
     end
 
     def inspect(io : IO)
@@ -436,6 +447,7 @@ module AvalancheMQ
     end
 
     def add_connection(client : Client)
+      @events.send(EventType::ConnectionCreated)
       @connections << client
       client.on_close do |c|
         @connections.delete c
@@ -500,6 +512,7 @@ module AvalancheMQ
       @save.close
       Fiber.yield
       compact!
+      @events.close
     end
 
     def delete
@@ -937,6 +950,26 @@ module AvalancheMQ
                     "purged_messages=#{purged_msgs}" }
       end
       trigger_gc!
+    end
+
+    private def events_loop
+      while type = @events.receive?
+        case type
+        in EventType::ChannelClosed        then @channel_closed_count += 1
+        in EventType::ChannelCreated       then @channel_created_count += 1
+        in EventType::ConnectionClosed     then @connection_closed_count += 1
+        in EventType::ConnectionCreated    then @connection_created_count += 1
+        in EventType::QueueDeclared        then @queue_declared_count += 1
+        in EventType::QueueDeleted         then @queue_deleted_count += 1
+        in EventType::ClientAck            then @ack_count += 1
+        in EventType::ClientDeliver        then @deliver_count += 1
+        in EventType::ClientGet            then @get_count += 1
+        in EventType::ClientPublish        then @publish_count += 1
+        in EventType::ClientPublishConfirm then @confirm_count += 1
+        in EventType::ClientRedeliver      then @redeliver_count += 1
+        in EventType::ClientReject         then @reject_count += 1
+        end
+      end
     end
   end
 end
