@@ -116,30 +116,30 @@ module AvalancheMQ
                         "#{writer.prefix}_version" => AvalancheMQ::VERSION,
                         "#{writer.prefix}_cluster" => System.hostname,
                       }})
-        writer.write({name:  "connections_opened_total",
-                      value: @amqp_server.connection_created_count,
-                      type:  "counter",
-                      help:  "Total number of connections opened"})
-        writer.write({name:  "connections_closed_total",
-                      value: @amqp_server.connection_closed_count,
-                      type:  "counter",
-                      help:  "Total number of connections closed or terminated"})
-        writer.write({name:  "channels_opened_total",
-                      value: @amqp_server.channel_created_count,
-                      type:  "counter",
-                      help:  "Total number of channels opened"})
-        writer.write({name:  "channels_closed_total",
-                      value: @amqp_server.channel_closed_count,
-                      type:  "counter",
-                      help:  "Total number of channels closed"})
-        writer.write({name:  "queues_declared_total",
-                      value: @amqp_server.queue_declared_count,
-                      type:  "counter",
-                      help:  "Total number of queues declared"})
-        writer.write({name:  "queues_deleted_total",
-                      value: @amqp_server.queue_deleted_count,
-                      type:  "counter",
-                      help:  "Total number of queues deleted"})
+        # writer.write({name:  "connections_opened_total",
+        #               value: @amqp_server.connection_created_count,
+        #               type:  "counter",
+        #               help:  "Total number of connections opened"})
+        # writer.write({name:  "connections_closed_total",
+        #               value: @amqp_server.connection_closed_count,
+        #               type:  "counter",
+        #               help:  "Total number of connections closed or terminated"})
+        # writer.write({name:  "channels_opened_total",
+        #               value: @amqp_server.channel_created_count,
+        #               type:  "counter",
+        #               help:  "Total number of channels opened"})
+        # writer.write({name:  "channels_closed_total",
+        #               value: @amqp_server.channel_closed_count,
+        #               type:  "counter",
+        #               help:  "Total number of channels closed"})
+        # writer.write({name:  "queues_declared_total",
+        #               value: @amqp_server.queue_declared_count,
+        #               type:  "counter",
+        #               help:  "Total number of queues declared"})
+        # writer.write({name:  "queues_deleted_total",
+        #               value: @amqp_server.queue_deleted_count,
+        #               type:  "counter",
+        #               help:  "Total number of queues deleted"})
         writer.write({name:  "process_open_fds",
                       value: System.file_descriptor_count,
                       type:  "gauge",
@@ -240,30 +240,30 @@ module AvalancheMQ
       end
 
       private def detailed_connection_churn_metrics(writer)
-        writer.write({name:  "detailed_connections_opened_total",
-                      value: @amqp_server.connection_created_count,
-                      type:  "counter",
-                      help:  "Total number of connections opened"})
-        writer.write({name:  "detailed_connections_closed_total",
-                      value: @amqp_server.connection_closed_count,
-                      type:  "counter",
-                      help:  "Total number of connections closed or terminated"})
-        writer.write({name:  "detailed_channels_opened_total",
-                      value: @amqp_server.channel_created_count,
-                      type:  "counter",
-                      help:  "Total number of channels opened"})
-        writer.write({name:  "detailed_channels_closed_total",
-                      value: @amqp_server.channel_closed_count,
-                      type:  "counter",
-                      help:  "Total number of channels closed"})
-        writer.write({name:  "detailed_queues_declared_total",
-                      value: @amqp_server.queue_declared_count,
-                      type:  "counter",
-                      help:  "Total number of queues declared"})
-        writer.write({name:  "detailed_queues_deleted_total",
-                      value: @amqp_server.queue_deleted_count,
-                      type:  "counter",
-                      help:  "Total number of queues deleted"})
+        # writer.write({name:  "detailed_connections_opened_total",
+        #               value: @amqp_server.connection_created_count,
+        #               type:  "counter",
+        #               help:  "Total number of connections opened"})
+        # writer.write({name:  "detailed_connections_closed_total",
+        #               value: @amqp_server.connection_closed_count,
+        #               type:  "counter",
+        #               help:  "Total number of connections closed or terminated"})
+        # writer.write({name:  "detailed_channels_opened_total",
+        #               value: @amqp_server.channel_created_count,
+        #               type:  "counter",
+        #               help:  "Total number of channels opened"})
+        # writer.write({name:  "detailed_channels_closed_total",
+        #               value: @amqp_server.channel_closed_count,
+        #               type:  "counter",
+        #               help:  "Total number of channels closed"})
+        # writer.write({name:  "detailed_queues_declared_total",
+        #               value: @amqp_server.queue_declared_count,
+        #               type:  "counter",
+        #               help:  "Total number of queues declared"})
+        # writer.write({name:  "detailed_queues_deleted_total",
+        #               value: @amqp_server.queue_deleted_count,
+        #               type:  "counter",
+        #               help:  "Total number of queues deleted"})
       end
 
       private def detailed_queue_coarse_metrics(vhosts, writer)

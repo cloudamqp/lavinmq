@@ -21,9 +21,6 @@ module AvalancheMQ
     getter? closed, flow
     include ParameterTarget
 
-    # getter channel_closed_log, channel_created_log, connection_closed_log, connection_created_log,
-    #   queue_declared_log, queue_deleted_log
-
     @start = Time.monotonic
     @closed = false
     @flow = true
@@ -363,13 +360,6 @@ module AvalancheMQ
     getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_free = 0_i64
     getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
-
-    SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
-                      :queue_declared, :queue_deleted}
-    {% for sm in SERVER_METRICS %}
-      getter {{sm.id}}_count = 0_u64
-      getter {{sm.id}}_rate = 0_f64
-    {% end %}
 
     private def control_flow!
       if @disk_free < 2_i64 * Config.instance.segment_size
