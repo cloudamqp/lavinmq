@@ -21,38 +21,17 @@ module AvalancheMQ
             add_logs!({{sm.id}}_log, vhost.stats_details[:{{sm.id}}_details][:log])
           {% end %}
         end
+        {% begin %}
         {
-          connection_created:         {{ SERVER_METRICS[0].id }},
-          connection_created_details: {
-            rate: {{ SERVER_METRICS[0].id + "_rate" }},
-            log:  {{ SERVER_METRICS[0].id + "_log" }},
-          },
-          connection_closed:         {{ SERVER_METRICS[1].id }},
-          connection_closed_details: {
-            rate: {{ SERVER_METRICS[1].id + "_rate" }},
-            log:  {{ SERVER_METRICS[1].id + "_log" }},
-          },
-          channel_created:         {{ SERVER_METRICS[2].id }},
-          channel_created_details: {
-            rate: {{ SERVER_METRICS[2].id + "_rate" }},
-            log:  {{ SERVER_METRICS[2].id + "_log" }},
-          },
-          channel_closed:         {{ SERVER_METRICS[3].id }},
-          channel_closed_details: {
-            rate: {{ SERVER_METRICS[3].id + "_rate" }},
-            log:  {{ SERVER_METRICS[3].id + "_log" }},
-          },
-          queue_declared:         {{ SERVER_METRICS[4].id }},
-          queue_declared_details: {
-            rate: {{ SERVER_METRICS[4].id + "_rate" }},
-            log:  {{ SERVER_METRICS[4].id + "_log" }},
-          },
-          queue_deleted:         {{ SERVER_METRICS[5].id }},
-          queue_deleted_details: {
-            rate: {{ SERVER_METRICS[5].id + "_rate" }},
-            log:  {{ SERVER_METRICS[5].id + "_log" }},
-          },
+          {% for sm in SERVER_METRICS %}
+            {{sm.id}}: {{sm.id}},
+            {{sm.id}}_details: {
+              rate: {{sm.id}}_rate,
+              log: {{sm.id}}_log,
+            },
+          {% end %}
         }
+        {% end %}
       end
 
       private def general_stats

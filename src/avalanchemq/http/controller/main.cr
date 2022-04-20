@@ -61,15 +61,12 @@ module AvalancheMQ
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
             end
+            {% for sm in OVERVIEW_STATS %}
+              {{sm.id}}_count += vhost.stats_details[:{{sm.id}}]
+              {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
+              add_logs!({{sm.id}}_log, vhost.stats_details[:{{sm.id}}_details][:log])
+            {% end %}
           end
-
-          # details = @amqp_server.stats_details
-          # {% for name in OVERVIEW_STATS %}
-          #   {{name.id}}_count = details[:{{name.id}}]
-          #   {{name.id}}_rate = details[:{{name.id}}_details][:rate]
-          #   add_logs!({{name.id}}_log, details[:{{name.id}}_details][:log])
-          # {% end %}
-
           {
             avalanchemq_version: AvalancheMQ::VERSION,
             node:                System.hostname,

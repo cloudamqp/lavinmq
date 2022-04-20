@@ -952,6 +952,7 @@ module AvalancheMQ
       trigger_gc!
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def events_loop
       while type = @events.receive?
         case type

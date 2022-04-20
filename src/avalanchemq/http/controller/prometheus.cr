@@ -126,7 +126,7 @@ module AvalancheMQ
                       }})
 
         writer.write({name:  "connections_opened_total",
-                      value: stats[:connection_opened],
+                      value: stats[:connection_created],
                       type:  "counter",
                       help:  "Total number of connections opened"})
         writer.write({name:  "connections_closed_total",
@@ -260,20 +260,19 @@ module AvalancheMQ
             {{sm.id}} += vhost.stats_details[:{{sm.id}}]
           {% end %}
         end
+        {% begin %}
         {
-          connection_opened: {{ SERVER_METRICS[0].id }},
-          connection_closed: {{ SERVER_METRICS[1].id }},
-          channel_created:   {{ SERVER_METRICS[2].id }},
-          channel_closed:    {{ SERVER_METRICS[3].id }},
-          queue_declared:    {{ SERVER_METRICS[4].id }},
-          queue_deleted:     {{ SERVER_METRICS[5].id }},
+          {% for sm in SERVER_METRICS %}
+            {{sm.id}}: {{sm.id}},
+          {% end %}
         }
+        {% end %}
       end
 
       private def detailed_connection_churn_metrics(vhosts, writer)
         stats = vhost_stats(vhosts)
         writer.write({name:  "detailed_connections_opened_total",
-                      value: stats[:connection_opened],
+                      value: stats[:connection_created],
                       type:  "counter",
                       help:  "Total number of connections opened"})
         writer.write({name:  "detailed_connections_closed_total",
