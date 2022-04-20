@@ -5,7 +5,6 @@ module AvalancheMQ
     class NodesController < Controller
       include StatsHelpers
 
-      # channel_closed channel_created connection_closed connection_created queue_declared queue_deleted
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
                         :queue_declared, :queue_deleted}
 

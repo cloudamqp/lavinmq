@@ -53,16 +53,24 @@ module AvalancheMQ
     end
 
     class PrometheusController < Controller
+      private def target_vhosts(context)
+        u = user(context)
+        vhosts = vhosts(u)
+        selected = context.request.query_params.fetch_all("vhost")
+        vhosts = vhosts.select { |vhost| selected.includes? vhost.name } unless selected.empty?
+        vhosts
+      end
+
       private def register_routes
         get "/metrics" do |context, _|
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
-          u = user(context)
+          vhosts = target_vhosts(context)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
-            overview_broker_metrics(writer)
-            overview_queue_metrics(u, writer)
-            custom_metrics(u, writer)
+            overview_broker_metrics(vhosts, writer)
+            overview_queue_metrics(vhosts, writer)
+            custom_metrics(vhosts, writer)
           end
           context
         end
@@ -71,14 +79,13 @@ module AvalancheMQ
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
           families = context.request.query_params.fetch_all("family")
-          u = user(context)
-          vhosts = vhosts(u)
+          vhosts = target_vhosts(context)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             families.each do |family|
               case family
               when "connection_churn_metrics"
-                detailed_connection_churn_metrics(writer)
+                detailed_connection_churn_metrics(vhosts, writer)
               when "queue_coarse_metrics"
                 detailed_queue_coarse_metrics(vhosts, writer)
               when "queue_consumer_count"
@@ -108,7 +115,8 @@ module AvalancheMQ
                       help:  "Memory used for metrics collections in bytes"})
       end
 
-      private def overview_broker_metrics(writer)
+      private def overview_broker_metrics(vhosts, writer)
+        stats = vhost_stats(vhosts)
         writer.write({name:   "identity_info",
                       value:  1,
                       help:   "System information",
@@ -116,30 +124,31 @@ module AvalancheMQ
                         "#{writer.prefix}_version" => AvalancheMQ::VERSION,
                         "#{writer.prefix}_cluster" => System.hostname,
                       }})
-        # writer.write({name:  "connections_opened_total",
-        #               value: @amqp_server.connection_created_count,
-        #               type:  "counter",
-        #               help:  "Total number of connections opened"})
-        # writer.write({name:  "connections_closed_total",
-        #               value: @amqp_server.connection_closed_count,
-        #               type:  "counter",
-        #               help:  "Total number of connections closed or terminated"})
-        # writer.write({name:  "channels_opened_total",
-        #               value: @amqp_server.channel_created_count,
-        #               type:  "counter",
-        #               help:  "Total number of channels opened"})
-        # writer.write({name:  "channels_closed_total",
-        #               value: @amqp_server.channel_closed_count,
-        #               type:  "counter",
-        #               help:  "Total number of channels closed"})
-        # writer.write({name:  "queues_declared_total",
-        #               value: @amqp_server.queue_declared_count,
-        #               type:  "counter",
-        #               help:  "Total number of queues declared"})
-        # writer.write({name:  "queues_deleted_total",
-        #               value: @amqp_server.queue_deleted_count,
-        #               type:  "counter",
-        #               help:  "Total number of queues deleted"})
+
+        writer.write({name:  "connections_opened_total",
+                      value: stats[:connection_opened],
+                      type:  "counter",
+                      help:  "Total number of connections opened"})
+        writer.write({name:  "connections_closed_total",
+                      value: stats[:connection_closed],
+                      type:  "counter",
+                      help:  "Total number of connections closed or terminated"})
+        writer.write({name:  "channels_opened_total",
+                      value: stats[:channel_created],
+                      type:  "counter",
+                      help:  "Total number of channels opened"})
+        writer.write({name:  "channels_closed_total",
+                      value: stats[:channel_closed],
+                      type:  "counter",
+                      help:  "Total number of channels closed"})
+        writer.write({name:  "queues_declared_total",
+                      value: stats[:queue_declared],
+                      type:  "counter",
+                      help:  "Total number of queues declared"})
+        writer.write({name:  "queues_deleted_total",
+                      value: stats[:queue_deleted],
+                      type:  "counter",
+                      help:  "Total number of queues deleted"})
         writer.write({name:  "process_open_fds",
                       value: System.file_descriptor_count,
                       type:  "gauge",
@@ -164,9 +173,9 @@ module AvalancheMQ
                       help:  "Memory high watermark in bytes"})
       end
 
-      private def overview_queue_metrics(u, writer)
+      private def overview_queue_metrics(vhosts, writer)
         ready = unacked = connections = channels = consumers = queues = 0_u64
-        vhosts(u).each do |vhost|
+        vhosts.each do |vhost|
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
@@ -209,7 +218,7 @@ module AvalancheMQ
                       help:  "Sum of ready and unacknowledged messages - total queue depth"})
       end
 
-      private def custom_metrics(u, writer)
+      private def custom_metrics(vhosts, writer)
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
@@ -222,7 +231,7 @@ module AvalancheMQ
                       help:  "Total CPU user time"})
         writer.write({name: "rss_bytes", value: @amqp_server.rss,
                       help: "Memory RSS in bytes"})
-        vhosts(u).each do |vhost|
+        vhosts.each do |vhost|
           labels = {name: vhost.name}
           writer.write({name:   "gc_runs_total",
                         value:  vhost.gc_runs,
@@ -239,31 +248,54 @@ module AvalancheMQ
         end
       end
 
-      private def detailed_connection_churn_metrics(writer)
-        # writer.write({name:  "detailed_connections_opened_total",
-        #               value: @amqp_server.connection_created_count,
-        #               type:  "counter",
-        #               help:  "Total number of connections opened"})
-        # writer.write({name:  "detailed_connections_closed_total",
-        #               value: @amqp_server.connection_closed_count,
-        #               type:  "counter",
-        #               help:  "Total number of connections closed or terminated"})
-        # writer.write({name:  "detailed_channels_opened_total",
-        #               value: @amqp_server.channel_created_count,
-        #               type:  "counter",
-        #               help:  "Total number of channels opened"})
-        # writer.write({name:  "detailed_channels_closed_total",
-        #               value: @amqp_server.channel_closed_count,
-        #               type:  "counter",
-        #               help:  "Total number of channels closed"})
-        # writer.write({name:  "detailed_queues_declared_total",
-        #               value: @amqp_server.queue_declared_count,
-        #               type:  "counter",
-        #               help:  "Total number of queues declared"})
-        # writer.write({name:  "detailed_queues_deleted_total",
-        #               value: @amqp_server.queue_deleted_count,
-        #               type:  "counter",
-        #               help:  "Total number of queues deleted"})
+      SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
+                        :queue_declared, :queue_deleted}
+
+      private def vhost_stats(vhosts)
+        {% for sm in SERVER_METRICS %}
+          {{sm.id}} = 0_u64
+        {% end %}
+        vhosts.each do |vhost|
+          {% for sm in SERVER_METRICS %}
+            {{sm.id}} += vhost.stats_details[:{{sm.id}}]
+          {% end %}
+        end
+        {
+          connection_opened: {{ SERVER_METRICS[0].id }},
+          connection_closed: {{ SERVER_METRICS[1].id }},
+          channel_created:   {{ SERVER_METRICS[2].id }},
+          channel_closed:    {{ SERVER_METRICS[3].id }},
+          queue_declared:    {{ SERVER_METRICS[4].id }},
+          queue_deleted:     {{ SERVER_METRICS[5].id }},
+        }
+      end
+
+      private def detailed_connection_churn_metrics(vhosts, writer)
+        stats = vhost_stats(vhosts)
+        writer.write({name:  "detailed_connections_opened_total",
+                      value: stats[:connection_opened],
+                      type:  "counter",
+                      help:  "Total number of connections opened"})
+        writer.write({name:  "detailed_connections_closed_total",
+                      value: stats[:connection_closed],
+                      type:  "counter",
+                      help:  "Total number of connections closed or terminated"})
+        writer.write({name:  "detailed_channels_opened_total",
+                      value: stats[:channel_created],
+                      type:  "counter",
+                      help:  "Total number of channels opened"})
+        writer.write({name:  "detailed_channels_closed_total",
+                      value: stats[:channel_closed],
+                      type:  "counter",
+                      help:  "Total number of channels closed"})
+        writer.write({name:  "detailed_queues_declared_total",
+                      value: stats[:queue_declared],
+                      type:  "counter",
+                      help:  "Total number of queues declared"})
+        writer.write({name:  "detailed_queues_deleted_total",
+                      value: stats[:queue_deleted],
+                      type:  "counter",
+                      help:  "Total number of queues deleted"})
       end
 
       private def detailed_queue_coarse_metrics(vhosts, writer)
