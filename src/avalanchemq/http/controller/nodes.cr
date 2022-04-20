@@ -91,7 +91,7 @@ module AvalancheMQ
         end
 
         get "/api/nodes/:name" do |context, params|
-          if params[:name] == System.hostname
+          if params["name"] == System.hostname
             stats(context).to_json(context.response)
           else
             context.response.status_code = 404
