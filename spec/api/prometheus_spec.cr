@@ -32,6 +32,7 @@ describe AvalancheMQ::HTTP::ConsumersController do
       response = get("/metrics/detailed?family=connection_churn_metrics")
       response.status_code.should eq 200
       lines = response.body.lines
+      pp lines
       lines.any?(&.starts_with? "lavinmq_detailed_connections_opened_total").should be_true
 
       response = get("/metrics/detailed?family=family=queue_coarse_metrics")
