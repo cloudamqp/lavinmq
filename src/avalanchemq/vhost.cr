@@ -22,8 +22,6 @@ module AvalancheMQ
     include SortableJSON
     include Stats
 
-    alias Event = Channel(EventType)
-
     rate_stats(%w(channel_closed channel_created connection_closed connection_created
       queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
@@ -48,7 +46,6 @@ module AvalancheMQ
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
-    getter events = Event.new(16384)
 
     def initialize(@name : String, @server_data_dir : String,
                    @default_user : User)
@@ -66,8 +63,6 @@ module AvalancheMQ
       load!
       spawn save!, name: "VHost/#{@name}#save!"
       spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
-
-      spawn events_loop, name: "VHost/#{name}#events"
     end
 
     def inspect(io : IO)
@@ -388,7 +383,7 @@ module AvalancheMQ
         q = @queues[f.queue_name] = QueueFactory.make(self, f)
         apply_policies([q] of Queue) unless loading
         @save.send f if !loading && f.durable && !f.exclusive
-        @events.send(EventType::QueueDeclared) unless loading
+        event_tick(EventType::QueueDeclared) unless loading
       when AMQP::Frame::Queue::Delete
         if q = @queues.delete(f.queue_name)
           @exchanges.each_value do |ex|
@@ -397,7 +392,7 @@ module AvalancheMQ
             end
           end
           @save.send f if !loading && q.durable && !q.exclusive
-          @events.send(EventType::QueueDeleted)
+          event_tick(EventType::QueueDeleted)
           q.delete
         else
           return false
@@ -447,7 +442,7 @@ module AvalancheMQ
     end
 
     def add_connection(client : Client)
-      @events.send(EventType::ConnectionCreated)
+      event_tick(EventType::ConnectionCreated)
       @connections << client
       client.on_close do |c|
         @connections.delete c
@@ -512,7 +507,6 @@ module AvalancheMQ
       @save.close
       Fiber.yield
       compact!
-      @events.close
     end
 
     def delete
@@ -953,23 +947,21 @@ module AvalancheMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def events_loop
-      while type = @events.receive?
-        case type
-        in EventType::ChannelClosed        then @channel_closed_count += 1
-        in EventType::ChannelCreated       then @channel_created_count += 1
-        in EventType::ConnectionClosed     then @connection_closed_count += 1
-        in EventType::ConnectionCreated    then @connection_created_count += 1
-        in EventType::QueueDeclared        then @queue_declared_count += 1
-        in EventType::QueueDeleted         then @queue_deleted_count += 1
-        in EventType::ClientAck            then @ack_count += 1
-        in EventType::ClientDeliver        then @deliver_count += 1
-        in EventType::ClientGet            then @get_count += 1
-        in EventType::ClientPublish        then @publish_count += 1
-        in EventType::ClientPublishConfirm then @confirm_count += 1
-        in EventType::ClientRedeliver      then @redeliver_count += 1
-        in EventType::ClientReject         then @reject_count += 1
-        end
+    def event_tick(event_type)
+      case event_type
+      in EventType::ChannelClosed        then @channel_closed_count += 1
+      in EventType::ChannelCreated       then @channel_created_count += 1
+      in EventType::ConnectionClosed     then @connection_closed_count += 1
+      in EventType::ConnectionCreated    then @connection_created_count += 1
+      in EventType::QueueDeclared        then @queue_declared_count += 1
+      in EventType::QueueDeleted         then @queue_deleted_count += 1
+      in EventType::ClientAck            then @ack_count += 1
+      in EventType::ClientDeliver        then @deliver_count += 1
+      in EventType::ClientGet            then @get_count += 1
+      in EventType::ClientPublish        then @publish_count += 1
+      in EventType::ClientPublishConfirm then @confirm_count += 1
+      in EventType::ClientRedeliver      then @redeliver_count += 1
+      in EventType::ClientReject         then @reject_count += 1
       end
     end
   end

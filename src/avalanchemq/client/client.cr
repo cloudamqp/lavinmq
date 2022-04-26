@@ -419,7 +419,7 @@ module AvalancheMQ
       @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
-      @vhost.events.send(EventType::ConnectionClosed) unless @vhost.events.closed?
+      @vhost.event_tick(EventType::ConnectionClosed)
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
     end
