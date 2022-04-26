@@ -34,9 +34,7 @@ BASE_URL       = "http://localhost:#{HTTP_PORT}"
   end
 end
 
-unless ENV["CI"]?
-  Spec.override_default_formatter(Spec::VerboseFormatter.new)
-end
+Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
 Spec.after_each do
   s.vhosts.each_value do |vhost|
