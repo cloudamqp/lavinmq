@@ -14,32 +14,23 @@ require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
 require "./stats"
-require "./event_type"
 
 module AvalancheMQ
   class Server
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
-    alias Event = Channel(EventType)
     include ParameterTarget
-    include Stats
-    getter channel_closed_log, channel_created_log, connection_closed_log, connection_created_log,
-      queue_declared_log, queue_deleted_log
 
     @start = Time.monotonic
     @closed = false
     @flow = true
-    rate_stats(%w(channel_closed channel_created connection_closed connection_created
-      queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
       @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
       @users = UserStore.instance(@data_dir)
-      @events = Event.new(16384)
-      spawn events_loop, name: "Server#events"
-      @vhosts = VHostStore.new(@data_dir, @users, @events)
+      @vhosts = VHostStore.new(@data_dir, @users)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -155,8 +146,6 @@ module AvalancheMQ
       @listeners.each_key &.close
       @log.debug { "Closing vhosts" }
       @vhosts.close
-      @log.debug { "Closing #events channel" }
-      @events.close
     end
 
     def add_parameter(p : Parameter)
@@ -201,7 +190,7 @@ module AvalancheMQ
     end
 
     def handle_connection(socket, connection_info)
-      client = Client.start(socket, connection_info, @vhosts, @users, @events)
+      client = Client.start(socket, connection_info, @vhosts, @users)
     ensure
       socket.close if client.nil?
     end
@@ -245,26 +234,6 @@ module AvalancheMQ
       end
     end
 
-    private def events_loop
-      while type = @events.receive?
-        case type
-        in EventType::ChannelClosed        then @channel_closed_count += 1
-        in EventType::ChannelCreated       then @channel_created_count += 1
-        in EventType::ConnectionClosed     then @connection_closed_count += 1
-        in EventType::ConnectionCreated    then @connection_created_count += 1
-        in EventType::QueueDeclared        then @queue_declared_count += 1
-        in EventType::QueueDeleted         then @queue_deleted_count += 1
-        in EventType::ClientAck            then @ack_count += 1
-        in EventType::ClientDeliver        then @deliver_count += 1
-        in EventType::ClientGet            then @get_count += 1
-        in EventType::ClientPublish        then @publish_count += 1
-        in EventType::ClientPublishConfirm then @confirm_count += 1
-        in EventType::ClientRedeliver      then @redeliver_count += 1
-        in EventType::ClientReject         then @reject_count += 1
-        end
-      end
-    end
-
     def update_stats_rates
       @vhosts.each_value do |vhost|
         vhost.queues.each_value(&.update_rates)
@@ -273,8 +242,8 @@ module AvalancheMQ
           connection.update_rates
           connection.channels.each_value(&.update_rates)
         end
+        vhost.update_rates
       end
-      update_rates()
     end
 
     private def stats_loop
@@ -391,13 +360,6 @@ module AvalancheMQ
     getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_free = 0_i64
     getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
-
-    SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
-                      :queue_declared, :queue_deleted}
-    {% for sm in SERVER_METRICS %}
-      getter {{sm.id}}_count = 0_u64
-      getter {{sm.id}}_rate = 0_f64
-    {% end %}
 
     private def control_flow!
       if @disk_free < 2_i64 * Config.instance.segment_size

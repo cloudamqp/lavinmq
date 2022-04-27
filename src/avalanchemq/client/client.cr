@@ -42,7 +42,6 @@ module AvalancheMQ
                    @connection_info : ConnectionInfo,
                    @vhost : VHost,
                    @user : User,
-                   @events : Server::Event,
                    tune_ok,
                    start_ok)
       @remote_address = @connection_info.src
@@ -63,7 +62,6 @@ module AvalancheMQ
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
-      @events.send(EventType::ConnectionCreated)
       @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
@@ -303,8 +301,8 @@ module AvalancheMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, conn_props, vhosts, users, events)
-      AMQPConnection.start(socket, conn_props, vhosts, users, events)
+    def self.start(socket, conn_props, vhosts, users)
+      AMQPConnection.start(socket, conn_props, vhosts, users)
     end
 
     private def with_channel(frame)
@@ -337,7 +335,7 @@ module AvalancheMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, frame.channel, @events)
+      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 
@@ -421,7 +419,7 @@ module AvalancheMQ
       @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
-      @events.send(EventType::ConnectionClosed) unless @events.closed?
+      @vhost.event_tick(EventType::ConnectionClosed)
       @on_close_callback.try &.call(self)
       @on_close_callback = nil
     end

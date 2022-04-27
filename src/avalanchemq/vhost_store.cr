@@ -8,7 +8,7 @@ module AvalancheMQ
     @log = Log.for "vhoststore"
 
     def initialize(@data_dir : String,
-                   @users : UserStore, @events : Server::Event)
+                   @users : UserStore)
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -25,7 +25,7 @@ module AvalancheMQ
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, user, @events)
+      vhost = VHost.new(name, @data_dir, user)
       @log.info { "vhost=#{name} created" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
@@ -64,7 +64,7 @@ module AvalancheMQ
           JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
-            @vhosts[name] = VHost.new(name, @data_dir, default_user, @events)
+            @vhosts[name] = VHost.new(name, @data_dir, default_user)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
         rescue JSON::ParseException

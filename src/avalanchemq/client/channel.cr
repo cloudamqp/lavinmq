@@ -39,10 +39,10 @@ module AvalancheMQ
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
 
-      def initialize(@client : Client, @id : UInt16, @events : Server::Event)
+      def initialize(@client : Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @events.send(EventType::ChannelCreated)
+        @client.vhost.event_tick(EventType::ChannelCreated)
         @next_msg_body_tmp = IO::Memory.new
       end
 
@@ -191,7 +191,7 @@ module AvalancheMQ
 
       private def finish_publish(body_io, ts)
         @publish_count += 1
-        @events.send(EventType::ClientPublish)
+        @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
         props.timestamp ||= ts if Config.instance.set_timestamp
         msg = Message.new(ts.to_unix * 1000,
@@ -242,7 +242,7 @@ module AvalancheMQ
 
       def confirm_nack(multiple = false)
         return unless @confirm
-        @events.send(EventType::ClientPublishConfirm)
+        @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count += 1 # Stats
         send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple, requeue: false)
       end
@@ -263,7 +263,7 @@ module AvalancheMQ
 
       def confirm_ack(multiple = false)
         return unless @confirm
-        @events.send(EventType::ClientPublishConfirm)
+        @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count += 1 # Stats
         send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
       end
@@ -297,10 +297,10 @@ module AvalancheMQ
         @client.deliver(frame, msg) || return false
         if redelivered
           @redeliver_count += 1
-          @events.send(EventType::ClientRedeliver)
+          @client.vhost.event_tick(EventType::ClientRedeliver)
         else
           @deliver_count += 1
-          @events.send(EventType::ClientDeliver)
+          @client.vhost.event_tick(EventType::ClientDeliver)
         end
         true
       end
@@ -369,7 +369,7 @@ module AvalancheMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
           else
             @get_count += 1
-            @events.send(EventType::ClientGet)
+            @client.vhost.event_tick(EventType::ClientGet)
             q.basic_get(frame.no_ack) do |env|
               persistent = env.message.properties.delivery_mode == 2_u8
               delivery_tag = next_delivery_tag(q, env.segment_position,
@@ -460,7 +460,7 @@ module AvalancheMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp)
-        @events.send(EventType::ClientAck)
+        @client.vhost.event_tick(EventType::ClientAck)
         @ack_count += 1
       end
 
@@ -501,7 +501,7 @@ module AvalancheMQ
         end
         unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
-        @events.send(EventType::ClientReject)
+        @client.vhost.event_tick(EventType::ClientReject)
       end
 
       def basic_qos(frame) : Nil
@@ -542,7 +542,7 @@ module AvalancheMQ
           unack.queue.reject(unack.sp, true)
         end
         @next_msg_body_file.try &.close
-        @events.send(EventType::ChannelClosed)
+        @client.vhost.event_tick(EventType::ChannelClosed)
         @log.debug { "Closed" }
       end
 

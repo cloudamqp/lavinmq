@@ -1,12 +1,15 @@
-
 /* global avalanchemq */
 (function () {
   window.avalanchemq = window.avalanchemq || {}
 
   const numFormatter = new Intl.NumberFormat()
-  const url = '/api/nodes'
-  let data = null
+  let url = '/api/nodes'
+  const vhost = window.sessionStorage.getItem('vhost')
+  if (vhost && vhost !== '_all') {
+    url += '?vhost=' + encodeURIComponent(vhost)
+  }
   let updateTimer = null
+  let data = null
 
   if (data === null) {
     update(render)
@@ -61,17 +64,34 @@
   const updateDetails = (nodeStats) => {
     document.getElementById('tr-name').textContent = nodeStats.name
     document.getElementById('tr-uptime').textContent = avalanchemq.helpers.duration((nodeStats.uptime / 1000).toFixed(0))
-    document.getElementById('tr-vcpu').textContent = nodeStats.processors
-    const mem_used_gb = (nodeStats.mem_used / 1024 ** 3).toFixed(3)
-    const mem_limit_gb = (nodeStats.mem_limit / 1024 ** 3).toFixed(3)
-    const mem_pcnt = (nodeStats.mem_used / nodeStats.mem_limit * 100).toFixed(2)
-    document.getElementById('tr-memory').textContent = `${mem_used_gb}/${mem_limit_gb} GiB (${mem_pcnt}%)`
-    const cpu_pcnt = (((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100).toFixed(2)
-    document.getElementById('tr-cpu').textContent = `${cpu_pcnt}%`
-    const disk_usage_gb = ((nodeStats.disk_total - nodeStats.disk_free) / 1024 ** 3).toFixed(3)
-    const disk_total_gb = (nodeStats.disk_total / 1024 ** 3).toFixed(0)
-    const disk_pcnt = ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total * 100).toFixed(2)
-    document.getElementById('tr-disk').textContent = `${disk_usage_gb}/${disk_total_gb} GiB (${disk_pcnt}%)`
+    document.getElementById('tr-vcpu').textContent = nodeStats.processors || "N/A"
+    let memUsage, cpuUsage, diskUsage
+
+    if(nodeStats.mem_used !== undefined) {
+      const mem_used_gb = (nodeStats.mem_used / 1024 ** 3).toFixed(3)
+      const mem_limit_gb = (nodeStats.mem_limit / 1024 ** 3).toFixed(3)
+      const mem_pcnt = (nodeStats.mem_used / nodeStats.mem_limit * 100).toFixed(2)
+      memUsage = `${mem_used_gb}/${mem_limit_gb} GiB (${mem_pcnt}%)`
+    } else {
+      memUsage = "N/A"
+    }
+    document.getElementById('tr-memory').textContent = memUsage
+    if(nodeStats.cpu_user_time !== undefined) {
+      const cpu_pcnt = (((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100).toFixed(2)
+      cpuUsage = `${cpu_pcnt}%`
+    } else {
+      cpuUsage = "N/A"
+    }
+    document.getElementById('tr-cpu').textContent = cpuUsage
+    if(nodeStats.disk_total !== undefined) {
+      const disk_usage_gb = ((nodeStats.disk_total - nodeStats.disk_free) / 1024 ** 3).toFixed(3)
+      const disk_total_gb = (nodeStats.disk_total / 1024 ** 3).toFixed(0)
+      const disk_pcnt = ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total * 100).toFixed(2)
+      diskUsage = `${disk_usage_gb}/${disk_total_gb} GiB (${disk_pcnt}%)`
+    } else {
+      diskUsage = "N/A"
+    }
+    document.getElementById('tr-disk').textContent = diskUsage
   }
 
   const stats = [
@@ -140,18 +160,84 @@
       const th = document.createElement('th')
       th.textContent = rowStats.heading
       row.append(th)
+      let metrics = 0
       for (const items of rowStats.content) {
-        const td = document.createElement('td')
-        td.textContent = items.heading + ': ' + numFormatter.format(nodeStats[items.key])
-        row.append(td)
+        if(nodeStats[items.key] !== undefined) {
+          const td = document.createElement('td')
+          td.textContent = items.heading + ': ' + numFormatter.format(nodeStats[items.key])
+          row.append(td)
+          metrics += 1
+        }
       }
-      table.append(row)
+      if(metrics > 0) {
+        table.append(row)
+      }
     }
   }
+  const memoryChart = avalanchemq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
+  const ioChart = avalanchemq.chart.render('ioChart', 'ops', { aspectRatio: 2 })
+  const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 }, true)
+  const connectionChurnChart = avalanchemq.chart.render('connectionChurnChart', '/s', { aspectRatio: 2 })
+  const channelChurnChart = avalanchemq.chart.render('channelChurnChart', '/s', { aspectRatio: 2 })
+  const queueChurnChart = avalanchemq.chart.render('queueChurnChart', '/s', { aspectRatio: 2 })
 
-  Object.assign(window.avalanchemq, {
-    nodes: {
-      update, start, stop, render, get
+  const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10 ** 6).toFixed(2)
+
+  function updateCharts (response) {
+    if(response[0].mem_used !== undefined) {
+      const memoryStats = {
+        mem_used_details: toMegaBytes(response[0].mem_used),
+        mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
+      }
+      avalanchemq.chart.update(memoryChart, memoryStats)
     }
-  })
+    if(response[0].io_write_details !== undefined) {
+      const ioStats = {
+        io_write_details: response[0].io_write_details.log.slice(-1)[0],
+        io_write_details_log: response[0].io_write_details.log,
+        io_read_details: response[0].io_read_details.log.slice(-1)[0],
+        io_read_details_log: response[0].io_read_details.log
+      }
+      avalanchemq.chart.update(ioChart, ioStats)
+    }
+
+    if(response[0].cpu_user_details !== undefined) {
+      const cpuStats = {
+        user_time_details: response[0].cpu_user_details.log.slice(-1)[0] * 100,
+        system_time_details: response[0].cpu_sys_details.log.slice(-1)[0] * 100,
+        user_time_details_log: response[0].cpu_user_details.log.map(x => x * 100),
+        system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
+      }
+      avalanchemq.chart.update(cpuChart, cpuStats, "origin")
+    }
+
+    if(response[0].connection_created_details !== undefined) {
+      const connectionChurnStats = {
+        connection_created_details: response[0].connection_created_details.rate,
+        connection_closed_details: response[0].connection_closed_details.rate,
+        connection_created_details_log: response[0].connection_created_details.log,
+        connection_closed_details_log: response[0].connection_closed_details.log
+      }
+      avalanchemq.chart.update(connectionChurnChart, connectionChurnStats)
+    }
+    if(response[0].channel_created_details !== undefined) {
+      const channelChurnStats = {
+        channel_created_details: response[0].channel_created_details.rate,
+        channel_closed_details: response[0].channel_closed_details.rate,
+        channel_created_details_log: response[0].channel_created_details.log,
+        channel_closed_details_log: response[0].channel_closed_details.log
+      }
+      avalanchemq.chart.update(channelChurnChart, channelChurnStats)
+    }
+    if(response[0].queue_declared_details !== undefined) {
+      const queueChurnStats = {
+        queue_declared_details: response[0].queue_declared_details.rate,
+        queue_deleted_details: response[0].queue_deleted_details.rate,
+        queue_declared_details_log: response[0].queue_declared_details.log,
+        queue_deleted_details_log: response[0].queue_deleted_details.log
+      }
+      avalanchemq.chart.update(queueChurnChart, queueChurnStats)
+    }
+  }
+  start(updateCharts)
 })()
