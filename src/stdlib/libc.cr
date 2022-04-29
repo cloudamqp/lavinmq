@@ -8,6 +8,7 @@ lib LibC
 
   {% if flag?(:darwin) %}
     SC_PHYS_PAGES = 200
+    SC_PAGESIZE = 29
   {% elsif flag?(:freebsd) || flag?(:dragonfly) || flag?(:netbsd) %}
     SC_PHYS_PAGES = 121
   {% elsif flag?(:openbsd) %}
