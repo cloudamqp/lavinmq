@@ -946,7 +946,6 @@ module AvalancheMQ
       trigger_gc!
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     def event_tick(event_type)
       case event_type
       in EventType::ChannelClosed        then @channel_closed_count += 1

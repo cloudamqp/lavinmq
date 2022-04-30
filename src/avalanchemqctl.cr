@@ -124,7 +124,6 @@ class AvalancheMQCtl
         @options["backup"] = "true"
       end
       @parser.on("--backup-dir-name=", "Name of the backup folder, defaults to current unix timestamp") do |v|
-        pp v
         @options["backup-dir-name"] = v
       end
     end
