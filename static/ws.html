@@ -6,6 +6,7 @@
 
       const textarea = document.getElementById("textarea")
       const input = document.getElementById("message")
+      const submit = document.getElementById("submit")
       const offlineQueue = []
       const tls = window.location.scheme === "https:"
       const url = `${tls ? "wss" : "ws"}://${window.location.host}`
@@ -16,6 +17,7 @@
       }
 
       async function start() {
+        submit.disabled = true
         try {
           const conn = await amqp.connect()
           const ch = await conn.channel()
@@ -47,6 +49,7 @@
           }
           input.value = ""
         }
+        submit.disabled = false
       }
 
       async function publish(ch, message) {
@@ -61,7 +64,7 @@
       <textarea id="textarea" rows=10></textarea>
       <br/>
       <input id="message"/>
-      <button type="submit">Send</button>
+      <button id="submit" type="submit">Send</button>
     </form>
   </body>
 </html>
