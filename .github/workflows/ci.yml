@@ -13,22 +13,22 @@ on:
       - 'openapi/schemas/**'
 
 jobs:
-  lint:
-    name: Lint and formatting
+  format:
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:1.4.0-ubuntu-20.04
+    container: 84codes/crystal
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      - run: crystal tool format --check
 
-      - name: Formatting
-        run: crystal tool format --check
-
-      - name: Crystal Ameba Linter
-        uses: crystal-ameba/github-action@v0.2.12
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container: 84codes/crystal
+    steps:
+      - uses: actions/checkout@v3
+      - run: shards install
+      - run: bin/ameba --no-color
 
   api-lint:
     name: Lint and build HTTP API documentation
