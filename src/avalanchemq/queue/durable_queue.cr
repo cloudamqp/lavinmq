@@ -167,8 +167,11 @@ module AvalancheMQ
       ack_path = File.join(@index_dir, "ack")
       SchemaVersion.migrate(enq_path, :index)
       SchemaVersion.migrate(ack_path, :index)
-      truncate_sparse_file(enq_path)
-      truncate_sparse_file(ack_path)
+      time = Time.measure do
+        truncate_sparse_file(enq_path)
+        truncate_sparse_file(ack_path)
+      end
+      @log.info { "Truncating sparse index in #{time.total_milliseconds} ms" }
       File.open(enq_path) do |enq|
         File.open(ack_path) do |ack|
           enq.buffer_size = Config.instance.file_buffer_size
