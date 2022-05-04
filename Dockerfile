@@ -7,7 +7,7 @@ COPY openapi openapi
 RUN make docs
 
 # Build objects file on build platform for speed
-FROM --platform=$BUILDPLATFORM 84codes/crystal:1.4.0-debian-11 AS builder
+FROM --platform=$BUILDPLATFORM 84codes/crystal:1.4.1-debian-11 AS builder
 RUN apt-get update && apt-get install -y make curl
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
@@ -20,7 +20,7 @@ ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
 # Link object files on target platform
-FROM 84codes/crystal:1.4.0-debian-11 AS target-builder
+FROM 84codes/crystal:1.4.1-debian-11 AS target-builder
 WORKDIR /tmp
 COPY Makefile .
 COPY --from=builder /tmp/bin bin
