@@ -14,6 +14,7 @@ require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
 require "./stats"
+require "./tls_proxy"
 
 module AvalancheMQ
   class Server
@@ -102,7 +103,11 @@ module AvalancheMQ
       listen(s)
     end
 
-    def listen_tls(bind, port, context)
+    def listen_tls
+      unless File.basename(PROGRAM_NAME).starts_with? "avalanchemq"
+        TLSProxy.new(Config.instance).run
+        return
+      end
       proxies = System.cpu_count.times.map do
         Process.new PROGRAM_NAME, ["tls-proxy"].concat(ARGV), output: STDOUT, error: STDERR
       end

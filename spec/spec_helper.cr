@@ -137,10 +137,9 @@ module TestHelpers
     spawn { @@s.try &.listen(cfg.amqp_bind, cfg.amqp_port) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
     key = Dir.current + "/spec/resources/server_key.pem"
-    ctx = OpenSSL::SSL::Context::Server.new
-    ctx.certificate_chain = cert
-    ctx.private_key = key
-    spawn { @@s.try &.listen_tls(cfg.amqp_bind, cfg.amqps_port, ctx) }
+    AvalancheMQ::Config.instance.tls_cert_path = cert
+    AvalancheMQ::Config.instance.tls_key_path = key
+    spawn { @@s.try &.listen_tls }
     spawn { @@h.try &.listen }
     Fiber.yield
   end
