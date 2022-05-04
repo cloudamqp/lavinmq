@@ -223,31 +223,33 @@ module AvalancheMQ
       @log.error { "Could not restore index: #{ex.inspect}" }
     end
 
-    # Reads all SPs in the index, truncate if there's only 0's left
-    # As we preallocate files, they are not truncated on ungraceful shutdown
-    # and thus we allocate too large memory structures in restore_index.
-    # TODO: optimize using SEEK_HOLE
+    SEEK_HOLE = 4
+
+    # Truncate sparse index file, can be if not gracefully shutdown.
+    # If not truncated the restore_index will create too large arrays
     private def truncate_sparse_file(path : String) : Nil
-      {% if flag?(:unix) %}
-        # if number of allocated blocks (times block size) is smaller than
-        # the file size then the file must be sparse
-        stats = File.info(path).@stat
-        return if stats.st_blocks * stats.st_blksize >= stats.st_size
-      {% end %}
       File.open(path, "r+") do |f|
-        f.buffer_size = Config.instance.file_buffer_size
-        f.advise(File::Advice::Sequential)
-        loop do
-          sp = SegmentPosition.from_io f
-          if sp.zero?
-            size = f.pos - SegmentPosition::BYTESIZE
-            @log.info { "Truncating #{path} to #{size}" }
-            f.truncate size
+        {% if flag?(:linux) %}
+          seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
+          raise IO::Error.from_errno "Unable to seek" if seek_value == -1
+          @log.info { "Truncating #{File.basename path} from #{f.size} to #{seek_value}" }
+          f.truncate seek_value
+          return
+        {% else %}
+          f.buffer_size = Config.instance.file_buffer_size
+          f.advise(File::Advice::Sequential)
+          loop do
+            sp = SegmentPosition.from_io f
+            if sp.zero?
+              size = f.pos
+              @log.info { "Truncating #{File.basename path} from #{f.size} to #{size}" }
+              f.truncate size
+              break
+            end
+          rescue IO::EOFError
             break
           end
-        rescue IO::EOFError
-          break
-        end
+        {% end %}
       end
     end
 
