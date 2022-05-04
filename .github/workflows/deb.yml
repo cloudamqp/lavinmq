@@ -1,5 +1,8 @@
 name: Debian packages
 on:
+  pull_request:
+    paths-ignore:
+      - 'spec/**'
   push:
     branches:
       - main
@@ -16,11 +19,10 @@ jobs:
       matrix:
         arch: [amd64, arm64]
         os: [ubuntu-20.04, debian-11]
-
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -47,10 +49,16 @@ jobs:
           file: Dockerfile.deb
           platforms: linux/${{ matrix.arch }}
           build-args: |
-            build_image=84codes/crystal:1.4.0-${{ matrix.os }}
+            build_image=84codes/crystal:1.4.1-${{ matrix.os }}
             target_image=${{ env.OS }}:${{ env.VERSION }}
             pkg_version=${{ env.PKG_VERSION }}
           outputs: builds
+
+      - uses: actions/upload-artifact@v3
+        name: Upload artifact
+        with:
+          name: avalanchemq-${{ matrix.os }}-${{ matrix.arch }}.deb
+          path: builds/**/*.deb
 
       - name: Upload to Packagecloud
         run: |
