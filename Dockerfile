@@ -7,7 +7,7 @@ COPY openapi openapi
 RUN make docs
 
 # Build objects file on build platform for speed
-FROM --platform=$BUILDPLATFORM 84codes/crystal:1.4.1-debian-11 AS builder
+FROM --platform=$BUILDPLATFORM 84codes/crystal:1.4.1-ubuntu-22.04 AS builder
 RUN apt-get update && apt-get install -y make curl
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
@@ -20,16 +20,16 @@ ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
 # Link object files on target platform
-FROM 84codes/crystal:1.4.1-debian-11 AS target-builder
+FROM 84codes/crystal:1.4.1-ubuntu-22.04 AS target-builder
 WORKDIR /tmp
 COPY Makefile .
 COPY --from=builder /tmp/bin bin
 RUN make all -j && rm bin/*.*
 
 # Resulting image with minimal layers
-FROM debian:11-slim
+FROM ubuntu:22.04
 RUN apt-get update && \
-    apt-get install -y libssl1.1 libevent-2.1-7 && \
+    apt-get install -y libssl3 libevent-2.1-7 && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 COPY --from=target-builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
