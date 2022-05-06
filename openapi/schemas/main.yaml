@@ -2,7 +2,7 @@
 overview:
   type: object
   properties:
-    avalanchemq_version:
+    lavinmq_version:
       type: string
     exchange_types:
       type: array

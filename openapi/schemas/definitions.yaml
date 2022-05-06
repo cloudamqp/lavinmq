@@ -2,8 +2,8 @@
 definitions:
   type: object
   properties:
-    avalanchemq_version:
-      "$ref": "#/avalanchemq_version"
+    lavinmq_version:
+      "$ref": "#/lavinmq_version"
     users:
       "$ref": "../openapi.yaml#/components/schemas/users"
     vhosts:
@@ -26,8 +26,8 @@ definitions:
 definitions-vhost:
   type: object
   properties:
-    avalanchemq_version:
-      "$ref": "#/avalanchemq_version"
+    lavinmq_version:
+      "$ref": "#/lavinmq_version"
     queues:
       "$ref": "#/queues"
     exchanges:
@@ -37,7 +37,7 @@ definitions-vhost:
     policies:
       "$ref": "../openapi.yaml#/components/schemas/policies"
 
-avalanchemq_version:
+lavinmq_version:
   type: string
 vhosts:
   type: array
