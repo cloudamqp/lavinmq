@@ -1,5 +1,5 @@
 require "spec"
-require "../src/avalanchemq/proxy_protocol"
+require "../src/lavinmq/proxy_protocol"
 
 describe "ProxyProtocol" do
   describe "v1" do

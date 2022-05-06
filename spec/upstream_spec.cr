@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/avalanchemq/federation/upstream"
+require "../src/lavinmq/federation/upstream"
 
 module UpstreamSpecHelpers
   def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}

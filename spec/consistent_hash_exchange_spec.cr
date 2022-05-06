@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/avalanchemq/consistent_hasher.cr"
+require "../src/lavinmq/consistent_hasher.cr"
 
 describe "Consistent Hash Exchange" do
   describe "Hasher" do

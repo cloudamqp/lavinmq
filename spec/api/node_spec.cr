@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "../../src/avalanchemq/config"
+require "../../src/lavinmq/config"
 
 describe LavinMQ::HTTP::NodesController do
   describe "GET /api/nodes" do

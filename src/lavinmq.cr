@@ -1,7 +1,7 @@
-require "./avalanchemq/version"
+require "./lavinmq/version"
 require "./stdlib/*"
-require "./avalanchemq/config"
-require "./avalanchemq/server_cli"
+require "./lavinmq/config"
+require "./lavinmq/server_cli"
 
 config = LavinMQ::Config.instance
 LavinMQ::ServerCLI.new(config).parse
@@ -15,5 +15,5 @@ LavinMQ::ServerCLI.new(config).parse
 {% end %}
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
-require "./avalanchemq/launcher"
+require "./lavinmq/launcher"
 LavinMQ::Launcher.new(config).run # will block

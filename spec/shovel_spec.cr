@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/avalanchemq/shovel"
+require "../src/lavinmq/shovel"
 require "http/server"
 
 module ShovelSpecHelpers

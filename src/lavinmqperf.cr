@@ -1,4 +1,4 @@
-require "./avalanchemq/version"
+require "./lavinmq/version"
 require "./stdlib/*"
 require "option_parser"
 require "amqp-client"

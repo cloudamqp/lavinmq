@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/avalanchemq/segment_position.cr"
+require "../src/lavinmq/segment_position.cr"
 
 describe LavinMQ::SegmentPosition do
   subject = LavinMQ::SegmentPosition

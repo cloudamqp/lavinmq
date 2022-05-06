@@ -101,7 +101,7 @@ end
 
 openapi_spec = YAML.load(File.read(File.join(__dir__, "openapi.yaml")))
 src_code_dir = File.expand_path(File.join(__dir__, ".."))
-http_code_dir = File.join(src_code_dir, "src/avalanchemq/http")
+http_code_dir = File.join(src_code_dir, "src/lavinmq/http")
 files = Dir.glob(File.join(http_code_dir, "**/*.cr"))
 route_regex = /(?<verb>get|post|put|delete)\s+"\/api(?<route>\/.+)"/i
 

@@ -75,13 +75,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Build avalanchemq
+      - name: Build lavinmq
         run: |
-          make -j bin/avalanchemq-debug bin/avalanchemqctl DOCS=
+          make -j bin/lavinmq-debug bin/lavinmqctl DOCS=
           rm bin/*.*
 
       - name: Print build info
-        run: bin/avalanchemq-debug --build-info
+        run: bin/lavinmq-debug --build-info
 
       - name: Upload bin/
         uses: actions/upload-artifact@v2
@@ -108,8 +108,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/avalanchemq-debug
-          bin/avalanchemq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq-debug
+          bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Clone java client
         uses: actions/checkout@v2
@@ -150,13 +150,13 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/avalanchemq-debug
-          bin/avalanchemq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq-debug
+          bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Import definitions
         run: |
-          chmod +x bin/avalanchemqctl
-          bin/avalanchemqctl import_definitions .github/bunny_definitions.json
+          chmod +x bin/lavinmqctl
+          bin/lavinmqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
         uses: actions/checkout@v2
@@ -194,8 +194,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/avalanchemq-debug
-          bin/avalanchemq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq-debug
+          bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
         uses: actions/checkout@v2
@@ -230,8 +230,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/avalanchemq-debug
-          bin/avalanchemq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq-debug
+          bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Install Go
         uses: actions/setup-go@v2
@@ -267,8 +267,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/avalanchemq-debug
-          bin/avalanchemq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq-debug
+          bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Test the static HTTP controller
         run: ./extras/static_requests.sh

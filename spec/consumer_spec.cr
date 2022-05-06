@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "./../src/avalanchemq/queue"
+require "./../src/lavinmq/queue"
 
 describe LavinMQ::Client::Channel::Consumer do
   describe "without x-priority" do
