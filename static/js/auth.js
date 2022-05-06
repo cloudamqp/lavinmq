@@ -1,5 +1,5 @@
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   function getUsername () {
     return getCookieValue('username')
@@ -91,7 +91,7 @@
     window.location.reload()
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     auth: {
       header,
       setAuth,

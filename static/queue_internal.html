@@ -79,24 +79,24 @@
     <script src="/js/lib/chart.js"></script>
     <script src="/js/chart.js"></script>
     <script>
-      /* globals avalanchemq */
+      /* globals lavinmq */
       const queue = new URLSearchParams(window.location.search).get('name')
       const vhost = new URLSearchParams(window.location.search).get('vhost')
       const urlEncodedQueue = encodeURIComponent(queue)
       const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = queue + ' | LavinMQ'
 
-      const chart = avalanchemq.chart.render('chart', 'msgs/s')
+      const chart = lavinmq.chart.render('chart', 'msgs/s')
       const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
       function updateQueue (all) {
-        avalanchemq.http.request('GET', queueUrl).then(item => {
+        lavinmq.http.request('GET', queueUrl).then(item => {
           const stats = {
             publish: item.message_stats.publish,
             publish_details: item.message_stats.publish_details
           }
-          avalanchemq.chart.update(chart, stats)
+          lavinmq.chart.update(chart, stats)
           document.getElementById('q-state').textContent = item.state
-          document.getElementById('q-ready').textContent = avalanchemq.helpers.formatNumber(item.ready)
+          document.getElementById('q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
           if (all) {
             let features = ''
             features += item.durable ? ' D' : ''
@@ -108,7 +108,7 @@
               const policyLink = document.createElement('a')
               policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
               policyLink.textContent = item.policy
-              avalanchemq.dom.setChild('#q-policy', policyLink)
+              lavinmq.dom.setChild('#q-policy', policyLink)
             }
             const qArgs = document.getElementById('q-arguments')
             let args = ''
@@ -117,7 +117,7 @@
             }
             qArgs.innerHTML = args
           }
-        }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(qTimer))
+        }).catch(lavinmq.http.standardErrorHandler).catch(e => clearInterval(qTimer))
       }
       updateQueue(true)
       const qTimer = setInterval(updateQueue, 5000)
@@ -125,9 +125,9 @@
         evt.preventDefault()
         const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
         if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
-          avalanchemq.http.request('DELETE', url)
-            .then(() => { avalanchemq.dom.toast('Queue purged!') })
-            .catch(avalanchemq.http.standardErrorHandler)
+          lavinmq.http.request('DELETE', url)
+            .then(() => { lavinmq.dom.toast('Queue purged!') })
+            .catch(lavinmq.http.standardErrorHandler)
         }
       })
     </script>

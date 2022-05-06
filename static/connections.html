@@ -58,9 +58,9 @@
     <script src="/js/dom.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      /* globals avalanchemq */
+      /* globals lavinmq */
       const vhost = window.sessionStorage.getItem('vhost')
-      const escapeHTML = avalanchemq.dom.escapeHTML
+      const escapeHTML = lavinmq.dom.escapeHTML
       const numFormatter = new Intl.NumberFormat()
       let url = '/api/connections'
       if (vhost && vhost !== '_all') {
@@ -74,7 +74,7 @@
         columnSelector: true,
         search: true
       }
-      avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+      lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let client = ''
           if (item.client_properties.product) {
@@ -89,23 +89,23 @@
           } else {
             connectionLink.textContent = item.name
           }
-          avalanchemq.table.renderCell(tr, 0, item.vhost)
-          avalanchemq.table.renderCell(tr, 1, connectionLink)
-          avalanchemq.table.renderCell(tr, 2, item.user)
-          avalanchemq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
-          avalanchemq.table.renderCell(tr, 5, item.tls_version, 'center')
-          avalanchemq.table.renderCell(tr, 6, item.cipher, 'center')
-          avalanchemq.table.renderCell(tr, 7, item.protocol, 'center')
-          avalanchemq.table.renderCell(tr, 9, item.channel_max, 'right')
-          avalanchemq.table.renderCell(tr, 10, item.timeout, 'right')
-          // avalanchemq.table.renderCell(tr, 8, item.auth_mechanism)
-          avalanchemq.table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
-          avalanchemq.table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
+          lavinmq.table.renderCell(tr, 0, item.vhost)
+          lavinmq.table.renderCell(tr, 1, connectionLink)
+          lavinmq.table.renderCell(tr, 2, item.user)
+          lavinmq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
+          lavinmq.table.renderCell(tr, 5, item.tls_version, 'center')
+          lavinmq.table.renderCell(tr, 6, item.cipher, 'center')
+          lavinmq.table.renderCell(tr, 7, item.protocol, 'center')
+          lavinmq.table.renderCell(tr, 9, item.channel_max, 'right')
+          lavinmq.table.renderCell(tr, 10, item.timeout, 'right')
+          // lavinmq.table.renderCell(tr, 8, item.auth_mechanism)
+          lavinmq.table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
+          lavinmq.table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
         }
-        avalanchemq.table.renderCell(tr, 3, null, `center state-${item.state}`)
-        avalanchemq.table.renderCell(tr, 8, item.channels, 'right')
-        avalanchemq.table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
-        avalanchemq.table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
+        lavinmq.table.renderCell(tr, 3, null, `center state-${item.state}`)
+        lavinmq.table.renderCell(tr, 8, item.channels, 'right')
+        lavinmq.table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
+        lavinmq.table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
       })
     </script>
   </body>

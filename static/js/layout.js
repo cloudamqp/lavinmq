@@ -83,12 +83,12 @@
         <form id="user-vhost">
           <label>
             <span>vhost:</span>
-            <select id="userMenuVhost" name="vhost" onchange="avalanchemq.auth.selectVhost(this)"></select>
+            <select id="userMenuVhost" name="vhost" onchange="lavinmq.auth.selectVhost(this)"></select>
           </label>
         </form>
       </li>
       <li>
-        <a href="#" onclick="avalanchemq.auth.signOut()">
+        <a href="#" onclick="lavinmq.auth.signOut()">
           <span class="head">🙈</span>&nbsp; Sign out</span>
         </a>
       </li>

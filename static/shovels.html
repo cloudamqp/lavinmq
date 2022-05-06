@@ -144,9 +144,9 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      /* globals avalanchemq */
-      const escapeHTML = avalanchemq.dom.escapeHTML
-      avalanchemq.vhosts.addVhostOptions('createShovel')
+      /* globals lavinmq */
+      const escapeHTML = lavinmq.dom.escapeHTML
+      lavinmq.vhosts.addVhostOptions('createShovel')
 
       function renderState(item) {
         if (item.error) {
@@ -164,14 +164,14 @@
       }
 
       const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true }
-      const shovelsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
+      const shovelsTable = lavinmq.table.renderTable('table', tableOptions, (tr, item, all) => {
         if (!all) {
-          avalanchemq.table.renderCell(tr, 10, renderState(item))
+          lavinmq.table.renderCell(tr, 10, renderState(item))
           return
         }
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
+        lavinmq.table.renderCell(tr, 0, item.vhost)
+        lavinmq.table.renderCell(tr, 1, item.name)
+        lavinmq.table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
         let srcEndpoint = ''
         let srcEndpointType = ''
         if (item.value['src-queue']) {
@@ -181,9 +181,9 @@
           srcEndpoint = escapeHTML(item.value['src-exchange'])
           srcEndpointType = 'exchange'
         }
-        avalanchemq.table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
-        avalanchemq.table.renderCell(tr, 4, item.value['src-prefetch-count'])
-        avalanchemq.table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
+        lavinmq.table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
+        lavinmq.table.renderCell(tr, 4, item.value['src-prefetch-count'])
+        lavinmq.table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
         let destEndpoint = ''
         let destEndpointType = ''
         if (item.value['dest-queue']) {
@@ -195,11 +195,11 @@
         } else {
             destEndpoint = 'http'
         }
-        avalanchemq.table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')
-        avalanchemq.table.renderCell(tr, 7, item.value['reconnect-delay'])
-        avalanchemq.table.renderCell(tr, 8, item.value['ack-mode'])
-        avalanchemq.table.renderCell(tr, 9, item.value['src-delete-after'])
-        avalanchemq.table.renderCell(tr, 10, renderState(item))
+        lavinmq.table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')
+        lavinmq.table.renderCell(tr, 7, item.value['reconnect-delay'])
+        lavinmq.table.renderCell(tr, 8, item.value['ack-mode'])
+        lavinmq.table.renderCell(tr, 9, item.value['src-delete-after'])
+        lavinmq.table.renderCell(tr, 10, renderState(item))
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
@@ -208,13 +208,13 @@
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/parameters/shovel/' + vhost + '/' + name
           if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
-            avalanchemq.http.request('DELETE', url)
+            lavinmq.http.request('DELETE', url)
               .then(() => {
-                avalanchemq.dom.removeNodes(tr)
-              }).catch(avalanchemq.http.standardErrorHandler)
+                lavinmq.dom.removeNodes(tr)
+              }).catch(lavinmq.http.standardErrorHandler)
           }
         }
-        avalanchemq.table.renderCell(tr, 11, btn, 'right')
+        lavinmq.table.renderCell(tr, 11, btn, 'right')
       })
 
       const vhost = window.sessionStorage.getItem('vhost')
@@ -226,8 +226,8 @@
         statusUrl += '/' + urlEncodedVhost
       }
       function updateShovelsTable () {
-        const p1 = avalanchemq.http.request('GET', url)
-        const p2 = avalanchemq.http.request('GET', statusUrl)
+        const p1 = lavinmq.http.request('GET', url)
+        const p2 = lavinmq.http.request('GET', statusUrl)
 
         Promise.all([p1, p2]).then(values => {
           const items = values[0]
@@ -281,17 +281,17 @@
         } else {
           body.value['dest-exchange'] = data.get('dest-endpoint')
         }
-        avalanchemq.http.request('PUT', url, { body })
+        lavinmq.http.request('PUT', url, { body })
           .then(() => {
             updateShovelsTable()
             evt.target.reset()
-            avalanchemq.dom.toast('Shovel ' + name + ' created')
-          }).catch(avalanchemq.http.standardErrorHandler)
+            lavinmq.dom.toast('Shovel ' + name + ' created')
+          }).catch(lavinmq.http.standardErrorHandler)
       })
 
       function updateAutocomplete(e, id) {
         type = e === 'queue' ? 'queues' : 'exchanges'
-        avalanchemq.helpers.autoCompleteDatalist(id, type)
+        lavinmq.helpers.autoCompleteDatalist(id, type)
       }
       updateAutocomplete('queue',"shovel-src-list")
       updateAutocomplete('queue',"shovel-dest-list")

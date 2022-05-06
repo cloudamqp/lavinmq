@@ -1,5 +1,5 @@
-(function(avalanchemq) {
-  avalanchemq.vhosts.addVhostOptions('declare')
+(function(lavinmq) {
+  lavinmq.vhosts.addVhostOptions('declare')
   const vhost = window.sessionStorage.getItem('vhost')
   let url = '/api/queues'
   if (vhost && vhost !== '_all') {
@@ -30,7 +30,7 @@
         break
       }
       if(!url) return;
-      avalanchemq.http.request('DELETE', url).then(() => {
+      lavinmq.http.request('DELETE', url).then(() => {
         performed += 1
         if(performed == totalCount) {
           multiSelectControls.classList.add("hide")
@@ -39,7 +39,7 @@
           queuesTable.fetchAndUpdate()
         }
       }).catch(e => {
-        avalanchemq.dom.toast(`Failed to perform action on ${data.name}`, "error")
+        lavinmq.dom.toast(`Failed to perform action on ${data.name}`, "error")
         queuesTable.fetchAndUpdate()
       })
     })
@@ -67,7 +67,7 @@
     })
     toggleMultiActionControls(checked, c)
   })
-  const queuesTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+  const queuesTable = lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
     if (all) {
       let features = ''
       features += item.durable ? ' D' : ''
@@ -85,10 +85,10 @@
       checkbox.setAttribute('data-vhost', encodeURIComponent(item.vhost))
       checkbox.setAttribute('data-name', encodeURIComponent(item.name))
       checkbox.addEventListener('change', rowCheckboxChanged)
-      avalanchemq.table.renderCell(tr, 0, checkbox)
-      avalanchemq.table.renderCell(tr, 1, item.vhost)
-      avalanchemq.table.renderCell(tr, 2, queueLink)
-      avalanchemq.table.renderCell(tr, 3, features, 'center')
+      lavinmq.table.renderCell(tr, 0, checkbox)
+      lavinmq.table.renderCell(tr, 1, item.vhost)
+      lavinmq.table.renderCell(tr, 2, queueLink)
+      lavinmq.table.renderCell(tr, 3, features, 'center')
     }
 
     let policyLink = ''
@@ -97,15 +97,15 @@
       policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
       policyLink.textContent = item.policy
     }
-    avalanchemq.table.renderCell(tr, 4, policyLink, 'center')
-    avalanchemq.table.renderCell(tr, 5, item.consumers, 'right')
-    avalanchemq.table.renderCell(tr, 6, null, 'center ' + 'state-' + item.state)
-    avalanchemq.table.renderCell(tr, 7, avalanchemq.helpers.formatNumber(item.ready), 'right')
-    avalanchemq.table.renderCell(tr, 8, avalanchemq.helpers.formatNumber(item.unacked), 'right')
-    avalanchemq.table.renderCell(tr, 9, avalanchemq.helpers.formatNumber(item.messages), 'right')
-    avalanchemq.table.renderCell(tr, 10, avalanchemq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
-    avalanchemq.table.renderCell(tr, 11, avalanchemq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
-    avalanchemq.table.renderCell(tr, 12, avalanchemq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
+    lavinmq.table.renderCell(tr, 4, policyLink, 'center')
+    lavinmq.table.renderCell(tr, 5, item.consumers, 'right')
+    lavinmq.table.renderCell(tr, 6, null, 'center ' + 'state-' + item.state)
+    lavinmq.table.renderCell(tr, 7, lavinmq.helpers.formatNumber(item.ready), 'right')
+    lavinmq.table.renderCell(tr, 8, lavinmq.helpers.formatNumber(item.unacked), 'right')
+    lavinmq.table.renderCell(tr, 9, lavinmq.helpers.formatNumber(item.messages), 'right')
+    lavinmq.table.renderCell(tr, 10, lavinmq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
+    lavinmq.table.renderCell(tr, 11, lavinmq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
+    lavinmq.table.renderCell(tr, 12, lavinmq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
   })
 
   document.querySelector('#declare').addEventListener('submit', function (evt) {
@@ -117,17 +117,17 @@
     const body = {
       durable: data.get('durable') === '1',
       auto_delete: data.get('auto_delete') === '1',
-      arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
+      arguments: lavinmq.dom.parseJSON(data.get('arguments'))
     }
-    avalanchemq.http.request('PUT', url, { body })
+    lavinmq.http.request('PUT', url, { body })
       .then(() => {
         queuesTable.fetchAndUpdate()
         evt.target.reset()
-        avalanchemq.dom.toast('Queue ' + queue + ' created')
-      }).catch(avalanchemq.http.standardErrorHandler)
+        lavinmq.dom.toast('Queue ' + queue + ' created')
+      }).catch(lavinmq.http.standardErrorHandler)
   })
 
   document.querySelector('#dataTags').onclick = e => {
-    window.avalanchemq.helpers.argumentHelperJSON("arguments", e)
+    window.lavinmq.helpers.argumentHelperJSON("arguments", e)
   }
-}(window.avalanchemq))
+}(window.lavinmq))

@@ -145,9 +145,9 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      /* globals avalanchemq */
-      const escapeHTML = avalanchemq.dom.escapeHTML
-      avalanchemq.vhosts.addVhostOptions('createUpstream')
+      /* globals lavinmq */
+      const escapeHTML = lavinmq.dom.escapeHTML
+      lavinmq.vhosts.addVhostOptions('createUpstream')
 
       let url = '/api/parameters/federation-upstream'
       let linksUrl = '/api/federation-links'
@@ -159,19 +159,19 @@
       }
 
       const utOpts = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
-      const upstreamsTable = avalanchemq.table.renderTable('upstreamTable', utOpts, (tr, item) => {
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.value.uri.replace(/:([^:]+)@/, ':***@')))
-        avalanchemq.table.renderCell(tr, 3, item.value['prefetch-count'])
-        avalanchemq.table.renderCell(tr, 4, item.value['reconnect-delay'])
-        avalanchemq.table.renderCell(tr, 5, item.value['ack-mode'])
-        avalanchemq.table.renderCell(tr, 6, item.value.exchange)
-        // avalanchemq.table.renderCell(tr, 7, item.value['max-hops'])
-        avalanchemq.table.renderCell(tr, 7, item.value.expires)
-        avalanchemq.table.renderCell(tr, 8, item.value['message-ttl'])
-        avalanchemq.table.renderCell(tr, 9, item.value.queue)
-        avalanchemq.table.renderCell(tr, 10, item.value['consumer-tag'])
+      const upstreamsTable = lavinmq.table.renderTable('upstreamTable', utOpts, (tr, item) => {
+        lavinmq.table.renderCell(tr, 0, item.vhost)
+        lavinmq.table.renderCell(tr, 1, item.name)
+        lavinmq.table.renderCell(tr, 2, decodeURI(item.value.uri.replace(/:([^:]+)@/, ':***@')))
+        lavinmq.table.renderCell(tr, 3, item.value['prefetch-count'])
+        lavinmq.table.renderCell(tr, 4, item.value['reconnect-delay'])
+        lavinmq.table.renderCell(tr, 5, item.value['ack-mode'])
+        lavinmq.table.renderCell(tr, 6, item.value.exchange)
+        // lavinmq.table.renderCell(tr, 7, item.value['max-hops'])
+        lavinmq.table.renderCell(tr, 7, item.value.expires)
+        lavinmq.table.renderCell(tr, 8, item.value['message-ttl'])
+        lavinmq.table.renderCell(tr, 9, item.value.queue)
+        lavinmq.table.renderCell(tr, 10, item.value['consumer-tag'])
         const btn = document.createElement('button')
         btn.classList.add('btn-danger')
         btn.innerHTML = 'Delete'
@@ -180,21 +180,21 @@
           const vhost = encodeURIComponent(item.vhost)
           const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
           if (!window.confirm(`Delete federation upstream ${item.name} ?`)) return
-          avalanchemq.http.request('DELETE', url)
+          lavinmq.http.request('DELETE', url)
             .then(() => {
-              avalanchemq.dom.removeNodes(tr)
-            }).catch(avalanchemq.http.standardErrorHandler)
+              lavinmq.dom.removeNodes(tr)
+            }).catch(lavinmq.http.standardErrorHandler)
         }
-        avalanchemq.table.renderCell(tr, 11, btn, 'right')
+        lavinmq.table.renderCell(tr, 11, btn, 'right')
       })
 
       const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }
-      avalanchemq.table.renderTable('linksTable', linksOpts, (tr, item) => {
-        avalanchemq.table.renderCell(tr, 0, item.vhost)
-        avalanchemq.table.renderCell(tr, 1, item.name)
-        avalanchemq.table.renderCell(tr, 2, decodeURI(item.uri))
-        avalanchemq.table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
-        avalanchemq.table.renderCell(tr, 4, item.timestamp)
+      lavinmq.table.renderTable('linksTable', linksOpts, (tr, item) => {
+        lavinmq.table.renderCell(tr, 0, item.vhost)
+        lavinmq.table.renderCell(tr, 1, item.name)
+        lavinmq.table.renderCell(tr, 2, decodeURI(item.uri))
+        lavinmq.table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
+        lavinmq.table.renderCell(tr, 4, item.timestamp)
       })
 
       document.querySelector('#createUpstream').addEventListener('submit', function (evt) {
@@ -217,14 +217,14 @@
             'consumer-tag': data.get('consumer-tag')
           }
         }
-        avalanchemq.http.request('PUT', url, { body })
+        lavinmq.http.request('PUT', url, { body })
           .then(() => {
             upstreamsTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(lavinmq.http.standardErrorHandler)
       })
-      avalanchemq.helpers.autoCompleteDatalist('queue-datalist', 'queues')
-      avalanchemq.helpers.autoCompleteDatalist('exchange-datalist', 'exchanges')
+      lavinmq.helpers.autoCompleteDatalist('queue-datalist', 'queues')
+      lavinmq.helpers.autoCompleteDatalist('exchange-datalist', 'exchanges')
     </script>
   </body>
 </html>

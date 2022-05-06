@@ -1,18 +1,18 @@
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   function testLoggedIn () {
     const hash = window.location.hash
     if (hash.startsWith('#/login')) {
       const arr = hash.split('/')
-      avalanchemq.auth.setAuth(arr[2] + ':' + arr[3])
+      lavinmq.auth.setAuth(arr[2] + ':' + arr[3])
       window.location.hash = ''
       window.location.assign('/')
     }
     if (window.location.pathname !== '/login') {
       request('GET', '/api/whoami').then(function () {
-        avalanchemq.auth.setUsername()
+        lavinmq.auth.setUsername()
       }).catch(function () {
         redirect('/login')
       })
@@ -28,10 +28,10 @@
   function request (method, path, options = {}) {
     const body = options.body
     const headers = options.headers || new window.Headers()
-    if (avalanchemq.auth == null || avalanchemq.auth.getUsername() == null) {
+    if (lavinmq.auth == null || lavinmq.auth.getUsername() == null) {
       return redirect('/login')
     }
-    const hdr = avalanchemq.auth.header()
+    const hdr = lavinmq.auth.header()
     headers.append('Authorization', hdr)
     const opts = {
       method: method,
@@ -72,7 +72,7 @@
       console.warn(`Not found: ${e.message}`)
     } else if (e.status === 401) {
       testLoggedIn()
-      window.avalanchemq.dom.toast("Access Refused: You don't have the permission to perform this action", "error")
+      window.lavinmq.dom.toast("Access Refused: You don't have the permission to perform this action", "error")
     } else if (e.body) {
       alertErrorHandler(e)
     } else {
@@ -99,7 +99,7 @@
 
   testLoggedIn()
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     http: {
       request, redirect, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
     }

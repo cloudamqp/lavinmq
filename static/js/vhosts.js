@@ -1,11 +1,11 @@
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   function fetch (cb) {
     const vhost = window.sessionStorage.getItem('vhost')
     const url = '/api/vhosts'
-    return avalanchemq.http.request('GET', url).then(function (vhosts) {
+    return lavinmq.http.request('GET', url).then(function (vhosts) {
       if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
         window.sessionStorage.removeItem('vhost')
       }
@@ -57,7 +57,7 @@
     }
   })
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     vhosts: {
       fetch, addVhostOptions
     }

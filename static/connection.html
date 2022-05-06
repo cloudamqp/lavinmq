@@ -131,19 +131,19 @@
     <script src="/js/lib/chart.js"></script>
     <script src="/js/chart.js"></script>
     <script>
-      /* globals avalanchemq */
+      /* globals lavinmq */
       const urlEncodedConnection = new URLSearchParams(window.location.search).get('name')
       const connection = decodeURIComponent(urlEncodedConnection)
-      const chart = avalanchemq.chart.render('chart', 'bytes/s')
+      const chart = lavinmq.chart.render('chart', 'bytes/s')
 
       document.title = connection + ' | LavinMQ'
       document.querySelector('#connection').textContent = connection
 
       const connectionUrl = '/api/connections/' + urlEncodedConnection
       function updateConnection (all) {
-        avalanchemq.http.request('GET', connectionUrl).then(item => {
+        lavinmq.http.request('GET', connectionUrl).then(item => {
           const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
-          avalanchemq.chart.update(chart, stats)
+          lavinmq.chart.update(chart, stats)
           const stateEl = document.getElementById('state')
           if (item.state !== stateEl.textContent) {
             stateEl.textContent = item.state
@@ -159,7 +159,7 @@
             document.getElementById('cipher').textContent = item.cipher
             const cp = item.client_properties
             document.getElementById('cp-name').textContent = cp.connection_name
-            document.getElementById('cp-capabilities').textContent = avalanchemq.dom.jsonToText(cp.capabilities)
+            document.getElementById('cp-capabilities').textContent = lavinmq.dom.jsonToText(cp.capabilities)
             document.getElementById('cp-product').textContent = cp.product
             document.getElementById('cp-platform').textContent = cp.platform
             document.getElementById('cp-version').textContent = cp.version
@@ -168,33 +168,33 @@
               const infoLink = document.createElement('a')
               infoLink.textContent = cp.information
               infoLink.href = cp.information
-              avalanchemq.dom.setChild(infoEl, infoLink)
+              lavinmq.dom.setChild(infoEl, infoLink)
             } else {
               infoEl.textContent = cp.information || ''
             }
           }
-        }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(cTimer))
+        }).catch(lavinmq.http.standardErrorHandler).catch(e => clearInterval(cTimer))
       }
       updateConnection(true)
       const cTimer = setInterval(updateConnection, 5000)
       const channelsUrl = connectionUrl + '/channels'
       const tableOptions = { url: channelsUrl, keyColumns: ['name'], interval: 5000 }
-      avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+      lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           const channelLink = document.createElement('a')
           const urlEncodedChannel = encodeURIComponent(item.name)
           channelLink.textContent = item.name
           channelLink.href = '/channel?name=' + urlEncodedChannel
-          avalanchemq.table.renderCell(tr, 0, channelLink)
-          avalanchemq.table.renderCell(tr, 1, item.vhost)
-          avalanchemq.table.renderCell(tr, 2, item.username)
+          lavinmq.table.renderCell(tr, 0, channelLink)
+          lavinmq.table.renderCell(tr, 1, item.vhost)
+          lavinmq.table.renderCell(tr, 2, item.username)
         }
         let mode = ''
         mode += item.confirm ? ' C' : ''
-        avalanchemq.table.renderCell(tr, 3, mode, 'center')
-        avalanchemq.table.renderCell(tr, 4, item.consumer_count, 'right')
-        avalanchemq.table.renderCell(tr, 5, item.prefetch_count, 'right')
-        avalanchemq.table.renderCell(tr, 6, item.messages_unacknowledged, 'right')
+        lavinmq.table.renderCell(tr, 3, mode, 'center')
+        lavinmq.table.renderCell(tr, 4, item.consumer_count, 'right')
+        lavinmq.table.renderCell(tr, 5, item.prefetch_count, 'right')
+        lavinmq.table.renderCell(tr, 6, item.messages_unacknowledged, 'right')
       })
 
       document.querySelector('#closeConnection').addEventListener('submit', function (evt) {
@@ -203,9 +203,9 @@
         const headers = new window.Headers({
           'X-Reason': document.querySelector('[name=reason]').value
         })
-        avalanchemq.http.request('DELETE', url, { headers })
+        lavinmq.http.request('DELETE', url, { headers })
           .then(() => { window.location = '/connections' })
-          .catch(avalanchemq.http.standardErrorHandler)
+          .catch(lavinmq.http.standardErrorHandler)
       })
     </script>
   </body>

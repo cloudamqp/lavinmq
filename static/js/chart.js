@@ -1,7 +1,7 @@
 /* globals Chart */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
-  const helpers = window.avalanchemq.helpers
+  window.lavinmq = window.lavinmq || {}
+  const helpers = window.lavinmq.helpers
 
   const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
     '#EE6868', '#2F6497', '#6C8893']
@@ -233,7 +233,7 @@
     chart.update()
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     chart: {
       render, update
     }

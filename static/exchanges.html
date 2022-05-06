@@ -89,10 +89,10 @@
     <script src="/js/vhosts.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      /* globals avalanchemq */
-      avalanchemq.vhosts.addVhostOptions('addExchange')
+      /* globals lavinmq */
+      lavinmq.vhosts.addVhostOptions('addExchange')
 
-      avalanchemq.overview.get('exchange_types').then(exchangeTypes => {
+      lavinmq.overview.get('exchange_types').then(exchangeTypes => {
         const select = document.forms.addExchange.elements.type
         while (select.options.length) {
           select.remove(0)
@@ -117,7 +117,7 @@
         columnSelector: true,
         search: true
       }
-      const exchangeTable = avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+      const exchangeTable = lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           if (item.name === '') {
             item.name = 'amq.default'
@@ -130,10 +130,10 @@
           const exchangeLink = document.createElement('a')
           exchangeLink.href = '/exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
           exchangeLink.textContent = item.name
-          avalanchemq.table.renderCell(tr, 0, item.vhost)
-          avalanchemq.table.renderCell(tr, 1, exchangeLink)
-          avalanchemq.table.renderCell(tr, 2, item.type)
-          avalanchemq.table.renderCell(tr, 3, features, 'center')
+          lavinmq.table.renderCell(tr, 0, item.vhost)
+          lavinmq.table.renderCell(tr, 1, exchangeLink)
+          lavinmq.table.renderCell(tr, 2, item.type)
+          lavinmq.table.renderCell(tr, 3, features, 'center')
         }
         let policyLink = ''
         if (item.policy) {
@@ -141,7 +141,7 @@
           policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
           policyLink.textContent = item.policy
         }
-        avalanchemq.table.renderCell(tr, 4, policyLink, 'center')
+        lavinmq.table.renderCell(tr, 4, policyLink, 'center')
       })
 
       document.querySelector('#addExchange').addEventListener('submit', function (evt) {
@@ -156,18 +156,18 @@
           internal: data.get('internal') === '1',
           delayed: data.get('delayed') === '1',
           type: data.get('type'),
-          arguments: avalanchemq.dom.parseJSON(data.get('arguments'))
+          arguments: lavinmq.dom.parseJSON(data.get('arguments'))
         }
-        avalanchemq.http.request('PUT', url, { body })
+        lavinmq.http.request('PUT', url, { body })
           .then(() => {
             exchangeTable.fetchAndUpdate()
-            avalanchemq.dom.toast('Exchange ' + exchange + ' created')
+            lavinmq.dom.toast('Exchange ' + exchange + ' created')
             evt.target.reset()
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(lavinmq.http.standardErrorHandler)
       })
 
       document.querySelector('#dataTags').onclick = e => {
-        window.avalanchemq.helpers.argumentHelperJSON("arguments", e)
+        window.lavinmq.helpers.argumentHelperJSON("arguments", e)
       }
     </script>
   </body>
