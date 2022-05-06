@@ -1,6 +1,6 @@
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
   function formatNumber (num) {
     if (typeof num.toLocaleString === 'function') {
       return num.toLocaleString('en', { style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 1 })
@@ -29,7 +29,7 @@
       num = (num / 1000)
     }
 
-    return window.avalanchemq.helpers.formatNumber(num) + suffix
+    return window.lavinmq.helpers.formatNumber(num) + suffix
   }
 
   function duration (seconds) {
@@ -85,7 +85,7 @@
   * @param type input content, accepts: queues, exchanges, vhosts, users
   */
   function autoCompleteDatalist(datalistID, type) {
-    avalanchemq.http.request('GET',`/api/${type}`).then(res => {
+    lavinmq.http.request('GET',`/api/${type}`).then(res => {
       const datalist = document.getElementById(datalistID);
       while (datalist.firstChild) {
         datalist.removeChild(datalist.lastChild);
@@ -100,7 +100,7 @@
     })
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     helpers: {
       formatNumber,
       nFormatter,

@@ -1,6 +1,6 @@
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   function getQueryVariable (variable) {
     var query = window.location.search.substring(1)
@@ -130,7 +130,7 @@
     function fetchAndUpdate () {
       const fullUrl = `${url}?${buildQuery(currentPage)}`
       const tableError = document.getElementById(id + '-error')
-      return avalanchemq.http.request('GET', fullUrl).then(function (response) {
+      return lavinmq.http.request('GET', fullUrl).then(function (response) {
         tableError.textContent = ''
         try {
           window.sessionStorage.setItem(fullUrl, JSON.stringify(response))
@@ -306,7 +306,7 @@
     } else {
       const text = value == null ? '' : value.toString()
       if (cell.textContent !== text) {
-        cell.textContent = avalanchemq.dom.escapeHTML(text)
+        cell.textContent = lavinmq.dom.escapeHTML(text)
       }
     }
     if (cell.classList.contains('hide')) return
@@ -438,7 +438,7 @@
     window.history.replaceState(null, '', newurl)
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     table: { renderCell, renderTable, renderHtmlCell }
   })
 })()

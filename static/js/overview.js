@@ -1,7 +1,7 @@
 
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   const numFormatter = new Intl.NumberFormat()
   const url = '/api/overview'
@@ -37,7 +37,7 @@
     if (vhost && vhost !== '_all') {
       headers.append('x-vhost', vhost)
     }
-    avalanchemq.http.request('GET', url, { headers }).then(function (response) {
+    lavinmq.http.request('GET', url, { headers }).then(function (response) {
       data = response
       try {
         window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
@@ -48,7 +48,7 @@
       if (cb) {
         cb(response)
       }
-    }).catch(avalanchemq.http.standardErrorHandler).catch(stop)
+    }).catch(lavinmq.http.standardErrorHandler).catch(stop)
   }
 
   function render (data) {
@@ -59,7 +59,7 @@
       Object.keys(data.object_totals).forEach(function (key) {
         table.querySelector('.' + key).innerText = numFormatter.format(data.object_totals[key])
       })
-      table.querySelector('.uptime').innerText = avalanchemq.helpers.duration(data.uptime)
+      table.querySelector('.uptime').innerText = lavinmq.helpers.duration(data.uptime)
     }
   }
 
@@ -91,7 +91,7 @@
     })
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     overview: {
       update, start, stop, render, get
     }

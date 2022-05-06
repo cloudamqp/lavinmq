@@ -1,5 +1,5 @@
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   function setChild (selector, element) {
     const els = elements(selector)
@@ -83,7 +83,7 @@
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     dom: {
       setChild,
       removeNodes,

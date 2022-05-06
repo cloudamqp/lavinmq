@@ -51,7 +51,7 @@
     <script src="/js/dom.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      /* globals avalanchemq */
+      /* globals lavinmq */
       const vhost = window.sessionStorage.getItem('vhost')
       let url = '/api/channels'
       if (vhost && vhost !== '_all') {
@@ -65,22 +65,22 @@
         columnSelector: true,
         search: true
       }
-      avalanchemq.table.renderTable('table', tableOptions, function (tr, item, all) {
+      lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           const channelLink = document.createElement('a')
           const urlEncodedChannel = encodeURIComponent(item.name)
           channelLink.textContent = item.name
           channelLink.href = '/channel?name=' + urlEncodedChannel
-          avalanchemq.table.renderCell(tr, 0, channelLink)
-          avalanchemq.table.renderCell(tr, 1, item.vhost)
-          avalanchemq.table.renderCell(tr, 2, item.user)
+          lavinmq.table.renderCell(tr, 0, channelLink)
+          lavinmq.table.renderCell(tr, 1, item.vhost)
+          lavinmq.table.renderCell(tr, 2, item.user)
         }
         let mode = ''
         mode += item.confirm ? ' C' : ''
-        avalanchemq.table.renderCell(tr, 3, mode, 'center')
-        avalanchemq.table.renderCell(tr, 4, avalanchemq.helpers.formatNumber(item.consumer_count), 'right')
-        avalanchemq.table.renderCell(tr, 5, avalanchemq.helpers.formatNumber(item.prefetch_count), 'right')
-        avalanchemq.table.renderCell(tr, 6, avalanchemq.helpers.formatNumber(item.messages_unacknowledged), 'right')
+        lavinmq.table.renderCell(tr, 3, mode, 'center')
+        lavinmq.table.renderCell(tr, 4, lavinmq.helpers.formatNumber(item.consumer_count), 'right')
+        lavinmq.table.renderCell(tr, 5, lavinmq.helpers.formatNumber(item.prefetch_count), 'right')
+        lavinmq.table.renderCell(tr, 6, lavinmq.helpers.formatNumber(item.messages_unacknowledged), 'right')
       })
     </script>
   </body>

@@ -44,14 +44,14 @@
       </section>
     </main>
     <script type="text/javascript">
-      /* globals avalanchemq */
+      /* globals lavinmq */
       document.querySelector('#login').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const user = document.querySelector('#amq-username').value
         const pass = document.querySelector('#amq-password').value
-        avalanchemq.auth.setAuth(user + ':' + pass)
-        avalanchemq.http.request('GET', '/api/whoami').then(function () {
-          avalanchemq.auth.storeCookie({ username: user, password: pass })
+        lavinmq.auth.setAuth(user + ':' + pass)
+        lavinmq.http.request('GET', '/api/whoami').then(function () {
+          lavinmq.auth.storeCookie({ username: user, password: pass })
           window.location.assign('/')
         }).catch(function () {
           window.alert('Login failed')

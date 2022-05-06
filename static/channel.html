@@ -98,31 +98,31 @@
     <script src="/js/lib/chart.js"></script>
     <script src="/js/chart.js"></script>
     <script>
-      /* globals avalanchemq */
+      /* globals lavinmq */
       const channel = new URLSearchParams(window.location.search).get('name')
       const urlEncodedChannel = encodeURIComponent(channel)
-      const chart = avalanchemq.chart.render('chart', 'msgs/s')
+      const chart = lavinmq.chart.render('chart', 'msgs/s')
       let vhost = null
       document.title = channel + ' | LavinMQ'
 
-      const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item, all) {
+      const consumersTable = lavinmq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item, all) {
         if (!all) return
-        avalanchemq.table.renderCell(tr, 0, item.consumer_tag)
+        lavinmq.table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
         queueLink.href = '/queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
         queueLink.textContent = item.queue.name
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
-        avalanchemq.table.renderCell(tr, 1, queueLink)
-        avalanchemq.table.renderCell(tr, 2, ack, 'center')
-        avalanchemq.table.renderCell(tr, 3, exclusive, 'center')
-        avalanchemq.table.renderCell(tr, 4, item.prefetch_count, 'right')
+        lavinmq.table.renderCell(tr, 1, queueLink)
+        lavinmq.table.renderCell(tr, 2, ack, 'center')
+        lavinmq.table.renderCell(tr, 3, exclusive, 'center')
+        lavinmq.table.renderCell(tr, 4, item.prefetch_count, 'right')
       })
 
       const channelUrl = '/api/channels/' + urlEncodedChannel
       function updateChannel (all) {
-        avalanchemq.http.request('GET', channelUrl).then(item => {
-          avalanchemq.chart.update(chart, item.message_stats)
+        lavinmq.http.request('GET', channelUrl).then(item => {
+          lavinmq.chart.update(chart, item.message_stats)
           vhost = item.vhost
           const stateEl = document.getElementById('ch-state')
           if (item.state !== stateEl.textContent) {
@@ -136,14 +136,14 @@
             const connectionLink = document.createElement('a')
             connectionLink.href = '/connection?name=' + encodeURIComponent(item.connection_details.name)
             connectionLink.textContent = item.connection_details.name
-            avalanchemq.dom.setChild('#ch-connection', connectionLink)
+            lavinmq.dom.setChild('#ch-connection', connectionLink)
             document.getElementById('ch-prefetch').textContent = item.prefetch_count
             let mode = ''
             mode += item.confirm ? ' C' : ''
             document.getElementById('ch-mode').textContent = mode
             document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
           }
-        }).catch(avalanchemq.http.standardErrorHandler).catch(e => clearInterval(cTimer))
+        }).catch(lavinmq.http.standardErrorHandler).catch(e => clearInterval(cTimer))
       }
       updateChannel(true)
       const cTimer = setInterval(updateChannel, 5000)

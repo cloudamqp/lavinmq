@@ -1,6 +1,6 @@
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   function fetch (cb) {
     const url = '/api/users'
@@ -9,7 +9,7 @@
       var users = JSON.parse(raw)
       cb(users)
     }
-    avalanchemq.http.request('GET', url).then(function (users) {
+    lavinmq.http.request('GET', url).then(function (users) {
       try {
         window.sessionStorage.setItem('/api/users', JSON.stringify(users))
       } catch (e) {
@@ -21,7 +21,7 @@
     })
   }
 
-  Object.assign(window.avalanchemq, {
+  Object.assign(window.lavinmq, {
     users: {
       fetch
     }

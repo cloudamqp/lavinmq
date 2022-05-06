@@ -82,10 +82,10 @@
 <script src="/js/lib/chart.js"></script>
 <script src="/js/chart.js"></script>
 <script>
-  /* globals avalanchemq */
-  const msgChart = avalanchemq.chart.render('msgChart', 'msgs', { aspectRatio: 2 }, true)
-  const dataChart = avalanchemq.chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
-  const rateChart = avalanchemq.chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
+  /* globals lavinmq */
+  const msgChart = lavinmq.chart.render('msgChart', 'msgs', { aspectRatio: 2 }, true)
+  const dataChart = lavinmq.chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
+  const rateChart = lavinmq.chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
 
   function updateCharts (response) {
     let msgStats = {
@@ -94,28 +94,28 @@
       messages_ready_log: response.queue_totals.messages_ready_log,
       messages_unacked_log: response.queue_totals.messages_unacknowledged_log,
     }
-    avalanchemq.chart.update(msgChart, msgStats, "origin")
-    avalanchemq.chart.update(rateChart, response.message_stats)
+    lavinmq.chart.update(msgChart, msgStats, "origin")
+    lavinmq.chart.update(rateChart, response.message_stats)
 
     const dataStats = {
       send_details: response.send_oct_details,
       receive_details: response.recv_oct_details
     }
-    avalanchemq.chart.update(dataChart, dataStats)
+    lavinmq.chart.update(dataChart, dataStats)
   }
 
-  avalanchemq.overview.start(updateCharts)
+  lavinmq.overview.start(updateCharts)
   document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
     evt.preventDefault()
     const body = new window.FormData(this)
-    avalanchemq.http.request('POST', '/api/definitions/upload', { body }).then(function () {
+    lavinmq.http.request('POST', '/api/definitions/upload', { body }).then(function () {
       window.location.assign('/')
     }).catch(function () {
       window.alert('Upload failed')
     })
   })
 
-  avalanchemq.vhosts.addVhostOptions('exportDefinitions').then(() => {
+  lavinmq.vhosts.addVhostOptions('exportDefinitions').then(() => {
     const allOpt = '<option value="_all" selected>All</option>'
     document.querySelector('#definitionsVhost').insertAdjacentHTML('afterbegin', allOpt)
   })
@@ -126,10 +126,10 @@
     if (body.get('vhost') !== '_all') {
       url += '/' + encodeURIComponent(body.get('vhost'))
     }
-    avalanchemq.http.request('GET', url).then(function (data) {
+    lavinmq.http.request('GET', url).then(function (data) {
       const a = document.createElement('a')
       a.classList.add('hide')
-      let name = 'avalanchemq-definitions-' + window.location.hostname
+      let name = 'lavinmq-definitions-' + window.location.hostname
       name += '-' + new Date().toISOString() + '.json'
       const blob = new window.Blob([JSON.stringify(data, null, 2)], { type: 'text/json', name })
       a.download = name
@@ -137,6 +137,6 @@
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-    }).catch(avalanchemq.http.standardErrorHandler)
+    }).catch(lavinmq.http.standardErrorHandler)
   })
 </script>

@@ -106,14 +106,14 @@
     <script src="/js/users.js"></script>
     <script src="/js/table.js"></script>
     <script>
-      /* globals avalanchemq */
+      /* globals lavinmq */
       const vhost = new URLSearchParams(window.location.search).get('name')
       const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = vhost + ' | LavinMQ'
       document.querySelector('#vhost2').textContent = vhost
 
       const vhostUrl = '/api/vhosts/' + urlEncodedVhost
-      avalanchemq.http.request('GET', vhostUrl).then(item => {
+      lavinmq.http.request('GET', vhostUrl).then(item => {
         document.getElementById('ready').textContent = item.messages_ready
         document.getElementById('unacked').textContent = item.messages_unacknowledged
         document.getElementById('total').textContent = item.messages
@@ -121,25 +121,25 @@
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
       const tableOptions = { url: permissionsUrl, keyColumns: ['user'], interval: 5000 }
-      const permissionsTable = avalanchemq.table.renderTable('table', tableOptions, (tr, item, all) => {
-        avalanchemq.table.renderCell(tr, 1, item.configure)
-        avalanchemq.table.renderCell(tr, 2, item.write)
-        avalanchemq.table.renderCell(tr, 3, item.read)
+      const permissionsTable = lavinmq.table.renderTable('table', tableOptions, (tr, item, all) => {
+        lavinmq.table.renderCell(tr, 1, item.configure)
+        lavinmq.table.renderCell(tr, 2, item.write)
+        lavinmq.table.renderCell(tr, 3, item.read)
         if (all) {
           const btn = document.createElement('button')
           btn.classList.add('btn-secondary')
           btn.innerHTML = 'Clear'
           btn.onclick = function () {
             const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
-            avalanchemq.http.request('DELETE', url)
-              .then(() => { avalanchemq.dom.removeNodes(tr) })
-              .catch(avalanchemq.http.standardErrorHandler)
+            lavinmq.http.request('DELETE', url)
+              .then(() => { lavinmq.dom.removeNodes(tr) })
+              .catch(lavinmq.http.standardErrorHandler)
           }
           const userLink = document.createElement('a')
           userLink.href = '/user?name=' + encodeURIComponent(item.user)
           userLink.textContent = item.user
-          avalanchemq.table.renderCell(tr, 0, userLink)
-          avalanchemq.table.renderCell(tr, 4, btn, 'right')
+          lavinmq.table.renderCell(tr, 0, userLink)
+          lavinmq.table.renderCell(tr, 4, btn, 'right')
         }
       })
 
@@ -153,7 +153,7 @@
         }
       }
 
-      avalanchemq.users.fetch(addUserOptions)
+      lavinmq.users.fetch(addUserOptions)
 
       document.querySelector('#setPermission').addEventListener('submit', function (evt) {
         evt.preventDefault()
@@ -164,29 +164,29 @@
           write: data.get('write'),
           read: data.get('read')
         }
-        avalanchemq.http.request('PUT', url, { body })
+        lavinmq.http.request('PUT', url, { body })
           .then(() => {
             permissionsTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(avalanchemq.http.standardErrorHandler)
+          }).catch(lavinmq.http.standardErrorHandler)
       })
 
       document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/vhosts/' + urlEncodedVhost
         if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
-          avalanchemq.http.request('DELETE', url)
+          lavinmq.http.request('DELETE', url)
             .then(() => { window.location = '/vhosts' })
-            .catch(avalanchemq.http.standardErrorHandler)
+            .catch(lavinmq.http.standardErrorHandler)
         }
       })
       document.querySelector('#resetVhost').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/vhosts/' + urlEncodedVhost + '/purge_and_close_consumers'
         if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
-          avalanchemq.http.request('POST', url)
+          lavinmq.http.request('POST', url)
             .then(() => { window.location = 'vhost?name=' + urlEncodedVhost })
-            .catch(avalanchemq.http.standardErrorHandler)
+            .catch(lavinmq.http.standardErrorHandler)
         }
       })
     </script>

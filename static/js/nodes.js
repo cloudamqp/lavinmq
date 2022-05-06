@@ -1,6 +1,6 @@
-/* global avalanchemq */
+/* global lavinmq */
 (function () {
-  window.avalanchemq = window.avalanchemq || {}
+  window.lavinmq = window.lavinmq || {}
 
   const numFormatter = new Intl.NumberFormat()
   let url = '/api/nodes'
@@ -16,13 +16,13 @@
   }
 
   function update (cb) {
-    avalanchemq.http.request('GET', url).then(function (response) {
+    lavinmq.http.request('GET', url).then(function (response) {
       data = response
       render(response)
       if (cb) {
         cb(response)
       }
-    }).catch(avalanchemq.http.standardErrorHandler).catch(stop)
+    }).catch(lavinmq.http.standardErrorHandler).catch(stop)
   }
 
   function render (data) {
@@ -63,7 +63,7 @@
 
   const updateDetails = (nodeStats) => {
     document.getElementById('tr-name').textContent = nodeStats.name
-    document.getElementById('tr-uptime').textContent = avalanchemq.helpers.duration((nodeStats.uptime / 1000).toFixed(0))
+    document.getElementById('tr-uptime').textContent = lavinmq.helpers.duration((nodeStats.uptime / 1000).toFixed(0))
     document.getElementById('tr-vcpu').textContent = nodeStats.processors || "N/A"
     let memUsage, cpuUsage, diskUsage
 
@@ -174,12 +174,12 @@
       }
     }
   }
-  const memoryChart = avalanchemq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
-  const ioChart = avalanchemq.chart.render('ioChart', 'ops', { aspectRatio: 2 })
-  const cpuChart = avalanchemq.chart.render('cpuChart', '%', { aspectRatio: 2 }, true)
-  const connectionChurnChart = avalanchemq.chart.render('connectionChurnChart', '/s', { aspectRatio: 2 })
-  const channelChurnChart = avalanchemq.chart.render('channelChurnChart', '/s', { aspectRatio: 2 })
-  const queueChurnChart = avalanchemq.chart.render('queueChurnChart', '/s', { aspectRatio: 2 })
+  const memoryChart = lavinmq.chart.render('memoryChart', 'MB', { aspectRatio: 2 })
+  const ioChart = lavinmq.chart.render('ioChart', 'ops', { aspectRatio: 2 })
+  const cpuChart = lavinmq.chart.render('cpuChart', '%', { aspectRatio: 2 }, true)
+  const connectionChurnChart = lavinmq.chart.render('connectionChurnChart', '/s', { aspectRatio: 2 })
+  const channelChurnChart = lavinmq.chart.render('channelChurnChart', '/s', { aspectRatio: 2 })
+  const queueChurnChart = lavinmq.chart.render('queueChurnChart', '/s', { aspectRatio: 2 })
 
   const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10 ** 6).toFixed(2)
 
@@ -189,7 +189,7 @@
         mem_used_details: toMegaBytes(response[0].mem_used),
         mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
       }
-      avalanchemq.chart.update(memoryChart, memoryStats)
+      lavinmq.chart.update(memoryChart, memoryStats)
     }
     if(response[0].io_write_details !== undefined) {
       const ioStats = {
@@ -198,7 +198,7 @@
         io_read_details: response[0].io_read_details.log.slice(-1)[0],
         io_read_details_log: response[0].io_read_details.log
       }
-      avalanchemq.chart.update(ioChart, ioStats)
+      lavinmq.chart.update(ioChart, ioStats)
     }
 
     if(response[0].cpu_user_details !== undefined) {
@@ -208,7 +208,7 @@
         user_time_details_log: response[0].cpu_user_details.log.map(x => x * 100),
         system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
       }
-      avalanchemq.chart.update(cpuChart, cpuStats, "origin")
+      lavinmq.chart.update(cpuChart, cpuStats, "origin")
     }
 
     if(response[0].connection_created_details !== undefined) {
@@ -218,7 +218,7 @@
         connection_created_details_log: response[0].connection_created_details.log,
         connection_closed_details_log: response[0].connection_closed_details.log
       }
-      avalanchemq.chart.update(connectionChurnChart, connectionChurnStats)
+      lavinmq.chart.update(connectionChurnChart, connectionChurnStats)
     }
     if(response[0].channel_created_details !== undefined) {
       const channelChurnStats = {
@@ -227,7 +227,7 @@
         channel_created_details_log: response[0].channel_created_details.log,
         channel_closed_details_log: response[0].channel_closed_details.log
       }
-      avalanchemq.chart.update(channelChurnChart, channelChurnStats)
+      lavinmq.chart.update(channelChurnChart, channelChurnStats)
     }
     if(response[0].queue_declared_details !== undefined) {
       const queueChurnStats = {
@@ -236,7 +236,7 @@
         queue_declared_details_log: response[0].queue_declared_details.log,
         queue_deleted_details_log: response[0].queue_deleted_details.log
       }
-      avalanchemq.chart.update(queueChurnChart, queueChurnStats)
+      lavinmq.chart.update(queueChurnChart, queueChurnStats)
     }
   }
   start(updateCharts)
