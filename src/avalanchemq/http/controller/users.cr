@@ -1,6 +1,6 @@
 require "../controller"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     struct UserView
       include SortableJSON

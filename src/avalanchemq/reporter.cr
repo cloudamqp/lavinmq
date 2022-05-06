@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   class Reporter
     def self.report(s)
       puts_size_capacity s.@users

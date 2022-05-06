@@ -1,7 +1,7 @@
 require "../controller"
 require "../../sortable_json"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     struct ParameterView
       include SortableJSON

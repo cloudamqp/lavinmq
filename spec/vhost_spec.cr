@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::VHost do
+describe LavinMQ::VHost do
   it "should be able to create vhosts" do
     s.vhosts.create("test")
     s.vhosts["test"]?.should_not be_nil
@@ -64,7 +64,7 @@ describe AvalancheMQ::VHost do
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       username = "test-user"
-      user = s.users.create(username, "password", [AvalancheMQ::Tag::Administrator])
+      user = s.users.create(username, "password", [LavinMQ::Tag::Administrator])
       vhost = "test-vhost"
       s.vhosts.create(vhost, user)
       p = user.permissions[vhost]

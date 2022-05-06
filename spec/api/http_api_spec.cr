@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::Server do
+describe LavinMQ::HTTP::Server do
   describe "GET /api/overview" do
     it "should refuse access if no basic auth header" do
       response = ::HTTP::Client.get("#{BASE_URL}/api/overview")

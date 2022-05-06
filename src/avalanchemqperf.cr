@@ -14,8 +14,8 @@ class Perf
     @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn] [arguments]"
     @parser.banner = @banner
     @parser.on("-h", "--help", "Show this help") { puts @parser; exit 1 }
-    @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
-    @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
+    @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+    @parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
     @parser.on("--uri=URI", "URI to connect to (default #{@uri})") do |v|
       @uri = URI.parse(v)

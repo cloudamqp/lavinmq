@@ -2,7 +2,7 @@ require "./priority_queue"
 require "./spqueue"
 require "../segment_position"
 
-module AvalancheMQ
+module LavinMQ
   class VHost
     class ReferencedSPs
       include Enumerable(SegmentPosition)

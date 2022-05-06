@@ -4,8 +4,8 @@ require "./avalanchemq/http/http_server"
 require "json"
 require "option_parser"
 
-class AvalancheMQCtl
-  @@cfg = AvalancheMQ::Config.instance
+class LavinMQCtl
+  @@cfg = LavinMQ::Config.instance
   @options = {} of String => String
   @args = {} of String => JSON::Any
   @cmd : String?
@@ -130,8 +130,8 @@ class AvalancheMQCtl
     @parser.on("status", "Display server status") do
       @cmd = "status"
     end
-    @parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
-    @parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
+    @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+    @parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
       puts @parser
       exit 1
@@ -194,7 +194,7 @@ class AvalancheMQCtl
       c.basic_auth(uri.user, uri.password) if uri.user
       c
     else
-      socket = UNIXSocket.new(AvalancheMQ::HTTP::INTERNAL_UNIX_SOCKET)
+      socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
       @socket = socket
       HTTP::Client.new(socket, @@cfg.http_bind, @@cfg.http_port)
     end
@@ -567,5 +567,5 @@ class AvalancheMQCtl
   end
 end
 
-cli = AvalancheMQCtl.new
+cli = LavinMQCtl.new
 cli.run_cmd

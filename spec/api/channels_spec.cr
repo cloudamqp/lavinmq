@@ -1,7 +1,7 @@
 require "../spec_helper"
 require "uri"
 
-describe AvalancheMQ::HTTP::ChannelsController do
+describe LavinMQ::HTTP::ChannelsController do
   describe "GET /api/channels" do
     it "should return all channels" do
       with_channel do

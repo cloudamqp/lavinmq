@@ -1,6 +1,6 @@
 require "../queue"
 
-module AvalancheMQ
+module LavinMQ
   class VHost
     abstract class SPQueue
       include Comparable(self)

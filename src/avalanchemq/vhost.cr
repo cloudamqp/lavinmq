@@ -17,7 +17,7 @@ require "./schema"
 require "./event_type"
 require "./stats"
 
-module AvalancheMQ
+module LavinMQ
   class VHost
     include SortableJSON
     include Stats

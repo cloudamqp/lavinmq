@@ -2,7 +2,7 @@ require "json"
 require "./password"
 require "./sortable_json"
 
-module AvalancheMQ
+module LavinMQ
   enum Tag
     Administrator
     Monitoring

@@ -1,12 +1,12 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::ParametersController do
+describe LavinMQ::HTTP::ParametersController do
   describe "GET /api/parameters" do
     it "should return all vhost scoped parameters for policymaker" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
       response = get("/api/parameters", headers: hdrs)
       response.status_code.should eq 200
@@ -20,7 +20,7 @@ describe AvalancheMQ::HTTP::ParametersController do
     end
 
     it "should refuse monitoring and management" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::Management, AvalancheMQ::Tag::Monitoring])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::Management, LavinMQ::Tag::Monitoring])
       s.users.rm_permission("arnold", "/")
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/parameters", headers: hdrs)
@@ -32,7 +32,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "GET /api/parameters/component" do
     it "should return all parameters for a component" do
-      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
       response = get("/api/parameters/test")
       response.status_code.should eq 200
@@ -45,7 +45,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "GET /api/parameters/component/vhost" do
     it "should return all parameters for a component on vhost" do
-      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
       response = get("/api/parameters/test/%2f")
       response.status_code.should eq 200
@@ -58,7 +58,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "GET /api/parameters/component/vhost/name" do
     it "should return parameter" do
-      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
       response = get("/api/parameters/test/%2f/name")
       response.status_code.should eq 200
@@ -80,7 +80,7 @@ describe AvalancheMQ::HTTP::ParametersController do
     end
 
     it "should update parameters for a component on vhost" do
-      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new(%({ "key": "old value" })))
+      p = LavinMQ::Parameter.new("test", "name", JSON::Any.new(%({ "key": "old value" })))
       s.vhosts["/"].add_parameter(p)
       body = %({
         "value": { "key": "new value" }
@@ -116,7 +116,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "DELETE /api/parameters/component/vhost/name" do
     it "should delete parameter for a component on vhost" do
-      p = AvalancheMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new("test", "name", JSON::Any.new({} of String => JSON::Any))
       s.vhosts["/"].add_parameter(p)
       response = delete("/api/parameters/test/%2f/name")
       response.status_code.should eq 204
@@ -127,7 +127,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "GET /api/global-parameters" do
     it "should return all global parameters" do
-      p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
       s.add_parameter(p)
       response = get("/api/global-parameters")
       response.status_code.should eq 200
@@ -142,7 +142,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "GET /api/global-parameters/name" do
     it "should return parameter" do
-      p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
       s.add_parameter(p)
       response = get("/api/global-parameters/name")
       response.status_code.should eq 200
@@ -164,7 +164,7 @@ describe AvalancheMQ::HTTP::ParametersController do
     end
 
     it "should update global parameter" do
-      p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new(%({ "key": "old value" })))
+      p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new(%({ "key": "old value" })))
       s.add_parameter(p)
       body = %({
         "value": { "key": "new value" }
@@ -200,7 +200,7 @@ describe AvalancheMQ::HTTP::ParametersController do
 
   describe "DELETE /api/global-parameters/name" do
     it "should delete parameter" do
-      p = AvalancheMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+      p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
       s.add_parameter(p)
       response = delete("/api/global-parameters/name")
       response.status_code.should eq 204
@@ -215,7 +215,7 @@ describe AvalancheMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
       response = get("/api/policies")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -233,7 +233,7 @@ describe AvalancheMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
       response = get("/api/policies/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -249,7 +249,7 @@ describe AvalancheMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
       response = get("/api/policies/%2f/test")
       response.status_code.should eq 200
     ensure
@@ -275,7 +275,7 @@ describe AvalancheMQ::HTTP::ParametersController do
     it "should update policy" do
       policy_name = "test"
       definitions = {"max-length" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy(policy_name, /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy(policy_name, /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
 
       body = %({
         "pattern": ".*",
@@ -316,7 +316,7 @@ describe AvalancheMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, AvalancheMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
       response = delete("/api/policies/%2f/test")
       response.status_code.should eq 204
     ensure

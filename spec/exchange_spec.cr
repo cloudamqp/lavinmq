@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Exchange do
+describe LavinMQ::Exchange do
   describe "Exchange => Exchange binding" do
     it "should allow multiple e2e bindings" do
       with_channel do |ch|

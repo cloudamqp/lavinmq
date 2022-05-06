@@ -2,7 +2,7 @@ require "../controller"
 require "./connections"
 require "../../client/channel/consumer"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class ConsumersController < Controller
       include ConnectionsHelper

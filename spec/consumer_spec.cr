@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "./../src/avalanchemq/queue"
 
-describe AvalancheMQ::Client::Channel::Consumer do
+describe LavinMQ::Client::Channel::Consumer do
   describe "without x-priority" do
     it "should round-robin" do
       with_channel do |ch|

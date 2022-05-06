@@ -1,6 +1,6 @@
 require "../../sortable_json"
 
-module AvalancheMQ
+module LavinMQ
   class Client
     class Channel
       class Consumer

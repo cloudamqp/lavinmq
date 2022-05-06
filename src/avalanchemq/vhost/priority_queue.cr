@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   class VHost
     class PriorityQueue(T)
       def initialize(initial_capacity)

@@ -2,7 +2,7 @@ require "uri"
 require "../controller"
 require "../resource_helpers"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class DefinitionsController < Controller
       include ResourceHelpers
@@ -76,7 +76,7 @@ module AvalancheMQ
         vhosts = {unescaped_name => @amqp_server.vhosts[unescaped_name]}
         JSON.build(response) do |json|
           json.object do
-            json.field("avalanchemq_version", AvalancheMQ::VERSION)
+            json.field("avalanchemq_version", LavinMQ::VERSION)
             json.field("queues") { export_queues(json, vhosts) }
             json.field("exchanges") { export_exchanges(json, vhosts) }
             json.field("bindings") { export_bindings(json, vhosts) }
@@ -88,7 +88,7 @@ module AvalancheMQ
       private def export_definitions(response)
         JSON.build(response) do |json|
           json.object do
-            json.field("avalanchemq_version", AvalancheMQ::VERSION)
+            json.field("avalanchemq_version", LavinMQ::VERSION)
             json.field("users", @amqp_server.users.values.reject(&.hidden?))
             json.field("vhosts", @amqp_server.vhosts)
             json.field("queues") { export_queues(json, @amqp_server.vhosts) }

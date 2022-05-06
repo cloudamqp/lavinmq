@@ -1,7 +1,7 @@
 require "../spec_helper"
 require "../../src/avalanchemq/config"
 
-describe AvalancheMQ::HTTP::NodesController do
+describe LavinMQ::HTTP::NodesController do
   describe "GET /api/nodes" do
     it "should return nodes data" do
       response = get("/api/nodes")

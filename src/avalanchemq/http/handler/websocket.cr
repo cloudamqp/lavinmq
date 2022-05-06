@@ -1,6 +1,6 @@
 require "../../server"
 
-module AvalancheMQ
+module LavinMQ
   class AMQPWebsocket
     def self.new(amqp_server : Server)
       ::HTTP::WebSocketHandler.new do |ws, ctx|

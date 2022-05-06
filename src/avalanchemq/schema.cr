@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   class OutdatedSchemaVersion < Exception
     getter version : Int32
 

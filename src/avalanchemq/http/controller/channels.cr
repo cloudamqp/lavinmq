@@ -2,7 +2,7 @@ require "uri"
 require "../controller"
 require "./connections"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class ChannelsController < Controller
       include ConnectionsHelper

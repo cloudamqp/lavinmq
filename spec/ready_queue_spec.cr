@@ -1,37 +1,37 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Queue::ReadyQueue do
+describe LavinMQ::Queue::ReadyQueue do
   it "should insert ordered" do
-    rq = AvalancheMQ::Queue::ReadyQueue.new
-    rq.insert(AvalancheMQ::SegmentPosition.new(0u32, 0u32))
-    rq.insert(AvalancheMQ::SegmentPosition.new(1u32, 0u32))
-    rq.insert(AvalancheMQ::SegmentPosition.new(0u32, 1u32))
+    rq = LavinMQ::Queue::ReadyQueue.new
+    rq.insert(LavinMQ::SegmentPosition.new(0u32, 0u32))
+    rq.insert(LavinMQ::SegmentPosition.new(1u32, 0u32))
+    rq.insert(LavinMQ::SegmentPosition.new(0u32, 1u32))
 
-    rq.shift.should eq AvalancheMQ::SegmentPosition.new(0u32, 0u32)
-    rq.shift.should eq AvalancheMQ::SegmentPosition.new(0u32, 1u32)
-    rq.shift.should eq AvalancheMQ::SegmentPosition.new(1u32, 0u32)
+    rq.shift.should eq LavinMQ::SegmentPosition.new(0u32, 0u32)
+    rq.shift.should eq LavinMQ::SegmentPosition.new(0u32, 1u32)
+    rq.shift.should eq LavinMQ::SegmentPosition.new(1u32, 0u32)
   end
 
   it "should insert array ordered" do
-    rq = AvalancheMQ::Queue::ReadyQueue.new
-    sps = Array(AvalancheMQ::SegmentPosition).new
-    sps << AvalancheMQ::SegmentPosition.new(1u32, 0u32)
-    sps << AvalancheMQ::SegmentPosition.new(0u32, 0u32)
-    sps << AvalancheMQ::SegmentPosition.new(0u32, 1u32)
+    rq = LavinMQ::Queue::ReadyQueue.new
+    sps = Array(LavinMQ::SegmentPosition).new
+    sps << LavinMQ::SegmentPosition.new(1u32, 0u32)
+    sps << LavinMQ::SegmentPosition.new(0u32, 0u32)
+    sps << LavinMQ::SegmentPosition.new(0u32, 1u32)
     rq.insert(sps)
 
-    rq.shift.should eq AvalancheMQ::SegmentPosition.new(0u32, 0u32)
-    rq.shift.should eq AvalancheMQ::SegmentPosition.new(0u32, 1u32)
-    rq.shift.should eq AvalancheMQ::SegmentPosition.new(1u32, 0u32)
+    rq.shift.should eq LavinMQ::SegmentPosition.new(0u32, 0u32)
+    rq.shift.should eq LavinMQ::SegmentPosition.new(0u32, 1u32)
+    rq.shift.should eq LavinMQ::SegmentPosition.new(1u32, 0u32)
   end
 
   it "keeps track of bytesize" do
-    rq = AvalancheMQ::Queue::ReadyQueue.new
+    rq = LavinMQ::Queue::ReadyQueue.new
     rq.bytesize.should eq 0
 
-    rq.insert(AvalancheMQ::SegmentPosition.new(0u32, 0u32, bytesize: 1u32))
-    rq.insert(AvalancheMQ::SegmentPosition.new(1u32, 0u32, bytesize: 3u32))
-    rq.insert(AvalancheMQ::SegmentPosition.new(0u32, 1u32, bytesize: 2u32))
+    rq.insert(LavinMQ::SegmentPosition.new(0u32, 0u32, bytesize: 1u32))
+    rq.insert(LavinMQ::SegmentPosition.new(1u32, 0u32, bytesize: 3u32))
+    rq.insert(LavinMQ::SegmentPosition.new(0u32, 1u32, bytesize: 2u32))
     rq.bytesize.should eq 6
 
     sp1 = rq.shift

@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   enum EventType
     ChannelCreated
     ChannelClosed

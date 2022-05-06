@@ -1,7 +1,7 @@
 require "uri"
 require "./link"
 
-module AvalancheMQ
+module LavinMQ
   module Federation
     enum AckMode
       OnConfirm

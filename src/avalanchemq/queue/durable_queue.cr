@@ -2,7 +2,7 @@ require "file_utils"
 require "./queue"
 require "../schema"
 
-module AvalancheMQ
+module LavinMQ
   class DurableQueue < Queue
     @durable = true
     @ack_lock = Mutex.new(:checked)

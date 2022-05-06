@@ -1,6 +1,6 @@
 require "./config"
 
-module AvalancheMQ
+module LavinMQ
   module Stats
     macro rate_stats(stats_keys, log_keys = %w())
       {% for name in stats_keys %}

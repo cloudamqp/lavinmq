@@ -1,7 +1,7 @@
 require "json"
 require "./parameter"
 
-module AvalancheMQ
+module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 

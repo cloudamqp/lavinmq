@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::VHostsController do
+describe LavinMQ::HTTP::VHostsController do
   describe "GET /api/vhosts" do
     it "should return all vhosts" do
       response = get("/api/vhosts")
@@ -12,7 +12,7 @@ describe AvalancheMQ::HTTP::VHostsController do
     end
 
     it "should require management access" do
-      s.users.create("arnold", "pw", [] of AvalancheMQ::Tag)
+      s.users.create("arnold", "pw", [] of LavinMQ::Tag)
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
       response.status_code.should eq 401
@@ -21,7 +21,7 @@ describe AvalancheMQ::HTTP::VHostsController do
     end
 
     it "should list vhosts for monitoring users" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::Monitoring])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
       s.vhosts.create("test")
       s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
@@ -63,7 +63,7 @@ describe AvalancheMQ::HTTP::VHostsController do
     end
 
     it "should only allow administrators to create vhost" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
@@ -75,7 +75,7 @@ describe AvalancheMQ::HTTP::VHostsController do
       vhost = "test-vhost"
       username = "arnold"
 
-      user = s.users.create(username, "pw", [AvalancheMQ::Tag::Administrator])
+      user = s.users.create(username, "pw", [LavinMQ::Tag::Administrator])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/#{vhost}", headers: hdrs)
       response.status_code.should eq 201
@@ -97,7 +97,7 @@ describe AvalancheMQ::HTTP::VHostsController do
     end
 
     it "should only allow administrators to delete vhost" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = delete("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401

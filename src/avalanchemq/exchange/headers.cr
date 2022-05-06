@@ -1,6 +1,6 @@
 require "./exchange"
 
-module AvalancheMQ
+module LavinMQ
   class HeadersExchange < Exchange
     def type : String
       "headers"

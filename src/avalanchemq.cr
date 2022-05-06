@@ -3,8 +3,8 @@ require "./stdlib/*"
 require "./avalanchemq/config"
 require "./avalanchemq/server_cli"
 
-config = AvalancheMQ::Config.instance
-AvalancheMQ::ServerCLI.new(config).parse
+config = LavinMQ::Config.instance
+LavinMQ::ServerCLI.new(config).parse
 
 {% unless flag?(:gc_none) %}
   if config.raise_gc_warn
@@ -16,4 +16,4 @@ AvalancheMQ::ServerCLI.new(config).parse
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./avalanchemq/launcher"
-AvalancheMQ::Launcher.new(config).run # will block
+LavinMQ::Launcher.new(config).run # will block

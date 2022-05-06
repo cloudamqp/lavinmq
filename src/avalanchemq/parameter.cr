@@ -1,6 +1,6 @@
 require "json"
 
-module AvalancheMQ
+module LavinMQ
   module ParameterTarget
     abstract def add_parameter(p : Parameter)
     abstract def apply_parameter(p : Parameter?)

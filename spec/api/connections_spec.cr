@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::ConnectionsController do
+describe LavinMQ::HTTP::ConnectionsController do
   describe "GET /api/connections" do
     it "should return network connections" do
       with_channel do
@@ -12,7 +12,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
     end
 
     it "should only show own connections for policymaker" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/connections", headers: hdrs)
@@ -25,7 +25,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
     end
 
     it "should only show all connections for monitoring" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::Monitoring])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/connections", headers: hdrs)
@@ -76,7 +76,7 @@ describe AvalancheMQ::HTTP::ConnectionsController do
     end
 
     it "should return 401 if user doesn't have access" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/vhosts/%2f/connections")

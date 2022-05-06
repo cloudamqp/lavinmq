@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   struct JournalLogFormat < Log::StaticFormatter
     def run
       source(after: " ")

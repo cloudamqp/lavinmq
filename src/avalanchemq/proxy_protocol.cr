@@ -1,7 +1,7 @@
 require "socket"
 require "./connection_info"
 
-module AvalancheMQ
+module LavinMQ
   # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
   module ProxyProtocol
     class InvalidSignature < Exception; end

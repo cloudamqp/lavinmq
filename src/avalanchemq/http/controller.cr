@@ -1,13 +1,13 @@
 require "router"
 require "../sortable_json"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     abstract class Controller
       include Router
       @log : Log
 
-      def initialize(@amqp_server : AvalancheMQ::Server, log : Log)
+      def initialize(@amqp_server : LavinMQ::Server, log : Log)
         @log = log.for self.class.name.split("::").last
         register_routes
       end

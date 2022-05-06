@@ -6,7 +6,7 @@ require "../stats"
 require "../sortable_json"
 require "../error"
 
-module AvalancheMQ
+module LavinMQ
   class Client
     class Channel
       include Stats

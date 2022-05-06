@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::Server do
+describe LavinMQ::HTTP::Server do
   describe "POST /api/definitions" do
     it "imports users" do
       body = %({
@@ -28,7 +28,7 @@ describe AvalancheMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
-        u.should be_a(AvalancheMQ::User)
+        u.should be_a(LavinMQ::User)
         ok = u.not_nil!.password.not_nil!.verify "hej"
         {u.name, ok}.should(eq({u.name, true}))
       end
@@ -40,21 +40,21 @@ describe AvalancheMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       vhost = s.vhosts["def"]? || nil
-      vhost.should be_a(AvalancheMQ::VHost)
+      vhost.should be_a(LavinMQ::VHost)
     end
 
     # https://github.com/cloudamqp/avalanchemq/issues/276
     context "if default user has been replaced" do
       before_each do
         s.users.delete("guest")
-        s.users.create("other_name", "guest", [AvalancheMQ::Tag::Administrator], save: false) # Will be the new default_user
+        s.users.create("other_name", "guest", [LavinMQ::Tag::Administrator], save: false) # Will be the new default_user
       end
 
       after_each do
         # pp [:debug, :before_users_default_user, s.users.default_user.name]
         s.users.delete("other_name", save: false)
         s.vhosts.delete("new")
-        s.users.create("guest", "guest", [AvalancheMQ::Tag::Administrator])
+        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
         # pp [:debug, :after_users_default_user, s.users.default_user.name]
         s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
         # s.vhosts.each_value { |vhost| pp [:debug, :vhost_default_user, vhost.default_user.name] }
@@ -68,7 +68,7 @@ describe AvalancheMQ::HTTP::Server do
         response = post("/api/definitions", body: body, headers: headers)
         response.status_code.should eq 200
         vhost = s.vhosts["new"]? || nil
-        vhost.should be_a(AvalancheMQ::VHost)
+        vhost.should be_a(LavinMQ::VHost)
       end
     end
 
@@ -300,7 +300,7 @@ describe AvalancheMQ::HTTP::Server do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("export_p1", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
+      s.vhosts["/"].add_policy("export_p1", /^.*/, LavinMQ::Policy::Target.parse("queues"), d, -1_i8)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -313,7 +313,7 @@ describe AvalancheMQ::HTTP::Server do
 
     it "exports global parameters" do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
-      p = AvalancheMQ::Parameter.new("c1", "p11", d)
+      p = LavinMQ::Parameter.new("c1", "p11", d)
       s.add_parameter(p)
       response = get("/api/definitions")
       response.status_code.should eq 200
@@ -327,7 +327,7 @@ describe AvalancheMQ::HTTP::Server do
 
     it "exports vhost parameters" do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
-      p = AvalancheMQ::Parameter.new("c1", "p11", d)
+      p = LavinMQ::Parameter.new("c1", "p11", d)
       s.vhosts["/"].add_parameter(p)
       response = get("/api/definitions")
       response.status_code.should eq 200
@@ -382,7 +382,7 @@ describe AvalancheMQ::HTTP::Server do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("export_p2", /^.*/, AvalancheMQ::Policy::Target.parse("queues"), d, -1_i8)
+      s.vhosts["/"].add_policy("export_p2", /^.*/, LavinMQ::Policy::Target.parse("queues"), d, -1_i8)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -504,7 +504,7 @@ describe AvalancheMQ::HTTP::Server do
       response = post("/api/definitions/upload", headers: headers, body: body)
       response.status_code.should eq 200
       s.vhosts["uploaded_vhost"]?.should_not be_nil
-      s.vhosts["uploaded_vhost"].should be_a(AvalancheMQ::VHost)
+      s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
     ensure
       s.vhosts.delete("uploaded_vhost")
     end
@@ -523,7 +523,7 @@ describe AvalancheMQ::HTTP::Server do
       response.status_code.should eq 302
       response.headers["Location"].should eq "/foo"
       s.vhosts["uploaded_vhost"]?.should_not be_nil
-      s.vhosts["uploaded_vhost"].should be_a(AvalancheMQ::VHost)
+      s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
     ensure
       s.vhosts.delete("uploaded_vhost")
     end
@@ -543,7 +543,7 @@ describe AvalancheMQ::HTTP::Server do
     response.status_code.should eq 200
 
     u = s.users[name]
-    u.should be_a(AvalancheMQ::User)
+    u.should be_a(LavinMQ::User)
     ok = u.not_nil!.password.not_nil!.verify "hej"
     {u.name, ok}.should eq({name, true})
 
@@ -558,7 +558,7 @@ describe AvalancheMQ::HTTP::Server do
     response.status_code.should eq 200
 
     u = s.users[name]
-    u.should be_a(AvalancheMQ::User)
+    u.should be_a(LavinMQ::User)
     ok = u.not_nil!.password.not_nil!.verify "test"
     {u.name, ok}.should eq({name, true})
   end

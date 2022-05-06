@@ -1,6 +1,6 @@
 require "./shovel"
 
-module AvalancheMQ
+module LavinMQ
   class ShovelStore
     include Enumerable({String, Shovel})
     @log : Log

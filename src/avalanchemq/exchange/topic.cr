@@ -1,6 +1,6 @@
 require "./exchange"
 
-module AvalancheMQ
+module LavinMQ
   class TopicExchange < Exchange
     def initialize(*args)
       super(*args)

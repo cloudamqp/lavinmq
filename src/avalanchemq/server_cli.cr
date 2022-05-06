@@ -2,7 +2,7 @@ require "option_parser"
 require "ini"
 require "./config"
 
-module AvalancheMQ
+module LavinMQ
   class ServerCLI
     getter parser
 
@@ -51,8 +51,8 @@ module AvalancheMQ
         parser.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { config.data_dir_lock = false }
         parser.on("-d", "--debug", "Verbose logging") { config.log_level = Log::Severity::Debug }
         parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
-        parser.on("-v", "--version", "Show version") { puts AvalancheMQ::VERSION; exit 0 }
-        parser.on("--build-info", "Show build information") { puts AvalancheMQ::BUILD_INFO; exit 0 }
+        parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+        parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
         parser.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
           config.guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end

@@ -12,7 +12,7 @@ require "../message"
 require "../error"
 require "../consumer_store"
 
-module AvalancheMQ
+module LavinMQ
   enum QueueState
     Running
     Paused
@@ -177,7 +177,7 @@ module AvalancheMQ
       @dlx = parse_header("x-dead-letter-exchange", String)
       @dlrk = parse_header("x-dead-letter-routing-key", String)
       if @dlrk && @dlx.nil?
-        raise AvalancheMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
       @expires = parse_header("x-expires", ArgumentNumber)
       validate_gt_zero("x-expires", @expires)
@@ -194,20 +194,20 @@ module AvalancheMQ
 
     private macro parse_header(header, type)
       if value = @arguments["{{ header.id }}"]?
-        value.as?({{ type }}) || raise AvalancheMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
+        value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
     end
 
     private def validate_positive(header, value) : Nil
       return if value.nil?
       return if value >= 0
-      raise AvalancheMQ::Error::PreconditionFailed.new("#{header} has to be positive")
+      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be positive")
     end
 
     private def validate_gt_zero(header, value) : Nil
       return if value.nil?
       return if value > 0
-      raise AvalancheMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
+      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
     end
 
     def immediate_delivery?

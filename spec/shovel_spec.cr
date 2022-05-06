@@ -16,24 +16,24 @@ module ShovelSpecHelpers
   end
 end
 
-describe AvalancheMQ::Shovel do
+describe LavinMQ::Shovel do
   describe "AMQP" do
     vhost = s.vhosts.create("x")
 
     it "should shovel and stop when queue length is met" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "ql_q1",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "ql_q2",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ql_"
         x.publish_confirm "shovel me 1", "ql_q1"
@@ -51,14 +51,14 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel large messages" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "lm_q1",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new("spec", URI.parse(AMQP_BASE_URL), "lm_q2")
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "lm_shovel", vhost)
+      dest = LavinMQ::Shovel::AMQPDestination.new("spec", URI.parse(AMQP_BASE_URL), "lm_q2")
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "lm_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
         x.publish_confirm "a" * 200_000, "lm_q1"
@@ -72,9 +72,9 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel forever" do
-      source = AvalancheMQ::Shovel::AMQPSource.new("spec", URI.parse(AMQP_BASE_URL), "sf_q1")
-      dest = AvalancheMQ::Shovel::AMQPDestination.new("spec", URI.parse(AMQP_BASE_URL), "sf_q2")
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "sf_shovel", vhost)
+      source = LavinMQ::Shovel::AMQPSource.new("spec", URI.parse(AMQP_BASE_URL), "sf_q1")
+      dest = LavinMQ::Shovel::AMQPDestination.new("spec", URI.parse(AMQP_BASE_URL), "sf_q2")
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "sf_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
         x.publish_confirm "shovel me 1", "sf_q1"
@@ -94,21 +94,21 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel with ack mode on-publish" do
-      ack_mode = AvalancheMQ::Shovel::AckMode::OnPublish
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      ack_mode = LavinMQ::Shovel::AckMode::OnPublish
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "ap_q1",
         prefetch: 1_u16,
         ack_mode: ack_mode
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "ap_q2",
         ack_mode: ack_mode
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ap_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ap_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
         x.publish_confirm "shovel me", "ap_q1"
@@ -124,20 +124,20 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel with ack mode no-ack" do
-      ack_mode = AvalancheMQ::Shovel::AckMode::NoAck
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      ack_mode = LavinMQ::Shovel::AckMode::NoAck
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "na_q1",
         ack_mode: ack_mode
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "na_q2",
         ack_mode: ack_mode
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "na_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "na_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
         x.publish_confirm "shovel me", "na_q1"
@@ -153,21 +153,21 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel past prefetch" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "prefetch_q1",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
         prefetch: 21_u16
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "prefetch_q2",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength,
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
         prefetch: 21_u16
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
       with_channel do |ch|
         x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
         100.times do
@@ -185,17 +185,17 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel once qs are declared" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "od_q1"
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "od_q2"
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "od_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "od_shovel", vhost)
       with_channel do |ch|
         spawn { shovel.not_nil!.run }
         x, q2 = ShovelSpecHelpers.setup_qs ch, "od_"
@@ -217,7 +217,7 @@ describe AvalancheMQ::Shovel do
         "dest-uri": "#{AMQP_BASE_URL}",
         "dest-queue": "rc_q2",
         "src-prefetch-count": 2})
-      p = AvalancheMQ::Parameter.new("shovel", "rc_shovel", JSON.parse(config))
+      p = LavinMQ::Parameter.new("shovel", "rc_shovel", JSON.parse(config))
       s.vhosts["/"].add_parameter(p)
       with_channel do |ch|
         q1 = ch.queue("rc_q1", durable: true)
@@ -247,17 +247,17 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should shovel over amqps" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse("#{AMQPS_BASE_URL}?verify=none"),
         "ssl_q1"
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse("#{AMQPS_BASE_URL}?verify=none"),
         "ssl_q2"
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ssl_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ssl_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ssl_"
         spawn { shovel.not_nil!.run }
@@ -274,19 +274,19 @@ describe AvalancheMQ::Shovel do
 
     it "should ack all messages that has been moved" do
       prefetch = 9_u16
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "prefetch2_q1",
         prefetch: prefetch
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "prefetch2_q2",
         prefetch: prefetch
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "prefetch2_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch2_shovel", vhost)
       with_channel do |ch|
         x = ShovelSpecHelpers.setup_qs(ch, "prefetch2_").first
         spawn { shovel.not_nil!.run }
@@ -307,17 +307,17 @@ describe AvalancheMQ::Shovel do
 
     describe "authentication error" do
       it "should be stopped" do
-        source = AvalancheMQ::Shovel::AMQPSource.new(
+        source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
           URI.parse("amqp://foo:bar@localhost:5672"),
           "q1"
         )
-        dest = AvalancheMQ::Shovel::AMQPDestination.new(
+        dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
           URI.parse("amqp://foo:bar@localhost:5672"),
           "q2"
         )
-        shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
         spawn { shovel.run }
         wait_for { shovel.details_tuple[:error] }
         shovel.details_tuple[:error].should eq "403 - ACCESS_REFUSED"
@@ -327,17 +327,17 @@ describe AvalancheMQ::Shovel do
     end
 
     it "should count messages shoveled" do
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "c_q1"
       )
-      dest = AvalancheMQ::Shovel::AMQPDestination.new(
+      dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "c_q2"
       )
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "c_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "c_shovel", vhost)
       with_channel do |ch|
         x, _ = ShovelSpecHelpers.setup_qs ch, "c_"
         spawn { shovel.not_nil!.run }
@@ -376,18 +376,18 @@ describe AvalancheMQ::Shovel do
 
       vhost = s.vhosts.create("x")
       # # Setup shovel source and destination
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "ql_q1",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength
       )
-      dest = AvalancheMQ::Shovel::HTTPDestination.new(
+      dest = LavinMQ::Shovel::HTTPDestination.new(
         "spec",
         URI.parse("http://a:b@127.0.0.1:#{http_port}/pp")
       )
 
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
       with_channel do |ch|
         x, _ = ShovelSpecHelpers.setup_qs ch, "ql_"
         headers = AMQP::Client::Arguments.new
@@ -399,7 +399,7 @@ describe AvalancheMQ::Shovel do
 
         # Check that we have sent one message successfully
         path.should eq "/pp"
-        h["User-Agent"].should eq "AvalancheMQ"
+        h["User-Agent"].should eq "LavinMQ"
         h["Content-Type"].should eq "text/plain"
         h["Authorization"].should eq "Basic YTpi" # base64 encoded "a:b"
         h["X-a"].should eq "b"
@@ -428,18 +428,18 @@ describe AvalancheMQ::Shovel do
 
       vhost = s.vhosts.create("x")
       # # Setup shovel source and destination
-      source = AvalancheMQ::Shovel::AMQPSource.new(
+      source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
         "ql_q1",
-        delete_after: AvalancheMQ::Shovel::DeleteAfter::QueueLength
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength
       )
-      dest = AvalancheMQ::Shovel::HTTPDestination.new(
+      dest = LavinMQ::Shovel::HTTPDestination.new(
         "spec",
         URI.parse("http://a:b@127.0.0.1:#{http_port}")
       )
 
-      shovel = AvalancheMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
       with_channel do |ch|
         x, _ = ShovelSpecHelpers.setup_qs ch, "ql_"
         headers = AMQP::Client::Arguments.new

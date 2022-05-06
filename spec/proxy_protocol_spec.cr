@@ -7,7 +7,7 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
-      conn_info = AvalancheMQ::ProxyProtocol::V1.parse(r)
+      conn_info = LavinMQ::ProxyProtocol::V1.parse(r)
       conn_info.src.to_s.should eq "1.2.3.4:34567"
       conn_info.dst.to_s.should eq "127.0.0.2:1234"
       conn_info.ssl?.should be_false
@@ -16,8 +16,8 @@ describe "ProxyProtocol" do
     it "can handle invalid data" do
       r, w = IO.pipe
       w.write "GET / HTTP/1.1\r\n".to_slice
-      expect_raises(AvalancheMQ::ProxyProtocol::InvalidSignature) do
-        AvalancheMQ::ProxyProtocol::V1.parse(r)
+      expect_raises(LavinMQ::ProxyProtocol::InvalidSignature) do
+        LavinMQ::ProxyProtocol::V1.parse(r)
       end
     end
   end
@@ -42,7 +42,7 @@ describe "ProxyProtocol" do
       )
       w.write pp_bytes.to_slice
 
-      conn_info = AvalancheMQ::ProxyProtocol::V2.parse(r)
+      conn_info = LavinMQ::ProxyProtocol::V2.parse(r)
       conn_info.src.to_s.should eq "127.0.0.1:37424"
       conn_info.dst.to_s.should eq "127.0.0.1:5671"
       conn_info.ssl?.should be_true
@@ -53,8 +53,8 @@ describe "ProxyProtocol" do
     it "can handle invalid data" do
       r, w = IO.pipe
       w.write "GET / HTTP/1.1\r\n".to_slice
-      expect_raises(AvalancheMQ::ProxyProtocol::InvalidSignature) do
-        AvalancheMQ::ProxyProtocol::V2.parse(r)
+      expect_raises(LavinMQ::ProxyProtocol::InvalidSignature) do
+        LavinMQ::ProxyProtocol::V2.parse(r)
       end
     end
   end

@@ -1,6 +1,6 @@
 require "./exchange"
 
-module AvalancheMQ
+module LavinMQ
   class FanoutExchange < Exchange
     def type : String
       "fanout"

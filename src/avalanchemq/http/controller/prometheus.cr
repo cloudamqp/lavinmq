@@ -3,7 +3,7 @@ require "../controller"
 require "../resource_helpers"
 require "../binding_helpers"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class PrometheusWriter
       alias MetricValue = UInt16 | Int32 | UInt32 | UInt64 | Int64 | Float64
@@ -121,7 +121,7 @@ module AvalancheMQ
                       value:  1,
                       help:   "System information",
                       labels: {
-                        "#{writer.prefix}_version" => AvalancheMQ::VERSION,
+                        "#{writer.prefix}_version" => LavinMQ::VERSION,
                         "#{writer.prefix}_cluster" => System.hostname,
                       }})
 

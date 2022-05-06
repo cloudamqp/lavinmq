@@ -1,7 +1,7 @@
 require "../spec_helper"
-include AvalancheMQ::HTTP::StatsHelpers
+include LavinMQ::HTTP::StatsHelpers
 
-describe AvalancheMQ::HTTP::StatsHelpers do
+describe LavinMQ::HTTP::StatsHelpers do
   it "should add equal size arrays" do
     a = [1, 2, 3]
     b = [1, 2, 3]

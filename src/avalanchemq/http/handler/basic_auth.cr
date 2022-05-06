@@ -2,7 +2,7 @@ require "http/server/handler"
 require "../../user_store"
 require "base64"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class BasicAuthHandler
       include ::HTTP::Handler

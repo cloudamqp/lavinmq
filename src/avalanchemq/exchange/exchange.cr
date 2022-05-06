@@ -5,7 +5,7 @@ require "../sortable_json"
 require "../observable"
 require "../queue"
 
-module AvalancheMQ
+module LavinMQ
   alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
   alias Destination = Queue | Exchange
 

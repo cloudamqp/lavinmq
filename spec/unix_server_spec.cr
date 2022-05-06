@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Server do
+describe LavinMQ::Server do
   describe "UNIX Sockets" do
     pending "can accept UNIX socket connections" do
       spawn { s.listen_unix("/tmp/spec/avalanchemq.sock") }

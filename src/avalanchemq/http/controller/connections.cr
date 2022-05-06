@@ -1,7 +1,7 @@
 require "uri"
 require "../controller"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     module ConnectionsHelper
       private def connections(user : User)

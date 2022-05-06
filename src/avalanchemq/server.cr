@@ -15,7 +15,7 @@ require "./proxy_protocol"
 require "./client/client"
 require "./stats"
 
-module AvalancheMQ
+module LavinMQ
   class Server
     getter vhosts, users, data_dir, parameters
     getter? closed, flow

@@ -1,6 +1,6 @@
 require "./topic"
 
-module AvalancheMQ
+module LavinMQ
   class FederationExchange < TopicExchange
     def type
       "x-federation-upstream"

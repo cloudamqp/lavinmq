@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::ConsumersController do
+describe LavinMQ::HTTP::ConsumersController do
   describe "GET /metrics" do
     it "should return metrics in prometheus style" do
       response = get("/metrics")

@@ -2,7 +2,7 @@ require "json"
 require "./vhost"
 require "./user"
 
-module AvalancheMQ
+module LavinMQ
   class VHostStore
     include Enumerable({String, VHost})
     @log = Log.for "vhoststore"
