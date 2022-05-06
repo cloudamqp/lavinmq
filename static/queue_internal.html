@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Queue | AvalancheMQ</title>
+    <title>Queue | LavinMQ</title>
     <link href="/main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
@@ -84,7 +84,7 @@
       const vhost = new URLSearchParams(window.location.search).get('vhost')
       const urlEncodedQueue = encodeURIComponent(queue)
       const urlEncodedVhost = encodeURIComponent(vhost)
-      document.title = queue + ' | AvalancheMQ'
+      document.title = queue + ' | LavinMQ'
 
       const chart = avalanchemq.chart.render('chart', 'msgs/s')
       const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
