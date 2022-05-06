@@ -2,7 +2,7 @@
 set -euo pipefail
 
 . /etc/os-release
-NAME=avalanchemq
+NAME=lavinmq
 
 pkg_version=${1:-$(git describe --tags | cut -c2- )}
 pkg_revision=${2:-1}
@@ -12,12 +12,12 @@ mkdir debroot
 cd debroot
 
 mkdir -p usr/bin usr/share/doc/$NAME lib/systemd/system/ etc/$NAME usr/share/man/man1
-cp ../bin/{avalanchemq,avalanchemqctl,avalanchemqperf,avalanchemq-debug} usr/bin/
+cp ../bin/{lavinmq,lavinmqctl,lavinmqperf,lavinmq-debug} usr/bin/
 cp ../README.md usr/share/doc/$NAME/README
 cp ../CHANGELOG.md usr/share/doc/$NAME/changelog
-gzip -9 -n usr/share/doc/avalanchemq/changelog
+gzip -9 -n usr/share/doc/lavinmq/changelog
 cp ../NOTICE usr/share/doc/$NAME/
-cp ../extras/avalanchemq.service lib/systemd/system
+cp ../extras/lavinmq.service lib/systemd/system
 cp ../extras/config.ini etc/$NAME/$NAME.ini
 
 cat > usr/share/doc/$NAME/changelog.Debian << EOF
@@ -30,33 +30,33 @@ EOF
 gzip -9 -n usr/share/doc/$NAME/changelog.Debian
 cat > usr/share/doc/$NAME/copyright << EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: AvalancheMQ
+Upstream-Name: LavinMQ
 Upstream-Contact: contact@84codes.com
-Source: https://github.com/cloudamqp/avalanchemq
+Source: https://github.com/cloudamqp/lavinmq
 Files: *
 Copyright: 2019, 84codes AB
 License: Apache-2.0
 EOF
 
-help2man -Nn "fast and advanced message queue server" usr/bin/avalanchemq > usr/share/man/man1/avalanchemq.1
-help2man -Nn "control utility for avalanchemq server" usr/bin/avalanchemqctl > usr/share/man/man1/avalanchemqctl.1
-help2man -Nn "performance testing tool for amqp servers" usr/bin/avalanchemqperf > usr/share/man/man1/avalanchemqperf.1
-gzip -9 -n usr/share/man/man1/avalanchemq.1
-gzip -9 -n usr/share/man/man1/avalanchemqctl.1
-gzip -9 -n usr/share/man/man1/avalanchemqperf.1
-cp usr/share/man/man1/avalanchemq.1.gz usr/share/man/man1/avalanchemq-debug.1.gz
+help2man -Nn "fast and advanced message queue server" usr/bin/lavinmq > usr/share/man/man1/lavinmq.1
+help2man -Nn "control utility for lavinmq server" usr/bin/lavinmqctl > usr/share/man/man1/lavinmqctl.1
+help2man -Nn "performance testing tool for amqp servers" usr/bin/lavinmqperf > usr/share/man/man1/lavinmqperf.1
+gzip -9 -n usr/share/man/man1/lavinmq.1
+gzip -9 -n usr/share/man/man1/lavinmqctl.1
+gzip -9 -n usr/share/man/man1/lavinmqperf.1
+cp usr/share/man/man1/lavinmq.1.gz usr/share/man/man1/lavinmq-debug.1.gz
 
 mkdir DEBIAN
 find . -type f -not -path "./DEBIAN/*" -print0 | xargs -0 md5sum > DEBIAN/md5sums
 
 cat > DEBIAN/conffiles << EOF
-/etc/avalanchemq/avalanchemq.ini
+/etc/lavinmq/lavinmq.ini
 EOF
 
 cat > DEBIAN/control << EOF
-Package: avalanchemq
+Package: lavinmq
 Version: $pkg_version-$pkg_revision
-Homepage: https://github.com/cloudamqp/avalanchemq
+Homepage: https://github.com/cloudamqp/lavinmq
 Section: net
 Priority: optional
 Architecture: $architecture
@@ -72,17 +72,17 @@ EOF
 
 cat > DEBIAN/postinst << EOF
 #!/bin/sh -e
-adduser --system --group --quiet --no-create-home --home /nonexistent avalanchemq
-install --owner=avalanchemq --group=avalanchemq --mode=750 --directory /var/lib/avalanchemq
-deb-systemd-helper enable avalanchemq.service
-deb-systemd-invoke start avalanchemq.service
+adduser --system --group --quiet --no-create-home --home /nonexistent lavinmq
+install --owner=lavinmq --group=lavinmq --mode=750 --directory /var/lib/lavinmq
+deb-systemd-helper enable lavinmq.service
+deb-systemd-invoke start lavinmq.service
 EOF
 chmod +x DEBIAN/postinst
 
 cat > DEBIAN/prerm << EOF
 #!/bin/sh -e
-deb-systemd-invoke stop avalanchemq.service
-deb-systemd-helper purge avalanchemq.service
+deb-systemd-invoke stop lavinmq.service
+deb-systemd-helper purge lavinmq.service
 EOF
 chmod +x DEBIAN/prerm
 

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: avalanchemq
+  name: lavinmq
 spec:
   ports:
   - port: 15672
@@ -12,33 +12,33 @@ spec:
     name: amqp
   type: LoadBalancer
   selector:
-    app: avalanchemq
+    app: lavinmq
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: avalanchemq
+  name: lavinmq
 spec:
   selector:
     matchLabels:
-      app: avalanchemq
-  serviceName: "avalanchemq"
+      app: lavinmq
+  serviceName: "lavinmq"
   replicas: 1
   template:
     metadata:
       labels:
-        app: avalanchemq
+        app: lavinmq
     spec:
       terminationGracePeriodSeconds: 600
       containers:
-      - name: avalanchemq
-        image: docker.io/cloudamqp/avalanchemq:main
+      - name: lavinmq
+        image: docker.io/cloudamqp/lavinmq:main
         volumeMounts:
-        - name: avalanchemq-data
-          mountPath: /var/lib/avalanchemq
+        - name: lavinmq-data
+          mountPath: /var/lib/lavinmq
   volumeClaimTemplates:
   - metadata:
-      name: avalanchemq-data
+      name: lavinmq-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
       resources:

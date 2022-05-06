@@ -218,37 +218,37 @@ messages from that offset.
 In Debian/Ubuntu:
 
 ```bash
-curl -L https://packagecloud.io/cloudamqp/avalanchemq/gpgkey | sudo apt-key add -
-echo "deb https://packagecloud.io/cloudamqp/avalanchemq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/avalanchemq.list
+curl -L https://packagecloud.io/cloudamqp/lavinmq/gpgkey | sudo apt-key add -
+echo "deb https://packagecloud.io/cloudamqp/lavinmq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
 
 sudo apt update
-sudo apt install avalanchemq
+sudo apt install lavinmq
 ```
 
 In Fedora/CentOS/Redhat/Amazon Linux:
 
 ```bash
-sudo tee /etc/yum.repos.d/avalanchemq.repo << EOF
-[avalanchemq]
-name=avalanchemq
-baseurl=https://packagecloud.io/cloudamqp/avalanchemq/el/8/$basearch
+sudo tee /etc/yum.repos.d/lavinmq.repo << EOF
+[lavinmq]
+name=lavinmq
+baseurl=https://packagecloud.io/cloudamqp/lavinmq/el/8/$basearch
 repo_gpgcheck=1
 gpgcheck=0
 enabled=1
-gpgkey=https://packagecloud.io/cloudamqp/avalanchemq/gpgkey
+gpgkey=https://packagecloud.io/cloudamqp/lavinmq/gpgkey
 sslverify=1
 sslcacert=/etc/pki/tls/certs/ca-bundle.crt
 metadata_expire=300
 EOF
-sudo dnf install avalanchemq
-sudo systemctl start avalanchemq
+sudo dnf install lavinmq
+sudo systemctl start lavinmq
 ```
 
 From source:
 
 ```bash
-git clone git@github.com:cloudamqp/avalanchemq.git
-cd avalanchemq
+git clone git@github.com:cloudamqp/lavinmq.git
+cd lavinmq
 make
 sudo make install # optional
 ```
@@ -261,7 +261,7 @@ on how to install Crystal.
 
 LavinMQ only requires one argument, and it's a path to a data directory:
 
-`avalanchemq -D /var/lib/avalanchemq`
+`lavinmq -D /var/lib/lavinmq`
 
 More configuration options can be viewed with `-h`,
 and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
@@ -269,10 +269,10 @@ for an example.
 
 ## Docker
 
-Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/avalanchemq).
+Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/lavinmq).
 Fetch and run the latest version with:
 
-`docker run --rm -it -P -v /var/lib/avalanchemq:/tmp/amqp cloudamqp/avalanchemq`
+`docker run --rm -it -P -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq`
 
 You are now able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
 start publishing/consuming messages to `amqp://guest:guest@localhost`.
@@ -284,13 +284,13 @@ In Linux `perf` is the tool of choice when tracing and measuring performance.
 To see which syscalls that are made use:
 
 ```bash
-sudo perf trace -p $(pidof avalanchemq)
+sudo perf trace -p $(pidof lavinmq)
 ```
 
 To get a live analysis of the mostly called functions, run:
 
 ```bash
-sudo perf top -p $(pidof avalanchemq)
+sudo perf top -p $(pidof lavinmq)
 ```
 
 A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
@@ -303,13 +303,13 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 
 1. Fork, create feature branch
 1. Build with `make -j`
-1. Performance test with `bin/avalanchemqperf throughput` and compare against `main`
+1. Performance test with `bin/lavinmqperf throughput` and compare against `main`
 1. Submit pull request
 
 ### Develop
 
 1. Run specs with `crystal spec`
-1. Compile and run locally with `crystal run src/avalanchemq.cr -- -D /tmp/amqp`
+1. Compile and run locally with `crystal run src/lavinmq.cr -- -D /tmp/amqp`
 1. Pull js dependencies with `make js`
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`

@@ -4,8 +4,8 @@ module LavinMQ
   class Config
     DEFAULT_LOG_LEVEL = Log::Severity::Info
 
-    property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/avalanchemq")
-    property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/avalanchemq"), "avalanchemq.ini") : ""
+    property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
+    property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
     property log_file : String? = nil
     property log_level : Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
@@ -23,8 +23,8 @@ module LavinMQ
     property http_port = 15672
     property https_port = -1
     property http_unix_path = ""
-    property http_systemd_socket_name = "avalanchemq-http.socket"
-    property amqp_systemd_socket_name = "avalanchemq-amqp.socket"
+    property http_systemd_socket_name = "lavinmq-http.socket"
+    property amqp_systemd_socket_name = "lavinmq-amqp.socket"
     property heartbeat = 300_u16                # second
     property frame_max = 131_072_u32            # bytes
     property channel_max = 2048_u16             # number

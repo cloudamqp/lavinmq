@@ -1,5 +1,5 @@
-BINS := bin/avalanchemq bin/avalanchemqctl bin/avalanchemqperf bin/avalanchemq-debug
-SOURCES := $(shell find src/avalanchemq src/stdlib -name '*.cr' 2> /dev/null)
+BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf bin/lavinmq-debug
+SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
 override CRYSTAL_FLAGS += --cross-compile $(if $(target),--target $(target))

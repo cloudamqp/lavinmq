@@ -62,7 +62,7 @@ jobs:
         run: crystal spec --no-color --order random
 
   compile:
-    name: Compile AvalancheMQ
+    name: Compile LavinMQ
     runs-on: ubuntu-latest
     container: 84codes/crystal:1.4.1-ubuntu-20.04
 
@@ -106,7 +106,7 @@ jobs:
           name: bin
           path: bin
 
-      - name: Run avalanchemq in background
+      - name: Run LavinMQ in background
         run: |
           chmod +x bin/avalanchemq-debug
           bin/avalanchemq-debug --data-dir /tmp/amqp &
@@ -140,7 +140,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libevent-dev
 
-      - name: Checkout AvalancheMQ for bunny_definitions.json
+      - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v2
 
       - uses: actions/download-artifact@v2
@@ -148,7 +148,7 @@ jobs:
           name: bin
           path: bin
 
-      - name: Run avalanchemq in background
+      - name: Run LavinMQ in background
         run: |
           chmod +x bin/avalanchemq-debug
           bin/avalanchemq-debug --data-dir /tmp/amqp &
@@ -192,7 +192,7 @@ jobs:
           name: bin
           path: bin
 
-      - name: Run avalanchemq in background
+      - name: Run LavinMQ in background
         run: |
           chmod +x bin/avalanchemq-debug
           bin/avalanchemq-debug --data-dir /tmp/amqp &
@@ -228,7 +228,7 @@ jobs:
           name: bin
           path: bin
 
-      - name: Run avalanchemq in background
+      - name: Run LavinMQ in background
         run: |
           chmod +x bin/avalanchemq-debug
           bin/avalanchemq-debug --data-dir /tmp/amqp &
@@ -265,7 +265,7 @@ jobs:
           name: bin
           path: bin
 
-      - name: Run avalanchemq in background
+      - name: Run LavinMQ in background
         run: |
           chmod +x bin/avalanchemq-debug
           bin/avalanchemq-debug --data-dir /tmp/amqp &
