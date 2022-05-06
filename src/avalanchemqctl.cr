@@ -387,7 +387,7 @@ class LavinMQCtl
     name = ARGV.shift?
     abort @banner unless name
     puts "Closing connection #{name} ..." unless quiet?
-    @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via avalanchemqctl"
+    @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via lavinmqctl"
     resp = http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     handle_response(resp, 204)
   end
@@ -396,7 +396,7 @@ class LavinMQCtl
     resp = http.get "/api/connections", @headers
     return handle_response(resp) unless resp.status_code == 200
     return unless conns = JSON.parse(resp.body).as_a?
-    @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via avalanchemqctl"
+    @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via lavinmqctl"
     conns.each do |u|
       next unless conn = u.as_h?
       name = conn["name"].to_s
@@ -553,7 +553,7 @@ class LavinMQCtl
     resp = http.get "/api/overview"
     return handle_response(resp) unless resp.status_code == 200
     body = JSON.parse(resp.body)
-    puts "Version: #{body.dig("avalanchemq_version")}"
+    puts "Version: #{body.dig("lavinmq_version")}"
     puts "Node: #{body.dig("node")}"
     puts "Uptime: #{body.dig("uptime")}"
     puts "Connections: #{body.dig("object_totals", "connections")}"

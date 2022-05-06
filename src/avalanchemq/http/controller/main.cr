@@ -68,10 +68,10 @@ module LavinMQ
             {% end %}
           end
           {
-            avalanchemq_version: LavinMQ::VERSION,
-            node:                System.hostname,
-            uptime:              @amqp_server.uptime.to_i,
-            object_totals:       {
+            lavinmq_version: LavinMQ::VERSION,
+            node:            System.hostname,
+            uptime:          @amqp_server.uptime.to_i,
+            object_totals:   {
               channels:    channels,
               connections: connections,
               consumers:   consumers,
