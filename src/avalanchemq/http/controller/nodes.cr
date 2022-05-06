@@ -101,7 +101,7 @@ module LavinMQ
       end
 
       APPLICATIONS = [{
-        name:        "avalanchemq",
+        name:        "lavinmq",
         description: "LavinMQ",
         version:     LavinMQ::VERSION,
       }]

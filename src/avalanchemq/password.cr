@@ -11,7 +11,7 @@ module LavinMQ
       include Password
 
       def hash_algorithm : String
-        "avalanchemq_bcrypt"
+        "lavinmq_bcrypt"
       end
     end
 

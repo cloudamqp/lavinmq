@@ -52,7 +52,7 @@
   }
 
   function render (data) {
-    document.querySelector('#version').innerText = data.avalanchemq_version
+    document.querySelector('#version').innerText = data.lavinmq_version
     document.querySelector('#cluster_name').innerText = data.node
     const table = document.querySelector('#overview')
     if (table) {
