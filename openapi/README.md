@@ -1,8 +1,8 @@
-# AvalancheMQ Management HTTP API OpenAPI spec
+# LavinMQ Management HTTP API OpenAPI spec
 
 Run `make docs` to build docs (calls `npx redoc-cli`).
 
-It outputs to `static/docs/index.html` so you can view the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/) if you have AvalancheMQ running.
+It outputs to `static/docs/index.html` so you can view the docs at [http://localhost:15672/docs/](http://localhost:15672/docs/) if you have LavinMQ running.
 
 The dependencies:
 

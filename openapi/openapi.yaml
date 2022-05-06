@@ -3,12 +3,12 @@ openapi: 3.0.3
 info:
   version:
     "$ref": "../shard.yml#/version"
-  title: AvalancheMQ Management HTTP API
-  description: HTTP API to programmatically manage all aspects of AvalancheMQ.
+  title: LavinMQ Management HTTP API
+  description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:
-    name: AvalancheMQ Team
-    url: https://www.avalanchemq.com/
-    email: contact@avalanchemq.com
+    name: LavinMQ Team
+    url: https://www.lavinmq.com/
+    email: contact@lavinmq.com
 servers:
 - url: http://localhost:15672/api
 components:
