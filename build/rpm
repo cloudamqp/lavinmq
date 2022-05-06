@@ -6,10 +6,10 @@ root=~/rpmbuild
 
 mkdir -p $root/{RPMS,SRPMS,SOURCES,SPECS,tmp}
 
-git archive --format=tar.gz -o $root/SOURCES/avalanchemq.tar.gz --prefix=avalanchemq-$pkg_version/ HEAD
+git archive --format=tar.gz -o $root/SOURCES/lavinmq.tar.gz --prefix=lavinmq-$pkg_version/ HEAD
 
-cat > $root/SPECS/avalanchemq.spec << EOF
-Name:    avalanchemq
+cat > $root/SPECS/lavinmq.spec << EOF
+Name:    lavinmq
 Version: $pkg_version
 Release: $pkg_revision%{?dist}
 Summary: Message queue server that implements the AMQP 0-9-1 protocol
@@ -18,7 +18,7 @@ License: ASL 2.0
 %{?systemd_requires}
 BuildRequires: systemd crystal help2man zlib-devel openssl-devel
 Requires(pre): shadow-utils
-URL: https://github.com/cloudamqp/avalanchemq
+URL: https://github.com/cloudamqp/lavinmq
 Source0: %{name}.tar.gz
 
 %description
@@ -43,9 +43,9 @@ install -D -m 0755 bin/%{name}perf %{buildroot}/%{_bindir}/%{name}perf
 install -D -m 0644 extras/%{name}.service %{buildroot}%{_unitdir}/%{name}.service
 install -D -m 0644 extras/config.ini %{buildroot}/%{_sysconfdir}/%{name}/%{name}.ini
 mkdir -p %{buildroot}/%{_mandir}/man1
-help2man -Nn "fast and advanced message queue server" bin/avalanchemq > %{buildroot}/%{_mandir}/man1/avalanchemq.1
-help2man -Nn "control utility for avalanchemq server" bin/avalanchemqctl > %{buildroot}/%{_mandir}/man1/avalanchemqctl.1
-help2man -Nn "performance testing tool for amqp servers" bin/avalanchemqperf > %{buildroot}/%{_mandir}/man1/avalanchemqperf.1
+help2man -Nn "fast and advanced message queue server" bin/lavinmq > %{buildroot}/%{_mandir}/man1/lavinmq.1
+help2man -Nn "control utility for lavinmq server" bin/lavinmqctl > %{buildroot}/%{_mandir}/man1/lavinmqctl.1
+help2man -Nn "performance testing tool for amqp servers" bin/lavinmqperf > %{buildroot}/%{_mandir}/man1/lavinmqperf.1
 mkdir -p %{buildroot}/%{_sharedstatedir}/%{name}
 
 %pre
@@ -69,7 +69,7 @@ exit 0
 %{_bindir}/%{name}*
 %{_unitdir}/%{name}.service
 %{_mandir}/man1/*
-%dir %attr(750, avalanchemq, avalanchemq) %{_sharedstatedir}/%{name}
+%dir %attr(750, lavinmq, lavinmq) %{_sharedstatedir}/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/%{name}.ini
 
 %changelog
@@ -77,9 +77,9 @@ exit 0
 - Initial version of the package
 EOF
 
-rpmlint $root/SPECS/avalanchemq.spec
-rpmbuild -bb $root/SPECS/avalanchemq.spec
+rpmlint $root/SPECS/lavinmq.spec
+rpmbuild -bb $root/SPECS/lavinmq.spec
 rm -rf builds/rpm
 mkdir -p builds
 mv $root/RPMS builds/rpm
-#rpmlint $root/RPMS/avalanchemq-$pkg_version*
+#rpmlint $root/RPMS/lavinmq-$pkg_version*

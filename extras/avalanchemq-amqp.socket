@@ -1,9 +1,9 @@
 [Unit]
-Description=AvalancheMQ
+Description=LavinMQ
 
 [Socket]
 ListenStream=0.0.0.0:15672
-Service=avalanchemq.service
+Service=lavinmq.service
 
-[Install] 
+[Install]
 WantedBy=sockets.target

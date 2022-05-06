@@ -1,17 +1,17 @@
 [Unit]
-Description=AvalancheMQ
-Documentation=https://github.com/cloudamqp/avalanchemq
+Description=LavinMQ
+Documentation=https://github.com/cloudamqp/lavinmq
 Requires=network.target
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/avalanchemq -c /etc/avalanchemq/avalanchemq.%i.ini
+ExecStart=/usr/bin/lavinmq -c /etc/lavinmq/lavinmq.%i.ini
 Restart=on-failure
-User=avalanchemq
-Group=avalanchemq
+User=lavinmq
+Group=lavinmq
 LimitNOFILE=infinity
 ProtectSystem=full
-Slice=avalanchemq.slice
+Slice=lavinmq.slice
 MemoryHigh=10M
 MemoryMax=100M
 CPUQuota=1%

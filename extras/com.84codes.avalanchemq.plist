@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.84codes.avalanchemq</string>
+  <string>com.84codes.lavinmq</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/opt/avalanchemq/bin/avalanchemq</string>
+    <string>/usr/local/opt/lavinmq/bin/lavinmq</string>
     <string>-D</string>
-    <string>/usr/local/var/avalanchemq</string>
+    <string>/usr/local/var/lavinmq</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/usr/local</string>
   <key>StandardOutPath</key>
-  <string>/usr/local/var/log/avalanchemq.log</string>
+  <string>/usr/local/var/log/lavinmq.log</string>
   <key>StandardErrorPath</key>
-  <string>/usr/local/var/log/avalanchemq.log</string>
+  <string>/usr/local/var/log/lavinmq.log</string>
   <key>HardResourceLimits</key>
   <dict>
     <key>NumberOfFiles</key>

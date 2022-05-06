@@ -1,4 +1,4 @@
-name: avalanchemq
+name: lavinmq
 version: 1.0.0-alpha.34
 
 authors:
@@ -12,12 +12,12 @@ authors:
   - Oskar Gustafsson <oskar@84codes.com>
 
 targets:
-  avalanchemq:
-    main: src/avalanchemq.cr
-  avalanchemqctl:
-    main: src/avalanchemqctl.cr
-  avalanchemqperf:
-    main: src/avalanchemqperf.cr
+  lavinmq:
+    main: src/lavinmq.cr
+  lavinmqctl:
+    main: src/lavinmqctl.cr
+  lavinmqperf:
+    main: src/lavinmqperf.cr
 
 dependencies:
   amq-protocol:
