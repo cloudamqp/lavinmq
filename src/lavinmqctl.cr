@@ -1,6 +1,6 @@
-require "./avalanchemq/version"
-require "./avalanchemq/config"
-require "./avalanchemq/http/http_server"
+require "./lavinmq/version"
+require "./lavinmq/config"
+require "./lavinmq/http/http_server"
 require "json"
 require "option_parser"
 

@@ -1,6 +1,6 @@
 require "spec"
-require "../src/avalanchemq/segment_position"
-require "../src/avalanchemq/queue/ready"
+require "../src/lavinmq/segment_position"
+require "../src/lavinmq/queue/ready"
 
 describe LavinMQ::Queue::ExpirationReadyQueue do
   it "should insert SegmentPosition sorted" do

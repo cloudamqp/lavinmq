@@ -1,5 +1,5 @@
 require "spec"
-require "../src/avalanchemq/queue/unacked"
+require "../src/lavinmq/queue/unacked"
 
 describe LavinMQ::Queue::UnackQueue do
   it "should insert SegmentPosition sorted" do

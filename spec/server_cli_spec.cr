@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/avalanchemq/server_cli"
+require "../src/lavinmq/server_cli"
 
 describe "LavinMQ::ServerCLI" do
   it "should remember the config file path" do

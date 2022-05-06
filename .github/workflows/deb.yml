@@ -57,7 +57,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         name: Upload artifact
         with:
-          name: avalanchemq-${{ matrix.os }}-${{ matrix.arch }}.deb
+          name: lavinmq-${{ matrix.os }}-${{ matrix.arch }}.deb
           path: builds/**/*.deb
 
       - name: Upload to Packagecloud

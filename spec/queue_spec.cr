@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "./../src/avalanchemq/queue"
+require "./../src/lavinmq/queue"
 
 describe LavinMQ::Queue do
   it "Should dead letter expiered messages" do
