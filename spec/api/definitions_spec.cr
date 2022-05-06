@@ -43,7 +43,7 @@ describe LavinMQ::HTTP::Server do
       vhost.should be_a(LavinMQ::VHost)
     end
 
-    # https://github.com/cloudamqp/avalanchemq/issues/276
+    # https://github.com/cloudamqp/lavinmq/issues/276
     context "if default user has been replaced" do
       before_each do
         s.users.delete("guest")

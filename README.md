@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/cloudamqp/avalanchemq/workflows/CI/badge.svg?branch=main)](https://github.com/cloudamqp/avalanchemq/actions)
+[![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg?branch=main)](https://github.com/cloudamqp/lavinmq/actions)
 
 # ![LavinMQ](static/img/logo-lavinmq.png)
 
