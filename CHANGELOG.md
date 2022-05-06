@@ -9,39 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* Queue multi action UI, purge or delete multiple queues ([#330](https://github.com/cloudamqp/avalanchemq/pull/330))
-* Shovel error feedback, ability to see why a shovel failed without consulting the logs ([#328](https://github.com/cloudamqp/avalanchemq/pull/328))
+* Queue multi action UI, purge or delete multiple queues ([#330](https://github.com/cloudamqp/lavinmq/pull/330))
+* Shovel error feedback, ability to see why a shovel failed without consulting the logs ([#328](https://github.com/cloudamqp/lavinmq/pull/328))
 
 ### Fixed
 
 * Fix potential corruption by race condition between multiple consumers
-* Stop Queue if unrecoverable read error (i.e. corruption) ([#318](https://github.com/cloudamqp/avalanchemq/pull/318))
+* Stop Queue if unrecoverable read error (i.e. corruption) ([#318](https://github.com/cloudamqp/lavinmq/pull/318))
 
 ### Changed
 
-* Limit number of consumers listed on Queue page, improve load time if there's lots of consumers ([#327](https://github.com/cloudamqp/avalanchemq/pull/327))
+* Limit number of consumers listed on Queue page, improve load time if there's lots of consumers ([#327](https://github.com/cloudamqp/lavinmq/pull/327))
 
 ## [1.0.0-alpha.34] - 2021-01-19
 
 ### Added
 
 - Option do configure tcp keepalive via config file
-- Allow or block guest user using loopback address. ([#305](https://github.com/cloudamqp/avalanchemq/pull/305))
-- Reject and requeue is now default option when getting messages in UI. ([#307](https://github.com/cloudamqp/avalanchemq/pull/307))
-- Show hostname in header ([#308](https://github.com/cloudamqp/avalanchemq/pull/308))
+- Allow or block guest user using loopback address. ([#305](https://github.com/cloudamqp/lavinmq/pull/305))
+- Reject and requeue is now default option when getting messages in UI. ([#307](https://github.com/cloudamqp/lavinmq/pull/307))
+- Show hostname in header ([#308](https://github.com/cloudamqp/lavinmq/pull/308))
 - Prometheus metrics
 - Make it possible to reque Get messages last with the HTTP API
 - Show server hostname in UI
 - Displaying timestamp of first and last message in each Queue (HTTP API/UI)
 - Option to set max count of how many messages to purge
-- avalanchemqperf throughput have a max uncofirmed messages option
-- avalanchemqperf throughput can multi ack X number of messages
-- avalanchemqperf consumer-churn command
-- avalanchemqctl status command
+- lavinmqperf throughput have a max uncofirmed messages option
+- lavinmqperf throughput can multi ack X number of messages
+- lavinmqperf consumer-churn command
+- lavinmqctl status command
 
 ### Removed
 
-- Remove SystemD socket activation/seamless restart ([#303](https://github.com/cloudamqp/avalanchemq/pull/303))
+- Remove SystemD socket activation/seamless restart ([#303](https://github.com/cloudamqp/lavinmq/pull/303))
 
 ### Fixed
 
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Faster JSON generation for queues
 - Build with Crystal 1.3.1
 - Allow Get/Reject messages from paused queues in the HTTP API
-- Use /var/lib/avalanchemq as default path for data in containers
+- Use /var/lib/lavinmq as default path for data in containers
 - libsystemd is no longer a dependency
 - Faster ready messages bytesize counting
 
@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Log to file, via config option `log_file`
 - New option `--build-info` to print build information (Crystal, LLVM version etc)
 - New option `--no-data-dir-lock` to stop lock file being created
-- Added `avalanchemqctl` and `avalanchemqperf` binaries to Docker images
+- Added `lavinmqctl` and `lavinmqperf` binaries to Docker images
 - Packages and images built with Crystal 1.2.1 and LLVM 10
 - Keep debug symbols in Docker builds
 ### Fixed
@@ -86,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Handle IO::Error exceptions in read_loop
 ### Changed
 
-- Unix domain socket default location changed to `/dev/shm/avalanchemq-http.sock` on Linux
+- Unix domain socket default location changed to `/dev/shm/lavinmq-http.sock` on Linux
 - Don't log if client EOF on connect, such as healthchecks
 ## [1.0.0-alpha.31] - 2021-06-28
 
@@ -229,7 +229,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Make sure client connections are cleaned up correctly
-- Bug when creating and listing users in avalanchemqctl
+- Bug when creating and listing users in lavinmqctl
 - Kill process if segment GC loop fails unexpectedly
 - SegmentPosition is requeued if not expired
 - Writes to `ack` file is always flushed to disk
@@ -237,7 +237,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Autocomplete queues and exchanges in UI
-- Create and delete queues and exchanges from avalanchemqctl
+- Create and delete queues and exchanges from lavinmqctl
 
 ## [1.0.0-alpha.20] - 2021-01-11
 
@@ -323,7 +323,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A lot more commands added to avalanchemqctl
+- A lot more commands added to lavinmqctl
 
 ## [1.0.0-alpha.13] - 2020-10-30
 
@@ -378,7 +378,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Releases are published on Docker hub: <https://hub.docker.com/repository/docker/cloudamqp/avalanchemq>
+- Releases are published on Docker hub: <https://hub.docker.com/repository/docker/cloudamqp/lavinmq>
 
 ## [1.0.0-alpha.9] - 2020-10-20
 
@@ -391,7 +391,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default segment size is now 1 GB (up from 32 MB)
 - Report size of deleted segments without holes
 - Truncate segments after last message (not hole punching)
-- Looks for a config file at /etc/avalanchemq
+- Looks for a config file at /etc/lavinmq
 - Uses ENV["StateDirectory"] as data dir if set
 
 ### Added
@@ -505,7 +505,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Higher throughput due to revamped segment GC algorithm
 - Validate x-match headers
 - Don't allow declaring or deleting the default exchange
-- avalanchemqctl now uses a private unix socket for communication
+- lavinmqctl now uses a private unix socket for communication
 - Make queue/exchange delete and unbind idempotent
 
 ### Added
@@ -518,7 +518,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UI: Shows bytes of messages a queue hold
 - UI: Show data rates and heartbeats in connections listing
 - Reload TLS certificates on HUP signal
-- systemctl reload avalanchemq now supported in systemd (by sending HUP to main pid)
+- systemctl reload lavinmq now supported in systemd (by sending HUP to main pid)
 - UNIX socket support for HTTP server
 - Documented how persistent exchange works in the readme
 - Promethous exporter at /metrics
@@ -548,7 +548,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The --persistent flag is actually being respected in avalanchemqperf throughput
+- The --persistent flag is actually being respected in lavinmqperf throughput
 - On shutdown, force close client connections
 - Can now successfully delete shovels that has connection problems
 
@@ -647,7 +647,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Crystal 0.34.x compability
 - Rescue error while trying to parse the PROXY protocol
 - Header exchange binding without arguments matches empty message headers
-- avalanchemqperf throughput now declares queues smarter
+- lavinmqperf throughput now declares queues smarter
 
 ### Changed
 
@@ -820,14 +820,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Crystal 0.33.0
-- avalanchemqperf: use fibers, don't fork
+- lavinmqperf: use fibers, don't fork
 - Only ack:ing persistent messages are now written to the queue index
 - Mutexes around the unacked dequeue in Consumer, for thread safety
 
 ### Added
 
-- avalanchemqperf: --persistent flag for throughput tests
-- avalanchemqperf: queues are now bound to the exchange
+- lavinmqperf: --persistent flag for throughput tests
+- lavinmqperf: queues are now bound to the exchange
 
 ## [0.9.1] - 2020-02-13
 
@@ -878,7 +878,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Round rates in the UI to 1 decimal
-- avalanchemqperf throughput now forks for each connection instead of spawn
+- lavinmqperf throughput now forks for each connection instead of spawn
 - Speed up GC of segments by using reference counting
 
 ## [0.8.5] - 2019-09-19
@@ -922,7 +922,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Faster queue matching on publishing by reusing a Set
 - Faster GC of unused message store segments
 - Do not enable TCP_NODELAY
-- Faster avalanchemqproxy
+- Faster lavinmqproxy
 
 ## [0.8.1] - 2019-07-19
 
