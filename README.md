@@ -1,6 +1,6 @@
 [![Build Status](https://github.com/cloudamqp/avalanchemq/workflows/CI/badge.svg?branch=main)](https://github.com/cloudamqp/avalanchemq/actions)
 
-# ![AvalancheMQ](static/img/logo-avalanche-mq-black.png)
+# ![LavinMQ](static/img/logo-lavinmq.png)
 
 A message queue server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
@@ -22,7 +22,7 @@ and about 1000 bindings/second to durable queues.
 
 ## Implementation
 
-AvalancheMQ is written in [Crystal](https://crystal-lang.org/), a modern
+LavinMQ is written in [Crystal](https://crystal-lang.org/), a modern
 language built on the LLVM, that has a Ruby-like syntax, uses an event loop
 library for IO, is garbage collected, adopts a CSP-like [concurrency
 model](https://crystal-lang.org/docs/guides/concurrency.html) and compiles down
@@ -125,7 +125,7 @@ Currently missing features
 
 ### Known differences to other AMQP servers
 
-There are a few edge-cases that are handled a bit differently in AvalancheMQ compared to other AMQP servers.
+There are a few edge-cases that are handled a bit differently in LavinMQ compared to other AMQP servers.
 
 * Messages being rejected and requeued with TTL 0 is delivered to consumers if there are any, not expired
 * When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
@@ -259,7 +259,7 @@ on how to install Crystal.
 
 ## Usage
 
-AvalancheMQ only requires one argument, and it's a path to a data directory:
+LavinMQ only requires one argument, and it's a path to a data directory:
 
 `avalanchemq -D /var/lib/avalanchemq`
 
@@ -337,4 +337,4 @@ The software is licensed under the [Apache License 2.0](LICENSE).
 
 Copyright 2018-2021 84codes AB
 
-AvalancheMQ is a trademark of 84codes AB
+LavinMQ is a trademark of 84codes AB
