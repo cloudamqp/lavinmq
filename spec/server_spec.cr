@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Server do
+describe LavinMQ::Server do
   it "accepts connections" do
     with_channel do |ch|
       x = ch.exchange("amq.topic", "topic", auto_delete: false, durable: true, internal: true, passive: true)
@@ -549,7 +549,7 @@ describe AvalancheMQ::Server do
         "max-length" => JSON::Any.new(1_i64),
       } of String => JSON::Any
       s.vhosts["/"]
-        .add_policy("test", /^mlq$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
+        .add_policy("test", /^mlq$/, LavinMQ::Policy::Target::Queues, definitions, 10_i8)
       sleep 0.01
       s.vhosts["/"].queues["mlq"].message_count.should eq 1
     end
@@ -642,7 +642,7 @@ describe AvalancheMQ::Server do
 
   it "supports max-length" do
     definitions = {"max-length" => JSON::Any.new(1_i64)}
-    s.vhosts["/"].add_policy("ml", /^.*$/, AvalancheMQ::Policy::Target::Queues, definitions, 10_i8)
+    s.vhosts["/"].add_policy("ml", /^.*$/, LavinMQ::Policy::Target::Queues, definitions, 10_i8)
     with_channel do |ch|
       q = ch.queue
       q.publish_confirm("m1").should be_true
@@ -733,7 +733,7 @@ describe AvalancheMQ::Server do
   end
 
   it "sets correct message timestamp" do
-    AvalancheMQ::Config.instance.set_timestamp = true
+    LavinMQ::Config.instance.set_timestamp = true
     with_channel do |ch|
       q = ch.queue
       t = Time.utc.to_unix
@@ -743,7 +743,7 @@ describe AvalancheMQ::Server do
       wait_for { msg }
       msg.not_nil!.properties.timestamp.not_nil!.to_unix.should be_close(t, 1)
     end
-    AvalancheMQ::Config.instance.set_timestamp = false
+    LavinMQ::Config.instance.set_timestamp = false
   end
 
   it "supports recover requeue" do

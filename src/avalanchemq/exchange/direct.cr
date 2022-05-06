@@ -1,6 +1,6 @@
 require "./exchange"
 
-module AvalancheMQ
+module LavinMQ
   class DirectExchange < Exchange
     def type : String
       "direct"

@@ -1,7 +1,7 @@
 require "openssl"
 require "crypto/bcrypt/password"
 
-module AvalancheMQ
+module LavinMQ
   class User
     module Password
       abstract def hash_algorithm : String

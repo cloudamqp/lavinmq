@@ -1,7 +1,7 @@
 require "../spec_helper"
 require "compress/deflate"
 
-describe AvalancheMQ::HTTP::QueuesController do
+describe LavinMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
       s.vhosts["/"].declare_queue("q0", false, false)

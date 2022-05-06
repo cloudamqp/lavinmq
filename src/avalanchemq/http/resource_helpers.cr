@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   module HTTP
     module ResourceHelpers
       private def parse_arguments(body) : Hash(String, AMQP::Field)

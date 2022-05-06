@@ -1,7 +1,7 @@
 require "json"
 require "./sortable_json"
 
-module AvalancheMQ
+module LavinMQ
   module PolicyTarget
     abstract def apply_policy(p : Policy)
     abstract def clear_policy

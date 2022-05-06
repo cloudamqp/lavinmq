@@ -6,7 +6,7 @@ require "../binding_helpers"
 require "../controller"
 require "../resource_helpers"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class BindingsController < Controller
       include ResourceHelpers

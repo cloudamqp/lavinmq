@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   module SortableJSON
     abstract def details_tuple
 

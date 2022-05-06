@@ -2,7 +2,7 @@ require "./queue"
 require "./priority_queue"
 require "./durable_queue"
 
-module AvalancheMQ
+module LavinMQ
   class QueueFactory
     def self.make(vhost : VHost, frame : AMQP::Frame)
       if frame.durable

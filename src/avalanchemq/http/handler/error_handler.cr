@@ -1,6 +1,6 @@
 require "http/server/handler"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class ApiErrorHandler
       include ::HTTP::Handler

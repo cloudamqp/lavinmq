@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   module AMQPConnection
     def self.start(socket, connection_info, vhosts, users)
       remote_address = connection_info.src
@@ -46,9 +46,9 @@ module AvalancheMQ
     end
 
     SERVER_PROPERTIES = AMQP::Table.new({
-      "product"      => "AvalancheMQ",
+      "product"      => "LavinMQ",
       "platform"     => "Crystal #{Crystal::VERSION}",
-      "version"      => AvalancheMQ::VERSION,
+      "version"      => LavinMQ::VERSION,
       "capabilities" => AMQP::Table.new({
         "publisher_confirms"           => true,
         "exchange_exchange_bindings"   => true,

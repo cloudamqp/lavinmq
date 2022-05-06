@@ -1,7 +1,7 @@
 require "./queue"
 require "./durable_queue"
 
-module AvalancheMQ
+module LavinMQ
   class DelayedExchangeQueue < Queue
     @ready = Queue::ExpirationReadyQueue.new
     @internal = true

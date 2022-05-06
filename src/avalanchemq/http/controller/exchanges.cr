@@ -3,7 +3,7 @@ require "../controller"
 require "../resource_helpers"
 require "../binding_helpers"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     module ExchangeHelpers
       private def exchange(context, params, vhost, key = "name")

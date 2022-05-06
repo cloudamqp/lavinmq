@@ -1,7 +1,7 @@
 require "../amqp"
 require "../exchange"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     module BindingHelpers
       private def bindings(vhost)

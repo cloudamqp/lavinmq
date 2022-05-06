@@ -1,13 +1,13 @@
 require "./spec_helper"
 
-describe AvalancheMQ::DurableQueue do
+describe LavinMQ::DurableQueue do
   context "with corrupt segments" do
     context "when consumed" do
       it "should be closed" do
         with_vhost("corrupt_vhost") do |vhost|
           with_channel(vhost: vhost.name) do |ch|
             q = ch.queue("corrupt_q")
-            queue = vhost.queues["corrupt_q"].as(AvalancheMQ::DurableQueue)
+            queue = vhost.queues["corrupt_q"].as(LavinMQ::DurableQueue)
             q.publish_confirm "test message"
 
             bytes = "aaaaauaoeuaoeu".to_slice
@@ -26,12 +26,12 @@ describe AvalancheMQ::DurableQueue do
   end
 
   it "GC message index after MAX_ACKS" do
-    sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
-    max_acks = AvalancheMQ::Config.instance.queue_max_acks
+    sp_size = LavinMQ::SegmentPosition::BYTESIZE
+    max_acks = LavinMQ::Config.instance.queue_max_acks
     with_channel do |ch|
       ch.prefetch(1)
       q = ch.queue("d", durable: true)
-      queue = s.vhosts["/"].queues["d"].as(AvalancheMQ::DurableQueue)
+      queue = s.vhosts["/"].queues["d"].as(LavinMQ::DurableQueue)
       queue.enq_file_size.should eq sizeof(Int32)
       max_acks.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
@@ -61,13 +61,13 @@ describe AvalancheMQ::DurableQueue do
   end
 
   pending "GC message index when msgs are dead-lettered" do
-    sp_size = AvalancheMQ::SegmentPosition::BYTESIZE
-    max_acks = AvalancheMQ::Config.instance.queue_max_acks
+    sp_size = LavinMQ::SegmentPosition::BYTESIZE
+    max_acks = LavinMQ::Config.instance.queue_max_acks
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
       args["x-max-length"] = 1_i64
       q = ch.queue("ml", durable: true, args: args)
-      queue = s.vhosts["/"].queues["ml"].as(AvalancheMQ::DurableQueue)
+      queue = s.vhosts["/"].queues["ml"].as(LavinMQ::DurableQueue)
       queue.enq_file_size.should eq sizeof(Int32)
       max_acks.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
@@ -92,21 +92,21 @@ describe AvalancheMQ::DurableQueue do
     with_channel do |ch|
       q = ch.queue("pre", durable: true)
       msg_count.times { q.publish "" }
-      queue = s.vhosts["/"].queues["pre"].as(AvalancheMQ::DurableQueue)
+      queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
       enq_path = queue.@enq.path
     end
     close_servers
     # emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
     TestHelpers.setup
-    queue = s.vhosts["/"].queues["pre"].as(AvalancheMQ::DurableQueue)
+    queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
     # make sure that the @ready capacity doesn't take into account the preallocated size
     queue.@ready.capacity.should eq Math.pw2ceil(msg_count)
     queue.@ready.size.should eq msg_count
   end
 end
 
-describe AvalancheMQ::VHost do
+describe LavinMQ::VHost do
   it "should not be dirty if nothing happend" do
     s.vhosts.create("not_dirty").dirty?.should be_false
   end
@@ -150,11 +150,11 @@ describe AvalancheMQ::VHost do
     body = Bytes.new(msg_size)
 
     segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
-    sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.2
+    sleep LavinMQ::Config.instance.gc_segments_interval + 0.2
 
     size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
 
-    msgs_to_fill_2_segments = ((AvalancheMQ::Config.instance.segment_size * 2 - size_of_current_segment) / (msg_size + overhead)).ceil.to_i
+    msgs_to_fill_2_segments = ((LavinMQ::Config.instance.segment_size * 2 - size_of_current_segment) / (msg_size + overhead)).ceil.to_i
 
     with_channel do |ch|
       ch.confirm_select
@@ -166,7 +166,7 @@ describe AvalancheMQ::VHost do
       ch.wait_for_confirm(msgid)
       segments.call.size.should eq 2
       q.purge
-      sleep AvalancheMQ::Config.instance.gc_segments_interval + 0.4
+      sleep LavinMQ::Config.instance.gc_segments_interval + 0.4
       segments.call.size.should eq 1
     end
   end

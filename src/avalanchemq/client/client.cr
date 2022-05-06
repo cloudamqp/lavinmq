@@ -11,7 +11,7 @@ require "../error"
 require "./amqp_connection"
 require "../config"
 
-module AvalancheMQ
+module LavinMQ
   class Client
     include Stats
     include SortableJSON

@@ -1,8 +1,8 @@
 require "./spec_helper"
 require "../src/avalanchemq/segment_position.cr"
 
-describe AvalancheMQ::SegmentPosition do
-  subject = AvalancheMQ::SegmentPosition
+describe LavinMQ::SegmentPosition do
+  subject = LavinMQ::SegmentPosition
   it "should do bitwise concat of segment and position" do
     sp = subject.new(0_u32, 0_u32)
     sp.to_i64.should eq 0
@@ -33,25 +33,25 @@ describe AvalancheMQ::SegmentPosition do
     position = 0_u32
 
     it "should create a SP with x-delay" do
-      headers = AvalancheMQ::AMQP::Table.new({"x-delay" => 15})
-      props = AvalancheMQ::AMQP::Properties.new(headers: headers)
-      msg = AvalancheMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+      headers = LavinMQ::AMQP::Table.new({"x-delay" => 15})
+      props = LavinMQ::AMQP::Properties.new(headers: headers)
+      msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
       sp = subject.make(segment, position, msg)
       sp.expiration_ts.should eq 115
       sp.priority.should eq 0
     end
 
     it "should create a SP with expiration properties" do
-      props = AvalancheMQ::AMQP::Properties.new(expiration: "10")
-      msg = AvalancheMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+      props = LavinMQ::AMQP::Properties.new(expiration: "10")
+      msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
       sp = subject.make(segment, position, msg)
       sp.expiration_ts.should eq 110
       sp.priority.should eq 0
     end
 
     it "should create a SP with priority and expiration" do
-      props = AvalancheMQ::AMQP::Properties.new(expiration: "11", priority: 4_u8)
-      msg = AvalancheMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+      props = LavinMQ::AMQP::Properties.new(expiration: "11", priority: 4_u8)
+      msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
       sp = subject.make(segment, position, msg)
       sp.expiration_ts.should eq 111
       sp.priority.should eq 4
@@ -61,8 +61,8 @@ describe AvalancheMQ::SegmentPosition do
   it "should create a SP with priority" do
     segment = 0_u32
     position = 0_u32
-    props = AvalancheMQ::AMQP::Properties.new(priority: 6_u8)
-    msg = AvalancheMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+    props = LavinMQ::AMQP::Properties.new(priority: 6_u8)
+    msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
     sp = subject.make(segment, position, msg)
     sp.expiration_ts.should eq 0
     sp.priority.should eq 6
@@ -71,25 +71,25 @@ describe AvalancheMQ::SegmentPosition do
   it "should create a SP without TTL or priority" do
     segment = 0_u32
     position = 0_u32
-    props = AvalancheMQ::AMQP::Properties.new
-    msg = AvalancheMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+    props = LavinMQ::AMQP::Properties.new
+    msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
     sp = subject.make(segment, position, msg)
     sp.expiration_ts.should eq 0
     sp.priority.should eq 0
   end
 
-  describe AvalancheMQ::VHost::ReferencedSPs do
-    subject = AvalancheMQ::SegmentPosition
+  describe LavinMQ::VHost::ReferencedSPs do
+    subject = LavinMQ::SegmentPosition
 
     it "it should always be sorted (ReadyQueue)" do
       offsets = (0..4).to_a.map(&.to_i64)
-      sps = offsets.map { |i| AvalancheMQ::SegmentPosition.from_i64(i) }
+      sps = offsets.map { |i| LavinMQ::SegmentPosition.from_i64(i) }
 
-      ready = AvalancheMQ::Queue::ReadyQueue.new(sps.size)
+      ready = LavinMQ::Queue::ReadyQueue.new(sps.size)
       ready.insert(sps)
 
-      ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
-      ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
+      ref_sps = LavinMQ::VHost::ReferencedSPs.new(1)
+      ref_sps << LavinMQ::VHost::SPQueue.new(ready)
 
       ready.to_a.map(&.to_i64).should eq offsets
       ref_sps.to_a.map(&.to_i64).should eq offsets
@@ -97,17 +97,17 @@ describe AvalancheMQ::SegmentPosition do
 
     it "should always be sorted (ExpirationReadyQueue)" do
       sps = [
-        AvalancheMQ::SegmentPosition.new(0, 0, expiration_ts: 1_i64),
-        AvalancheMQ::SegmentPosition.new(0, 1, expiration_ts: 3_i64),
-        AvalancheMQ::SegmentPosition.new(0, 2, expiration_ts: 1_i64),
-        AvalancheMQ::SegmentPosition.new(0, 3, expiration_ts: 5_i64),
-        AvalancheMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64),
+        LavinMQ::SegmentPosition.new(0, 0, expiration_ts: 1_i64),
+        LavinMQ::SegmentPosition.new(0, 1, expiration_ts: 3_i64),
+        LavinMQ::SegmentPosition.new(0, 2, expiration_ts: 1_i64),
+        LavinMQ::SegmentPosition.new(0, 3, expiration_ts: 5_i64),
+        LavinMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64),
       ]
-      ready = AvalancheMQ::Queue::ExpirationReadyQueue.new(sps.size)
+      ready = LavinMQ::Queue::ExpirationReadyQueue.new(sps.size)
       ready.insert(sps)
 
-      ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
-      ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
+      ref_sps = LavinMQ::VHost::ReferencedSPs.new(1)
+      ref_sps << LavinMQ::VHost::SPQueue.new(ready)
 
       # The ExpirationReadyQueue queue should always be ordered by expiration timestamp
       ready.to_a.map(&.to_i64).should eq [0, 2, 1, 4, 3].map(&.to_i64)
@@ -118,17 +118,17 @@ describe AvalancheMQ::SegmentPosition do
 
     it "should always be sorted (PriorityReadyQueue)" do
       sps = [
-        AvalancheMQ::SegmentPosition.new(0, 0, priority: 1_u8),
-        AvalancheMQ::SegmentPosition.new(0, 1, priority: 3_u8),
-        AvalancheMQ::SegmentPosition.new(0, 2, priority: 1_u8),
-        AvalancheMQ::SegmentPosition.new(0, 3, priority: 5_u8),
-        AvalancheMQ::SegmentPosition.new(0, 4, priority: 4_u8),
+        LavinMQ::SegmentPosition.new(0, 0, priority: 1_u8),
+        LavinMQ::SegmentPosition.new(0, 1, priority: 3_u8),
+        LavinMQ::SegmentPosition.new(0, 2, priority: 1_u8),
+        LavinMQ::SegmentPosition.new(0, 3, priority: 5_u8),
+        LavinMQ::SegmentPosition.new(0, 4, priority: 4_u8),
       ]
-      ready = AvalancheMQ::Queue::PriorityReadyQueue.new(sps.size)
+      ready = LavinMQ::Queue::PriorityReadyQueue.new(sps.size)
       ready.insert(sps)
 
-      ref_sps = AvalancheMQ::VHost::ReferencedSPs.new(1)
-      ref_sps << AvalancheMQ::VHost::SPQueue.new(ready)
+      ref_sps = LavinMQ::VHost::ReferencedSPs.new(1)
+      ref_sps << LavinMQ::VHost::SPQueue.new(ready)
 
       # The PriorityReadyQueue queue should always be ordered by priority (highest prio first)
       ready.to_a.map(&.to_i64).should eq [3, 4, 1, 0, 2].map(&.to_i64)

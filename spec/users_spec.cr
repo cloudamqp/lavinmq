@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Server do
+describe LavinMQ::Server do
   it "rejects invalid password" do
     expect_raises(AMQP::Client::Connection::ClosedException) do
       with_channel(user: "guest", password: "invalid") { }
@@ -268,33 +268,33 @@ describe AvalancheMQ::Server do
   end
 end
 
-describe AvalancheMQ::Tag do
+describe LavinMQ::Tag do
   it "parse comma separated list" do
     # Management
     # PolicyMaker
-    AvalancheMQ::Tag
+    LavinMQ::Tag
       .parse_list("administrator")
-      .should eq [AvalancheMQ::Tag::Administrator]
+      .should eq [LavinMQ::Tag::Administrator]
 
-    AvalancheMQ::Tag
+    LavinMQ::Tag
       .parse_list("administrator,monitoring")
-      .should eq [AvalancheMQ::Tag::Administrator, AvalancheMQ::Tag::Monitoring]
+      .should eq [LavinMQ::Tag::Administrator, LavinMQ::Tag::Monitoring]
 
-    AvalancheMQ::Tag
+    LavinMQ::Tag
       .parse_list("administrator, monitoring")
-      .should eq [AvalancheMQ::Tag::Administrator, AvalancheMQ::Tag::Monitoring]
+      .should eq [LavinMQ::Tag::Administrator, LavinMQ::Tag::Monitoring]
 
-    AvalancheMQ::Tag
+    LavinMQ::Tag
       .parse_list("administrator, other")
-      .should eq [AvalancheMQ::Tag::Administrator]
+      .should eq [LavinMQ::Tag::Administrator]
 
-    AvalancheMQ::Tag
+    LavinMQ::Tag
       .parse_list("policymaker")
-      .should eq [AvalancheMQ::Tag::PolicyMaker]
+      .should eq [LavinMQ::Tag::PolicyMaker]
 
-    AvalancheMQ::Tag
+    LavinMQ::Tag
       .parse_list("administrator, monitoring, Management, PolicyMaker")
-      .should eq [AvalancheMQ::Tag::Administrator, AvalancheMQ::Tag::Monitoring,
-                  AvalancheMQ::Tag::Management, AvalancheMQ::Tag::PolicyMaker]
+      .should eq [LavinMQ::Tag::Administrator, LavinMQ::Tag::Monitoring,
+                  LavinMQ::Tag::Management, LavinMQ::Tag::PolicyMaker]
   end
 end

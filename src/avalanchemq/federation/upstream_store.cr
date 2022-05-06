@@ -1,6 +1,6 @@
 require "./upstream"
 
-module AvalancheMQ
+module LavinMQ
   module Federation
     class UpstreamStore
       include Enumerable(Upstream)

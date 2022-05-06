@@ -1,7 +1,7 @@
 require "./exchange"
 require "../consistent_hasher.cr"
 
-module AvalancheMQ
+module LavinMQ
   class ConsistentHashExchange < Exchange
     @hasher = ConsistentHasher(Destination).new
 

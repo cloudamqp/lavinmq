@@ -1,7 +1,7 @@
 require "json"
 require "./user"
 
-module AvalancheMQ
+module LavinMQ
   class UserStore
     include Enumerable({String, User})
     DIRECT_USER = "__direct"

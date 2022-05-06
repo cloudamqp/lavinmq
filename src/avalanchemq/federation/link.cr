@@ -2,7 +2,7 @@ require "../observable"
 require "amqp-client"
 require "../sortable_json"
 
-module AvalancheMQ
+module LavinMQ
   module Federation
     class Upstream
       abstract class Link

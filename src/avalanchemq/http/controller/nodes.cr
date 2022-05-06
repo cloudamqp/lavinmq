@@ -1,6 +1,6 @@
 require "../controller"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class NodesController < Controller
       include StatsHelpers
@@ -12,7 +12,7 @@ module AvalancheMQ
         {% for sm in SERVER_METRICS %}
           {{sm.id}} = 0_u64
           {{sm.id}}_rate = 0_f64
-          {{sm.id}}_log = Deque(Float64).new(AvalancheMQ::Config.instance.stats_log_size)
+          {{sm.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
         {% end %}
         vhosts.each do |vhost|
           {% for sm in SERVER_METRICS %}
@@ -102,8 +102,8 @@ module AvalancheMQ
 
       APPLICATIONS = [{
         name:        "avalanchemq",
-        description: "AvalancheMQ",
-        version:     AvalancheMQ::VERSION,
+        description: "LavinMQ",
+        version:     LavinMQ::VERSION,
       }]
     end
   end

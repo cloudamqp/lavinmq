@@ -1,6 +1,6 @@
 require "socket"
 
-module AvalancheMQ
+module LavinMQ
   struct ConnectionInfo
     getter src : Socket::IPAddress
     getter dst : Socket::IPAddress

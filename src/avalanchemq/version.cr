@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   VERSION = {{ `git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
 
   macro build_flags
@@ -15,7 +15,7 @@ module AvalancheMQ
   end
 
   BUILD_INFO = <<-INFO
-    AvalancheMQ #{VERSION}
+    LavinMQ #{VERSION}
     #{Crystal::DESCRIPTION.lines.reject(&.empty?).join("\n")}
     Build flags: #{build_flags}
     INFO

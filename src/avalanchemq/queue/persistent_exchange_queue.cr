@@ -1,6 +1,6 @@
 require "./durable_queue"
 
-module AvalancheMQ
+module LavinMQ
   class PersistentExchangeQueue < DurableQueue
     @internal = true
 

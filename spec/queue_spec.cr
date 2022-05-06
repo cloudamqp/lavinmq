@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "./../src/avalanchemq/queue"
 
-describe AvalancheMQ::Queue do
+describe LavinMQ::Queue do
   it "Should dead letter expiered messages" do
     with_channel do |ch|
       q = ch.queue("ttl", args: AMQP::Client::Arguments.new(
@@ -145,7 +145,7 @@ describe AvalancheMQ::Queue do
       tag = "consumer-to-be-canceled"
       with_channel do |ch|
         q = ch.queue(q_name)
-        queue = s.vhosts["/"].queues[q_name].as(AvalancheMQ::DurableQueue)
+        queue = s.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
         q.publish_confirm "m1"
 
         # Should get canceled
@@ -198,10 +198,10 @@ describe AvalancheMQ::Queue do
         internal_queue = vhost.exchanges[x_name].queue_bindings[{q.name, nil}].first
         internal_queue.message_count.should eq 10
         index = File.join(vhost.data_dir, Digest::SHA1.hexdigest(internal_queue.name), "enq")
-        sps = Array(AvalancheMQ::SegmentPosition).new
+        sps = Array(LavinMQ::SegmentPosition).new
         File.open(index) do |f|
           10.times do
-            sp = AvalancheMQ::SegmentPosition.from_io f
+            sp = LavinMQ::SegmentPosition.from_io f
             sp.should_not eq 0
             sps << sp
           end
@@ -211,11 +211,11 @@ describe AvalancheMQ::Queue do
         response.status_code.should eq 204
         File.open(index) do |f|
           5.times do |i|
-            sp = AvalancheMQ::SegmentPosition.from_io f
+            sp = LavinMQ::SegmentPosition.from_io f
             sp.should_not eq 0
             sp.should eq sps[i]
           end
-          AvalancheMQ::SegmentPosition.from_io(f).zero?.should be_true
+          LavinMQ::SegmentPosition.from_io(f).zero?.should be_true
         end
 
         internal_queue.message_count.should eq 5

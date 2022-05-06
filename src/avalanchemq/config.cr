@@ -1,6 +1,6 @@
 require "log"
 
-module AvalancheMQ
+module LavinMQ
   class Config
     DEFAULT_LOG_LEVEL = Log::Severity::Info
 
@@ -45,7 +45,7 @@ module AvalancheMQ
     property guest_only_loopback : Bool = true
     @@instance : Config = self.new
 
-    def self.instance : AvalancheMQ::Config
+    def self.instance : LavinMQ::Config
       @@instance
     end
 

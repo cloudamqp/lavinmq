@@ -1,6 +1,6 @@
 require "../segment_position"
 
-module AvalancheMQ
+module LavinMQ
   class Queue
     # ReadyQueue is a sorted Deque of SegmentPositions
     class ReadyQueue

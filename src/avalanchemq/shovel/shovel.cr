@@ -2,7 +2,7 @@ require "../sortable_json"
 require "amqp-client"
 require "http/client"
 
-module AvalancheMQ
+module LavinMQ
   module Shovel
     DEFAULT_ACK_MODE        = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER    = DeleteAfter::Never
@@ -236,7 +236,7 @@ module AvalancheMQ
       def push(msg, source)
         raise "Not started" unless started?
         c = @client.not_nil!
-        headers = ::HTTP::Headers{"User-Agent" => "AvalancheMQ"}
+        headers = ::HTTP::Headers{"User-Agent" => "LavinMQ"}
         headers["X-Shovel"] = @name
         msg.properties.content_type.try { |v| headers["Content-Type"] = v }
         msg.properties.message_id.try { |v| headers["X-Message-Id"] = v }

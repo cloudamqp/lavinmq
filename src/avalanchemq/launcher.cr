@@ -5,14 +5,14 @@ require "./server"
 require "./http/http_server"
 require "./log_formatter"
 
-module AvalancheMQ
+module LavinMQ
   class Launcher
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @log : Log
     @lock_file : File?
 
-    def initialize(@config : AvalancheMQ::Config)
+    def initialize(@config : LavinMQ::Config)
       @log = Log.for "launcher"
       reload_logger
 
@@ -20,8 +20,8 @@ module AvalancheMQ
       maximize_fd_limit
       Dir.mkdir_p @config.data_dir
       @lock_file = acquire_lock if @config.data_dir_lock
-      @amqp_server = AvalancheMQ::Server.new(@config.data_dir)
-      @http_server = AvalancheMQ::HTTP::Server.new(@amqp_server)
+      @amqp_server = LavinMQ::Server.new(@config.data_dir)
+      @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
@@ -39,7 +39,7 @@ module AvalancheMQ
     end
 
     private def print_environment_info
-      AvalancheMQ::BUILD_INFO.each_line do |line|
+      LavinMQ::BUILD_INFO.each_line do |line|
         @log.info { line }
       end
       {% unless flag?(:release) %}
@@ -121,13 +121,13 @@ module AvalancheMQ
       STDOUT.puts GC.prof_stats
       STDOUT.puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
-      AvalancheMQ::Reporter.report(@amqp_server)
+      LavinMQ::Reporter.report(@amqp_server)
       STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
       File.open(File.join(@amqp_server.data_dir, "string_pool.dump"), "w") do |f|
         STDOUT.puts "Dumping string pool to #{f.path}"
-        AvalancheMQ::Reporter.dump_string_pool(f)
+        LavinMQ::Reporter.dump_string_pool(f)
       end
-      AvalancheMQ::Reporter.print_queue_segments(@amqp_server, STDOUT)
+      LavinMQ::Reporter.print_queue_segments(@amqp_server, STDOUT)
       STDOUT.flush
     end
 

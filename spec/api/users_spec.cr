@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::UsersController do
+describe LavinMQ::HTTP::UsersController do
   describe "GET /api/users" do
     it "should return all users" do
       response = get("/api/users")
@@ -12,7 +12,7 @@ describe AvalancheMQ::HTTP::UsersController do
     end
 
     it "should refuse non administrators" do
-      s.users.create("arnold", "pw", [AvalancheMQ::Tag::PolicyMaker])
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/users", headers: hdrs)
       response.status_code.should eq 401
@@ -126,7 +126,7 @@ describe AvalancheMQ::HTTP::UsersController do
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
-      s.users["alan"].tags.should eq([AvalancheMQ::Tag::Http])
+      s.users["alan"].tags.should eq([LavinMQ::Tag::Http])
     ensure
       delete("/api/users/alan")
     end

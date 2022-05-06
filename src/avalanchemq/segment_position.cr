@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   struct SegmentPosition
     include Comparable(self)
 

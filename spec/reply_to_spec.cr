@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Server do
+describe LavinMQ::Server do
   describe "amq.direct.reply-to" do
     it "should allow amq.direct.reply-to to be declared" do
       with_channel do |ch|

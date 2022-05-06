@@ -1,4 +1,4 @@
-module AvalancheMQ
+module LavinMQ
   struct BytesMessage
     property timestamp, exchange_name, routing_key, properties
     getter size, body

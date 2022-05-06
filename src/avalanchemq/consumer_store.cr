@@ -1,6 +1,6 @@
 require "./client"
 
-module AvalancheMQ
+module LavinMQ
   class ConsumerStore
     @last_consumer_selected : Client::Channel::Consumer?
     getter size

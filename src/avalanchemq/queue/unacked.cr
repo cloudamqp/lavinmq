@@ -1,7 +1,7 @@
 require "../segment_position"
 require "../client/channel/consumer"
 
-module AvalancheMQ
+module LavinMQ
   class Queue
     class UnackQueue
       record Unack,

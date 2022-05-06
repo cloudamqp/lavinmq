@@ -1,6 +1,6 @@
 require "amq-protocol"
 
-module AvalancheMQ
+module LavinMQ
   class Error < Exception
     class UnexpectedFrame < Error
       getter channel : UInt16

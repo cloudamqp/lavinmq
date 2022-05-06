@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::Server do
+describe LavinMQ::Server do
   describe "Consumer with prefetch" do
     it "should receive prefetch number of messages" do
       with_channel do |ch|

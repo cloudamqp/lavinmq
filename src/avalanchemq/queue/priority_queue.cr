@@ -1,7 +1,7 @@
 require "./queue"
 require "./durable_queue"
 
-module AvalancheMQ
+module LavinMQ
   class PriorityQueue < Queue
     @ready = Queue::PriorityReadyQueue.new
   end

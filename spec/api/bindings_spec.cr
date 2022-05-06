@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe AvalancheMQ::HTTP::BindingsController do
+describe LavinMQ::HTTP::BindingsController do
   describe "GET /api/bindings" do
     it "should return all bindings" do
       s.vhosts["/"].declare_exchange("be1", "topic", false, false)

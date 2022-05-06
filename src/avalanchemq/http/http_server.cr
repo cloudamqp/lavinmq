@@ -10,7 +10,7 @@ class HTTP::Server::Context
   property? authenticated_username : String?
 end
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     {% if flag?(:linux) %}
       INTERNAL_UNIX_SOCKET = "/dev/shm/avalanchemq-http.sock"
@@ -19,7 +19,7 @@ module AvalancheMQ
     {% end %}
 
     class Server
-      def initialize(@amqp_server : AvalancheMQ::Server)
+      def initialize(@amqp_server : LavinMQ::Server)
         @log = Log.for "http"
         handlers = [
           ::HTTP::Protection::StrictTransport.new,

@@ -2,7 +2,7 @@ require "http/server/handler"
 require "baked_file_system"
 require "digest/md5"
 
-module AvalancheMQ
+module LavinMQ
   module HTTP
     class StaticController
       include ::HTTP::Handler

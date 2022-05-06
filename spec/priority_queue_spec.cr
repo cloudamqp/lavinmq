@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe AvalancheMQ::PriorityQueue do
+describe LavinMQ::PriorityQueue do
   it "should prioritize messages" do
     with_channel do |ch|
       q_args = AMQP::Client::Arguments.new({"x-max-priority" => 10})

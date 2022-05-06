@@ -66,7 +66,7 @@ module TestHelpers
     if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
       name = formatter.@last_description
     end
-    conn = AMQP::Client.new(**args.merge(port: AvalancheMQ::Config.instance.amqp_port, name: name)).connect
+    conn = AMQP::Client.new(**args.merge(port: LavinMQ::Config.instance.amqp_port, name: name)).connect
     ch = conn.channel
     yield ch
   ensure
@@ -122,7 +122,7 @@ module TestHelpers
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
     Log.setup(level)
-    cfg = AvalancheMQ::Config.instance
+    cfg = LavinMQ::Config.instance
     cfg.gc_segments_interval = 1
     cfg.queue_max_acks = 10
     cfg.segment_size = 512 * 1024
@@ -131,8 +131,8 @@ module TestHelpers
     cfg.amqps_port = AMQPS_PORT
     cfg.http_bind = "localhost"
     cfg.http_port = HTTP_PORT
-    @@s = AvalancheMQ::Server.new(dir)
-    @@h = AvalancheMQ::HTTP::Server.new(@@s.not_nil!)
+    @@s = LavinMQ::Server.new(dir)
+    @@h = LavinMQ::HTTP::Server.new(@@s.not_nil!)
     @@h.not_nil!.bind_tcp(cfg.http_bind, cfg.http_port)
     spawn { @@s.try &.listen(cfg.amqp_bind, cfg.amqp_port) }
     cert = Dir.current + "/spec/resources/server_certificate.pem"
