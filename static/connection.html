@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Connection | AvalancheMQ</title>
+    <title>Connection | LavinMQ</title>
     <link href="/main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
@@ -136,7 +136,7 @@
       const connection = decodeURIComponent(urlEncodedConnection)
       const chart = avalanchemq.chart.render('chart', 'bytes/s')
 
-      document.title = connection + ' | AvalancheMQ'
+      document.title = connection + ' | LavinMQ'
       document.querySelector('#connection').textContent = connection
 
       const connectionUrl = '/api/connections/' + urlEncodedConnection

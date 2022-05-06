@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Channel | AvalancheMQ</title>
+    <title>Channel | LavinMQ</title>
     <link href="/main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
@@ -103,7 +103,7 @@
       const urlEncodedChannel = encodeURIComponent(channel)
       const chart = avalanchemq.chart.render('chart', 'msgs/s')
       let vhost = null
-      document.title = channel + ' | AvalancheMQ'
+      document.title = channel + ' | LavinMQ'
 
       const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item, all) {
         if (!all) return

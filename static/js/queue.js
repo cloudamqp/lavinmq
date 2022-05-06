@@ -6,7 +6,7 @@
   const escapeHTML = avalanchemq.dom.escapeHTML
   const pauseQueueForm = document.querySelector('#pauseQueue')
   const resumeQueueForm = document.querySelector('#resumeQueue')
-  document.title = queue + ' | AvalancheMQ'
+  document.title = queue + ' | LavinMQ'
   let consumerListLength = 20
   const consumersTable = avalanchemq.table.renderTable('table', { keyColumns: [] }, function (tr, item) {
     const channelLink = document.createElement('a')
