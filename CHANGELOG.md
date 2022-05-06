@@ -894,7 +894,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Applications array with AvalancheMQ version added to /api/nodes response
+- Applications array with LavinMQ version added to /api/nodes response
 
 ## [0.8.4] - 2019-09-18
 
