@@ -334,16 +334,19 @@ module AvalancheMQ
       cgroup = File.read("/proc/self/cgroup")[/0::(.*)\n/, 1]? if File.exists?("/proc/self/cgroup")
       cgroup ||= "/"
       # cgroup v2
-      cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.max"
-      if File.exists?(cgroup_memory_max_path)
-        return File.read(cgroup_memory_max_path).to_i64?
+      begin
+        return File.read("/sys/fs/cgroup#{cgroup}/memory.max").to_i64?
+      rescue File::NotFoundError
       end
       # cgroup v1
-      cgroup_memory_max_path = "/sys/fs/cgroup#{cgroup}/memory.limit_in_bytes"
-      if File.exists?(cgroup_memory_max_path)
-        l = File.read(cgroup_memory_max_path)
+      {
+        "/sys/fs/cgroup#{cgroup}/memory.limit_in_bytes",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+      }.each do |path|
+        l = File.read(path)
         return nil if l == "9223372036854771712\n" # Max in cgroup v1
         return l.to_i64?
+      rescue File::NotFoundError
       end
     end
 
