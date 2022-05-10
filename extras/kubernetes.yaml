@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: avalanchemq
+spec:
+  ports:
+  - port: 15672
+    targetPort: 15672
+    name: mgmt
+  - port: 5672
+    targetPort: 5672
+    name: amqp
+  type: LoadBalancer
+  selector:
+    app: avalanchemq
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: avalanchemq
+spec:
+  selector:
+    matchLabels:
+      app: avalanchemq
+  serviceName: "avalanchemq"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: avalanchemq
+    spec:
+      terminationGracePeriodSeconds: 600
+      containers:
+      - name: avalanchemq
+        image: docker.io/cloudamqp/avalanchemq:main
+        volumeMounts:
+        - name: avalanchemq-data
+          mountPath: /var/lib/avalanchemq
+  volumeClaimTemplates:
+  - metadata:
+      name: avalanchemq-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
