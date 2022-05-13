@@ -5,10 +5,8 @@ metadata:
 spec:
   ports:
   - port: 15672
-    targetPort: 15672
     name: mgmt
   - port: 5672
-    targetPort: 5672
     name: amqp
   type: LoadBalancer
   selector:
@@ -33,6 +31,11 @@ spec:
       containers:
       - name: lavinmq
         image: docker.io/cloudamqp/lavinmq:main
+        ports:
+          - containerPort: 5672
+            name: amqp
+          - containerPort: 15672
+            name: mgmt
         volumeMounts:
         - name: lavinmq-data
           mountPath: /var/lib/lavinmq
