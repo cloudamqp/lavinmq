@@ -9,6 +9,7 @@ module LavinMQ
         consumer : Client::Channel::Consumer?
 
       @lock = Mutex.new(:checked)
+      getter bytesize = 0u64
 
       def initialize(capacity = 8)
         @unacked = Deque(Unack).new(capacity)
@@ -23,6 +24,7 @@ module LavinMQ
           else
             unacked << unack
           end
+          @bytesize += sp.bytesize
         end
       end
 
@@ -31,6 +33,7 @@ module LavinMQ
           unacked = @unacked
           if idx = unacked.bsearch_index { |u| u.sp >= sp }
             if unacked[idx].sp == sp
+              @bytesize -= sp.bytesize
               unacked.delete_at(idx)
             end
           end
@@ -43,6 +46,7 @@ module LavinMQ
           @unacked.reject! do |unack|
             if unack.consumer == consumer
               consumer_unacked << unack.sp
+              @bytesize -= unack.sp.bytesize
               true
             end
           end
@@ -100,6 +104,7 @@ module LavinMQ
         @lock.synchronize do
           s = @unacked.size
           @unacked.clear
+          @bytesize = 0u64
           s
         end
       end
