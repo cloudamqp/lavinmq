@@ -6,6 +6,7 @@
   const escapeHTML = lavinmq.dom.escapeHTML
   const pauseQueueForm = document.querySelector('#pauseQueue')
   const resumeQueueForm = document.querySelector('#resumeQueue')
+  const messageSnapshotForm = document.querySelector('#messageSnapshot')
   document.title = queue + ' | LavinMQ'
   let consumerListLength = 20
   const consumersTable = lavinmq.table.renderTable('table', { keyColumns: [] }, function (tr, item) {
@@ -72,10 +73,13 @@
         handleQueueState(item.state)
         document.getElementById('q-unacked').textContent = item.unacked
         document.getElementById('q-unacked-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes) + 'B'
+        document.getElementById('q-unacked-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes) + 'B'
         document.getElementById('q-total').textContent = lavinmq.helpers.formatNumber(item.messages)
         document.getElementById('q-total-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+        document.getElementById('q-total-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes + item.ready_avg_bytes) + 'B'
         document.getElementById('q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
         document.getElementById('q-ready-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_bytes) + 'B'
+        document.getElementById('q-ready-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_avg_bytes) + 'B'
         document.getElementById('q-consumers').textContent = lavinmq.helpers.formatNumber(item.consumers)
         if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
           document.getElementById('q-first-timestamp').textContent = lavinmq.helpers.formatTimestamp(item.first_message_timestamp)
@@ -300,6 +304,19 @@
       lavinmq.http.request('PUT', url)
         .then(() => {
           lavinmq.dom.toast('Queue resumed!')
+          handleQueueState('running')
+        })
+        .catch(lavinmq.http.standardErrorHandler)
+    }
+  })
+
+  messageSnapshotForm.addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/size-snapshot'
+    if (window.confirm('Are you sure? This will take a snapshot of queue message sizes.')) {
+      lavinmq.http.request('GET', url)
+        .then(() => {
+          lavinmq.dom.toast('Queue size snapshot')
           handleQueueState('running')
         })
         .catch(lavinmq.http.standardErrorHandler)
