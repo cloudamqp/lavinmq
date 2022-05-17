@@ -13,6 +13,6 @@ jobs:
         run: curl -s -H "Content-Type: application/json" -XPOST -d "$CREDS" https://hub.docker.com/v2/users/login/ | jq -r .token >> $GITHUB_ENV
       - name: Delete PR tag
         env:
-          TAG: ${{ github.event.number }}
+          TAG: pr-${{ github.event.number }}
         run: curl -XDELETE -H "Authorization: JWT ${TOKEN}" \
             "https://hub.docker.com/v2/repositories/cloudamqp/lavinmq/tags/${TAG}/"
