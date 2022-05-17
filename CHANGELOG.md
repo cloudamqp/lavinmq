@@ -9,19 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* Queue multi action UI, purge or delete multiple queues ([#330](https://github.com/cloudamqp/lavinmq/pull/330))
-* Shovel error feedback, ability to see why a shovel failed without consulting the logs ([#328](https://github.com/cloudamqp/lavinmq/pull/328))
+- Queue multi action UI, purge or delete multiple queues ([#330](https://github.com/cloudamqp/lavinmq/pull/330))
+- Shovel error feedback, ability to see why a shovel failed without consulting the logs ([#328](https://github.com/cloudamqp/lavinmq/pull/328))
+- Can pass queue and consumer arguments in lavinmqperf
+- Shovel configuration error feedback ([#328](https://github.com/cloudamqp/lavinmq/pull/328))
+- Can reset vhosts ([#321](https://github.com/cloudamqp/lavinmq/pull/321))
+- `lavinmqperf connection-count` for benchmarking many connections
+- Read cgroup max memory, both for cgroup v1 and v2
+- Show message rates per vhost (#355)
+- Kubernetes example file (./extras/kubernetes.yaml)
 
 ### Fixed
 
-* Fix potential corruption by race condition between multiple consumers
-* Stop Queue if unrecoverable read error (i.e. corruption) ([#318](https://github.com/cloudamqp/lavinmq/pull/318))
+- Fix potential corruption by race condition between multiple consumers
+- Stop Queue if unrecoverable read error (i.e. corruption) ([#318](https://github.com/cloudamqp/lavinmq/pull/318))
+- Handle both ackmode and ack_mode as param to "Get messages" ([#347](https://github.com/cloudamqp/lavinmq/pull/347))
+- Number of messages was never used when puring from UI ([#337](https://github.com/cloudamqp/lavinmq/pull/337))
+- Use the statically linked gc libary, which gives fewer GC pauses ([#337](https://github.com/cloudamqp/lavinmq/pull/337))
+- Report which protocol each listener uses in /api/overview (#348)
+- Limit API result sets, truncate instead of corrupt output (#343)
+- Truncate spare index files on queue index restore for decreased memory usage on recovery
 
 ### Changed
 
-* Limit number of consumers listed on Queue page, improve load time if there's lots of consumers ([#327](https://github.com/cloudamqp/lavinmq/pull/327))
+- Renamed to LavinMQ
+- Limit number of consumers listed on Queue page, improve load time if there's lots of consumers ([#327](https://github.com/cloudamqp/lavinmq/pull/327))
+- Count consumers more efficiently ([#346](https://github.com/cloudamqp/lavinmq/pull/346))
+- Stop building deb packages for Ubuntu 18.04
+- New logging framework (#332)
+- Improved websocket example page (./static/ws.html)
 
-## [1.0.0-alpha.34] - 2021-01-19
+## [1.0.0-alpha.34] - 2022-01-19
 
 ### Added
 
