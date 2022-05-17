@@ -11,7 +11,7 @@ class Perf
 
   def initialize
     @parser = OptionParser.new
-    @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn] [arguments]"
+    @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn | connection-count] [arguments]"
     @parser.banner = @banner
     @parser.on("-h", "--help", "Show this help") { puts @parser; exit 1 }
     @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
