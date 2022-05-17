@@ -93,6 +93,16 @@ module LavinMQ
           end
         end
 
+        get "/api/queues/:vhost/:name/size-snapshot" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            consumer_count = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
+            JSON.build(context.response) do |builder|
+              queue(context, params, vhost).to_json2(builder, consumer_count)
+            end
+          end
+        end
+
         delete "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)

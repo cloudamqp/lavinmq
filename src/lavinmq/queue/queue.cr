@@ -438,8 +438,10 @@ module LavinMQ
         messages:                    @ready.size + @unacked.size,
         ready:                       @ready.size,
         ready_bytes:                 @ready.bytesize,
+        ready_avg_bytes:             @ready.avg_bytesize,
         unacked:                     @unacked.size,
-        unacked_bytes:               @unacked.sum &.sp.bytesize,
+        unacked_bytes:               @unacked.bytesize,
+        unacked_avg_bytes:           @unacked.avg_bytesize,
         policy:                      @policy.try &.name,
         exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
         state:                       @state.to_s,
@@ -455,6 +457,16 @@ module LavinMQ
       details.merge({
         first_message_timestamp: first_message.timestamp,
         last_message_timestamp:  last_message.timestamp,
+      })
+    end
+
+    def queue_size_snapshot
+      snapshot = details_tuple()
+      snapshot.merge({
+        ready_max_bytes:    @ready.max_bytesize &.bytesize,
+        ready_min_bytes:    @ready.min_bytesize &.bytesize,
+        unacked_max_bytes:  @unacked.max_bytesize &.sp.bytesize,
+        unacked_min_bytes:  @unacked.min_bytesize &.sp.bytesize,
       })
     end
 
@@ -858,7 +870,7 @@ module LavinMQ
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       deleted = @consumers.delete_consumer consumer
-      consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
+      consumer_unacked_size = @unacked.bytesize # { |u| u.consumer == consumer ? 1 : 0 }
       unless basic_cancel
         requeue_many(@unacked.delete(consumer))
       end
@@ -921,6 +933,24 @@ module LavinMQ
     def to_json(builder : JSON::Builder, limit : Int32 = -1)
       builder.object do
         details_tuple.each do |k, v|
+          builder.field(k, v) unless v.nil?
+        end
+        builder.field("consumer_details") do
+          builder.array do
+            @consumers.each do |c|
+              c.to_json(builder)
+              limit -= 1
+              break if limit.zero?
+            end
+          end
+        end
+      end
+    end
+
+    # Todo: Temporary, fix this!
+    def to_json2(builder : JSON::Builder, limit : Int32 = -1)
+      builder.object do
+        queue_size_snapshot.each do |k, v|
           builder.field(k, v) unless v.nil?
         end
         builder.field("consumer_details") do
