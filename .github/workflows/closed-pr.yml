@@ -9,8 +9,10 @@ jobs:
     steps:
       - name: Get token
         env:
-          CREDS: '{ "username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}" }'
-        run: curl -s -H "Content-Type: application/json" -XPOST -d "$CREDS" https://hub.docker.com/v2/users/login/ | jq -r .token >> $GITHUB_ENV
+          CREDS: "{ \"username\": \"${{ secrets.DOCKERHUB_USERNAME }}\", \"password\": \"${{ secrets.DOCKERHUB_TOKEN }}\" }"
+        run: curl -s -H "Content-Type: application/json" -XPOST -d "$CREDS" \
+               https://hub.docker.com/v2/users/login/ | \
+             jq -r .token >> $GITHUB_ENV
       - name: Delete PR tag
         env:
           TAG: pr-${{ github.event.number }}
