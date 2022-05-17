@@ -66,8 +66,21 @@ module LavinMQ
         @unacked[index]?
       end
 
-      def sum(&blk : Unack -> _) : UInt64
-        @unacked.sum(0_u64, &blk)
+      def avg_bytesize
+        return 0u64 if @unacked.size.zero?
+        @bytesize // @unacked.size
+      end
+
+      # expensive calculation used for unacked queue snapshot
+      def max_bytesize(&blk : Unack -> _) : UInt32
+        return 0u32 if @unacked.size.zero?
+        @unacked.max_of(&blk)
+      end
+
+      # expensive calculation used for unacked queue snapshot
+      def min_bytesize(&blk : Unack -> _) : UInt32
+        return 0u32 if @unacked.size.zero?
+        @unacked.min_of(&blk)
       end
 
       def capacity

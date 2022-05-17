@@ -69,4 +69,20 @@ describe LavinMQ::Queue::ReadyQueue do
     rq.purge
     rq.bytesize.should eq 0
   end
+
+  it "should calculate message sizes" do
+    rq = LavinMQ::Queue::ReadyQueue.new
+    sps = [
+      LavinMQ::SegmentPosition.new(10,10,5u32),
+      LavinMQ::SegmentPosition.new(10,10,1u32),
+      LavinMQ::SegmentPosition.new(10,10,10u32),
+      LavinMQ::SegmentPosition.new(10,10,3u32),
+      LavinMQ::SegmentPosition.new(10,10,1u32)
+    ]
+    sps.each { |sp| rq.insert(sp) }
+    rq.bytesize.should eq 20u32
+    rq.avg_bytesize.should eq 4u32
+    rq.max_bytesize(&.bytesize).should eq 10u32
+    rq.min_bytesize(&.bytesize).should eq 1u32
+  end
 end
