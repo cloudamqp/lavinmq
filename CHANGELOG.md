@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] - 2022-05-17
+
 ### Added
 
 - Queue multi action UI, purge or delete multiple queues ([#330](https://github.com/cloudamqp/lavinmq/pull/330))
