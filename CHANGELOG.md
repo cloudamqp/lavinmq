@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop building deb packages for Ubuntu 18.04
 - New logging framework (#332)
 - Improved websocket example page (./static/ws.html)
+- Base container on crystal 1.4.1 and ubuntu 22.04 (openssl 3.0)
 
 ## [1.0.0-alpha.34] - 2022-01-19
 
