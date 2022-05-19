@@ -23,9 +23,9 @@ jobs:
         with:
           images: cloudamqp/lavinmq
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
             type=ref,event=branch
-            type=ref,event=tag
             type=ref,event=pr
 
       - name: Set up QEMU
