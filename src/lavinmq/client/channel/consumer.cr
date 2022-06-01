@@ -1,3 +1,5 @@
+require "log"
+require "../../message"
 require "../../sortable_json"
 
 module LavinMQ
@@ -32,20 +34,32 @@ module LavinMQ
           unacked < prefetch_count
         end
 
-        def deliver(msg, sp, redelivered = false, recover = false)
+        def deliver(env : Envelope, recover = false)
           unless @no_ack || recover
             @unacked += 1
           end
 
-          persistent = msg.properties.delivery_mode == 2_u8
+          persistent = env.message.properties.delivery_mode == 2_u8
           # @log.debug { "Getting delivery tag" }
-          delivery_tag = @channel.next_delivery_tag(@queue, sp, persistent, @no_ack, self)
+          delivery_tag = @channel.next_delivery_tag(@queue, env.segment_position, persistent, @no_ack, self)
           # @log.debug { "Sending BasicDeliver" }
           deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
-            redelivered,
-            msg.exchange_name, msg.routing_key)
-          @channel.deliver(deliver, msg, redelivered)
+            env.redelivered,
+            env.message.exchange_name, env.message.routing_key)
+          if @channel.deliver(deliver, env.message, env.redelivered)
+            if @no_ack
+              @queue.delete_message(env.segment_position)
+            else
+              @queue.unacked.push(env.segment_position, self)
+            end
+          else
+            @log.debug { "Delivery failed, returning #{env.segment_position} to ready" }
+            @queue.ready.insert(env.segment_position)
+          end
+        rescue ex
+          @queue.ready.insert(env.segment_position)
+          raise ex
         end
 
         def ack(sp)
@@ -64,7 +78,7 @@ module LavinMQ
             else
               # redeliver to the original recipient
               env = @queue.read(sp)
-              deliver(env.message, sp, true, recover: true)
+              deliver(env, recover: true)
             end
           end
         end

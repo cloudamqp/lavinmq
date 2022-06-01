@@ -356,27 +356,9 @@ module LavinMQ
     end
 
     private def deliver_to_consumer(c)
-      # @log.debug { "Getting a new message" }
       get(c.no_ack) do |env|
-        sp = env.segment_position
-        # @log.debug { "Delivering #{sp} to consumer" }
-        if c.deliver(env.message, sp, env.redelivered)
-          if c.no_ack
-            delete_message(sp)
-          else
-            @unacked.push(sp, c)
-          end
-          if env.redelivered
-            @redeliver_count += 1
-          else
-            @deliver_count += 1
-          end
-          # @log.debug { "Delivery of #{sp} done" }
-        else
-          @log.debug { "Delivery failed, returning #{sp} to ready" }
-          @ready.insert(sp)
-        end
-        return
+        env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
+        c.deliver(env)
       end
       @log.debug { "Consumer found, but not a message" }
     end
