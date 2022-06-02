@@ -47,15 +47,17 @@ module LavinMQ
             delivery_tag,
             env.redelivered,
             env.message.exchange_name, env.message.routing_key)
-          if @channel.deliver(deliver, env.message, env.redelivered)
+          spawn do
+            @channel.deliver(deliver, env.message, env.redelivered)
             if @no_ack
               @queue.delete_message(env.segment_position)
             else
               @queue.unacked.push(env.segment_position, self)
             end
-          else
+          rescue ex
             @log.debug { "Delivery failed, returning #{env.segment_position} to ready" }
             @queue.ready.insert(env.segment_position)
+            raise ex
           end
         rescue ex
           @queue.ready.insert(env.segment_position)

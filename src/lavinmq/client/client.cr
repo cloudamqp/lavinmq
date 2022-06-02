@@ -240,8 +240,10 @@ module LavinMQ
 
     @write_lock = Mutex.new(:checked)
 
-    def deliver(frame, msg)
-      return false if closed?
+    class ClosedError < Exception; end
+
+    def deliver(frame, msg) : Nil
+      raise ClosedError.new("Connection closed") if closed?
       @write_lock.synchronize do
         socket = @socket
         websocket = socket.is_a? WebSocketIO
@@ -278,20 +280,19 @@ module LavinMQ
         socket.flush unless websocket # Websockets need to send one frame per WS frame
         @last_sent_frame = RoughTime.utc
       end
-      true
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
       close_socket
       Fiber.yield
-      false
+      raise ex
     rescue ex : AMQ::Protocol::Error::FrameEncode
       @log.warn { "Error encoding frame (#{ex.inspect})" }
       close_socket
-      false
+      raise ex
     rescue ex : IO::TimeoutError
       @log.info { "Timeout while sending (#{ex.inspect})" }
       close_socket
-      false
+      raise ex
     rescue ex
       @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
       raise ex
