@@ -280,10 +280,7 @@ module LavinMQ
         if @state.running? && (c = @consumers.next_consumer(i))
           deliver_to_consumer(c)
           # deliver 4096 msgs to a consumer then change consumer
-          if (i += 1) == 4096
-            Fiber.yield
-            i = 0
-          end
+          i = 0 if (i += 1) == 4096
         else
           break if @state.closed?
           i = 0
@@ -358,9 +355,11 @@ module LavinMQ
     private def deliver_to_consumer(c)
       get(c.no_ack) do |env|
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
-        c.deliver(env)
+        return c.deliver(env)
       end
       @log.debug { "Consumer found, but not a message" }
+    rescue Channel::ClosedError
+      # consumer broken
     end
 
     def close : Bool

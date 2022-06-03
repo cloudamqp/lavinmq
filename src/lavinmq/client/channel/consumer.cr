@@ -35,13 +35,16 @@ module LavinMQ
           unacked < prefetch_count
         end
 
-        @deliveries = ::Channel(Tuple(Envelope, UInt64)).new
-
         def close
+          puts "consumer close"
+          @channel.consumers.delete self
           @deliveries.close
+          puts "deliveries ch closed"
         end
 
-        def deliver_loop
+        @deliveries = ::Channel(Tuple(Envelope, UInt64)).new
+
+        private def deliver_loop
           loop do
             env, delivery_tag = @deliveries.receive? || break
             # @log.debug { "Sending BasicDeliver" }
@@ -57,17 +60,17 @@ module LavinMQ
                 @queue.unacked.push(env.segment_position, self)
               end
             rescue ex
-              @log.debug { "Delivery failed, returning #{env.segment_position} to ready" }
               @queue.ready.insert(env.segment_position)
+              @queue.message_available
               raise ex
             end
           end
+        ensure
+          close
         end
 
         def deliver(env : Envelope, recover = false)
-          unless @no_ack || recover
-            @unacked += 1
-          end
+          @unacked += 1 unless @no_ack || recover
 
           persistent = env.message.properties.delivery_mode == 2_u8
           # @log.debug { "Getting delivery tag" }
@@ -98,7 +101,6 @@ module LavinMQ
 
         def cancel
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, true)
-          @channel.consumers.delete self
           close
         end
 
