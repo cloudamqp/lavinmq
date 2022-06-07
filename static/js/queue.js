@@ -315,9 +315,29 @@
     const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/size-snapshot'
     if (window.confirm('Are you sure? This will take a snapshot of queue message sizes.')) {
       lavinmq.http.request('GET', url)
-        .then(() => {
+        .then(item => {
           lavinmq.dom.toast('Queue size snapshot')
           handleQueueState('running')
+          document.getElementById('ms-q-unacked').textContent = item.unacked
+          document.getElementById('ms-q-unacked-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes) + 'B'
+          document.getElementById('ms-q-unacked-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes) + 'B'
+          document.getElementById('ms-q-unacked-min-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_min_bytes) + 'B'
+          document.getElementById('ms-q-unacked-max-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_max_bytes) + 'B'
+          document.getElementById('ms-q-total').textContent = lavinmq.helpers.formatNumber(item.messages)
+          document.getElementById('ms-q-total-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+          document.getElementById('ms-q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
+          document.getElementById('ms-q-ready-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_bytes) + 'B'
+          document.getElementById('ms-q-ready-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_avg_bytes) + 'B'
+          document.getElementById('ms-q-ready-min-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_min_bytes) + 'B'
+          document.getElementById('ms-q-ready-max-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_max_bytes) + 'B'
+          if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
+            document.getElementById('ms-q-first-timestamp').textContent = lavinmq.helpers.formatTimestamp(item.first_message_timestamp)
+            document.getElementById('ms-q-last-timestamp').textContent = lavinmq.helpers.formatTimestamp(item.last_message_timestamp)
+          } else {
+            document.getElementById('q-first-timestamp').textContent = " - "
+            document.getElementById('q-last-timestamp').textContent = " - "
+          }
+          document.getElementById('ms-date-time').textContent = lavinmq.helpers.formatTimestamp(new Date())
         })
         .catch(lavinmq.http.standardErrorHandler)
     }
