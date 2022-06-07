@@ -460,7 +460,7 @@ module LavinMQ
       })
     end
 
-    def queue_size_snapshot
+    def snapshot_tuple
       snapshot = details_tuple()
       snapshot.merge({
         ready_max_bytes:    @ready.max_bytesize &.bytesize,
@@ -947,10 +947,9 @@ module LavinMQ
       end
     end
 
-    # Todo: Temporary, fix this!
-    def to_json2(builder : JSON::Builder, limit : Int32 = -1)
+    def snapshot_to_json(builder : JSON::Builder, limit : Int32 = -1)
       builder.object do
-        queue_size_snapshot.each do |k, v|
+        snapshot_tuple.each do |k, v|
           builder.field(k, v) unless v.nil?
         end
         builder.field("consumer_details") do

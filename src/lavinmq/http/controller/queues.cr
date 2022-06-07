@@ -98,7 +98,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             consumer_count = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
             JSON.build(context.response) do |builder|
-              queue(context, params, vhost).to_json2(builder, consumer_count)
+              queue(context, params, vhost).snapshot_to_json(builder, consumer_count)
             end
           end
         end
