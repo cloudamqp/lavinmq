@@ -76,7 +76,8 @@
         document.getElementById('q-unacked-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes) + 'B'
         document.getElementById('q-total').textContent = lavinmq.helpers.formatNumber(item.messages)
         document.getElementById('q-total-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
-        document.getElementById('q-total-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes + item.ready_avg_bytes) + 'B'
+        const total_avg_bytes = item.messages != 0 ? (item.unacked_bytes + item.ready_bytes)/item.messages : 0
+        document.getElementById('q-total-avg-bytes').textContent = lavinmq.helpers.nFormatter(total_avg_bytes) + 'B'
         document.getElementById('q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
         document.getElementById('q-ready-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_bytes) + 'B'
         document.getElementById('q-ready-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_avg_bytes) + 'B'
@@ -325,6 +326,26 @@
           document.getElementById('ms-q-unacked-max-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_max_bytes) + 'B'
           document.getElementById('ms-q-total').textContent = lavinmq.helpers.formatNumber(item.messages)
           document.getElementById('ms-q-total-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+          const total_avg_bytes = item.messages != 0 ? (item.unacked_bytes + item.ready_bytes)/item.messages : 0
+          document.getElementById('ms-q-total-avg-bytes').textContent = lavinmq.helpers.nFormatter(total_avg_bytes) + 'B'
+          document.getElementById('ms-q-total-max-bytes').textContent = lavinmq.helpers.nFormatter(0) + 'B'
+          if (item.ready_max_bytes > item.unacked_max_bytes) {
+            document.getElementById('ms-q-total-max-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_max_bytes) + 'B'
+          } else if (item.unacked_max_bytes > item.ready_max_bytes) {
+            document.getElementById('ms-q-total-max-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_max_bytes) + 'B'
+          }
+          document.getElementById('ms-q-total-min-bytes').textContent = lavinmq.helpers.nFormatter(0) + 'B'
+          var total_min_bytes = 0
+          if (item.ready_min_bytes != 0 && item.unacked_min_bytes == 0) {
+            total_min_bytes = item.ready_min_bytes
+          } else if (item.unacked_min_bytes != 0 && item.ready_min_bytes == 0) {
+            total_min_bytes = item.unacked_min_bytes
+          } else if (item.ready_min_bytes < item.unacked_min_bytes) {
+            total_min_bytes = item.ready_min_bytes
+          } else if (item.unacked_min_bytes < item.ready_min_bytes) {
+            total_min_bytes = item.unacked_min_bytes
+          }
+          document.getElementById('ms-q-total-min-bytes').textContent = lavinmq.helpers.nFormatter(total_min_bytes) + 'B'
           document.getElementById('ms-q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
           document.getElementById('ms-q-ready-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_bytes) + 'B'
           document.getElementById('ms-q-ready-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_avg_bytes) + 'B'
