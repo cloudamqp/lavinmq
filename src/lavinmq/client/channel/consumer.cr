@@ -46,7 +46,7 @@ module LavinMQ
 
         private def deliver_loop
           loop do
-            env, delivery_tag = @deliveries.receive? || break
+            env, delivery_tag = @queue.deliveries.receive? || break
             # @log.debug { "Sending BasicDeliver" }
             frame = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
               delivery_tag,

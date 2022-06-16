@@ -269,22 +269,24 @@ module LavinMQ
       end
     end
 
-    private def deliver_loop # ameba:disable Metrics/CyclomaticComplexity
-      i = 0
+    @outgoing = ::Channel(Envelope).new
+
+    private def deliver_loop
       loop do
         break if @state.closed?
-        if @ready.empty?
-          i = 0
-          receive_or_expire || break
+        if @state.flow? || @state.paused?
+          @paused.receive
         end
-        if @state.running? && (c = @consumers.next_consumer(i))
-          deliver_to_consumer(c)
-          # deliver 4096 msgs to a consumer then change consumer
-          i = 0 if (i += 1) == 4096
+        if env = get
+          select
+          when @outgoing.send(env)
+            # consumer has picked up message
+          when @expires.send(env)
+            # message has expired
+          end
         else
           break if @state.closed?
-          i = 0
-          consumer_or_expire || break
+          receive_or_expire || break
         end
       rescue Channel::ClosedError
         break
@@ -709,6 +711,24 @@ module LavinMQ
         rescue ReadError
           @ready.insert(sp)
           close
+        rescue ex
+          @ready.insert(sp)
+          raise ex
+        end
+      end
+    end
+
+    private def get : Envelope?
+      return nil if @state.closed?
+      if sp = @ready.shift?
+        begin
+          env = read(sp)
+          env = with_delivery_count_header(env)
+          env
+        rescue ReadError
+          @ready.insert(sp)
+          close
+          nil
         rescue ex
           @ready.insert(sp)
           raise ex
