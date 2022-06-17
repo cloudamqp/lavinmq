@@ -25,12 +25,11 @@ WORKDIR /tmp
 COPY Makefile .
 COPY --from=builder /tmp/bin bin
 RUN make all -j && rm bin/*.*
+RUN ldd bin/* | awk 'match($0, /(\/.*) /) {print substr($0, RSTART, RLENGTH)}' | sort -u | xargs -I% sh -c 'mkdir -p $(dirname deps%); cp % deps%;'
 
 # Resulting image with minimal layers
-FROM ubuntu:22.04
-RUN apt-get update && \
-    apt-get install -y libssl3 libevent-2.1-7 && \
-    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
+FROM scratch
+COPY --from=target-builder /tmp/deps/ /
 COPY --from=target-builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
 VOLUME /var/lib/lavinmq
