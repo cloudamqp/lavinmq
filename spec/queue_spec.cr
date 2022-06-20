@@ -2,7 +2,7 @@ require "./spec_helper"
 require "./../src/lavinmq/queue"
 
 describe LavinMQ::Queue do
-  it "Should dead letter expiered messages" do
+  it "Should dead letter expired messages" do
     with_channel do |ch|
       q = ch.queue("ttl", args: AMQP::Client::Arguments.new(
         {"x-message-ttl" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
