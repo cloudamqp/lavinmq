@@ -48,6 +48,7 @@ module LavinMQ
     @consumers = ConsumerStore.new
     @message_available = Channel(Nil).new(1)
     @consumer_available = Channel(Nil).new(1)
+    @consumers_empty = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
@@ -162,6 +163,13 @@ module LavinMQ
     def consumer_available
       select
       when @consumer_available.send nil
+      else
+      end
+    end
+
+    def consumers_empty
+      select
+      when @consumers_empty.send nil
       else
       end
     end
@@ -310,10 +318,18 @@ module LavinMQ
 
     private def receive_or_expire
       @log.debug { "Waiting for msgs" }
-      if ttl = time_to_expiration
+      unless @consumers.empty?
         select
         when @message_available.receive
-        when timeout ttl
+          return
+        when @consumers_empty.receive
+          @log.debug { "Consumers empty" }
+        end
+      end
+      if q_ttl = time_to_expiration
+        select
+        when @message_available.receive
+        when timeout q_ttl
           expire_queue && return false
         end
       else
@@ -387,6 +403,7 @@ module LavinMQ
       @state = QueueState::Closed
       @message_available.close
       @consumer_available.close
+      @consumers_empty.close
       @consumers.cancel_consumers
       @consumers.clear
       # TODO: When closing due to ReadError, queue is deleted if exclusive
@@ -692,8 +709,9 @@ module LavinMQ
     end
 
     private def expire_queue(now = Time.monotonic) : Bool
+      @log.debug { "Trying to expire queue" }
       return false unless @consumers.empty?
-      @log.debug { "Expired" }
+      @log.debug { "Queue expired" }
       @vhost.delete_queue(@name)
       true
     end
@@ -850,6 +868,7 @@ module LavinMQ
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
+        consumers_empty if @consumers.empty?
         delete if @consumers.empty? && @auto_delete
       end
     end
