@@ -200,7 +200,7 @@ jobs:
       - name: Clone HTTP API client
         uses: actions/checkout@v2
         with:
-          repository: 84codes/rabbitmq_http_api_client
+          repository: cloudamqp/rabbitmq_http_api_client
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
           path: rabbitmq_http_api_client
 
@@ -241,7 +241,7 @@ jobs:
       - name: Clone http client
         uses: actions/checkout@v2
         with:
-          repository: 84codes/rabbit-hole
+          repository: cloudamqp/rabbit-hole
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
           path: rabbit-hole
 
