@@ -703,6 +703,20 @@ describe LavinMQ::Server do
     s.vhosts["/"].delete_queue("test")
   end
 
+  it "does not expire queue when consumer are still there" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-expires"] = 1
+      q = ch.queue("test", args: args)
+      q.subscribe(no_ack: true) { |_| }
+      sleep 5.milliseconds
+      Fiber.yield
+      s.vhosts["/"].queues.has_key?("test").should be_true
+    end
+  ensure
+    s.vhosts["/"].delete_queue("test")
+  end
+
   it "should deliver to all matching queues" do
     with_channel do |ch|
       q1 = ch.queue
