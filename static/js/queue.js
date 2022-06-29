@@ -272,6 +272,8 @@
       lavinmq.http.request('DELETE', url)
         .then(() => { lavinmq.dom.toast('Queue purged!') })
         .catch(lavinmq.http.standardErrorHandler)
+      document.getElementById('ms-date-time').textContent = "-"
+      document.getElementById('snapshotTable').setAttribute("hidden", null)
     }
   })
 
@@ -359,6 +361,7 @@
             document.getElementById('q-last-timestamp').textContent = " - "
           }
           document.getElementById('ms-date-time').textContent = lavinmq.helpers.formatTimestamp(new Date())
+          document.getElementById('snapshotTable').removeAttribute("hidden")
         })
         .catch(lavinmq.http.standardErrorHandler)
     }
