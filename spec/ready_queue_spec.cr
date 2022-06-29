@@ -84,5 +84,10 @@ describe LavinMQ::Queue::ReadyQueue do
     rq.avg_bytesize.should eq 4u32
     rq.max_bytesize(&.bytesize).should eq 10u32
     rq.min_bytesize(&.bytesize).should eq 1u32
+    rq.purge
+    rq.bytesize.should eq 0u32
+    rq.avg_bytesize.should eq 0u32
+    rq.max_bytesize(&.bytesize).should eq 0u32
+    rq.min_bytesize(&.bytesize).should eq 0u32
   end
 end
