@@ -706,7 +706,7 @@ describe LavinMQ::Server do
   it "does not expire queue when consumer are still there" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
-      args["x-expires"] = 1
+      args["x-expires"] = 5
       q = ch.queue("test", args: args)
       q.subscribe(no_ack: true) { |_| }
       sleep 5.milliseconds
