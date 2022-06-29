@@ -316,12 +316,12 @@ module LavinMQ
       end
     end
 
-    private def receive_or_expire
+    private def receive_or_expire : Bool
       @log.debug { "Waiting for msgs" }
       unless @consumers.empty?
         select
         when @message_available.receive
-          return
+          return true
         when @consumers_empty.receive
           @log.debug { "Consumers empty" }
         end
@@ -339,7 +339,7 @@ module LavinMQ
       true
     end
 
-    private def consumer_or_expire
+    private def consumer_or_expire : Bool
       @log.debug { "No consumer available" }
       q_ttl = time_to_expiration
       m_ttl = time_to_message_expiration
