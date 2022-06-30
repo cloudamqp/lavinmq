@@ -1,3 +1,4 @@
+name: Clean up PR artifacts
 on:
   pull_request:
     types: [closed]
