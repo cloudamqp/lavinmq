@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.2] - 2022-06-30
+
+### Fixed
+
+- Fix endless loop over `expire_queue` on expired queues that still had consumers ([#363](https://github.com/cloudamqp/lavinmq/pull/363) and [#364](https://github.com/cloudamqp/lavinmq/pull/364))
+
 ## [1.0.0-beta.1] - 2022-05-17
 
 ### Added
