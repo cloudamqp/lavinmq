@@ -66,6 +66,10 @@ module LavinMQ
         @unacked[index]?
       end
 
+      def sum(&blk : Unack -> _) : UInt64
+        @unacked.sum(0_u64, &blk)
+      end
+
       def avg_bytesize
         return 0u64 if @unacked.size.zero?
         @bytesize // @unacked.size
