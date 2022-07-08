@@ -965,4 +965,26 @@ describe LavinMQ::Server do
   ensure
     LavinMQ::Config.instance.max_message_size = 128 * 1024**2
   end
+
+  it "should measure time it takes to collect metrics in stats_loop" do
+    stats_interval = LavinMQ::Config.instance.stats_interval
+    LavinMQ::Config.instance.stats_interval = 100
+    server = LavinMQ::Server.new("/tmp/spec")
+    should_eventually(be_true, 1.seconds) { server.stats_loop_duration_seconds_total > Time::Span.zero }
+    server.stats_loop_rates_duration_seconds.should_not eq Time::Span.zero
+    server.stats_loop_system_duration_seconds.should_not eq Time::Span.zero
+  ensure
+    LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
+  end
+
+  it "should measure time it takes to collect metrics in stats_loop" do
+    stats_interval = LavinMQ::Config.instance.stats_interval
+    LavinMQ::Config.instance.stats_interval = 100
+    server = LavinMQ::Server.new("/tmp/spec")
+    should_eventually(be_true, 1.seconds) { server.stats_loop_duration_seconds_total > Time::Span.zero }
+    server.stats_loop_rates_duration_seconds.should_not eq Time::Span.zero
+    server.stats_loop_system_duration_seconds.should_not eq Time::Span.zero
+  ensure
+    LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
+  end
 end
