@@ -254,53 +254,59 @@ module LavinMQ
       loop do
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
-        update_stats_rates
-
-        interval = Config.instance.stats_interval.milliseconds.to_i
-        log_size = Config.instance.stats_log_size
-        rusage = System.resource_usage
-
-        {% for m in METRICS %}
-          until @{{m.id}}_log.size < log_size
-            @{{m.id}}_log.shift
+        @stats_loop_duration_seconds_total = Time.measure do
+          @stats_rates_duration_seconds = Time.measure do
+            update_stats_rates
           end
-          {% if m.id.ends_with? "_time" %}
-            {{m.id}} = rusage.{{m.id}}.total_milliseconds.to_i64
-            {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / (interval * 1000)).round(2)
-          {% else %}
-            {{m.id}} = rusage.{{m.id}}.to_i64
-            {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / interval).round(2)
-          {% end %}
-          @{{m.id}}_log.push {{m.id}}_rate
-          @{{m.id}} = {{m.id}}
-        {% end %}
 
-        until @rss_log.size < log_size
-          @rss_log.shift
+          @system_metrics_duration_seconds = Time.measure do
+            interval = Config.instance.stats_interval.milliseconds.to_i
+            log_size = Config.instance.stats_log_size
+            rusage = System.resource_usage
+
+            {% for m in METRICS %}
+              until @{{m.id}}_log.size < log_size
+                @{{m.id}}_log.shift
+              end
+              {% if m.id.ends_with? "_time" %}
+                {{m.id}} = rusage.{{m.id}}.total_milliseconds.to_i64
+                {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / (interval * 1000)).round(2)
+              {% else %}
+                {{m.id}} = rusage.{{m.id}}.to_i64
+                {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / interval).round(2)
+              {% end %}
+              @{{m.id}}_log.push {{m.id}}_rate
+              @{{m.id}} = {{m.id}}
+            {% end %}
+
+            until @rss_log.size < log_size
+              @rss_log.shift
+            end
+
+            rss = statm_rss(statm) || ps_rss
+            @rss = rss
+            @rss_log.push @rss
+
+            @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
+
+            fs_stats = Filesystem.info(@data_dir)
+            until @disk_free_log.size < log_size
+              @disk_free_log.shift
+            end
+            disk_free = fs_stats.available.to_i64
+            @disk_free_log.push disk_free
+            @disk_free = disk_free
+
+            until @disk_total_log.size < log_size
+              @disk_total_log.shift
+            end
+            disk_total = fs_stats.total.to_i64
+            @disk_total_log.push disk_total
+            @disk_total = disk_total
+
+            control_flow!
+          end
         end
-
-        rss = statm_rss(statm) || ps_rss
-        @rss = rss
-        @rss_log.push @rss
-
-        @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
-
-        fs_stats = Filesystem.info(@data_dir)
-        until @disk_free_log.size < log_size
-          @disk_free_log.shift
-        end
-        disk_free = fs_stats.available.to_i64
-        @disk_free_log.push disk_free
-        @disk_free = disk_free
-
-        until @disk_total_log.size < log_size
-          @disk_total_log.shift
-        end
-        disk_total = fs_stats.total.to_i64
-        @disk_total_log.push disk_total
-        @disk_total = disk_total
-
-        control_flow!
       end
     ensure
       statm.try &.close
@@ -363,6 +369,9 @@ module LavinMQ
     getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_free = 0_i64
     getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter stats_loop_duration_seconds_total = Time::Span.new
+    getter stats_rates_duration_seconds = Time::Span.new
+    getter system_metrics_duration_seconds = Time::Span.new
 
     private def control_flow!
       if @disk_free < 2_i64 * Config.instance.segment_size
