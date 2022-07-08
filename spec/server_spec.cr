@@ -965,4 +965,11 @@ describe LavinMQ::Server do
   ensure
     LavinMQ::Config.instance.max_message_size = 128 * 1024**2
   end
+
+  it "should measure time it takes to collect metrics in stats_loop" do
+    server = LavinMQ::Server.new("/tmp/spec")
+    should_eventually(be_true, 10.seconds) {server.stats_loop_duration_seconds_total > Time::Span.zero}
+    server.system_metrics_duration_seconds.should_not eq Time::Span.zero
+    server.stats_rates_duration_seconds.should_not eq Time::Span.zero
+  end
 end
