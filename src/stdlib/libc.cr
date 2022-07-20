@@ -8,11 +8,6 @@ lib LibC
 
   {% if flag?(:darwin) %}
     SC_PHYS_PAGES = 200
-    {% if flag?(:aarch64) %}
-    # Monkey-patch
-    # Remove once https://github.com/crystal-lang/crystal/pull/12037/files is released
-    SC_PAGESIZE = 29
-    {% end %}
   {% elsif flag?(:freebsd) || flag?(:dragonfly) || flag?(:netbsd) %}
     SC_PHYS_PAGES = 121
   {% elsif flag?(:openbsd) %}
