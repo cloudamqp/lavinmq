@@ -97,6 +97,7 @@
       policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
       policyLink.textContent = item.policy
     }
+    console.log(item.message_stats)
     lavinmq.table.renderCell(tr, 4, policyLink, 'center')
     lavinmq.table.renderCell(tr, 5, item.consumers, 'right')
     lavinmq.table.renderCell(tr, 6, null, 'center ' + 'state-' + item.state)
@@ -105,7 +106,8 @@
     lavinmq.table.renderCell(tr, 9, lavinmq.helpers.formatNumber(item.messages), 'right')
     lavinmq.table.renderCell(tr, 10, lavinmq.helpers.formatNumber(item.message_stats.publish_details.rate), 'right')
     lavinmq.table.renderCell(tr, 11, lavinmq.helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
-    lavinmq.table.renderCell(tr, 12, lavinmq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
+    lavinmq.table.renderCell(tr, 12, lavinmq.helpers.formatNumber(item.message_stats.redeliver_details.rate), 'right')
+    lavinmq.table.renderCell(tr, 13, lavinmq.helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
   })
 
   document.querySelector('#declare').addEventListener('submit', function (evt) {
