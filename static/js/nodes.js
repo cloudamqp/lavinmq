@@ -9,27 +9,38 @@
     url += '?vhost=' + encodeURIComponent(vhost)
   }
   let updateTimer = null
-  let data = null
-
-  if (data === null) {
-    update(render)
-  }
 
   function update (cb) {
-    lavinmq.http.request('GET', url).then(function (response) {
-      data = response
-      render(response)
+    const statsPromise = lavinmq.http.request('GET', url)
+    const queueStatsPromise = lavinmq.http.request('GET', '/api/queues')
+    Promise.all([
+      statsPromise,
+      queueStatsPromise
+    ]).then(function (responses) {
+      const statsData = responses[0]
+      const queueData = responses[1]
+      const msgSums = (queueData ?? [])?.reduce((agg, queue) => {
+        agg.msg_ready += queue.ready
+        agg.msg_unacked += queue.unacked
+        return agg
+      }, { msg_ready: 0, msg_unacked: 0 })
+      render(statsData, msgSums)
       if (cb) {
-        cb(response)
+        cb(statsData)
       }
     }).catch(lavinmq.http.standardErrorHandler).catch(stop)
   }
 
-  function render (data) {
+  function render (data, queueData) {
     document.querySelector('#version').innerText = data[0].applications[0].version
+
     for (const node of data) {
       updateDetails(node)
-      updateStats(node)
+      if (queueData instanceof Object) {
+        updateStats({ ...node, ...queueData })
+      } else {
+        updateStats(node)
+      }
     }
   }
 
@@ -144,6 +155,19 @@
         {
           heading: 'Total',
           key: 'fd_total'
+        }
+      ]
+    },
+    {
+      heading: 'Messages',
+      content: [
+        {
+          heading: 'Ready',
+          key: 'msg_ready'
+        },
+        {
+          heading: 'Unacked',
+          key: 'msg_unacked'
         }
       ]
     }
