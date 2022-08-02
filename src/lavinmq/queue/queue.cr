@@ -270,6 +270,7 @@ module LavinMQ
     end
 
     @outgoing = ::Channel(Envelope).new
+    getter outgoing
 
     private def deliver_loop
       loop do
@@ -278,11 +279,12 @@ module LavinMQ
           @paused.receive
         end
         if env = get
+          expires = time_to_message_expiration(env)
           select
           when @outgoing.send(env)
             # consumer has picked up message
-          when @expires.send(env)
-            # message has expired
+          when timeout expires
+            expire_msg(env, :expired)
           end
         else
           break if @state.closed?
@@ -332,7 +334,7 @@ module LavinMQ
         select
         when @paused.receive
           @log.debug { "Queue unpaused" }
-        when @consumer_available.receive
+        when @outgoing.receive
           @log.debug { "Queue#consumer_or_expire Consumer available" }
         when @refresh_ttl_timeout.receive
           @log.debug { "Queue#consumer_or_expire Refresh TTL timeout" }
@@ -509,6 +511,32 @@ module LavinMQ
         else
           Time::Span.zero
         end
+      end
+    end
+
+    private def time_to_message_expiration(env) : Time::Span?
+      if expire_at = expire_at(env)
+        expire_in = expire_at - RoughTime.utc.to_unix_ms
+        if expire_in > 0
+          expire_in.milliseconds
+        else
+          Time::Span.zero
+        end
+      end
+    end
+
+    private def expire_at(env : Envelope) : Int64?
+      if message_ttl = @message_ttl
+        expire_at = env.timestamp + message_ttl
+        if sp.expiration_ts > 0
+          Math.min(expire_at, sp.expiration_ts)
+        else
+          expire_at
+        end
+      elsif sp.expiration_ts > 0
+        sp.expiration_ts
+      else
+        nil
       end
     end
 
