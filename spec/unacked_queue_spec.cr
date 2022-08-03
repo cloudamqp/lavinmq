@@ -33,11 +33,11 @@ describe LavinMQ::Queue::UnackQueue do
   it "should calculate message sizes" do
     q = LavinMQ::Queue::UnackQueue.new
     sps = [
-      LavinMQ::SegmentPosition.new(10,10,5u32),
-      LavinMQ::SegmentPosition.new(10,10,1u32),
-      LavinMQ::SegmentPosition.new(10,10,10u32),
-      LavinMQ::SegmentPosition.new(10,10,3u32),
-      LavinMQ::SegmentPosition.new(10,10,1u32)
+      LavinMQ::SegmentPosition.new(10, 10, 5u32),
+      LavinMQ::SegmentPosition.new(10, 10, 1u32),
+      LavinMQ::SegmentPosition.new(10, 10, 10u32),
+      LavinMQ::SegmentPosition.new(10, 10, 3u32),
+      LavinMQ::SegmentPosition.new(10, 10, 1u32),
     ]
     sps.each { |sp| q.push(sp, nil) }
     q.bytesize.should eq 20u32
