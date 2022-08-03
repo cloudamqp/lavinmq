@@ -461,12 +461,27 @@ module LavinMQ
     end
 
     def snapshot_tuple
-      snapshot = details_tuple()
+      snapshot = {
+        messages:                @ready.size + @unacked.size,
+        ready:                   @ready.size,
+        ready_bytes:             @ready.bytesize,
+        ready_avg_bytes:         @ready.avg_bytesize,
+        ready_max_bytes:         @ready.max_bytesize &.bytesize,
+        ready_min_bytes:         @ready.min_bytesize &.bytesize,
+        unacked:                 @unacked.size,
+        unacked_bytes:           @unacked.bytesize,
+        unacked_avg_bytes:       @unacked.avg_bytesize,
+        unacked_max_bytes:       @unacked.max_bytesize &.sp.bytesize,
+        unacked_min_bytes:       @unacked.min_bytesize &.sp.bytesize,
+        first_message_timestamp: 0,
+        last_message_timestamp:  0,
+      }
+      return snapshot if @ready.size.zero?
+      first_message = read(@ready.first?.not_nil!).message
+      last_message = read(@ready.last?.not_nil!).message
       snapshot.merge({
-        ready_max_bytes:    @ready.max_bytesize &.bytesize,
-        ready_min_bytes:    @ready.min_bytesize &.bytesize,
-        unacked_max_bytes:  @unacked.max_bytesize &.sp.bytesize,
-        unacked_min_bytes:  @unacked.min_bytesize &.sp.bytesize,
+        first_message_timestamp: first_message.timestamp,
+        last_message_timestamp:  last_message.timestamp,
       })
     end
 
@@ -951,15 +966,6 @@ module LavinMQ
       builder.object do
         snapshot_tuple.each do |k, v|
           builder.field(k, v) unless v.nil?
-        end
-        builder.field("consumer_details") do
-          builder.array do
-            @consumers.each do |c|
-              c.to_json(builder)
-              limit -= 1
-              break if limit.zero?
-            end
-          end
         end
       end
     end
