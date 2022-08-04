@@ -64,7 +64,7 @@ describe LavinMQ::HTTP::ExchangesController do
       response = put("/api/exchanges/%2f/faulty", body: body)
       response.status_code.should eq 400
       body = JSON.parse(response.body)
-      body["reason"].as_s.should match(/Unknown exchange type/)
+      body["reason"].as_s.should match(/invalid exchange type/)
     end
 
     it "should require arguments if the type demands it" do
