@@ -234,13 +234,13 @@ module LavinMQ
         @bytesize // @ready.size
       end
 
-      # expensive calculation used for ready queue snapshot
+      # expensive calculation used for ready queue details
       def max_bytesize(&blk : SegmentPosition -> _) : UInt32
         return 0u32 if @ready.size.zero?
         @ready.max_of(&blk)
       end
 
-      # expensive calculation used for ready queue snapshot
+      # expensive calculation used for ready queue details
       def min_bytesize(&blk : SegmentPosition -> _) : UInt32
         return 0u32 if @ready.size.zero?
         @ready.min_of(&blk)

@@ -345,7 +345,7 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/queues/{vhost}/{name}/size-snapshot":
+"/queues/{vhost}/{name}/size-details":
   parameters:
   - in: path
     name: vhost
@@ -362,16 +362,16 @@
   get:
     tags:
     - queues
-    description: Get queue size metrics snapshot with detailed information of message sizes
-    summary: Get queue size metrics snapshot
-    operationId: GetQueueSizeSnapshot
+    description: List size details for a specific queue.
+    summary: List queue size details
+    operationId: GetQueueSizeDetails
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/size-snapshot"
+              "$ref": "../openapi.yaml#/components/schemas/size-details"
       4XX:
         description: Client Error
         content:

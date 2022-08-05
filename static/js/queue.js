@@ -315,7 +315,7 @@
 
   messageSnapshotForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
-    const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/size-snapshot'
+    const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/size-details'
     if (window.confirm('Are you sure? This will take a snapshot of queue message sizes.')) {
       lavinmq.http.request('GET', url)
         .then(item => {

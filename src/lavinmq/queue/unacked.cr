@@ -75,13 +75,13 @@ module LavinMQ
         @bytesize // @unacked.size
       end
 
-      # expensive calculation used for unacked queue snapshot
+      # expensive calculation used for unacked queue details
       def max_bytesize(&blk : Unack -> _) : UInt32
         return 0u32 if @unacked.size.zero?
         @unacked.max_of(&blk)
       end
 
-      # expensive calculation used for unacked queue snapshot
+      # expensive calculation used for unacked queue details
       def min_bytesize(&blk : Unack -> _) : UInt32
         return 0u32 if @unacked.size.zero?
         @unacked.min_of(&blk)

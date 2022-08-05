@@ -54,13 +54,13 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
 
-  describe "GET /api/queues/vhost/name/size-snapshot" do
-    it "should return message size snapshot stats" do
+  describe "GET /api/queues/vhost/name/size-details" do
+    it "should return message size details stats" do
       with_channel do |ch|
         q = ch.queue("stats_q")
         q.publish "m1"
       end
-      response = get("/api/queues/%2f/stats_q/size-snapshot")
+      response = get("/api/queues/%2f/stats_q/size-details")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["ready_max_bytes"].nil?.should be_false

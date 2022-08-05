@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Queue size metric snapshot to present expensive queue metrics calculation ([#362](https://github.com/cloudamqp/lavinmq/pull/362))
+- Queue size metric details to present expensive queue metrics calculation ([#362](https://github.com/cloudamqp/lavinmq/pull/362))
 
 ## [1.0.0-beta.2] - 2022-06-30
 

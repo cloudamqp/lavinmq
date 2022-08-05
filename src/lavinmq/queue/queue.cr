@@ -460,8 +460,8 @@ module LavinMQ
       })
     end
 
-    def snapshot_tuple
-      snapshot = {
+    def size_details_tuple
+      details = {
         messages:                @ready.size + @unacked.size,
         ready:                   @ready.size,
         ready_bytes:             @ready.bytesize,
@@ -476,10 +476,10 @@ module LavinMQ
         first_message_timestamp: 0,
         last_message_timestamp:  0,
       }
-      return snapshot if @ready.size.zero?
+      return details if @ready.size.zero?
       first_message = read(@ready.first?.not_nil!).message
       last_message = read(@ready.last?.not_nil!).message
-      snapshot.merge({
+      details.merge({
         first_message_timestamp: first_message.timestamp,
         last_message_timestamp:  last_message.timestamp,
       })
@@ -962,9 +962,9 @@ module LavinMQ
       end
     end
 
-    def snapshot_to_json(builder : JSON::Builder, limit : Int32 = -1)
+    def size_details_to_json(builder : JSON::Builder, limit : Int32 = -1)
       builder.object do
-        snapshot_tuple.each do |k, v|
+        size_details_tuple.each do |k, v|
           builder.field(k, v) unless v.nil?
         end
       end

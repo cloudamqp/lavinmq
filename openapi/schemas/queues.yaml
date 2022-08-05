@@ -234,7 +234,7 @@ GetQueueMessagesRequestBody:
       type: string
     requeue:
       type: boolean
-size-snapshot:
+size-details:
   type: object
   properties:
     messages:
