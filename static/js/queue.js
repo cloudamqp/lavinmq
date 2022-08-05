@@ -6,6 +6,7 @@
   const escapeHTML = lavinmq.dom.escapeHTML
   const pauseQueueForm = document.querySelector('#pauseQueue')
   const resumeQueueForm = document.querySelector('#resumeQueue')
+  const messageSnapshotForm = document.querySelector('#messageSnapshot')
   document.title = queue + ' | LavinMQ'
   let consumerListLength = 20
   const consumersTable = lavinmq.table.renderTable('table', { keyColumns: [] }, function (tr, item) {
@@ -72,10 +73,14 @@
         handleQueueState(item.state)
         document.getElementById('q-unacked').textContent = item.unacked
         document.getElementById('q-unacked-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes) + 'B'
+        document.getElementById('q-unacked-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes) + 'B'
         document.getElementById('q-total').textContent = lavinmq.helpers.formatNumber(item.messages)
         document.getElementById('q-total-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+        const total_avg_bytes = item.messages != 0 ? (item.unacked_bytes + item.ready_bytes)/item.messages : 0
+        document.getElementById('q-total-avg-bytes').textContent = lavinmq.helpers.nFormatter(total_avg_bytes) + 'B'
         document.getElementById('q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
         document.getElementById('q-ready-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_bytes) + 'B'
+        document.getElementById('q-ready-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_avg_bytes) + 'B'
         document.getElementById('q-consumers').textContent = lavinmq.helpers.formatNumber(item.consumers)
         if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
           document.getElementById('q-first-timestamp').textContent = lavinmq.helpers.formatTimestamp(item.first_message_timestamp)
@@ -267,6 +272,8 @@
       lavinmq.http.request('DELETE', url)
         .then(() => { lavinmq.dom.toast('Queue purged!') })
         .catch(lavinmq.http.standardErrorHandler)
+      document.getElementById('ms-date-time').textContent = "-"
+      document.getElementById('snapshotTable').setAttribute("hidden", null)
     }
   })
 
@@ -301,6 +308,60 @@
         .then(() => {
           lavinmq.dom.toast('Queue resumed!')
           handleQueueState('running')
+        })
+        .catch(lavinmq.http.standardErrorHandler)
+    }
+  })
+
+  messageSnapshotForm.addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/size-details'
+    if (window.confirm('Are you sure? This will take a snapshot of queue message sizes.')) {
+      lavinmq.http.request('GET', url)
+        .then(item => {
+          lavinmq.dom.toast('Queue size snapshot')
+          handleQueueState('running')
+          document.getElementById('ms-q-unacked').textContent = item.unacked
+          document.getElementById('ms-q-unacked-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes) + 'B'
+          document.getElementById('ms-q-unacked-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_avg_bytes) + 'B'
+          document.getElementById('ms-q-unacked-min-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_min_bytes) + 'B'
+          document.getElementById('ms-q-unacked-max-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_max_bytes) + 'B'
+          document.getElementById('ms-q-total').textContent = lavinmq.helpers.formatNumber(item.messages)
+          document.getElementById('ms-q-total-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+          const total_avg_bytes = item.messages != 0 ? (item.unacked_bytes + item.ready_bytes)/item.messages : 0
+          document.getElementById('ms-q-total-avg-bytes').textContent = lavinmq.helpers.nFormatter(total_avg_bytes) + 'B'
+          document.getElementById('ms-q-total-max-bytes').textContent = lavinmq.helpers.nFormatter(0) + 'B'
+          if (item.ready_max_bytes > item.unacked_max_bytes) {
+            document.getElementById('ms-q-total-max-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_max_bytes) + 'B'
+          } else if (item.unacked_max_bytes > item.ready_max_bytes) {
+            document.getElementById('ms-q-total-max-bytes').textContent = lavinmq.helpers.nFormatter(item.unacked_max_bytes) + 'B'
+          }
+          document.getElementById('ms-q-total-min-bytes').textContent = lavinmq.helpers.nFormatter(0) + 'B'
+          var total_min_bytes = 0
+          if (item.ready_min_bytes != 0 && item.unacked_min_bytes == 0) {
+            total_min_bytes = item.ready_min_bytes
+          } else if (item.unacked_min_bytes != 0 && item.ready_min_bytes == 0) {
+            total_min_bytes = item.unacked_min_bytes
+          } else if (item.ready_min_bytes < item.unacked_min_bytes) {
+            total_min_bytes = item.ready_min_bytes
+          } else if (item.unacked_min_bytes < item.ready_min_bytes) {
+            total_min_bytes = item.unacked_min_bytes
+          }
+          document.getElementById('ms-q-total-min-bytes').textContent = lavinmq.helpers.nFormatter(total_min_bytes) + 'B'
+          document.getElementById('ms-q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
+          document.getElementById('ms-q-ready-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_bytes) + 'B'
+          document.getElementById('ms-q-ready-avg-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_avg_bytes) + 'B'
+          document.getElementById('ms-q-ready-min-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_min_bytes) + 'B'
+          document.getElementById('ms-q-ready-max-bytes').textContent = lavinmq.helpers.nFormatter(item.ready_max_bytes) + 'B'
+          if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
+            document.getElementById('ms-q-first-timestamp').textContent = lavinmq.helpers.formatTimestamp(item.first_message_timestamp)
+            document.getElementById('ms-q-last-timestamp').textContent = lavinmq.helpers.formatTimestamp(item.last_message_timestamp)
+          } else {
+            document.getElementById('q-first-timestamp').textContent = " - "
+            document.getElementById('q-last-timestamp').textContent = " - "
+          }
+          document.getElementById('ms-date-time').textContent = lavinmq.helpers.formatTimestamp(new Date())
+          document.getElementById('snapshotTable').removeAttribute("hidden")
         })
         .catch(lavinmq.http.standardErrorHandler)
     }
