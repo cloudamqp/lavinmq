@@ -255,11 +255,11 @@ module LavinMQ
         break if closed?
         sleep Config.instance.stats_interval.milliseconds
         @stats_loop_duration_seconds_total = Time.measure do
-          @stats_rates_duration_seconds = Time.measure do
+          @stats_loop_rates_duration_seconds = Time.measure do
             update_stats_rates
           end
 
-          @system_metrics_duration_seconds = Time.measure do
+          @stats_loop_system_duration_seconds = Time.measure do
             interval = Config.instance.stats_interval.milliseconds.to_i
             log_size = Config.instance.stats_log_size
             rusage = System.resource_usage
@@ -370,8 +370,8 @@ module LavinMQ
     getter disk_free = 0_i64
     getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter stats_loop_duration_seconds_total = Time::Span.new
-    getter stats_rates_duration_seconds = Time::Span.new
-    getter system_metrics_duration_seconds = Time::Span.new
+    getter stats_loop_rates_duration_seconds = Time::Span.new
+    getter stats_loop_system_duration_seconds = Time::Span.new
 
     private def control_flow!
       if @disk_free < 2_i64 * Config.instance.segment_size
