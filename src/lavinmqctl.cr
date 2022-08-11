@@ -234,28 +234,25 @@ class LavinMQCtl
   end
 
   private def handle_response(resp, *ok)
-    if ok.includes? resp.status_code
-      exit 0
+    return if ok.includes? resp.status_code
+    case resp.status_code
+    when 401
+      puts "Access denied"
+    when 404
+      puts "Not found"
     else
-      case resp.status_code
-      when 401
-        puts "Access denied"
-      when 404
-        puts "Not found"
-      else
-        case resp.headers["Content-type"]?
-        when "application/json"
-          begin
-            body = JSON.parse(resp.body)
-            puts body["reason"]?
-          rescue e : JSON::ParseException # Body can be empty
-          end
-        else
-          puts resp.body
+      case resp.headers["Content-type"]?
+      when "application/json"
+        begin
+          body = JSON.parse(resp.body)
+          puts body["reason"]?
+        rescue e : JSON::ParseException # Body can be empty
         end
+      else
+        puts resp.body
       end
-      exit 1
     end
+    exit 1
   end
 
   private def url_encoded_vhost
@@ -281,16 +278,13 @@ class LavinMQCtl
     url = "/api/definitions"
     url += "/#{URI.encode_www_form(@options["vhost"])}" if @options.has_key?("vhost")
     resp = http.get url, @headers
-    if resp.status_code == 200
-      print resp.body
-    else
-      handle_response(resp, 200)
-    end
+    handle_response(resp, 200)
+    print resp.body
   end
 
   private def list_users
     resp = http.get "/api/users", @headers
-    return resp.body.to_s unless resp.status_code == 200
+    handle_response(resp, 200)
     puts "Listing users ..." unless quiet?
     columns = %w[name tags]
     puts columns.join("\t")
@@ -337,12 +331,16 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing queues for vhost #{vhost} ..." unless quiet?
-    return handle_response(resp) unless resp.status_code == 200
-    return unless queues = JSON.parse(resp.body).as_a?
-    puts "name\tmessages"
-    queues.each do |u|
-      next unless q = u.as_h?
-      puts "#{q["name"]}\t#{q["messages"]}"
+    handle_response(resp, 200)
+    if queues = JSON.parse(resp.body).as_a?
+      puts "name\tmessages"
+      queues.each do |u|
+        next unless q = u.as_h?
+        puts "#{q["name"]}\t#{q["messages"]}"
+      end
+      true
+    else
+      abort "invalid data"
     end
   end
 
@@ -375,12 +373,15 @@ class LavinMQCtl
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
     resp = http.get "/api/connections", @headers
     puts "Listing connections ..." unless quiet?
-    return handle_response(resp) unless resp.status_code == 200
-    return unless conns = JSON.parse(resp.body).as_a?
-    puts columns.join("\t")
-    conns.each do |u|
-      next unless conn = u.as_h?
-      puts columns.map { |c| conn[c] }.join("\t")
+    handle_response(resp, 200)
+    if conns = JSON.parse(resp.body).as_a?
+      puts columns.join("\t")
+      conns.each do |u|
+        next unless conn = u.as_h?
+        puts columns.map { |c| conn[c] }.join("\t")
+      end
+    else
+      abort "invalid data"
     end
   end
 
@@ -395,26 +396,32 @@ class LavinMQCtl
 
   private def close_all_connections
     resp = http.get "/api/connections", @headers
-    return handle_response(resp) unless resp.status_code == 200
-    return unless conns = JSON.parse(resp.body).as_a?
-    @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via lavinmqctl"
-    conns.each do |u|
-      next unless conn = u.as_h?
-      name = conn["name"].to_s
-      puts "Closing connection #{name} ..." unless quiet?
-      http.delete "/api/connections/#{URI.encode_path(name)}", @headers
+    handle_response(resp, 200)
+    if conns = JSON.parse(resp.body).as_a?
+      @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via lavinmqctl"
+      conns.each do |u|
+        next unless conn = u.as_h?
+        name = conn["name"].to_s
+        puts "Closing connection #{name} ..." unless quiet?
+        http.delete "/api/connections/#{URI.encode_path(name)}", @headers
+      end
+    else
+      abort "invalid data"
     end
   end
 
   private def list_vhosts
     resp = http.get "/api/vhosts", @headers
     puts "Listing vhosts ..." unless quiet?
-    return handle_response(resp) unless resp.status_code == 200
-    return unless vhosts = JSON.parse(resp.body).as_a?
-    puts "name"
-    vhosts.each do |u|
-      next unless v = u.as_h?
-      puts "#{v["name"]}"
+    handle_response(resp, 200)
+    if vhosts = JSON.parse(resp.body).as_a?
+      puts "name"
+      vhosts.each do |u|
+        next unless v = u.as_h?
+        puts "#{v["name"]}"
+      end
+    else
+      abort "invalid data"
     end
   end
 
@@ -460,12 +467,15 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing policies for vhost #{vhost} ..." unless quiet?
-    return handle_response(resp) unless resp.status_code == 200
-    return unless policies = JSON.parse(resp.body).as_a?
-    puts "vhost\tname\tpattern\tapply-to\tdefinition\tpriority"
-    policies.each do |u|
-      next unless p = u.as_h?
-      puts "#{p["vhost"]}\t#{p["name"]}\t#{p["pattern"]}\t#{p["apply-to"]}\t#{p["definition"]}\t#{p["priority"]}"
+    handle_response(resp, 200)
+    if policies = JSON.parse(resp.body).as_a?
+      puts "vhost\tname\tpattern\tapply-to\tdefinition\tpriority"
+      policies.each do |u|
+        next unless p = u.as_h?
+        puts "#{p["vhost"]}\t#{p["name"]}\t#{p["pattern"]}\t#{p["apply-to"]}\t#{p["definition"]}\t#{p["priority"]}"
+      end
+    else
+      abort "invalid data"
     end
   end
 
@@ -512,7 +522,7 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
-    return handle_response(resp) unless resp.status_code == 200
+    handle_response(resp, 200)
     columns = %w[name type]
     puts columns.join("\t")
     if exchanges = JSON.parse(resp.body).as_a?
@@ -520,6 +530,8 @@ class LavinMQCtl
         next unless ex = e.as_h?
         columns.each { |c| print ex[c]; print "\t" }
       end
+    else
+      abort "invalid data"
     end
   end
 
@@ -552,7 +564,7 @@ class LavinMQCtl
 
   private def status
     resp = http.get "/api/overview"
-    return handle_response(resp) unless resp.status_code == 200
+    handle_response(resp, 200)
     body = JSON.parse(resp.body)
     puts "Version: #{body.dig("lavinmq_version")}"
     puts "Node: #{body.dig("node")}"
