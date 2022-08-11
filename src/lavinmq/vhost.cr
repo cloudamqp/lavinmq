@@ -30,8 +30,8 @@ module LavinMQ
     property? flow = true
     property? dirty = false
     getter? closed = false
-    property max_connections : UInt32?
-    property max_queues : UInt32?
+    property max_connections : Int32?
+    property max_queues : Int32?
 
     @gc_loop = Channel(Nil).new(1)
     @exchanges = Hash(String, Exchange).new
@@ -56,6 +56,7 @@ module LavinMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
+      load_limits
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
@@ -65,6 +66,38 @@ module LavinMQ
       load!
       spawn save!, name: "VHost/#{@name}#save!"
       spawn gc_segments_loop, name: "VHost/#{@name}#gc_segments_loop"
+    end
+
+    def max_connections=(value : Int32) : Nil
+      value = nil if value < 0
+      @max_connections = value
+      store_limits
+    end
+
+    def max_queues=(value : Int32) : Nil
+      value = nil if value < 0
+      @max_queues = value
+      store_limits
+    end
+
+    private def load_limits
+      File.open(File.join(@data_dir, "limits.json")) do |f|
+        limits = JSON.parse(f)
+        @max_queues = limits["max-queues"]?.try &.as_i?
+        @max_connections = limits["max-connections"]?.try &.as_i?
+      end
+    rescue File::NotFoundError
+    end
+
+    private def store_limits
+      File.open(File.join(@data_dir, "limits.json"), "w") do |f|
+        JSON.build(f) do |json|
+          json.object do
+            json.field "max-queues", @max_queues if @max_queues
+            json.field "max-connections", @max_connections if @max_connections
+          end
+        end
+      end
     end
 
     def inspect(io : IO)
