@@ -3,7 +3,7 @@ require "./sortable_json"
 
 module LavinMQ
   module PolicyTarget
-    abstract def apply_policy(p : Policy)
+    abstract def apply_policy(policy : Policy)
     abstract def clear_policy
     abstract def policy : Policy?
   end

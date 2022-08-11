@@ -148,9 +148,9 @@ module LavinMQ
       @vhosts.close
     end
 
-    def add_parameter(p : Parameter)
-      @parameters.create p
-      apply_parameter(p)
+    def add_parameter(parameter : Parameter)
+      @parameters.create parameter
+      apply_parameter(parameter)
     end
 
     def delete_parameter(component_name, parameter_name)

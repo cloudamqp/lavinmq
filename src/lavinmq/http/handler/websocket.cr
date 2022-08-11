@@ -22,8 +22,8 @@ module LavinMQ
       @r, @w = IO.pipe
       @r.read_buffering = false
       @w.sync = true
-      @ws.on_binary do |bytes|
-        @w.write(bytes)
+      @ws.on_binary do |slice|
+        @w.write(slice)
       end
       @ws.on_close do |_code, _message|
         self.close
@@ -31,12 +31,12 @@ module LavinMQ
       self.buffer_size = 4096
     end
 
-    def unbuffered_read(bytes : Bytes)
-      @r.read(bytes)
+    def unbuffered_read(slice : Bytes)
+      @r.read(slice)
     end
 
-    def unbuffered_write(bytes : Bytes) : Nil
-      @ws.send(bytes)
+    def unbuffered_write(slice : Bytes) : Nil
+      @ws.send(slice)
     end
 
     def unbuffered_flush

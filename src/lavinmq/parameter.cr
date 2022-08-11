@@ -2,9 +2,9 @@ require "json"
 
 module LavinMQ
   module ParameterTarget
-    abstract def add_parameter(p : Parameter)
-    abstract def apply_parameter(p : Parameter?)
-    abstract def delete_parameter(component : String?, name : String)
+    abstract def add_parameter(parameter : Parameter)
+    abstract def apply_parameter(parameter : Parameter?)
+    abstract def delete_parameter(component_name : String?, parameter_name : String)
   end
 
   alias ParameterId = {String?, String} | String
