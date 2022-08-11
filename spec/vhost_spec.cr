@@ -140,4 +140,33 @@ describe LavinMQ::VHost do
       s.vhosts["/"].delete_exchange("purge")
     end
   end
+
+  it "can limit queues" do
+    vhost = s.vhosts["/"]
+    vhost.max_queues = 1
+    with_channel do |ch|
+      ch.queue
+      expect_raises(AMQP::Client::Channel::ClosedException, /queue limit/) do
+        ch.queue
+      end
+    end
+    vhost.max_queues = -1
+    with_channel do |ch|
+      ch.queue
+    end
+  end
+
+  it "can limit connections" do
+    vhost = s.vhosts["/"]
+    vhost.max_connections = 1
+    with_channel do |_ch|
+      expect_raises(AMQP::Client::Connection::ClosedException, /connection limit/) do
+        with_channel do |_ch2|
+        end
+      end
+      vhost.max_connections = -1
+      with_channel do |_ch3|
+      end
+    end
+  end
 end

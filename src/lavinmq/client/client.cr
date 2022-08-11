@@ -630,7 +630,7 @@ module LavinMQ
         end
       elsif frame.queue_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
-      elsif @vhost.max_queues.try { |max| @vhost.queues.size > max }
+      elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
         send_access_refused(frame, "queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached")
       else
         declare_new_queue(frame)
