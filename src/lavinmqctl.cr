@@ -41,6 +41,7 @@ class LavinMQCtl
 
     {"list_exchanges", "Lists exchanges", ""},
     {"delete_exchange", "Delete exchange", "<name>"},
+    {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
   }
 
   def initialize
@@ -173,6 +174,7 @@ class LavinMQCtl
     when "create_exchange"       then create_exchange
     when "delete_exchange"       then delete_exchange
     when "status"                then status
+    when "set_vhost_limits"      then set_vhost_limits
     when "stop_app"
     when "start_app"
     else
@@ -577,6 +579,25 @@ class LavinMQCtl
     puts "Messages: #{body.dig("queue_totals", "messages")}"
     puts "Messages ready: #{body.dig("queue_totals", "messages_ready")}"
     puts "Messages unacked: #{body.dig("queue_totals", "messages_unacknowledged")}"
+  end
+
+  private def set_vhost_limits
+    vhost = @options["vhost"]? || "/"
+    data = ARGV.shift?
+    abort @banner unless data
+    json = JSON.parse(data)
+    ok = false
+    if max_connections = json["max-connections"]?.try(&.as_i?)
+      resp = http.put "/api/vhost-limits/#{URI.encode_www_form(vhost)}/max-connections", @headers, {value: max_connections}.to_json
+      handle_response(resp, 204)
+      ok = true
+    end
+    if max_queues = json["max-queues"]?.try(&.as_i?)
+      resp = http.put "/api/vhost-limits/#{URI.encode_www_form(vhost)}/max-queues", @headers, {value: max_queues}.to_json
+      handle_response(resp, 204)
+      ok = true
+    end
+    ok || abort "max-queues or max-connections required"
   end
 end
 
