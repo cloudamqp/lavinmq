@@ -30,6 +30,8 @@ module LavinMQ
     property? flow = true
     property? dirty = false
     getter? closed = false
+    property max_connections : UInt32?
+    property max_queues : UInt32?
 
     @gc_loop = Channel(Nil).new(1)
     @exchanges = Hash(String, Exchange).new

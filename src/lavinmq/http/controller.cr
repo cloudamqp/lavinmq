@@ -152,9 +152,9 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, key = "vhost")
-        vhost = URI.decode_www_form(params[key])
-        if @amqp_server.vhosts[vhost]?
-          yield vhost
+        name = URI.decode_www_form(params[key])
+        if @amqp_server.vhosts[name]?
+          yield name
         else
           not_found(context, "Not Found")
         end
