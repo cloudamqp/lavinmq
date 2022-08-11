@@ -39,6 +39,7 @@ module LavinMQ
           QueuesController.new(@amqp_server, @log).route_handler,
           BindingsController.new(@amqp_server, @log).route_handler,
           VHostsController.new(@amqp_server, @log).route_handler,
+          VHostLimitsController.new(@amqp_server, @log).route_handler,
           UsersController.new(@amqp_server, @log).route_handler,
           PermissionsController.new(@amqp_server, @log).route_handler,
           ParametersController.new(@amqp_server, @log).route_handler,
