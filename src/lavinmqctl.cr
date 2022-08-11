@@ -1,6 +1,7 @@
 require "./lavinmq/version"
 require "./lavinmq/config"
-require "./lavinmq/http/http_server"
+require "./lavinmq/http/constants"
+require "http/client"
 require "json"
 require "option_parser"
 
