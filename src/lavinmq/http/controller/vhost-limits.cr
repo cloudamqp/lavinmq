@@ -6,14 +6,15 @@ module LavinMQ
     class VHostLimitsController < Controller
       private def register_routes
         get "/api/vhost-limits" do |context, _params|
-          vhosts = vhosts(user(context)).map { |v| VHostLimitsView.new(v) }
+          vhosts = vhosts(user(context)).compact_map { |v| VHostLimitsView.new(v).self_if_limited }
           page(context, vhosts)
         end
 
         get "/api/vhost-limits/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            [VHostLimitsView.new(vhost)].to_json(context.response)
+            v = @amqp_server.vhosts[vhost]
+            [VHostLimitsView.new(v).self_if_limited].compact.to_json(context.response)
           end
         end
 
@@ -22,17 +23,19 @@ module LavinMQ
           refuse_unless_administrator(context, u)
           context.response.status_code = 400
           with_vhost(context, params) do |vhost|
-            body = JSON.parse(context.body_io)
-            if value = body["value"]?.try &.as?(Int32)
-              value = nil if value < 0
-              context.response.status_code = 204
-              case params["type"]
-              when "max-connections"
-                vhost.max_connections = value
-                return
-              when "max-queues"
-                vhost.max_queues = value
-                return
+            v = @amqp_server.vhosts[vhost]
+            if body = context.request.body
+              json = JSON.parse(body)
+              if value = json["value"]?.try &.as_i?
+                value = nil if value < 0
+                case params["type"]
+                when "max-connections"
+                  v.max_connections = value
+                  context.response.status_code = 204
+                when "max-queues"
+                  v.max_queues = value
+                  context.response.status_code = 204
+                end
               end
             end
           end
@@ -63,13 +66,21 @@ module LavinMQ
         def initialize(@vhost : VHost)
         end
 
+        def self_if_limited : VHostLimitsView?
+          return self if @vhost.max_connections || @vhost.max_queues
+        end
+
         def details_tuple
+          value = Hash(String, Int32).new
+          if max = @vhost.max_connections
+            value["max-connections"] = max
+          end
+          if max = @vhost.max_queues
+            value["max-queues"] = max
+          end
           {
             vhost: @vhost.name,
-            value: {
-              "max-connections": @vhost.max_connections || -1,
-              "max-queues":      @vhost.max_queues || -1,
-            }.compact,
+            value: value,
           }
         end
       end
