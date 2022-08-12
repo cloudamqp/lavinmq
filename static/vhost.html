@@ -114,9 +114,9 @@
 
       const vhostUrl = '/api/vhosts/' + urlEncodedVhost
       lavinmq.http.request('GET', vhostUrl).then(item => {
-        document.getElementById('ready').textContent = item.messages_ready
-        document.getElementById('unacked').textContent = item.messages_unacknowledged
-        document.getElementById('total').textContent = item.messages
+        document.getElementById('ready').textContent = item.messages_ready.toLocaleString()
+        document.getElementById('unacked').textContent = item.messages_unacknowledged.toLocaleString()
+        document.getElementById('total').textContent = item.messages.toLocaleString()
       })
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
