@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Queue size metric details to present expensive queue metrics calculation ([#362](https://github.com/cloudamqp/lavinmq/pull/362))
+- Support for vhost limits (max-queues and max-connections)
 
 ## [1.0.0-beta.2] - 2022-06-30
 
