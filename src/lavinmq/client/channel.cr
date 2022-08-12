@@ -116,8 +116,6 @@ module LavinMQ
         end
       end
 
-      MAX_MESSAGE_BODY_SIZE = 512 * 1024 * 1024
-
       def next_msg_headers(frame, ts)
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
         raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
@@ -130,9 +128,10 @@ module LavinMQ
             return
           end
         end
-        if frame.body_size > MAX_MESSAGE_BODY_SIZE
-          error = "message size #{frame.body_size} larger than max size #{MAX_MESSAGE_BODY_SIZE}"
+        if frame.body_size > Config.instance.max_message_size
+          error = "message size #{frame.body_size} larger than max size #{Config.instance.max_message_size}"
           @client.send_precondition_failed(frame, error)
+          @log.warn { "Message size exceeded, #{frame.body_size}/#{Config.instance.max_message_size}" }
           return
         end
         @next_msg_size = frame.body_size

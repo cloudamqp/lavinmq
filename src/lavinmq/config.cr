@@ -43,6 +43,7 @@ module LavinMQ
     property tcp_recv_buffer_size : Int32? = nil
     property tcp_send_buffer_size : Int32? = nil
     property guest_only_loopback : Bool = true
+    property max_message_size = 128 * 1024**2
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -115,6 +116,7 @@ module LavinMQ
         when "heartbeat"           then @heartbeat = v.to_u16
         when "frame_max"           then @frame_max = v.to_u32
         when "channel_max"         then @channel_max = v.to_u16
+        when "max_message_size"    then @max_message_size = v.to_i32
         when "systemd_socket_name" then @amqp_systemd_socket_name = v
         when "unix_proxy_protocol" then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8

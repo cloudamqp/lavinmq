@@ -954,4 +954,15 @@ describe LavinMQ::Server do
       s.vhosts["/"].delete_queue(n)
     end
   end
+
+  it "will limit message size" do
+    LavinMQ::Config.instance.max_message_size = 128
+    with_channel do |ch|
+      expect_raises(AMQP::Client::Channel::ClosedException, /message size/) do
+        ch.basic_publish_confirm("a" * 129, "amq.direct", "none")
+      end
+    end
+  ensure
+    LavinMQ::Config.instance.max_message_size = 128 * 1024**2
+  end
 end
