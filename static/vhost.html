@@ -42,6 +42,21 @@
           </tr>
         </table>
       </section>
+      <section class="card cols-6">
+        <h3>
+          Limits
+        </h3>
+        <table id="limits-table" class="details-table">
+          <tr>
+            <th>Max connections</th>
+            <td id="max-connections"></td>
+          </tr>
+          <tr>
+            <th>Max queues</th>
+            <td id="max-queues"></td>
+          </tr>
+        </table>
+      </section>
       <section class="card">
         <h3>
           Permissions
@@ -83,6 +98,18 @@
         </label>
         <button type="submit" class="btn-primary">Set permission</button>
       </form>
+      <form method="put" id="setLimits" class="form card cols-6">
+        <h3>Set limits</h3>
+        <label>
+          <span>Max connections</span>
+          <input type="number" name="max-connections" class="right">
+        </label>
+        <label>
+          <span>Max queues</span>
+          <input type="number" name="max-queues" class="right">
+        </label>
+        <button type="submit" class="btn-primary">Set limits</button>
+      </form>
       <section class="card cols-4">
         <h3>Danger zone</h3>
         <form method="post" id="resetVhost" class="form">
@@ -118,6 +145,19 @@
         document.getElementById('unacked').textContent = item.messages_unacknowledged.toLocaleString()
         document.getElementById('total').textContent = item.messages.toLocaleString()
       })
+
+      function fetchLimits() {
+        lavinmq.http.request('GET', '/api/vhost-limits/' + urlEncodedVhost).then(arr => {
+          const limits = arr[0] || { value: {} }
+          const maxConnections = limits.value["max-connections"] || ""
+          document.getElementById('max-connections').textContent = maxConnections.toLocaleString()
+          document.forms.setLimits["max-connections"].value = maxConnections
+          const maxQueues = limits.value["max-queues"] || ""
+          document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
+          document.forms.setLimits["max-queues"].value = maxQueues
+        })
+      }
+      fetchLimits()
 
       const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
       const tableOptions = { url: permissionsUrl, keyColumns: ['user'] }
@@ -169,6 +209,20 @@
             permissionsTable.fetchAndUpdate()
             evt.target.reset()
           }).catch(lavinmq.http.standardErrorHandler)
+      })
+
+      document.forms.setLimits.addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const maxConnectionsUrl = '/api/vhost-limits/' + urlEncodedVhost + '/max-connections'
+        const maxConnectionsBody = { value: Number(this["max-connections"].value || -1) }
+        const maxQueuesUrl = '/api/vhost-limits/' + urlEncodedVhost + '/max-queues'
+        const maxQueuesBody = { value: Number(this["max-queues"].value || -1) }
+        Promise.all([
+          lavinmq.http.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
+          lavinmq.http.request('PUT', maxQueuesUrl, { body: maxQueuesBody })
+        ]).
+          then(fetchLimits).
+          catch(lavinmq.http.standardErrorHandler)
       })
 
       document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
