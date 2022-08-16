@@ -34,14 +34,14 @@ module LavinMQ
                    @definition : Hash(String, JSON::Any), @priority : Int8)
     end
 
-    def match?(resource : Queue | Exchange)
-      applies = case resource
-                when Queue
-                  @apply_to == Target::Queues || @apply_to == Target::All
-                when Exchange
-                  @apply_to == Target::Exchanges || @apply_to == Target::All
-                end
-      applies && !@pattern.match(resource.name).nil?
+    def match?(resource : Queue)
+      return false if @apply_to.exchanges?
+      @pattern.matches?(resource.name)
+    end
+
+    def match?(resource : Exchange)
+      return false if @apply_to.queues?
+      @pattern.matches?(resource.name)
     end
 
     def details_tuple
