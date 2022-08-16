@@ -9,12 +9,17 @@ module LavinMQ
                         :queue_declared, :queue_deleted}
 
       private def vhost_stats(vhosts)
+        messages_unacknowledged = 0_u64
+        messages_ready = 0_u64
+
         {% for sm in SERVER_METRICS %}
           {{sm.id}} = 0_u64
           {{sm.id}}_rate = 0_f64
           {{sm.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
         {% end %}
         vhosts.each do |vhost|
+          messages_unacknowledged += vhost.message_details[:messages_unacknowledged]
+          messages_ready += vhost.message_details[:messages_ready]
           {% for sm in SERVER_METRICS %}
             {{sm.id}} += vhost.stats_details[:{{sm.id}}]
             {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
@@ -23,6 +28,8 @@ module LavinMQ
         end
         {% begin %}
         {
+          messages_unacknowledged: messages_unacknowledged,
+          messages_ready: messages_ready,
           {% for sm in SERVER_METRICS %}
             {{sm.id}}: {{sm.id}},
             {{sm.id}}_details: {

@@ -12,19 +12,11 @@
 
   function update (cb) {
     const statsPromise = lavinmq.http.request('GET', url)
-    const queueStatsPromise = lavinmq.http.request('GET', '/api/queues')
     Promise.all([
-      statsPromise,
-      queueStatsPromise
+      statsPromise
     ]).then(function (responses) {
       const statsData = responses[0]
-      const queueData = responses[1]
-      const msgSums = (queueData ?? [])?.reduce((agg, queue) => {
-        agg.msg_ready += queue.ready
-        agg.msg_unacked += queue.unacked
-        return agg
-      }, { msg_ready: 0, msg_unacked: 0 })
-      render(statsData, msgSums)
+      render(statsData)
       if (cb) {
         cb(statsData)
       }
@@ -163,11 +155,11 @@
       content: [
         {
           heading: 'Ready',
-          key: 'msg_ready'
+          key: 'messages_ready'
         },
         {
           heading: 'Unacked',
-          key: 'msg_unacked'
+          key: 'messages_unacknowledged'
         }
       ]
     }
