@@ -231,16 +231,16 @@ module LavinMQ
                       help:  "Total CPU user time"})
         writer.write({name: "rss_bytes", value: @amqp_server.rss,
                       help: "Memory RSS in bytes"})
-        writer.write({name:  "stats_loop_duration_seconds_total",
-                      value: @amqp_server.stats_loop_duration_seconds_total.to_f,
+        writer.write({name:  "stats_collection_duration_seconds_total",
+                      value: @amqp_server.stats_collection_duration_seconds_total.to_f,
                       type:  "gauge",
                       help:  "Total time it takes to collect metrics (stats_loop)"})
-        writer.write({name:  "stats_loop_rates_duration_seconds",
-                      value: @amqp_server.stats_loop_rates_duration_seconds.to_f,
+        writer.write({name:  "stats_rates_collection_duration_seconds",
+                      value: @amqp_server.stats_rates_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to update stats rates (update_stats_rates)"})
-        writer.write({name:  "stats_loop_system_duration_seconds",
-                      value: @amqp_server.stats_loop_system_duration_seconds.to_f,
+        writer.write({name:  "stats_system_collection_duration_seconds",
+                      value: @amqp_server.stats_system_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
         vhosts.each do |vhost|

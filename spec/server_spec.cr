@@ -970,9 +970,9 @@ describe LavinMQ::Server do
     stats_interval = LavinMQ::Config.instance.stats_interval
     LavinMQ::Config.instance.stats_interval = 100
     server = LavinMQ::Server.new("/tmp/spec")
-    should_eventually(be_true, 1.seconds) { server.stats_loop_duration_seconds_total > Time::Span.zero }
-    server.stats_loop_rates_duration_seconds.should_not eq Time::Span.zero
-    server.stats_loop_system_duration_seconds.should_not eq Time::Span.zero
+    should_eventually(be_true, 1.seconds) { server.stats_collection_duration_seconds_total > Time::Span.zero }
+    server.stats_rates_collection_duration_seconds.should_not eq Time::Span.zero
+    server.stats_system_collection_duration_seconds.should_not eq Time::Span.zero
   ensure
     LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
   end
