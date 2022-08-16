@@ -973,6 +973,7 @@ describe LavinMQ::Server do
     should_eventually(be_true, 1.seconds) { server.stats_loop_duration_seconds_total > Time::Span.zero }
     server.stats_loop_rates_duration_seconds.should_not eq Time::Span.zero
     server.stats_loop_system_duration_seconds.should_not eq Time::Span.zero
-    LavinMQ::Config.instance.stats_interval = stats_interval
+  ensure
+    LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
   end
 end
