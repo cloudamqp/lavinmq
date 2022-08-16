@@ -106,19 +106,19 @@ module LavinMQ
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
-          @max_length = v.as_i64
+          @max_length = v.as_i64 unless @max_length.try { |l| l < v.as_i64 }
           drop_overflow
         when "max-length-bytes"
-          @max_length_bytes = v.as_i64
+          @max_length_bytes = v.as_i64 unless @max_length_bytes.try { |l| l < v.as_i64 }
           drop_overflow
         when "message-ttl"
-          @message_ttl = v.as_i64
+          @message_ttl = v.as_i64 unless @message_ttl.try { |l| l < v.as_i64 }
           expire_messages
         when "overflow"
           @reject_on_overflow = v.as_s == "reject-publish"
         when "expires"
           @last_get_time = Time.monotonic
-          @expires = v.as_i64
+          @expires = v.as_i64 unless @expires.try { |l| l < v.as_i64 }
         when "dead-letter-exchange"
           @dlx = v.as_s
         when "dead-letter-routing-key"
@@ -128,7 +128,7 @@ module LavinMQ
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
         when "delivery-limit"
-          @delivery_limit = v.as_i64
+          @delivery_limit = v.as_i64 unless @delivery_limit.try { |l| l < v.as_i64 }
         else nil
         end
       end

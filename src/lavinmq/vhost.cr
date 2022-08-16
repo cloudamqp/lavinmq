@@ -59,6 +59,7 @@ module LavinMQ
       load_limits
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
+      @operator_policies = ParameterStore(Policy).new(@data_dir, "operator_policies.json", @log)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @shovels = ShovelStore.new(self)
@@ -564,11 +565,19 @@ module LavinMQ
             else
               @queues.each_value.chain(@exchanges.each_value)
             end
-      sorted_policies = @policies.values.sort_by!(&.priority).reverse
+      operator_policies = @policies.values.sort_by!(&.priority).reverse
+      policies = @policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
-        if match = sorted_policies.find &.match?(r)
+        applied = false
+        if match = policies.find &.match?(r)
           r.apply_policy(match)
-        else
+          applied = true
+        end
+        if match = operator_policies.find &.match?(r)
+          r.apply_policy(match)
+          applied = true
+        end
+        unless applied
           r.clear_policy
         end
       end
