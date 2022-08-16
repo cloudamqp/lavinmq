@@ -11,28 +11,20 @@
   let updateTimer = null
 
   function update (cb) {
-    const statsPromise = lavinmq.http.request('GET', url)
-    Promise.all([
-      statsPromise
-    ]).then(function (responses) {
-      const statsData = responses[0]
-      render(statsData)
+    lavinmq.http.request('GET', url).then(function (response) {
+      render(response)
       if (cb) {
-        cb(statsData)
+        cb(response)
       }
     }).catch(lavinmq.http.standardErrorHandler).catch(stop)
   }
 
-  function render (data, queueData) {
+  function render (data) {
     document.querySelector('#version').innerText = data[0].applications[0].version
 
     for (const node of data) {
       updateDetails(node)
-      if (queueData instanceof Object) {
-        updateStats({ ...node, ...queueData })
-      } else {
-        updateStats(node)
-      }
+      updateStats(node)
     }
   }
 
@@ -46,22 +38,6 @@
     if (updateTimer) {
       clearInterval(updateTimer)
     }
-  }
-
-  function get (key) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (data) {
-          resolve(data[key])
-        } else {
-          update(data => {
-            resolve(data[key])
-          })
-        }
-      } catch (e) {
-        reject(e.message)
-      }
-    })
   }
 
   const updateDetails = (nodeStats) => {
