@@ -11,7 +11,7 @@
   let updateTimer = null
 
   function update (cb) {
-    lavinmq.http.request('GET', url).then(function (response) {
+    lavinmq.http.request('GET', url).then((response) => {
       render(response)
       if (cb) {
         cb(response)
