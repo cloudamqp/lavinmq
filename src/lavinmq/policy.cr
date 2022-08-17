@@ -83,5 +83,13 @@ module LavinMQ
     end
   end
 
-  class OperatorPolicy < Policy; end
+  class OperatorPolicy < Policy
+    ALLOWED_ARGUMENTS = ["expires", "message-ttl", "max-length", "max-length-bytes"]
+
+    def initialize(@name : String, @vhost : String, @pattern : Regex, @apply_to : Target,
+                   @definition : Hash(String, JSON::Any), @priority : Int8)
+      super
+      raise "Forbidded operator policy" unless (@definition.keys - ALLOWED_ARGUMENTS).empty?
+    end
+  end
 end
