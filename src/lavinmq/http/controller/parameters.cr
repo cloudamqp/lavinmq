@@ -20,7 +20,7 @@ module LavinMQ
     end
 
     class ParametersController < Controller
-      private def register_routes
+      private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/parameters" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
