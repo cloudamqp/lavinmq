@@ -105,12 +105,39 @@ module LavinMQ
       private def export_vhost_parameters(json, vhosts)
         json.array do
           vhosts.each_value do |vhost|
+            # parameters
             vhost.parameters.each_value do |p|
               {
                 name:      p.parameter_name,
                 component: p.component_name,
                 vhost:     vhost.name,
                 value:     p.value,
+              }.to_json(json)
+            end
+            # vhost-limits
+            limits = Hash(String, Int32).new
+            limits["max-queues"] = vhost.max_queues if vhost.max_queues
+            limits["max-connections"] = vhost.max_connections if vhost.max_connections
+            unless limits.empty?
+              {
+                component: "vhost-limits",
+                vhost:     vhost.name,
+                name:      "limits",
+                value:     limits,
+              }.to_json(json)
+            end
+            # operator policies
+            vhost.operator_limits.each_value do |op|
+              {
+                component: "operator_policy",
+                vhost:     vhost.name,
+                name:      op.name,
+                value:     {
+                  pattern:    op.pattern,
+                  definition: op.definition,
+                  priority:   op.priority,
+                  "apply-to": op.apply_to,
+                },
               }.to_json(json)
             end
           end
