@@ -548,8 +548,7 @@ describe LavinMQ::Server do
       definitions = {
         "max-length" => JSON::Any.new(1_i64),
       } of String => JSON::Any
-      s.vhosts["/"]
-        .add_policy("test", /^mlq$/, LavinMQ::Policy::Target::Queues, definitions, 10_i8)
+      s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
       sleep 0.01
       s.vhosts["/"].queues["mlq"].message_count.should eq 1
     end
@@ -642,7 +641,7 @@ describe LavinMQ::Server do
 
   it "supports max-length" do
     definitions = {"max-length" => JSON::Any.new(1_i64)}
-    s.vhosts["/"].add_policy("ml", /^.*$/, LavinMQ::Policy::Target::Queues, definitions, 10_i8)
+    s.vhosts["/"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
     with_channel do |ch|
       q = ch.queue
       q.publish_confirm("m1").should be_true

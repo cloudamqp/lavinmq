@@ -282,8 +282,8 @@ module LavinMQ
           vhost = p["vhost"].as_s
           if v = fetch_vhost?(vhosts, vhost)
             v.add_policy(name,
-              Regex.new(p["pattern"].as_s),
-              Policy::Target.parse(p["apply-to"].as_s),
+              p["pattern"].as_s,
+              p["apply-to"].as_s,
               p["definition"].as_h,
               p["priority"].as_i.to_i8)
           end

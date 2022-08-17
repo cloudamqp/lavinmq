@@ -160,13 +160,12 @@ module LavinMQ
             definition = body["definition"]?.try &.as_h
             priority = body["priority"]?.try &.as_i? || 0
             apply_to = body["apply-to"]?.try &.as_s? || "all"
-            apply = Policy::Target.parse(apply_to)
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
             is_update = @amqp_server.vhosts[vhost].policies[name]?
             @amqp_server.vhosts[vhost]
-              .add_policy(name, Regex.new(pattern), apply, definition, priority.to_i8)
+              .add_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
           end
         end

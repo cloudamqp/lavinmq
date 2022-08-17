@@ -215,7 +215,7 @@ describe LavinMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", "^.*$", "all", definitions, -10_i8)
       response = get("/api/policies")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -233,7 +233,7 @@ describe LavinMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", "^.*$", "all", definitions, -10_i8)
       response = get("/api/policies/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -249,7 +249,7 @@ describe LavinMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", "^.*$", "all", definitions, -10_i8)
       response = get("/api/policies/%2f/test")
       response.status_code.should eq 200
     ensure
@@ -275,7 +275,7 @@ describe LavinMQ::HTTP::ParametersController do
     it "should update policy" do
       policy_name = "test"
       definitions = {"max-length" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy(policy_name, /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy(policy_name, "^.*$", "all", definitions, -10_i8)
 
       body = %({
         "pattern": ".*",
@@ -316,7 +316,7 @@ describe LavinMQ::HTTP::ParametersController do
         "max-length"         => JSON::Any.new(10_i64),
         "alternate-exchange" => JSON::Any.new("dead-letters"),
       }
-      s.vhosts["/"].add_policy("test", /^.*$/, LavinMQ::Policy::Target::All, definitions, -10_i8)
+      s.vhosts["/"].add_policy("test", "^.*$", "all", definitions, -10_i8)
       response = delete("/api/policies/%2f/test")
       response.status_code.should eq 204
     ensure
