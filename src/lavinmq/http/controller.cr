@@ -47,8 +47,13 @@ module LavinMQ
         if sort_by = params.fetch("sort", nil)
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          if first_element = sorted_items.dig?(0, sort_by)
-            {% begin %}
+          case sort_by
+          when /message_stats/
+            sort_key = sort_by.split(".").first
+            sorted_items.sort_by! { |i| i.dig("message_stats").as?(NamedTuple).try &.dig(sort_key).as?(NamedTuple).try &.dig("rate").as?(Float64) || 0.0 }
+          else
+            if first_element = sorted_items.dig?(0, sort_by)
+              {% begin %}
               case first_element
                 {% for k in {Int32, UInt32, UInt64, Float64} %}
                 when {{k.id}}
@@ -58,7 +63,9 @@ module LavinMQ
                 sorted_items.sort_by! { |i| i.dig(sort_by).to_s.downcase }
               end
             {% end %}
+            end
           end
+
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
