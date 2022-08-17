@@ -459,16 +459,30 @@ module LavinMQ
       Iterator(QueueBinding).chain(iterators)
     end
 
-    def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
-                   definition : Hash(String, JSON::Any), priority : Int8)
-      add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))
-      @log.info { "Policy=#{name} Created" }
+    def add_operator_policy(name : String, pattern : Regex, apply_to : Policy::Target,
+                            definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
+      op = OperatorPolicy.new(name, @name, pattern, apply_to, definition, priority)
+      @operator_policies.delete(name)
+      @operator_policies.create(op)
+      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      @log.info { "OperatorPolicy=#{name} Created" }
+      op
     end
 
-    def add_policy(p : Policy)
-      @policies.delete(p.name)
+    def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
+                   definition : Hash(String, JSON::Any), priority : Int8) : Policy
+      p = Policy.new(name, @name, pattern, apply_to, definition, priority)
+      @policies.delete(name)
       @policies.create(p)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      @log.info { "Policy=#{name} Created" }
+      p
+    end
+
+    def delete_operator_policy(name)
+      @operator_policies.delete(name)
+      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      @log.info { "OperatorPolicy=#{name} Deleted" }
     end
 
     def delete_policy(name)
