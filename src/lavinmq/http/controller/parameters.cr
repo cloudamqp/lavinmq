@@ -99,7 +99,7 @@ module LavinMQ
         get "/api/global-parameters/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           name = URI.decode_www_form(params["name"])
-          param = param(context, @amqp_server.parameters, Tuple.new(nil, name))
+          param = param(context, @amqp_server.parameters, {nil, name})
           map_parameter(nil, param).to_json(context.response)
           context
         end
