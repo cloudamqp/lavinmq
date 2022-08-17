@@ -116,8 +116,12 @@ module LavinMQ
             end
             # vhost-limits
             limits = Hash(String, Int32).new
-            limits["max-queues"] = vhost.max_queues if vhost.max_queues
-            limits["max-connections"] = vhost.max_connections if vhost.max_connections
+            if mq = vhost.max_queues
+              limits["max-queues"] = mq
+            end
+            if mc = vhost.max_connections
+              limits["max-connections"] = mc
+            end
             unless limits.empty?
               {
                 component: "vhost-limits",
@@ -127,7 +131,7 @@ module LavinMQ
               }.to_json(json)
             end
             # operator policies
-            vhost.operator_limits.each_value do |op|
+            vhost.operator_policies.each_value do |op|
               {
                 component: "operator_policy",
                 vhost:     vhost.name,
@@ -238,10 +242,28 @@ module LavinMQ
       private def import_parameters(body, vhosts)
         return unless parameters = body["parameters"]? || nil
         parameters.as_a.each do |p|
-          param = Parameter.new(p["component"].as_s, p["name"].as_s, p["value"])
           vhost = p["vhost"].as_s
           next unless v = fetch_vhost?(vhosts, vhost)
-          v.add_parameter(param)
+          name = p["name"].as_s
+          value = p["value"].as_h
+          component = p["component"].as_s
+          case component
+          when "vhost-limits"
+            if mc = value["max-connections"]?.try &.as_i?
+              v.max_connections = mc
+            end
+            if mq = value["max-queues"]?.try &.as_i?
+              v.max_queues = mq
+            end
+          when "operator_policy"
+            v.add_operator_policy(name,
+              value["pattern"].as_s,
+              value["apply-to"].as_s,
+              value["definition"].as_h,
+              value["priority"].as_i.to_i8)
+          else
+            v.add_parameter(Parameter.new(component, name, p["value"]))
+          end
         end
       end
 

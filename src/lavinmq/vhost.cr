@@ -25,7 +25,7 @@ module LavinMQ
     rate_stats(%w(channel_closed channel_created connection_closed connection_created
       queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
-    getter name, exchanges, queues, data_dir, policies, parameters, shovels,
+    getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_channels, default_user, connections, dir, gc_runs, gc_timing, log
     property? flow = true
     property? dirty = false
@@ -459,9 +459,9 @@ module LavinMQ
       Iterator(QueueBinding).chain(iterators)
     end
 
-    def add_operator_policy(name : String, pattern : Regex, apply_to : Policy::Target,
+    def add_operator_policy(name : String, pattern : String, apply_to : String,
                             definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
-      op = OperatorPolicy.new(name, @name, pattern, apply_to, definition, priority)
+      op = OperatorPolicy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to), definition, priority)
       @operator_policies.delete(name)
       @operator_policies.create(op)
       spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
