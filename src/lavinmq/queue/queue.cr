@@ -62,6 +62,7 @@ module LavinMQ
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready,
       unacked, last_get_time
     getter policy : Policy?
+    getter operator_policy : OperatorPolicy?
     getter? closed
     property? internal = false
     getter state = QueueState::Running
@@ -100,25 +101,25 @@ module LavinMQ
       @exclusive_consumer
     end
 
-    def apply_policy(policy : Policy) # ameba:disable Metrics/CyclomaticComplexity
+    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?) # ameba:disable Metrics/CyclomaticComplexity
       clear_policy
-      policy.definition.each do |k, v|
+      Policy.merge_definitions(policy, operator_policy).each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
-          @max_length = v.as_i64 unless @max_length.try { |l| l < v.as_i64 }
+          @max_length = v.as_i64
           drop_overflow
         when "max-length-bytes"
-          @max_length_bytes = v.as_i64 unless @max_length_bytes.try { |l| l < v.as_i64 }
+          @max_length_bytes = v.as_i64
           drop_overflow
         when "message-ttl"
-          @message_ttl = v.as_i64 unless @message_ttl.try { |l| l < v.as_i64 }
+          @message_ttl = v.as_i64
           expire_messages
         when "overflow"
           @reject_on_overflow = v.as_s == "reject-publish"
         when "expires"
           @last_get_time = Time.monotonic
-          @expires = v.as_i64 unless @expires.try { |l| l < v.as_i64 }
+          @expires = v.as_i64
         when "dead-letter-exchange"
           @dlx = v.as_s
         when "dead-letter-routing-key"
@@ -128,11 +129,12 @@ module LavinMQ
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
         when "delivery-limit"
-          @delivery_limit = v.as_i64 unless @delivery_limit.try { |l| l < v.as_i64 }
+          @delivery_limit = v.as_i64
         else nil
         end
       end
       @policy = policy
+      @operator_policy = operator_policy
       step_loop
     end
 
@@ -142,8 +144,9 @@ module LavinMQ
       consumer_available
     end
 
-    def clear_policy
+    private def clear_policy
       handle_arguments
+      @operator_policy = nil
       return if @policy.nil?
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
@@ -442,10 +445,11 @@ module LavinMQ
         unacked:                     @unacked.size,
         unacked_bytes:               @unacked.bytesize,
         unacked_avg_bytes:           @unacked.avg_bytesize,
+        operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
         exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
         state:                       @state.to_s,
-        effective_policy_definition: @policy,
+        effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               stats_details,
         internal:                    @internal,
         first_message_timestamp:     0,

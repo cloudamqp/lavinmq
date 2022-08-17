@@ -59,7 +59,7 @@ module LavinMQ
       load_limits
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
-      @operator_policies = ParameterStore(Policy).new(@data_dir, "operator_policies.json", @log)
+      @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @shovels = ShovelStore.new(self)
@@ -565,24 +565,15 @@ module LavinMQ
             else
               @queues.each_value.chain(@exchanges.each_value)
             end
-      operator_policies = @policies.values.sort_by!(&.priority).reverse
       policies = @policies.values.sort_by!(&.priority).reverse
+      operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
-        applied = false
-        if match = policies.find &.match?(r)
-          r.apply_policy(match)
-          applied = true
-        end
-        if match = operator_policies.find &.match?(r)
-          r.apply_policy(match)
-          applied = true
-        end
-        unless applied
-          r.clear_policy
-        end
+        policy = policies.find &.match?(r)
+        operator_policy = operator_policies.find &.match?(r)
+        r.apply_policy(policy, operator_policy)
       end
     rescue ex : TypeCastError
-      @log.warn { "Invalid policy. #{ex.message}" }
+      @log.error { "Invalid policy. #{ex.message}" }
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
