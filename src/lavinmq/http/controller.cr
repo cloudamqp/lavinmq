@@ -44,28 +44,21 @@ module LavinMQ
           return context
         end
         all_items = filter_values(params, iterator.map(&.details_tuple))
-        if sort_by = params.fetch("sort", nil)
+        if sort_by = params.fetch("sort", nil).try &.split(".")
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          case sort_by
-          when /message_stats/
-            sort_key = sort_by.split(".").first
-            sorted_items.sort_by! { |i| i.dig("message_stats").as?(NamedTuple).try &.dig(sort_key).as?(NamedTuple).try &.dig("rate").as?(Float64) || 0.0 }
-          else
-            if first_element = sorted_items.dig?(0, sort_by)
-              {% begin %}
-              case first_element
+          if first_element = sorted_items.first?
+            {% begin %}
+              case dig(first_element, sort_by)
                 {% for k in {Int32, UInt32, UInt64, Float64} %}
                 when {{k.id}}
-                  sorted_items.sort_by! { |i| i.dig(sort_by).as({{k.id}}) }
+                  sorted_items.sort_by! { |i| dig(i, sort_by).as({{k.id}}) }
                 {% end %}
               else
-                sorted_items.sort_by! { |i| i.dig(sort_by).to_s.downcase }
+                sorted_items.sort_by! { |i| dig(i, sort_by).to_s.downcase }
               end
             {% end %}
-            end
           end
-
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
@@ -94,6 +87,15 @@ module LavinMQ
           end
         end
         context
+      end
+
+      private def dig(i : NamedTuple, keys : Array(String))
+        if keys.size > 1
+          nt = i[keys.first].as?(NamedTuple) || return
+          dig(nt, keys[1..])
+        else
+          i[keys.first]
+        end
       end
 
       private def array_iterator_to_json(json, iterator, start : Int, page_size : Int)
