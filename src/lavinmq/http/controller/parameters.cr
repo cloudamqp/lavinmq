@@ -182,7 +182,7 @@ module LavinMQ
         get "/api/operator-policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = Iterator(Policy).chain(vhosts(user).map(&.operator_policies.each_value))
+          itr = Iterator(OperatorPolicy).chain(vhosts(user).map(&.operator_policies.each_value))
           page(context, itr)
         end
 
@@ -203,7 +203,7 @@ module LavinMQ
 
         put "/api/operator-policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_administrator(context, user(context), vhost)
+            refuse_unless_administrator(context, user(context))
             name = URI.decode_www_form(params["name"])
             body = parse_body(context)
             pattern = body["pattern"]?.try &.as_s?
@@ -222,7 +222,7 @@ module LavinMQ
 
         delete "/api/operator-policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_administrator(context, user(context), vhost)
+            refuse_unless_administrator(context, user(context))
             name = URI.decode_www_form(params["name"])
             operator_policy(context, name, vhost)
             @amqp_server.vhosts[vhost].delete_operator_policy(name)
