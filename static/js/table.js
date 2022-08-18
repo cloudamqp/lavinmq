@@ -117,7 +117,7 @@
       if (searchTerm) {
         q += `&name=${searchTerm}&use_regex=true`
       }
-      if (sortKey !== '') {
+      if (sortKey > "") {
         q += `&sort=${sortKey}&sort_reverse=${reverseOrder}`
       }
       return q
