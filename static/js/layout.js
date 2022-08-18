@@ -1,4 +1,3 @@
-(function () {
   document.getElementsByTagName('aside')[0].innerHTML = `
     <h1>
       <a href="/"><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
@@ -99,4 +98,3 @@
     LavinMQ is open source and developed by
     <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a>
   `
-})()

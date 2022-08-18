@@ -1,99 +1,94 @@
+import * as HTTP from './http.js'
+import * as Helpers from './helpers.js'
 
-/* global lavinmq */
-(function () {
-  window.lavinmq = window.lavinmq || {}
+const numFormatter = new Intl.NumberFormat()
+const url = '/api/overview'
+const raw = window.sessionStorage.getItem(cacheKey())
+let data = null
+let updateTimer = null
 
-  const numFormatter = new Intl.NumberFormat()
-  const url = '/api/overview'
-  const raw = window.sessionStorage.getItem(cacheKey())
-  let data = null
-  let updateTimer = null
+if (raw) {
+  try {
+    data = JSON.parse(raw)
+    if (data) {
+      render(data)
+    }
+  } catch (e) {
+    window.sessionStorage.removeItem(cacheKey())
+    console.log('Error parsing data from sessionStorage')
+    console.error(e)
+  }
+}
 
-  if (raw) {
+if (data === null) {
+  update(render)
+}
+
+function cacheKey () {
+  const vhost = window.sessionStorage.getItem('vhost')
+  return url + '/' + vhost
+}
+
+function update (cb) {
+  const vhost = window.sessionStorage.getItem('vhost')
+  const headers = new window.Headers()
+  if (vhost && vhost !== '_all') {
+    headers.append('x-vhost', vhost)
+  }
+  HTTP.request('GET', url, { headers }).then(function (response) {
+    data = response
     try {
-      data = JSON.parse(raw)
+      window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
+    } catch (e) {
+      console.error('Saving sessionStorage', e)
+    }
+    render(response)
+    if (cb) {
+      cb(response)
+    }
+  }).catch(HTTP.standardErrorHandler).catch(stop)
+}
+
+function render (data) {
+  document.querySelector('#version').innerText = data.lavinmq_version
+  document.querySelector('#cluster_name').innerText = data.node
+  const table = document.querySelector('#overview')
+  if (table) {
+    Object.keys(data.object_totals).forEach(function (key) {
+      table.querySelector('.' + key).innerText = numFormatter.format(data.object_totals[key])
+    })
+    table.querySelector('.uptime').innerText = Helpers.duration(data.uptime)
+  }
+}
+
+function start (cb) {
+  update(cb)
+  updateTimer = setInterval(() => update(cb), 5000)
+}
+
+// Show that we're offline in the UI
+function stop () {
+  if (updateTimer) {
+    clearInterval(updateTimer)
+  }
+}
+
+function get (key) {
+  return new Promise(function (resolve, reject) {
+    try {
       if (data) {
-        render(data)
+        resolve(data[key])
+      } else {
+        update(data => {
+          resolve(data[key])
+        })
       }
     } catch (e) {
-      window.sessionStorage.removeItem(cacheKey())
-      console.log('Error parsing data from sessionStorage')
-      console.error(e)
-    }
-  }
-
-  if (data === null) {
-    update(render)
-  }
-
-  function cacheKey () {
-    const vhost = window.sessionStorage.getItem('vhost')
-    return url + '/' + vhost
-  }
-
-  function update (cb) {
-    const vhost = window.sessionStorage.getItem('vhost')
-    const headers = new window.Headers()
-    if (vhost && vhost !== '_all') {
-      headers.append('x-vhost', vhost)
-    }
-    lavinmq.http.request('GET', url, { headers }).then(function (response) {
-      data = response
-      try {
-        window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
-      } catch (e) {
-        console.error('Saving sessionStorage', e)
-      }
-      render(response)
-      if (cb) {
-        cb(response)
-      }
-    }).catch(lavinmq.http.standardErrorHandler).catch(stop)
-  }
-
-  function render (data) {
-    document.querySelector('#version').innerText = data.lavinmq_version
-    document.querySelector('#cluster_name').innerText = data.node
-    const table = document.querySelector('#overview')
-    if (table) {
-      Object.keys(data.object_totals).forEach(function (key) {
-        table.querySelector('.' + key).innerText = numFormatter.format(data.object_totals[key])
-      })
-      table.querySelector('.uptime').innerText = lavinmq.helpers.duration(data.uptime)
-    }
-  }
-
-  function start (cb) {
-    update(cb)
-    updateTimer = setInterval(() => update(cb), 5000)
-  }
-
-  // Show that we're offline in the UI
-  function stop () {
-    if (updateTimer) {
-      clearInterval(updateTimer)
-    }
-  }
-
-  function get (key) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (data) {
-          resolve(data[key])
-        } else {
-          update(data => {
-            resolve(data[key])
-          })
-        }
-      } catch (e) {
-        reject(e.message)
-      }
-    })
-  }
-
-  Object.assign(window.lavinmq, {
-    overview: {
-      update, start, stop, render, get
+      reject(e.message)
     }
   })
-})()
+}
+
+export {
+  update, start, stop, render, get
+}
