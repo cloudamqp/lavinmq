@@ -22,8 +22,6 @@
         margin: 40px auto;
       }
     </style>
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
   </head>
   <body>
     <main>
@@ -42,15 +40,16 @@
         </form>
       </section>
     </main>
-    <script type="text/javascript">
-      /* globals lavinmq */
+    <script type="module">
+      import * as HTTP from './js/http.js'
+      import * as Auth from './js/auth.js'
       document.querySelector('#login').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const user = document.querySelector('#amq-username').value
         const pass = document.querySelector('#amq-password').value
-        lavinmq.auth.setAuth(user + ':' + pass)
-        lavinmq.http.request('GET', '/api/whoami').then(function () {
-          lavinmq.auth.storeCookie({ username: user, password: pass })
+        Auth.setAuth(user + ':' + pass)
+        HTTP.request('GET', '/api/whoami').then(function () {
+          Auth.storeCookie({ username: user, password: pass })
           window.location.assign('/')
         }).catch(function () {
           window.alert('Login failed')

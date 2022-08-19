@@ -10,9 +10,8 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
-    <script src="/js/helpers.js"></script>
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module" src="/js/policies.js"></script>
   </head>
   <body>
     <header>
@@ -118,100 +117,5 @@
       </form>
     </main>
     <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
-      lavinmq.vhosts.addVhostOptions('createPolicy').then(() => {
-        autofill_editpolicy(policiesTable.getData())
-      })
-
-      let url = '/api/policies'
-      const vhost = window.sessionStorage.getItem('vhost')
-      if (vhost && vhost !== '_all') {
-        url += '/' + encodeURIComponent(vhost)
-      }
-      const tableOptions = {
-        url,
-        keyColumns: ['vhost', 'name'],
-        pagination: true,
-        columnSelector: true,
-        search: true
-      }
-      const policiesTable = lavinmq.table.renderTable('table', tableOptions, (tr, item) => {
-        lavinmq.table.renderCell(tr, 0, item.vhost)
-        lavinmq.table.renderCell(tr, 1, item.name)
-        tr.cells[1].classList.add('self-link')
-        tr.cells[1].onclick = () => { autofill_editpolicy(item, false) }
-        lavinmq.table.renderCell(tr, 2, item.pattern)
-        lavinmq.table.renderCell(tr, 3, item['apply-to'])
-        lavinmq.table.renderCell(tr, 4, JSON.stringify(item.definition))
-        lavinmq.table.renderCell(tr, 5, item.priority)
-
-        const btn = document.createElement('button')
-        btn.classList.add('btn-danger')
-        btn.innerHTML = 'Delete'
-        btn.onclick = function () {
-          const name = encodeURIComponent(item.name)
-          const vhost = encodeURIComponent(item.vhost)
-          const url = '/api/policies/' + vhost + '/' + name
-          if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
-            lavinmq.http.request('DELETE', url)
-              .then(() => {
-                lavinmq.dom.removeNodes(tr)
-              }).catch(lavinmq.http.standardErrorHandler)
-          }
-        }
-        lavinmq.table.renderCell(tr, 6, btn, 'right')
-      })
-
-      document.querySelector('#createPolicy').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const name = encodeURIComponent(data.get('name').trim())
-        const vhost = encodeURIComponent(data.get('vhost'))
-        const url = '/api/policies/' + vhost + '/' + name
-        const body = {
-          pattern: data.get('pattern').trim(),
-          definition: lavinmq.dom.parseJSON(data.get('definition')),
-          'apply-to': data.get('apply-to'),
-          priority: parseInt(data.get('priority'))
-        }
-        lavinmq.http.request('PUT', url, { body })
-          .then(() => {
-            policiesTable.fetchAndUpdate()
-            evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
-      })
-      document.querySelector('#dataTags').onclick = e => {
-        window.lavinmq.helpers.argumentHelperJSON("definition", e)
-      }
-
-      function autofill_editpolicy(policies, otherOrigin = true) {
-        if (otherOrigin) {
-          const urlParams = new URLSearchParams(window.location.search);
-          pname = urlParams.get('name')
-          pvhost = urlParams.get('vhost');
-          if (!(pname && pvhost)) {
-            return
-          }
-          policy = policies.filter(item => {
-            return item.name === pname && item.vhost === pvhost
-          })[0]
-        } else {
-          policy = policies
-        }
-
-        document.getElementById('addPolicyVhost').value = policy.vhost
-        document.getElementsByName('name')[0].value = policy.name
-        document.getElementById('addPolicyApplyTo').value = policy["apply-to"]
-        document.getElementsByName('pattern')[0].value = policy.pattern
-        document.getElementsByName('definition')[0].value = JSON.stringify(policy.definition)
-        document.getElementsByName('priority')[0].value = policy.priority
-      }
-    </script>
   </body>
 </html>

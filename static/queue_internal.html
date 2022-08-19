@@ -10,8 +10,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -70,32 +69,30 @@
       </section>
     </main>
     <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/helpers.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/overview.js"></script>
     <script src="/js/lib/chart.js"></script>
-    <script src="/js/chart.js"></script>
-    <script>
-      /* globals lavinmq */
+    <script type="module">
+      import * as HTTP from './js/http.js'
+      import * as DOM from './js/dom.js'
+      import * as Chart from './js/chart.js'
+      import * as Helpers from './js/helpers.js'
+
       const queue = new URLSearchParams(window.location.search).get('name')
       const vhost = new URLSearchParams(window.location.search).get('vhost')
       const urlEncodedQueue = encodeURIComponent(queue)
       const urlEncodedVhost = encodeURIComponent(vhost)
       document.title = queue + ' | LavinMQ'
 
-      const chart = lavinmq.chart.render('chart', 'msgs/s')
+      const chart = Chart.render('chart', 'msgs/s')
       const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
       function updateQueue (all) {
-        lavinmq.http.request('GET', queueUrl).then(item => {
+        HTTP.request('GET', queueUrl).then(item => {
           const stats = {
             publish: item.message_stats.publish,
             publish_details: item.message_stats.publish_details
           }
-          lavinmq.chart.update(chart, stats)
+          Chart.update(chart, stats)
           document.getElementById('q-state').textContent = item.state
-          document.getElementById('q-ready').textContent = lavinmq.helpers.formatNumber(item.ready)
+          document.getElementById('q-ready').textContent = Helpers.formatNumber(item.ready)
           if (all) {
             let features = ''
             features += item.durable ? ' D' : ''
@@ -107,7 +104,7 @@
               const policyLink = document.createElement('a')
               policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
               policyLink.textContent = item.policy
-              lavinmq.dom.setChild('#q-policy', policyLink)
+              DOM.setChild('#q-policy', policyLink)
             }
             const qArgs = document.getElementById('q-arguments')
             let args = ''
@@ -116,7 +113,7 @@
             }
             qArgs.innerHTML = args
           }
-        }).catch(lavinmq.http.standardErrorHandler).catch(e => clearInterval(qTimer))
+        }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(qTimer))
       }
       updateQueue(true)
       const qTimer = setInterval(updateQueue, 5000)
@@ -124,9 +121,9 @@
         evt.preventDefault()
         const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
         if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
-          lavinmq.http.request('DELETE', url)
-            .then(() => { lavinmq.dom.toast('Queue purged!') })
-            .catch(lavinmq.http.standardErrorHandler)
+          HTTP.request('DELETE', url)
+            .then(() => { DOM.toast('Queue purged!') })
+            .catch(HTTP.standardErrorHandler)
         }
       })
     </script>
