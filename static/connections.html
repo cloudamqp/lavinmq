@@ -10,8 +10,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -51,15 +50,12 @@
       </section>
     </main>
     <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
+    <script type="module">
+      import * as DOM from './js/dom.js'
+      import * as Table from './js/table.js'
+
       const vhost = window.sessionStorage.getItem('vhost')
-      const escapeHTML = lavinmq.dom.escapeHTML
+      const escapeHTML = DOM.escapeHTML
       const numFormatter = new Intl.NumberFormat()
       let url = '/api/connections'
       if (vhost && vhost !== '_all') {
@@ -73,7 +69,7 @@
         columnSelector: true,
         search: true
       }
-      lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
+      Table.renderTable('table', tableOptions, function (tr, item, all) {
         if (all) {
           let client = ''
           if (item.client_properties.product) {
@@ -88,23 +84,23 @@
           } else {
             connectionLink.textContent = item.name
           }
-          lavinmq.table.renderCell(tr, 0, item.vhost)
-          lavinmq.table.renderCell(tr, 1, connectionLink)
-          lavinmq.table.renderCell(tr, 2, item.user)
-          lavinmq.table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
-          lavinmq.table.renderCell(tr, 5, item.tls_version, 'center')
-          lavinmq.table.renderCell(tr, 6, item.cipher, 'center')
-          lavinmq.table.renderCell(tr, 7, item.protocol, 'center')
-          lavinmq.table.renderCell(tr, 9, item.channel_max, 'right')
-          lavinmq.table.renderCell(tr, 10, item.timeout, 'right')
-          // lavinmq.table.renderCell(tr, 8, item.auth_mechanism)
-          lavinmq.table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
-          lavinmq.table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
+          Table.renderCell(tr, 0, item.vhost)
+          Table.renderCell(tr, 1, connectionLink)
+          Table.renderCell(tr, 2, item.user)
+          Table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
+          Table.renderCell(tr, 5, item.tls_version, 'center')
+          Table.renderCell(tr, 6, item.cipher, 'center')
+          Table.renderCell(tr, 7, item.protocol, 'center')
+          Table.renderCell(tr, 9, item.channel_max, 'right')
+          Table.renderCell(tr, 10, item.timeout, 'right')
+          // Table.renderCell(tr, 8, item.auth_mechanism)
+          Table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
+          Table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
         }
-        lavinmq.table.renderCell(tr, 3, null, `center state-${item.state}`)
-        lavinmq.table.renderCell(tr, 8, item.channels, 'right')
-        lavinmq.table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
-        lavinmq.table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
+        Table.renderCell(tr, 3, null, `center state-${item.state}`)
+        Table.renderCell(tr, 8, item.channels, 'right')
+        Table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
+        Table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
       })
     </script>
   </body>

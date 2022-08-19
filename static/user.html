@@ -10,8 +10,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -105,14 +104,13 @@
       </section>
     </main>
     <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/table.js"></script>
-    <script src="/js/helpers.js"></script>
-    <script>
-      /* globals lavinmq */
+    <script type="module">
+      import * as HTTP from './js/http.js'
+      import * as Helpers from './js/helpers.js'
+      import * as Table from './js/table.js'
+      import * as DOM from './js/dom.js'
+      import * as Vhosts from './js/vhosts.js'
+
       const user = new URLSearchParams(window.location.search).get('name')
       const urlEncodedUsername = encodeURIComponent(user)
       document.title = user + ' | LavinMQ'
@@ -120,21 +118,21 @@
 
       function updateUser () {
         const userUrl = '/api/users/' + urlEncodedUsername
-        lavinmq.http.request('GET', userUrl)
+        HTTP.request('GET', userUrl)
           .then(item => {
             const hasPassword = item.password_hash.length ? '●' : '○'
             document.getElementById('tags').textContent = item.tags
             document.getElementById('hasPassword').textContent = hasPassword
-          }).catch(lavinmq.http.standardErrorHandler)
+          }).catch(HTTP.standardErrorHandler)
       }
       updateUser()
 
       const permissionsUrl = '/api/users/' + urlEncodedUsername + '/permissions'
       const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0 }
-      const permissionsTable = lavinmq.table.renderTable('table', tableOptions, (tr, item, all) => {
-        lavinmq.table.renderCell(tr, 1, item.configure)
-        lavinmq.table.renderCell(tr, 2, item.write)
-        lavinmq.table.renderCell(tr, 3, item.read)
+      const permissionsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
+        Table.renderCell(tr, 1, item.configure)
+        Table.renderCell(tr, 2, item.write)
+        Table.renderCell(tr, 3, item.read)
         if (all) {
           const btn = document.createElement('button')
           btn.classList.add('btn-secondary')
@@ -143,17 +141,17 @@
             const username = encodeURIComponent(item.user)
             const vhost = encodeURIComponent(item.vhost)
             const url = '/api/permissions/' + vhost + '/' + username
-            lavinmq.http.request('DELETE', url)
+            HTTP.request('DELETE', url)
               .then(() => {
-                lavinmq.dom.removeNodes(tr)
-              }).catch(lavinmq.http.standardErrorHandler)
+                DOM.removeNodes(tr)
+              }).catch(HTTP.standardErrorHandler)
           }
-          lavinmq.table.renderCell(tr, 0, item.vhost)
-          lavinmq.table.renderCell(tr, 4, btn, 'right')
+          Table.renderCell(tr, 0, item.vhost)
+          Table.renderCell(tr, 4, btn, 'right')
         }
       })
 
-      lavinmq.vhosts.addVhostOptions('setPermission')
+      Vhosts.addVhostOptions('setPermission')
 
       document.querySelector('#setPermission').addEventListener('submit', function (evt) {
         evt.preventDefault()
@@ -165,11 +163,11 @@
           write: data.get('write'),
           read: data.get('read')
         }
-        lavinmq.http.request('PUT', url, { body })
+        HTTP.request('PUT', url, { body })
           .then(() => {
             permissionsTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
+          }).catch(HTTP.standardErrorHandler)
       })
 
       document.querySelector('[name=remove_password]').addEventListener('change', function () {
@@ -194,24 +192,24 @@
         } else {
           body.password = data.get('password')
         }
-        lavinmq.http.request('PUT', url, { body })
+        HTTP.request('PUT', url, { body })
           .then(() => {
             updateUser()
             evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
+          }).catch(HTTP.standardErrorHandler)
       })
 
       document.querySelector('#dataTags').onclick = e => {
-        window.lavinmq.helpers.argumentHelper("tags", e)
+        Helpers.argumentHelper("tags", e)
       }
 
       document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const url = '/api/users/' + urlEncodedUsername
         if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
-          lavinmq.http.request('DELETE', url)
+          HTTP.request('DELETE', url)
             .then(() => { window.location = '/users' })
-            .catch(lavinmq.http.standardErrorHandler)
+            .catch(HTTP.standardErrorHandler)
         }
       })
     </script>

@@ -1,3 +1,5 @@
+import * as Auth from './auth.js'
+
   document.getElementsByTagName('aside')[0].innerHTML = `
     <h1>
       <a href="/"><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
@@ -82,12 +84,12 @@
         <form id="user-vhost">
           <label>
             <span>vhost:</span>
-            <select id="userMenuVhost" name="vhost" onchange="lavinmq.auth.selectVhost(this)"></select>
+            <select id="userMenuVhost" name="vhost" onchange="Auth.selectVhost(this)"></select>
           </label>
         </form>
       </li>
       <li>
-        <a href="#" onclick="lavinmq.auth.signOut()">
+        <a href="#" onclick="Auth.signOut()">
           <span class="head">🙈</span>&nbsp; Sign out</span>
         </a>
       </li>

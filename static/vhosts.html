@@ -10,8 +10,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -49,14 +48,11 @@
       </form>
     </main>
     <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/helpers.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
+    <script type="module">
+      import * as HTTP from './js/http.js'
+      import * as Helpers from './js/helpers.js'
+      import * as Table from './js/table.js'
+
       const tableOptions = {
         url: '/api/vhosts',
         keyColumns: ['name'],
@@ -65,12 +61,12 @@
         columnSelector: true,
         search: true
       }
-      const vhostTable = lavinmq.table.renderTable('table', tableOptions, (tr, item, all) => {
+      const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
 
         const urlEncodedVhost = encodeURIComponent(item.name)
         const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
-          lavinmq.http.request('GET', permissionsUrl).then(permissions => {
+          HTTP.request('GET', permissionsUrl).then(permissions => {
             window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
             resolve(permissions)
           }).catch(e => {
@@ -83,13 +79,13 @@
             const vhostLink = document.createElement('a')
             vhostLink.href = '/vhost?name=' + urlEncodedVhost
             vhostLink.textContent = item.name
-            lavinmq.table.renderCell(tr, 0, vhostLink)
+            Table.renderCell(tr, 0, vhostLink)
           }
           const userList = permissions.filter(p => p.vhost === item.name).map(p => p.user).join(', ')
-          lavinmq.table.renderCell(tr, 1, userList)
-          lavinmq.table.renderCell(tr, 2, lavinmq.helpers.formatNumber(item.messages_ready), 'center')
-          lavinmq.table.renderCell(tr, 3, lavinmq.helpers.formatNumber(item.messages_unacknowledged), 'center')
-          lavinmq.table.renderCell(tr, 4, lavinmq.helpers.formatNumber(item.messages), 'center')
+          Table.renderCell(tr, 1, userList)
+          Table.renderCell(tr, 2, Helpers.formatNumber(item.messages_ready), 'center')
+          Table.renderCell(tr, 3, Helpers.formatNumber(item.messages_unacknowledged), 'center')
+          Table.renderCell(tr, 4, Helpers.formatNumber(item.messages), 'center')
         })
       })
 
@@ -98,11 +94,11 @@
         const data = new window.FormData(this)
         const name = encodeURIComponent(data.get('name').trim())
         const url = '/api/vhosts/' + name
-        lavinmq.http.request('PUT', url)
+        HTTP.request('PUT', url)
           .then(() => {
             vhostTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
+          }).catch(HTTP.standardErrorHandler)
       })
     </script>
   </body>

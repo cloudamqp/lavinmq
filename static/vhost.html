@@ -10,8 +10,8 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module" src="/js/vhost.js"> </script>
   </head>
   <body>
     <header>
@@ -125,123 +125,5 @@
       </section>
     </main>
     <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/users.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
-      const vhost = new URLSearchParams(window.location.search).get('name')
-      const urlEncodedVhost = encodeURIComponent(vhost)
-      document.title = vhost + ' | LavinMQ'
-      document.querySelector('#vhost2').textContent = vhost
-
-      const vhostUrl = '/api/vhosts/' + urlEncodedVhost
-      lavinmq.http.request('GET', vhostUrl).then(item => {
-        document.getElementById('ready').textContent = item.messages_ready.toLocaleString()
-        document.getElementById('unacked').textContent = item.messages_unacknowledged.toLocaleString()
-        document.getElementById('total').textContent = item.messages.toLocaleString()
-      })
-
-      function fetchLimits() {
-        lavinmq.http.request('GET', '/api/vhost-limits/' + urlEncodedVhost).then(arr => {
-          const limits = arr[0] || { value: {} }
-          const maxConnections = limits.value["max-connections"] || ""
-          document.getElementById('max-connections').textContent = maxConnections.toLocaleString()
-          document.forms.setLimits["max-connections"].value = maxConnections
-          const maxQueues = limits.value["max-queues"] || ""
-          document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
-          document.forms.setLimits["max-queues"].value = maxQueues
-        })
-      }
-      fetchLimits()
-
-      const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
-      const tableOptions = { url: permissionsUrl, keyColumns: ['user'] }
-      const permissionsTable = lavinmq.table.renderTable('table', tableOptions, (tr, item, all) => {
-        lavinmq.table.renderCell(tr, 1, item.configure)
-        lavinmq.table.renderCell(tr, 2, item.write)
-        lavinmq.table.renderCell(tr, 3, item.read)
-        if (all) {
-          const btn = document.createElement('button')
-          btn.classList.add('btn-secondary')
-          btn.innerHTML = 'Clear'
-          btn.onclick = function () {
-            const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
-            lavinmq.http.request('DELETE', url)
-              .then(() => { lavinmq.dom.removeNodes(tr) })
-              .catch(lavinmq.http.standardErrorHandler)
-          }
-          const userLink = document.createElement('a')
-          userLink.href = '/user?name=' + encodeURIComponent(item.user)
-          userLink.textContent = item.user
-          lavinmq.table.renderCell(tr, 0, userLink)
-          lavinmq.table.renderCell(tr, 4, btn, 'right')
-        }
-      })
-
-      function addUserOptions (users) {
-        const select = document.forms.setPermission.elements.user
-        while (select.options.length) select.remove(0)
-        for (let i = 0; i < users.length; i++) {
-          const opt = document.createElement('option')
-          opt.text = users[i].name
-          select.add(opt)
-        }
-      }
-
-      lavinmq.users.fetch(addUserOptions)
-
-      document.querySelector('#setPermission').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const url = '/api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(data.get('user'))
-        const body = {
-          configure: data.get('configure'),
-          write: data.get('write'),
-          read: data.get('read')
-        }
-        lavinmq.http.request('PUT', url, { body })
-          .then(() => {
-            permissionsTable.fetchAndUpdate()
-            evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
-      })
-
-      document.forms.setLimits.addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const maxConnectionsUrl = '/api/vhost-limits/' + urlEncodedVhost + '/max-connections'
-        const maxConnectionsBody = { value: Number(this["max-connections"].value || -1) }
-        const maxQueuesUrl = '/api/vhost-limits/' + urlEncodedVhost + '/max-queues'
-        const maxQueuesBody = { value: Number(this["max-queues"].value || -1) }
-        Promise.all([
-          lavinmq.http.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
-          lavinmq.http.request('PUT', maxQueuesUrl, { body: maxQueuesBody })
-        ]).
-          then(fetchLimits).
-          catch(lavinmq.http.standardErrorHandler)
-      })
-
-      document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const url = '/api/vhosts/' + urlEncodedVhost
-        if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
-          lavinmq.http.request('DELETE', url)
-            .then(() => { window.location = '/vhosts' })
-            .catch(lavinmq.http.standardErrorHandler)
-        }
-      })
-      document.querySelector('#resetVhost').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const url = '/api/vhosts/' + urlEncodedVhost + '/purge_and_close_consumers'
-        if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
-          lavinmq.http.request('POST', url)
-            .then(() => { window.location = 'vhost?name=' + urlEncodedVhost })
-            .catch(lavinmq.http.standardErrorHandler)
-        }
-      })
-    </script>
   </body>
 </html>
