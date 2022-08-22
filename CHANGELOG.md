@@ -14,6 +14,7 @@ Measure and log time it takes to collect metrics in stats_loop [#371](https://gi
 - Queue size metric details to present expensive queue metrics calculation ([#362](https://github.com/cloudamqp/lavinmq/pull/362))
 - Support for vhost limits (max-queues and max-connections)
 - Support for configuring max_message_size (default 128MB)
+- The amount of ready and unacknowledged messages are shown in the nodes details ([#368](https://github.com/cloudamqp/lavinmq/pull/368))
 
 ## [1.0.0-beta.2] - 2022-06-30
 
