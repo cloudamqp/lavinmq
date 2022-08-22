@@ -9,15 +9,9 @@
     url += '?vhost=' + encodeURIComponent(vhost)
   }
   let updateTimer = null
-  let data = null
-
-  if (data === null) {
-    update(render)
-  }
 
   function update (cb) {
-    lavinmq.http.request('GET', url).then(function (response) {
-      data = response
+    lavinmq.http.request('GET', url).then((response) => {
       render(response)
       if (cb) {
         cb(response)
@@ -43,22 +37,6 @@
     if (updateTimer) {
       clearInterval(updateTimer)
     }
-  }
-
-  function get (key) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (data) {
-          resolve(data[key])
-        } else {
-          update(data => {
-            resolve(data[key])
-          })
-        }
-      } catch (e) {
-        reject(e.message)
-      }
-    })
   }
 
   const updateDetails = (nodeStats) => {
@@ -144,6 +122,19 @@
         {
           heading: 'Total',
           key: 'fd_total'
+        }
+      ]
+    },
+    {
+      heading: 'Messages',
+      content: [
+        {
+          heading: 'Ready',
+          key: 'messages_ready'
+        },
+        {
+          heading: 'Unacked',
+          key: 'messages_unacknowledged'
         }
       ]
     }
