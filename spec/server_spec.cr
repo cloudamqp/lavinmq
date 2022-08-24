@@ -837,7 +837,76 @@ describe LavinMQ::Server do
       q.publish_confirm("m1").should be_false
     end
   end
+  
+  it "supports sends nack if queue is closed" do
+    with_channel do |ch|
+      q = ch.queue("to-be-closed")
+      s.vhosts["/"].queues["to-be-closed"].close
+      q.publish_confirm("m1").should be_false
+    end
+  end
 
+  it "supports sends nack if queue is closed, direct exchange" do
+    with_channel do |ch|
+      x = ch.exchange("amq.direct", "direct")
+      q1 = ch.queue("not-closed")
+      q2 = ch.queue("to-be-closed")
+      ch.queue_bind(q1.name, "amq.direct", "rk")
+      ch.queue_bind(q2.name, "amq.direct", "rk")
+      s.vhosts["/"].queues["to-be-closed"].close
+      ch.basic_publish_confirm("msg", exchange: "amq.direct", routing_key: "rk").should be_false
+    end
+  end
+
+  it "supports sends nack if queue is closed, topic exchange" do
+    with_channel do |ch|
+      x = ch.exchange("amq.topic", "topic")
+      q1 = ch.queue("not-closed")
+      q2 = ch.queue("to-be-closed")
+      ch.queue_bind(q1.name, "amq.topic", "rk")
+      ch.queue_bind(q2.name, "amq.topic", "rk")
+      s.vhosts["/"].queues["to-be-closed"].close
+      ch.basic_publish_confirm("msg", exchange: "amq.topic", routing_key: "rk").should be_false
+    end
+  end
+
+  it "supports sends nack if queue is closed, fanout exchange" do
+    with_channel do |ch|
+      x = ch.exchange("amq.fanout", "fanout")
+      q1 = ch.queue("not-closed")
+      q2 = ch.queue("to-be-closed")
+      ch.queue_bind(q1.name, "amq.fanout", "")
+      ch.queue_bind(q2.name, "amq.fanout", "")
+      s.vhosts["/"].queues["to-be-closed"].close
+      ch.basic_publish_confirm("msg", exchange: "amq.fanout", routing_key: "").should be_false
+    end
+  end
+
+  it "supports sends nack if queue is closed, headers exchange" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-match"] = "all"
+      x = ch.exchange("amq.headers", "headers")
+      q1 = ch.queue("not-closed", args: args)
+      q2 = ch.queue("to-be-closed", args: args)
+      ch.queue_bind(q1.name, "amq.headers", "rk")
+      ch.queue_bind(q2.name, "amq.headers", "rk")
+      s.vhosts["/"].queues["to-be-closed"].close
+      ch.basic_publish_confirm("msg", "amq.headers").should be_false
+    end
+  end
+
+  it "supports sends nack if queue is closed, dead-letter exchange" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-dead-letter-exchange"] = ""
+      args["x-dead-letter-routing-key"] = "to-be-closed"
+      q = ch.queue("to-be-closed", args: args)
+      s.vhosts["/"].queues["to-be-closed"].close
+      q.publish_confirm("m1").should be_false
+    end
+  end
+  
   it "binding to empty queue name binds last queue" do
     with_channel do |ch|
       q = ch.queue
