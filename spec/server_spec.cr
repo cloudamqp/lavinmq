@@ -837,7 +837,7 @@ describe LavinMQ::Server do
       q.publish_confirm("m1").should be_false
     end
   end
-  
+
   it "supports sends nack if queue is closed" do
     with_channel do |ch|
       q = ch.queue("to-be-closed")
@@ -906,7 +906,7 @@ describe LavinMQ::Server do
       q.publish_confirm("m1").should be_false
     end
   end
-  
+
   it "binding to empty queue name binds last queue" do
     with_channel do |ch|
       q = ch.queue
