@@ -96,7 +96,7 @@ class HTTPError extends Error {
   }
 }
 
-testLoggedIn()
+document.ondomcontentloaded = () => testLoggedIn()
 
 export {
   request, redirect, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
