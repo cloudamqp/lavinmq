@@ -83,8 +83,8 @@ function getCookie (key) {
   return ''
 }
 
-function selectVhost (select) {
-  window.sessionStorage.setItem('vhost', select.value)
+function selectVhost (event) {
+  window.sessionStorage.setItem('vhost', event.target.value)
   window.location.reload()
 }
 
