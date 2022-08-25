@@ -1,4 +1,6 @@
 import * as helpers from './helpers.js'
+import { Chart } from './lib/chart.js'
+import './lib/chartjs-adapter-luxon.esm.js'
 
 const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
   '#EE6868', '#2F6497', '#6C8893']
@@ -46,7 +48,7 @@ function render (id, unit, options = {}, stacked = false) {
         intersect: false
       },
       scales: {
-        xAxes: [{
+        x: {
           type: 'time',
           distribution: 'series',
           gridLines: {
@@ -58,8 +60,8 @@ function render (id, unit, options = {}, stacked = false) {
               second: 'HH:mm:ss'
             }
           }
-        }],
-        yAxes: [{
+        },
+        y: {
           scaleLabel: {
             display: true,
             labelString: unit,
@@ -72,7 +74,7 @@ function render (id, unit, options = {}, stacked = false) {
             callback: helpers.nFormatter
           },
           stacked: stacked
-        }]
+        }
       },
       legendCallback: function (chart) {
         const text = []
@@ -106,7 +108,7 @@ function render (id, unit, options = {}, stacked = false) {
   })
   legendEl.classList.add(chart.id + '-legend')
 
-  legendEl.innerHTML = chart.generateLegend()
+  //legendEl.innerHTML = chart.generateLegend()
   addLegendClickHandler(legendEl)
   return chart
 }

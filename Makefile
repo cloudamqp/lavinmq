@@ -26,11 +26,15 @@ bin static/js/lib:
 	mkdir -p $@
 
 static/js/lib/%: | static/js/lib
-	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
+	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.1.0/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
-		tar -zxOf- package/dist/Chart.bundle.min.js > $@
+	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v3.9.1/chart.js-3.9.1.tgz | \
+		tar -C /tmp -zxf- package/dist/chart.mjs package/dist/chunks/helpers.segment.mjs
+	npx rollup --file $@ /tmp/package/dist/chart.mjs
+	curl -sL https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.2.0/dist/chartjs-adapter-luxon.esm.js > \
+		static/js/lib/chartjs-adapter-luxon.esm.js 
+	curl -sL https://moment.github.io/luxon/es6/luxon.js > static/js/lib/luxon.js 
 
 static/docs/index.html: openapi/openapi.yaml $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
 	npx redoc-cli build $< -o $@
