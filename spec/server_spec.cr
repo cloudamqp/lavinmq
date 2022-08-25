@@ -897,17 +897,6 @@ describe LavinMQ::Server do
     end
   end
 
-  it "sends nack if queue is closed, dead-letter exchange" do
-    with_channel do |ch|
-      args = AMQP::Client::Arguments.new
-      args["x-dead-letter-exchange"] = ""
-      args["x-dead-letter-routing-key"] = "to-be-closed"
-      q = ch.queue("to-be-closed", args: args)
-      s.vhosts["/"].queues["to-be-closed"].close
-      q.publish_confirm("m1").should be_false
-    end
-  end
-
   it "binding to empty queue name binds last queue" do
     with_channel do |ch|
       q = ch.queue
