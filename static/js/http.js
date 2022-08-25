@@ -96,7 +96,7 @@ class HTTPError extends Error {
   }
 }
 
-window.onload = () => testLoggedIn()
+window.addEventListener("load", () => testLoggedIn())
 
 export {
   request, redirect, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
