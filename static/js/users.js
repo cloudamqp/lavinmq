@@ -4,7 +4,7 @@ function fetch (cb) {
   const url = '/api/users'
   const raw = window.sessionStorage.getItem(url)
   if (raw) {
-    var users = JSON.parse(raw)
+    const users = JSON.parse(raw)
     cb(users)
   }
   HTTP.request('GET', url).then(function (users) {
