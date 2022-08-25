@@ -1,6 +1,7 @@
 import * as Auth from './auth.js'
+import * as Vhosts from './vhosts.js'
 
-document.getElementsByTagName('aside')[0].innerHTML = `
+document.getElementById('menu').innerHTML = `
   <h1>
     <a href="/"><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
     <small id="version"></small>
@@ -22,15 +23,14 @@ document.getElementsByTagName('aside')[0].innerHTML = `
   </ul>
 `
 const path = window.location.pathname
-const active = document.querySelector('aside a[href^="' + path.slice(0,-1) + '"]')
+const active = document.querySelector('#menu a[href^="' + path.slice(0,-1) + '"]')
 if (active) {
   const activeLi = active.parentElement
   activeLi.classList.add('active')
-  toggleSubMenu(activeLi, false)
 }
 
-document.getElementsByTagName('header')[0].insertAdjacentHTML('beforeend', `
-   <ul id="user-menu">
+document.getElementById('user-menu').innerHTML = `
+   <ul>
     <li><span id="username"></span></li>
     <li>
       <form id="user-vhost">
