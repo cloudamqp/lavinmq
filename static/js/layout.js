@@ -45,8 +45,8 @@ document.getElementById('user-menu').innerHTML = `
         <span class="head">🙈</span>&nbsp; Sign out</span>
       </a>
     </li>
-  </div>
-`)
+  </ul>
+`
 
 document.getElementById("userMenuVhost").onchange = (e) => Auth.selectVhost(e)
 document.getElementById("signoutLink").onclick = (e) => Auth.signOut(e)
