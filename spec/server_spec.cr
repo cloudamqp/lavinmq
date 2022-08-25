@@ -839,7 +839,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports sends nack if queue is closed" do
+  it "sends nack if queue is closed" do
     with_channel do |ch|
       q = ch.queue("to-be-closed")
       s.vhosts["/"].queues["to-be-closed"].close
@@ -847,7 +847,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports sends nack if queue is closed, direct exchange" do
+  it "sends nack if queue is closed, direct exchange" do
     with_channel do |ch|
       ch.exchange("amq.direct", "direct")
       q1 = ch.queue("not-closed")
@@ -859,7 +859,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports sends nack if queue is closed, topic exchange" do
+  it "sends nack if queue is closed, topic exchange" do
     with_channel do |ch|
       ch.exchange("amq.topic", "topic")
       q1 = ch.queue("not-closed")
@@ -871,7 +871,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports sends nack if queue is closed, fanout exchange" do
+  it "sends nack if queue is closed, fanout exchange" do
     with_channel do |ch|
       ch.exchange("amq.fanout", "fanout")
       q1 = ch.queue("not-closed")
@@ -883,7 +883,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports sends nack if queue is closed, headers exchange" do
+  it "sends nack if queue is closed, headers exchange" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
       args["x-match"] = "all"
@@ -897,7 +897,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports sends nack if queue is closed, dead-letter exchange" do
+  it "sends nack if queue is closed, dead-letter exchange" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new
       args["x-dead-letter-exchange"] = ""
