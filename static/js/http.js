@@ -10,9 +10,9 @@ function testLoggedIn () {
     window.location.assign('/')
   }
   if (window.location.pathname !== '/login') {
-    request('GET', '/api/whoami').then(function () {
+    request('GET', '/api/whoami').then((d) => {
       Auth.setUsername()
-    }).catch(function () {
+    }).catch((e) => {
       redirect('/login')
     })
   }
