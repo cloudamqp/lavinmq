@@ -343,7 +343,7 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
           document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(item.unacked_max_bytes) + 'B'
         }
         document.getElementById('ms-q-total-min-bytes').textContent = Helpers.nFormatter(0) + 'B'
-        var total_min_bytes = 0
+        let total_min_bytes = 0
         if (item.ready_min_bytes != 0 && item.unacked_min_bytes == 0) {
           total_min_bytes = item.ready_min_bytes
         } else if (item.unacked_min_bytes != 0 && item.ready_min_bytes == 0) {

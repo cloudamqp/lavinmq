@@ -35,7 +35,7 @@ function render (id, unit, options = {}, stacked = false) {
         position: 'nearest',
         callbacks: {
           label: function (tooltipItem, data) {
-            var label = data.datasets[tooltipItem.datasetIndex].label || ''
+            let label = data.datasets[tooltipItem.datasetIndex].label || ''
             label += ': ' + helpers.formatNumber(tooltipItem.yLabel)
             return label
           }
