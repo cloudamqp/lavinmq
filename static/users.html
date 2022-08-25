@@ -10,9 +10,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
-    <script src="/js/helpers.js"></script>
+    <script type="module" src="/js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -20,8 +18,9 @@
         Users
         <small id="table-count"></small>
       </h2>
+      <nav id="user-menu"/>
     </header>
-    <aside></aside>
+    <nav id="menu"></nav>
     <main>
       <section class="card">
         <div id="table-error"></div>
@@ -57,16 +56,14 @@
         <button type="submit" class="btn-primary">Add user</button>
       </form>
     </main>
-    <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <script type="module">
+      import * as HTTP from './js/http.js'
+      import * as Helpers from './js/helpers.js'
+      import * as Table from './js/table.js'
+
       let usersTable = null
-      lavinmq.http.request('GET', '/api/permissions').then(permissions => {
+      HTTP.request('GET', '/api/permissions').then(permissions => {
         const tableOptions = {
           url: '/api/users',
           keyColumns: ['vhost', 'name'],
@@ -75,18 +72,18 @@
           columnSelector: true,
           search: true
         }
-        usersTable = lavinmq.table.renderTable('table', tableOptions, (tr, item, all) => {
+        usersTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
           if (all) {
             const userLink = document.createElement('a')
             userLink.href = '/user?name=' + encodeURIComponent(item.name)
             userLink.textContent = item.name
-            lavinmq.table.renderCell(tr, 0, userLink)
+            Table.renderCell(tr, 0, userLink)
           }
           const hasPassword = item.password_hash.length ? '●' : '○'
           const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
-          lavinmq.table.renderCell(tr, 1, item.tags)
-          lavinmq.table.renderCell(tr, 2, vhosts)
-          lavinmq.table.renderCell(tr, 3, hasPassword, 'center')
+          Table.renderCell(tr, 1, item.tags)
+          Table.renderCell(tr, 2, vhosts)
+          Table.renderCell(tr, 3, hasPassword, 'center')
         })
       }).catch(e => {
         document.getElementById("table-error").textContent = e.status === 401 ? "Access refused: You need administrator role to see this view" : e.body
@@ -101,15 +98,15 @@
           password: data.get('password'),
           tags: data.get('tags')
         }
-        lavinmq.http.request('PUT', url, { body })
+        HTTP.request('PUT', url, { body })
           .then(() => {
             usersTable.fetchAndUpdate()
             evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
+          }).catch(HTTP.standardErrorHandler)
       })
 
       document.querySelector('#dataTags').onclick = e => {
-        window.lavinmq.helpers.argumentHelper("tags", e)
+        Helpers.argumentHelper("tags", e)
       }
     </script>
   </body>

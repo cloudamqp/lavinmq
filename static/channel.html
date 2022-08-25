@@ -10,8 +10,7 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -19,8 +18,9 @@
         Channel:
         <small id="channel"></small>
       </h2>
+      <nav id="user-menu"/>
     </header>
-    <aside></aside>
+    <nav id="menu"></nav>
     <main>
       <section class="card cols-6">
         <h3>Details</h3>
@@ -86,42 +86,38 @@
         </div>
       </section>
     </main>
-    <footer></footer>
-    </body>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/helpers.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/table.js"></script>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
     <script src="/js/lib/chart.js"></script>
-    <script src="/js/chart.js"></script>
-    <script>
-      /* globals lavinmq */
+    <script type="module">
+      import * as Table from './js/table.js'
+      import * as HTTP from './js/http.js'
+      import * as DOM from './js/dom.js'
+      import * as Chart from './js/chart.js'
+
       const channel = new URLSearchParams(window.location.search).get('name')
       const urlEncodedChannel = encodeURIComponent(channel)
-      const chart = lavinmq.chart.render('chart', 'msgs/s')
+      const chart = Chart.render('chart', 'msgs/s')
       let vhost = null
       document.title = channel + ' | LavinMQ'
 
-      const consumersTable = lavinmq.table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item, all) {
+      const consumersTable = Table.renderTable('table', { keyColumns: ['consumer_tag'] }, function (tr, item, all) {
         if (!all) return
-        lavinmq.table.renderCell(tr, 0, item.consumer_tag)
+        Table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
         queueLink.href = '/queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
         queueLink.textContent = item.queue.name
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
-        lavinmq.table.renderCell(tr, 1, queueLink)
-        lavinmq.table.renderCell(tr, 2, ack, 'center')
-        lavinmq.table.renderCell(tr, 3, exclusive, 'center')
-        lavinmq.table.renderCell(tr, 4, item.prefetch_count, 'right')
+        Table.renderCell(tr, 1, queueLink)
+        Table.renderCell(tr, 2, ack, 'center')
+        Table.renderCell(tr, 3, exclusive, 'center')
+        Table.renderCell(tr, 4, item.prefetch_count, 'right')
       })
 
       const channelUrl = '/api/channels/' + urlEncodedChannel
       function updateChannel (all) {
-        lavinmq.http.request('GET', channelUrl).then(item => {
-          lavinmq.chart.update(chart, item.message_stats)
+        HTTP.request('GET', channelUrl).then(item => {
+          Chart.update(chart, item.message_stats)
           vhost = item.vhost
           const stateEl = document.getElementById('ch-state')
           if (item.state !== stateEl.textContent) {
@@ -135,14 +131,14 @@
             const connectionLink = document.createElement('a')
             connectionLink.href = '/connection?name=' + encodeURIComponent(item.connection_details.name)
             connectionLink.textContent = item.connection_details.name
-            lavinmq.dom.setChild('#ch-connection', connectionLink)
+            DOM.setChild('#ch-connection', connectionLink)
             document.getElementById('ch-prefetch').textContent = item.prefetch_count
             let mode = ''
             mode += item.confirm ? ' C' : ''
             document.getElementById('ch-mode').textContent = mode
             document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
           }
-        }).catch(lavinmq.http.standardErrorHandler).catch(e => clearInterval(cTimer))
+        }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(cTimer))
       }
       updateChannel(true)
       const cTimer = setInterval(updateChannel, 5000)

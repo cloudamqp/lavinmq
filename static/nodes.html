@@ -10,8 +10,9 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module" src="/js/nodes.js"></script>
+    <script src="/js/lib/chart.js"></script>
   </head>
   <body>
     <header>
@@ -19,8 +20,9 @@
         Nodes
         <small id="channel"></small>
       </h2>
+      <nav id="user-menu"/>
     </header>
-    <aside></aside>
+    <nav id="menu"></nav>
     <main>
       <section class="card cols-6">
         <h3>Details</h3>
@@ -81,15 +83,6 @@
         <div class="chart-container" id="queueChurnChart"></div>
       </section>
     </main>
-    <footer></footer>
-    </body>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/helpers.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/table.js"></script>
-    <script src="/js/lib/chart.js"></script>
-    <script src="/js/chart.js"></script>
-    <script src="/js/nodes.js"></script>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
   </body>
 </html>

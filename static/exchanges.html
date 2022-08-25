@@ -10,9 +10,8 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
-    <script src="/js/helpers.js"></script>
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module" src="/js/exchanges.js"></script>
   </head>
   <body>
     <header>
@@ -20,8 +19,9 @@
         Exchanges
         <small id="table-count"></small>
       </h2>
+      <nav id="user-menu"/>
     </header>
-    <aside></aside>
+    <nav id="menu"></nav>
     <main>
       <section class="card">
         <div id="table-error"></div>
@@ -77,97 +77,9 @@
             </a>
           </div>
         </label>
-
         <button type="submit" class="btn-primary">Add exchange</button>
       </form>
     </main>
-    <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
-      lavinmq.vhosts.addVhostOptions('addExchange')
-
-      lavinmq.overview.get('exchange_types').then(exchangeTypes => {
-        const select = document.forms.addExchange.elements.type
-        while (select.options.length) {
-          select.remove(0)
-        }
-        for (let i = 0; i < exchangeTypes.length; i++) {
-          const opt = document.createElement('option')
-          opt.text = exchangeTypes[i].name
-          select.add(opt)
-        }
-      })
-
-      const vhost = window.sessionStorage.getItem('vhost')
-      let url = '/api/exchanges'
-      if (vhost && vhost !== '_all') {
-        url += '/' + encodeURIComponent(vhost)
-      }
-      const tableOptions = {
-  url,
-        keyColumns: ['vhost', 'name'],
-        interval: 5000,
-        pagination: true,
-        columnSelector: true,
-        search: true
-      }
-      const exchangeTable = lavinmq.table.renderTable('table', tableOptions, function (tr, item, all) {
-        if (all) {
-          if (item.name === '') {
-            item.name = 'amq.default'
-          }
-          let features = ''
-          features += item.durable ? ' D' : ''
-          features += item.auto_delete ? ' AD' : ''
-          features += item.internal ? ' I' : ''
-          features += item.arguments['x-delayed-exchange'] ? ' d' : ''
-          const exchangeLink = document.createElement('a')
-          exchangeLink.href = '/exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
-          exchangeLink.textContent = item.name
-          lavinmq.table.renderCell(tr, 0, item.vhost)
-          lavinmq.table.renderCell(tr, 1, exchangeLink)
-          lavinmq.table.renderCell(tr, 2, item.type)
-          lavinmq.table.renderCell(tr, 3, features, 'center')
-        }
-        let policyLink = ''
-        if (item.policy) {
-          policyLink = document.createElement('a')
-          policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
-          policyLink.textContent = item.policy
-        }
-        lavinmq.table.renderCell(tr, 4, policyLink, 'center')
-      })
-
-      document.querySelector('#addExchange').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const vhost = encodeURIComponent(data.get('vhost'))
-        const exchange = encodeURIComponent(data.get('name').trim())
-        const url = '/api/exchanges/' + vhost + '/' + exchange
-        const body = {
-          durable: data.get('durable') === '1',
-          auto_delete: data.get('auto_delete') === '1',
-          internal: data.get('internal') === '1',
-          delayed: data.get('delayed') === '1',
-          type: data.get('type'),
-          arguments: lavinmq.dom.parseJSON(data.get('arguments'))
-        }
-        lavinmq.http.request('PUT', url, { body })
-          .then(() => {
-            exchangeTable.fetchAndUpdate()
-            lavinmq.dom.toast('Exchange ' + exchange + ' created')
-            evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
-      })
-
-      document.querySelector('#dataTags').onclick = e => {
-        window.lavinmq.helpers.argumentHelperJSON("arguments", e)
-      }
-    </script>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
   </body>
 </html>

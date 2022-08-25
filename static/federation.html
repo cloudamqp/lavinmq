@@ -10,9 +10,8 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
-    <script src="/js/helpers.js"></script>
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module" src="/js/federation.js"></script>
   </head>
   <body>
     <header>
@@ -20,8 +19,9 @@
         Upstreams
         <small id="upstreamTable-count"></small>
       </h2>
+      <nav id="user-menu"/>
     </header>
-    <aside></aside>
+    <nav id="menu"></nav>
     <main>
       <section class="card">
         <div class="table-wrapper">
@@ -137,93 +137,6 @@
         <button type="submit" class="btn-primary">Add upstream</button>
       </form>
     </main>
-    <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/table.js"></script>
-    <script>
-      /* globals lavinmq */
-      const escapeHTML = lavinmq.dom.escapeHTML
-      lavinmq.vhosts.addVhostOptions('createUpstream')
-
-      let url = '/api/parameters/federation-upstream'
-      let linksUrl = '/api/federation-links'
-      const vhost = window.sessionStorage.getItem('vhost')
-      if (vhost && vhost !== '_all') {
-        const urlEncodedVhost = encodeURIComponent(vhost)
-        url += '/' + urlEncodedVhost
-        linksUrl += '/' + urlEncodedVhost
-      }
-
-      const utOpts = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
-      const upstreamsTable = lavinmq.table.renderTable('upstreamTable', utOpts, (tr, item) => {
-        lavinmq.table.renderCell(tr, 0, item.vhost)
-        lavinmq.table.renderCell(tr, 1, item.name)
-        lavinmq.table.renderCell(tr, 2, decodeURI(item.value.uri.replace(/:([^:]+)@/, ':***@')))
-        lavinmq.table.renderCell(tr, 3, item.value['prefetch-count'])
-        lavinmq.table.renderCell(tr, 4, item.value['reconnect-delay'])
-        lavinmq.table.renderCell(tr, 5, item.value['ack-mode'])
-        lavinmq.table.renderCell(tr, 6, item.value.exchange)
-        // lavinmq.table.renderCell(tr, 7, item.value['max-hops'])
-        lavinmq.table.renderCell(tr, 7, item.value.expires)
-        lavinmq.table.renderCell(tr, 8, item.value['message-ttl'])
-        lavinmq.table.renderCell(tr, 9, item.value.queue)
-        lavinmq.table.renderCell(tr, 10, item.value['consumer-tag'])
-        const btn = document.createElement('button')
-        btn.classList.add('btn-danger')
-        btn.innerHTML = 'Delete'
-        btn.onclick = function () {
-          const name = encodeURIComponent(item.name)
-          const vhost = encodeURIComponent(item.vhost)
-          const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
-          if (!window.confirm(`Delete federation upstream ${item.name} ?`)) return
-          lavinmq.http.request('DELETE', url)
-            .then(() => {
-              lavinmq.dom.removeNodes(tr)
-            }).catch(lavinmq.http.standardErrorHandler)
-        }
-        lavinmq.table.renderCell(tr, 11, btn, 'right')
-      })
-
-      const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }
-      lavinmq.table.renderTable('linksTable', linksOpts, (tr, item) => {
-        lavinmq.table.renderCell(tr, 0, item.vhost)
-        lavinmq.table.renderCell(tr, 1, item.name)
-        lavinmq.table.renderCell(tr, 2, decodeURI(item.uri))
-        lavinmq.table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
-        lavinmq.table.renderCell(tr, 4, item.timestamp)
-      })
-
-      document.querySelector('#createUpstream').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const name = encodeURIComponent(data.get('name').trim())
-        const vhost = encodeURIComponent(data.get('vhost'))
-        const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
-        const body = {
-          value: {
-            uri: data.get('uri'),
-            'prefetch-count': parseInt(data.get('prefetch-count')),
-            'reconnect-delay': parseInt(data.get('reconnect-delay')),
-            'ack-mode': data.get('ack-mode'),
-            exchange: data.get('exchange'),
-            'max-hops': parseInt(data.get('max-hops')),
-            expires: parseInt(data.get('expires')),
-            'message-ttl': parseInt(data.get('message-ttl')),
-            queue: data.get('queue'),
-            'consumer-tag': data.get('consumer-tag')
-          }
-        }
-        lavinmq.http.request('PUT', url, { body })
-          .then(() => {
-            upstreamsTable.fetchAndUpdate()
-            evt.target.reset()
-          }).catch(lavinmq.http.standardErrorHandler)
-      })
-      lavinmq.helpers.autoCompleteDatalist('queue-datalist', 'queues')
-      lavinmq.helpers.autoCompleteDatalist('exchange-datalist', 'exchanges')
-    </script>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
   </body>
 </html>

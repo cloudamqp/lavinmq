@@ -10,8 +10,9 @@
     <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
     <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
     <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script src="/js/auth.js"></script>
-    <script src="/js/http.js"></script>
+    <script src="/js/lib/chart.js"></script>
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module" src="/js/exchange.js"></script>
   </head>
   <body>
     <header>
@@ -19,8 +20,9 @@
         Exchange:
         <small id="exchange"></small>
       </h2>
+      <nav id="user-menu"/>
     </header>
-    <aside></aside>
+    <nav id="menu"></nav>
     <main>
       <section class="card cols-4">
         <h3>Details</h3>
@@ -124,150 +126,6 @@
         </form>
       </section>
     </main>
-    <footer></footer>
-    <script src="/js/layout.js"></script>
-    <script src="/js/dom.js"></script>
-    <script src="/js/helpers.js"></script>
-    <script src="/js/vhosts.js"></script>
-    <script src="/js/overview.js"></script>
-    <script src="/js/table.js"></script>
-    <script src="/js/lib/chart.js"></script>
-    <script src="/js/chart.js"></script>
-    <script>
-      /* globals lavinmq */
-      const exchange = new URLSearchParams(window.location.search).get('name')
-      const vhost = new URLSearchParams(window.location.search).get('vhost')
-      const urlEncodedExchange = encodeURIComponent(exchange)
-      const urlEncodedVhost = encodeURIComponent(vhost)
-      const chart = lavinmq.chart.render('chart', 'msgs/s')
-      const escapeHTML = lavinmq.dom.escapeHTML
-
-      document.title = exchange + ' | LavinMQ'
-
-      const exchangeUrl = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
-      function updateExchange () {
-        lavinmq.http.request('GET', exchangeUrl).then(item => {
-          lavinmq.chart.update(chart, item.message_stats)
-          let features = ''
-          features += item.durable ? ' D' : ''
-          features += item.auto_delete ? ' AD' : ''
-          features += item.internal ? ' I' : ''
-          features += item.arguments['x-delayed-exchange'] ? ' d' : ''
-          document.getElementById('e-features').textContent = features
-          document.getElementById('e-type').textContent = item.type
-          document.querySelector('#exchange').textContent = exchange + ' in virtual host ' + item.vhost
-          let argList = document.createElement('div')
-          let args = Object.keys(item.arguments).forEach(key => {
-            if (key == 'x-delayed-exchange' && item.arguments[key] === false) {
-              return
-            }
-            let el = document.createElement('div');
-            el.textContent = key + " = " + item.arguments[key];
-            argList.appendChild(el)
-          })
-          lavinmq.dom.setChild('#e-arguments', argList)
-          if (item.policy) {
-            const policyLink = document.createElement('a')
-            policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
-            policyLink.textContent = item.policy
-            lavinmq.dom.setChild('#e-policy', policyLink)
-          }
-        }).catch(lavinmq.http.standardErrorHandler).catch(e => clearInterval(eTimer))
-      }
-      updateExchange()
-      const eTimer = setInterval(updateExchange, 5000)
-
-      const tableOptions = { url: exchangeUrl + '/bindings/source', keyColumns: ['properties_key'], interval: 5000 }
-      const bindingsTable = lavinmq.table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
-        if (!all) return
-        if (item.source === '') {
-          const td = lavinmq.table.renderCell(tr, 0, '(Default exchange binding)')
-          td.setAttribute('colspan', 5)
-        } else {
-          const btn = document.createElement('button')
-          btn.classList.add('btn-secondary')
-          btn.innerHTML = 'Unbind'
-          btn.onclick = function () {
-            const s = encodeURIComponent(item.source)
-            const d = encodeURIComponent(item.destination)
-            const p = encodeURIComponent(item.properties_key)
-            const t = item.destination_type == "exchange" ? "e" : "q"
-            const url = '/api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
-            lavinmq.http.request('DELETE', url)
-              .then(() => {
-                lavinmq.dom.removeNodes(tr)
-              }).catch(lavinmq.http.standardErrorHandler)
-          }
-          const d = encodeURIComponent(item.destination)
-          const destinationLink = `<a href="/${escapeHTML(item.destination_type)}?vhost=${urlEncodedVhost}&name=${escapeHTML(d)}">${escapeHTML(item.destination)}</a>`
-          lavinmq.table.renderCell(tr, 0, item.destination_type)
-          lavinmq.table.renderHtmlCell(tr, 1, destinationLink, 'left')
-          lavinmq.table.renderCell(tr, 2, item.routing_key, 'left')
-          lavinmq.table.renderHtmlCell(tr, 3, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>', 'left')
-          lavinmq.table.renderCell(tr, 4, btn, 'right')
-        }
-      })
-
-      document.querySelector('#addBinding').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const d = encodeURIComponent(data.get('destination').trim())
-        const t = data.get('dest-type')
-        const url = '/api/bindings/' + urlEncodedVhost + '/e/' + urlEncodedExchange + '/' + t + '/' + d
-        const args = lavinmq.dom.parseJSON(data.get('arguments'))
-        const body = {
-          routing_key: data.get('routing_key').trim(),
-          arguments: args
-        }
-        lavinmq.http.request('POST', url, { body })
-          .then(() => {
-            bindingsTable.fetchAndUpdate()
-            evt.target.reset()
-          }).catch(lavinmq.http.alertErrorHandler)
-      })
-
-      document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const url = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange + '/publish'
-        const properties = lavinmq.dom.parseJSON(data.get('properties'))
-        properties.delivery_mode = parseInt(data.get('delivery_mode'))
-        properties.headers = lavinmq.dom.parseJSON(data.get('headers'))
-        const body = {
-          payload: data.get('payload'),
-          payload_encoding: 'string',
-          routing_key: data.get('routing_key').trim(),
-          properties
-        }
-        lavinmq.http.request('POST', url, { body })
-          .then(res => {
-            lavinmq.dom.toast('Published message to ' + exchange + (res.routed ? '.' : ', but not routed.'))
-          })
-          .catch(lavinmq.http.alertErrorHandler)
-      })
-
-      function addProperty (key, value) { // eslint-disable-line no-unused-vars
-        const el = document.querySelector('#publishMessage textarea[name=properties]')
-        const properties = lavinmq.dom.parseJSON(el.value || '{}')
-        properties[key] = value
-        el.value = JSON.stringify(properties)
-      }
-
-      document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const url = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
-        if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
-          lavinmq.http.request('DELETE', url)
-            .then(() => { window.location = '/exchanges' })
-            .catch(lavinmq.http.standardErrorHandler)
-        }
-      })
-
-      function updateAutocomplete(e) {
-        type = e === 'q' ? 'queues' : 'exchanges'
-        lavinmq.helpers.autoCompleteDatalist("exchange-dest-list", type)
-      }
-      updateAutocomplete('q')
-    </script>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
   </body>
 </html>
