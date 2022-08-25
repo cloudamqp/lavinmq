@@ -3,26 +3,22 @@ import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
 const url = '/api/overview'
-const raw = window.sessionStorage.getItem(cacheKey())
-let data = null
 let updateTimer = null
+let data = null
 
+const raw = window.sessionStorage.getItem(cacheKey())
 if (raw) {
   try {
     data = JSON.parse(raw)
-    if (data) {
-      render(data)
-    }
   } catch (e) {
     window.sessionStorage.removeItem(cacheKey())
-    console.log('Error parsing data from sessionStorage')
-    console.error(e)
+    console.error('Error parsing data from sessionStorage', e)
   }
-}
-
-if (data === null) {
+} else {
   update(render)
 }
+
+window.addEventListener("load", () => render(data))
 
 function cacheKey () {
   const vhost = window.sessionStorage.getItem('vhost')
