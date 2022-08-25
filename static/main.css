@@ -101,7 +101,7 @@ main {
 .cols-11 { grid-column: auto / span 11 }
 .cols-12 { grid-column: auto / span 12 }
 
-aside {
+#menu {
   grid-column: 1 / span 1;
   grid-row: 1 / span 4;
   background-color: rgba(0, 0, 0, 0.8);
@@ -111,7 +111,7 @@ aside {
   position: relative;
 }
 
-aside::after {
+#menu::after {
   background-image: url(img/bg-mountain.jpg);
   background-attachment: fixed;
   content: "";
@@ -164,7 +164,7 @@ footer .logo {
 }
 
 @media (max-width: 1000px) {
-  aside::after {
+  #menu::after {
     background-size: cover;
   }
 
@@ -173,7 +173,7 @@ footer .logo {
     grid-template-rows: auto 60px 80px auto 60px;
   }
 
-  main, aside, header, footer {
+  main, #menu, header, footer {
     grid-column: 1 / span 1;
   }
 
@@ -185,22 +185,22 @@ footer .logo {
     grid-row: 3 / span 2;
   }
 
-  aside {
+  #menu {
     grid-row: 1 / span 1;
   }
 
-  aside * {
+  #menu * {
     text-align: center;
   }
 }
 
-aside h1 {
+#menu h1 {
   margin: 14px 14px 0;
   padding-bottom: 14px;
   border-bottom: 1px solid rgb(126, 126, 126);
 }
 
-aside h1 small {
+#menu h1 small {
   font-size: 0.7em;
   font-weight: 100;
   opacity: 0.6;
@@ -239,41 +239,41 @@ aside h1 small {
   color: #FFF;
 }
 
-aside > ul {
+#menu > ul {
   margin-top: 20px;
 }
 
-aside ul {
+#menu ul {
   list-style: none;
   padding: 0;
 }
 
-aside ul li a {
+#menu ul li a {
   display: block;
   padding: 0 1em;
   font-size: 1.3em;
   line-height: 3em;
 }
 
-aside ul ul li a {
+#menu ul ul li a {
   padding: 4px 20px 4px 40px;
   font-size: small;
 }
 
-aside ul ul li a:hover {
+#menu ul ul li a:hover {
   background-color: rgba(0, 0, 0, 0.2);
 }
 
-aside ul a, aside ul a:visited {
+#menu ul a, #menu ul a:visited {
   color: var(--font-color);
   text-decoration: none;
 }
 
-aside ul a:hover {
+#menu ul a:hover {
   background-color: var(--highlight-color);
 }
 
-aside li.active a {
+#menu li.active a {
   background-color: var(--highlight-color);
   border-left: 6px solid #3C9368;
 }

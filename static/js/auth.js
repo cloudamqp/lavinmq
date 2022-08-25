@@ -7,7 +7,7 @@ function getPassword () {
 }
 
 function setUsername () {
-  document.querySelector('#username').innerText = getCookieValue('username')
+  document.getElementById('username').innerText = getCookieValue('username')
 }
 
 function header () {
