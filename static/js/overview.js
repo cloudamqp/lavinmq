@@ -50,20 +50,20 @@ function update (cb) {
 }
 
 function render (data) {
-  document.querySelector('#version').innerText = data.lavinmq_version
-  document.querySelector('#cluster_name').innerText = data.node
-  const table = document.querySelector('#overview')
+  document.getElementById('version').innerText = data.lavinmq_version
+  document.getElementById('cluster_name').innerText = data.node
+  const table = document.getElementById('overview')
   if (table) {
-    Object.keys(data.object_totals).forEach(function (key) {
-      table.querySelector('.' + key).innerText = numFormatter.format(data.object_totals[key])
+    Object.keys(data.object_totals).forEach((key) => {
+      document.getElementById(key).innerText = numFormatter.format(data.object_totals[key])
     })
-    table.querySelector('.uptime').innerText = Helpers.duration(data.uptime)
+    document.getElementById('uptime').innerText = Helpers.duration(data.uptime)
   }
 }
 
 function start (cb) {
   update(cb)
-  updateTimer = setInterval(() => update(cb), 5000)
+  updateTimer = setInterval(update, 5000, cb)
 }
 
 // Show that we're offline in the UI
