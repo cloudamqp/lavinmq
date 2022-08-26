@@ -57,7 +57,7 @@ function elements (selector) {
 
 function jsonToText (obj) {
   if (obj == null) return ''
-  return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '')
+  return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '').trim()
 }
 
 function toast (text, type = "success") {

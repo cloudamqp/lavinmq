@@ -15,6 +15,7 @@ document.getElementById('menu').innerHTML = `
     <li><a href="/exchanges">Exchanges</a></li>
     <li><a href="/queues">Queues</a></li>
     <li><a href="/policies">Policies</a></li>
+    <li><a href="/operator-policies">Operator policies</a></li>
     <li><a href="/shovels">Shovels</a></li>
     <li><a href="/federation">Federation</a></li>
     <li><a href="/vhosts">Virtual hosts</a></li>
