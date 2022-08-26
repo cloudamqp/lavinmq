@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Operator policies | LavinMQ</title>
+    <link href="/main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png" />
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="/js/layout.js"></script>
+    <script type="module">
+      import * as Policies from '/js/policies.js'
+      Policies.apply("/api/operator-policies")
+    </script>
+  </head>
+  <body>
+    <header>
+      <h2>
+        Operator policies
+        <small id="table-count"></small>
+      </h2>
+      <nav id="user-menu"/>
+    </header>
+    <nav id="menu"></nav>
+    <main>
+      <section class="card">
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th class="left">Pattern</th>
+                <th class="left">Apply to</th>
+                <th class="left">Definition</th>
+                <th class="left">Priority</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="createPolicy" class="form card">
+        <h3>Add/update operator policy</h3>
+        <label>
+          <span>Virtual host</span>
+          <select id="addPolicyVhost" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <label>
+          <span>Pattern</span>
+          <input type="text" name="pattern" required>
+        </label>
+        <label>
+          <span>Apply to</span>
+          <select id="addPolicyApplyTo" name="apply-to" required>
+            <option value="all">Exchanges &amp; Queues</option>
+            <option value="exchanges">Exchanges</option>
+            <option value="queues">Queues</option>
+          </select>
+        </label>
+        <label>
+          <span>Definition</span>
+          <textarea name="definition" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="max-length">Max length
+              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them.
+                Dropping strategy decided by overflow arg.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="max-length-bytes">Max length bytes
+              <span class="tooltiptext">The max length of a queue in bytes.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="message-ttl">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="expires">Auto expire
+              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+                (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="delivery-limit">Delivery limit
+              <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+                dead-lettered</span>
+            </a>
+          </div>
+        </label>
+        <label>
+          <span>Priority</span>
+          <input type="number" name="priority" value="0" max="10" min="-10" step="1" required>
+        </label>
+        <button type="submit" class="btn-primary">Add operator policy</button>
+      </form>
+    </main>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+  </body>
+</html>
