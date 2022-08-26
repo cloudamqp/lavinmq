@@ -213,4 +213,31 @@ describe LavinMQ::VHost do
       vhost.delete_queue("max-length-bytes")
     end
   end
+
+  describe "operator policies" do
+    it "merges with normal polices" do
+      ml_2 = {"max-length" => JSON::Any.new(2_i64)} of String => JSON::Any
+      ml_1 = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+      s.vhosts["/"].add_policy("ml", ".*", "all", ml_2, 0_i8)
+      with_channel do |ch|
+        q = ch.queue
+        3.times do
+          q.publish_confirm "body"
+        end
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
+        s.vhosts["/"].add_operator_policy("ml1", ".*", "all", ml_1, 0_i8)
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 1
+
+        # deleting operator policy should make normal policy active again
+        s.vhosts["/"].delete_operator_policy("ml1")
+        3.times do
+          q.publish_confirm "body"
+        end
+        ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
+      end
+    ensure
+      s.vhosts["/"].delete_policy("ml")
+      s.vhosts["/"].delete_operator_policy("ml1")
+    end
+  end
 end
