@@ -17,6 +17,7 @@ module LavinMQ
 
     getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter policy : Policy?
+    getter operator_policy : OperatorPolicy?
     getter? delayed = false
 
     @alternate_exchange : String?
@@ -41,9 +42,9 @@ module LavinMQ
       handle_arguments
     end
 
-    def apply_policy(policy : Policy)
-      handle_arguments
-      policy.not_nil!.definition.each do |k, v|
+    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+      clear_policy
+      Policy.merge_definitions(policy, operator_policy).each do |k, v|
         @log.debug { "Applying policy #{k}: #{v}" }
         # TODO: Support persitent exchange as policy
         case k
@@ -60,11 +61,13 @@ module LavinMQ
         end
       end
       @policy = policy
+      @operator_policy = operator_policy
     end
 
     def clear_policy
       handle_arguments
       @policy = nil
+      @operator_policy = nil
     end
 
     def handle_arguments
@@ -78,7 +81,9 @@ module LavinMQ
       {
         name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
         internal: @internal, arguments: @arguments, vhost: @vhost.name,
-        policy: @policy.try &.name, effective_policy_definition: @policy,
+        policy: @policy.try &.name,
+        operator_policy: @operator_policy.try &.name,
+        effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats: stats_details,
       }
     end

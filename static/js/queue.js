@@ -114,7 +114,16 @@ function updateQueue (all) {
           const policyLink = document.createElement('a')
           policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
           policyLink.textContent = item.policy
-          DOM.setChild('#q-policy', policyLink)
+          document.getElementById("q-policy").appendChild(policyLink)
+        }
+        if (item.operator_policy) {
+          const policyLink = document.createElement('a')
+          policyLink.href = `/operator-policies?name=${encodeURIComponent(item.operator_policy)}&vhost=${encodeURIComponent(item.vhost)}`
+          policyLink.textContent = item.operator_policy
+          document.getElementById("q-operator-policy").appendChild(policyLink)
+        }
+        if (item.effective_policy_definition) {
+          document.getElementById("q-effective-policy-definition").innerText = DOM.jsonToText(item.effective_policy_definition)
         }
         const qArgs = document.getElementById('q-arguments')
         let args = ''

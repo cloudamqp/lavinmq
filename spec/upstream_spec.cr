@@ -28,7 +28,7 @@ module UpstreamSpecHelpers
 
   def self.start_link(upstream)
     definitions = {"federation-upstream" => JSON::Any.new(upstream.name)} of String => JSON::Any
-    upstream.vhost.add_policy("FE", /downstream_ex/, LavinMQ::Policy::Target::Exchanges,
+    upstream.vhost.add_policy("FE", "downstream_ex", "exchanges",
       definitions, 12_i8)
   end
 

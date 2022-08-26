@@ -105,12 +105,43 @@ module LavinMQ
       private def export_vhost_parameters(json, vhosts)
         json.array do
           vhosts.each_value do |vhost|
+            # parameters
             vhost.parameters.each_value do |p|
               {
                 name:      p.parameter_name,
                 component: p.component_name,
                 vhost:     vhost.name,
                 value:     p.value,
+              }.to_json(json)
+            end
+            # vhost-limits
+            limits = Hash(String, Int32).new
+            if mq = vhost.max_queues
+              limits["max-queues"] = mq
+            end
+            if mc = vhost.max_connections
+              limits["max-connections"] = mc
+            end
+            unless limits.empty?
+              {
+                component: "vhost-limits",
+                vhost:     vhost.name,
+                name:      "limits",
+                value:     limits,
+              }.to_json(json)
+            end
+            # operator policies
+            vhost.operator_policies.each_value do |op|
+              {
+                component: "operator_policy",
+                vhost:     vhost.name,
+                name:      op.name,
+                value:     {
+                  pattern:    op.pattern,
+                  definition: op.definition,
+                  priority:   op.priority,
+                  "apply-to": op.apply_to,
+                },
               }.to_json(json)
             end
           end
@@ -211,10 +242,28 @@ module LavinMQ
       private def import_parameters(body, vhosts)
         return unless parameters = body["parameters"]? || nil
         parameters.as_a.each do |p|
-          param = Parameter.new(p["component"].as_s, p["name"].as_s, p["value"])
           vhost = p["vhost"].as_s
           next unless v = fetch_vhost?(vhosts, vhost)
-          v.add_parameter(param)
+          name = p["name"].as_s
+          value = p["value"].as_h
+          component = p["component"].as_s
+          case component
+          when "vhost-limits"
+            if mc = value["max-connections"]?.try &.as_i?
+              v.max_connections = mc
+            end
+            if mq = value["max-queues"]?.try &.as_i?
+              v.max_queues = mq
+            end
+          when "operator_policy"
+            v.add_operator_policy(name,
+              value["pattern"].as_s,
+              value["apply-to"].as_s,
+              value["definition"].as_h,
+              value["priority"].as_i.to_i8)
+          else
+            v.add_parameter(Parameter.new(component, name, p["value"]))
+          end
         end
       end
 
@@ -231,11 +280,13 @@ module LavinMQ
         policies.as_a.each do |p|
           name = p["name"].as_s
           vhost = p["vhost"].as_s
-          next unless v = fetch_vhost?(vhosts, vhost)
-          p = Policy.new(name, vhost, Regex.new(p["pattern"].as_s),
-            Policy::Target.parse(p["apply-to"].as_s), p["definition"].as_h,
-            p["priority"].as_i.to_i8)
-          v.add_policy(p)
+          if v = fetch_vhost?(vhosts, vhost)
+            v.add_policy(name,
+              p["pattern"].as_s,
+              p["apply-to"].as_s,
+              p["definition"].as_h,
+              p["priority"].as_i.to_i8)
+          end
         end
       end
 

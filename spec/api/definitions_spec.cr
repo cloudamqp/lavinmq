@@ -300,7 +300,7 @@ describe LavinMQ::HTTP::Server do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("export_p1", /^.*/, LavinMQ::Policy::Target.parse("queues"), d, -1_i8)
+      s.vhosts["/"].add_policy("export_p1", "^.*", "queues", d, -1_i8)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -382,7 +382,7 @@ describe LavinMQ::HTTP::Server do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("export_p2", /^.*/, LavinMQ::Policy::Target.parse("queues"), d, -1_i8)
+      s.vhosts["/"].add_policy("export_p2", "^.*", "queues", d, -1_i8)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)

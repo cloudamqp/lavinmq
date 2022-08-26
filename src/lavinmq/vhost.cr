@@ -25,7 +25,7 @@ module LavinMQ
     rate_stats(%w(channel_closed channel_created connection_closed connection_created
       queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
-    getter name, exchanges, queues, data_dir, policies, parameters, shovels,
+    getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_channels, default_user, connections, dir, gc_runs, gc_timing, log
     property? flow = true
     property? dirty = false
@@ -59,6 +59,7 @@ module LavinMQ
       load_limits
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
+      @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       @shovels = ShovelStore.new(self)
@@ -458,16 +459,32 @@ module LavinMQ
       Iterator(QueueBinding).chain(iterators)
     end
 
-    def add_policy(name : String, pattern : Regex, apply_to : Policy::Target,
-                   definition : Hash(String, JSON::Any), priority : Int8)
-      add_policy(Policy.new(name, @name, pattern, apply_to, definition, priority))
-      @log.info { "Policy=#{name} Created" }
+    def add_operator_policy(name : String, pattern : String, apply_to : String,
+                            definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
+      op = OperatorPolicy.new(name, @name, Regex.new(pattern),
+        Policy::Target.parse(apply_to), definition, priority)
+      @operator_policies.delete(name)
+      @operator_policies.create(op)
+      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      @log.info { "OperatorPolicy=#{name} Created" }
+      op
     end
 
-    def add_policy(p : Policy)
-      @policies.delete(p.name)
+    def add_policy(name : String, pattern : String, apply_to : String,
+                   definition : Hash(String, JSON::Any), priority : Int8) : Policy
+      p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
+        definition, priority)
+      @policies.delete(name)
       @policies.create(p)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      @log.info { "Policy=#{name} Created" }
+      p
+    end
+
+    def delete_operator_policy(name)
+      @operator_policies.delete(name)
+      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      @log.info { "OperatorPolicy=#{name} Deleted" }
     end
 
     def delete_policy(name)
@@ -564,16 +581,15 @@ module LavinMQ
             else
               @queues.each_value.chain(@exchanges.each_value)
             end
-      sorted_policies = @policies.values.sort_by!(&.priority).reverse
+      policies = @policies.values.sort_by!(&.priority).reverse
+      operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       itr.each do |r|
-        if match = sorted_policies.find &.match?(r)
-          r.apply_policy(match)
-        else
-          r.clear_policy
-        end
+        policy = policies.find &.match?(r)
+        operator_policy = operator_policies.find &.match?(r)
+        r.apply_policy(policy, operator_policy)
       end
     rescue ex : TypeCastError
-      @log.warn { "Invalid policy. #{ex.message}" }
+      @log.error { "Invalid policy. #{ex.message}" }
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
