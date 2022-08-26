@@ -46,14 +46,14 @@ function update (cb) {
 }
 
 function render (data) {
-  document.getElementById('version').innerText = data.lavinmq_version
-  document.getElementById('cluster_name').innerText = data.node
+  document.getElementById('version').textContent = data.lavinmq_version
+  document.getElementById('cluster_name').textContent = data.node
   const table = document.getElementById('overview')
   if (table) {
     Object.keys(data.object_totals).forEach((key) => {
-      document.getElementById(key).innerText = numFormatter.format(data.object_totals[key])
+      document.getElementById(key).textContent = numFormatter.format(data.object_totals[key])
     })
-    document.getElementById('uptime').innerText = Helpers.duration(data.uptime)
+    document.getElementById('uptime').textContent = Helpers.duration(data.uptime)
   }
 }
 

@@ -216,7 +216,7 @@ function update (chart, data, filled = false) {
     }
     addToDataset(dataset, data[key], date)
     setTimeout(() => {
-      legend.children[i].querySelector('.legend-value').innerHTML = helpers.formatNumber(dataset.data.slice(-1)[0].y)
+      legend.children[i].querySelector('.legend-value').textContent = helpers.formatNumber(dataset.data.slice(-1)[0].y)
     }, 50)
   }
   if (chart.config.options.scales.yAxes[0].stacked) {
@@ -224,7 +224,7 @@ function update (chart, data, filled = false) {
       const value = chart.data.datasets.reduce((accumulator, dataset) => {
         return accumulator + dataset.data.slice(-1)[0].y
       }, 0)
-      legend.children[legend.children.length - 1].querySelector('.legend-value').innerHTML = helpers.formatNumber(value)
+      legend.children[legend.children.length - 1].querySelector('.legend-value').textContent = helpers.formatNumber(value)
     }, 50)
   }
   chart.update()

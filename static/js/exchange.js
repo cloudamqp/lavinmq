@@ -55,7 +55,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
   } else {
     const btn = document.createElement('button')
     btn.classList.add('btn-secondary')
-    btn.innerHTML = 'Unbind'
+    btn.textContent = 'Unbind'
     btn.onclick = function () {
       const s = encodeURIComponent(item.source)
       const d = encodeURIComponent(item.destination)

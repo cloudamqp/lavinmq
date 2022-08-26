@@ -25,7 +25,7 @@ const consumersTable = Table.renderTable('table', { keyColumns: [] }, function (
   const btn = document.createElement('button')
   btn.classList.add('btn-primary')
   btn.type = 'submit'
-  btn.innerText = 'Cancel'
+  btn.textContent = 'Cancel'
   cancelForm.appendChild(btn)
   const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
   const conn = encodeURIComponent(item.channel_details.connection_name)
@@ -123,7 +123,7 @@ function updateQueue (all) {
           document.getElementById("q-operator-policy").appendChild(policyLink)
         }
         if (item.effective_policy_definition) {
-          document.getElementById("q-effective-policy-definition").innerText = DOM.jsonToText(item.effective_policy_definition)
+          document.getElementById("q-effective-policy-definition").textContent = DOM.jsonToText(item.effective_policy_definition)
         }
         const qArgs = document.getElementById('q-arguments')
         let args = ''
@@ -146,7 +146,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
   } else {
     const btn = document.createElement('button')
     btn.classList.add('btn-secondary')
-    btn.innerHTML = 'Unbind'
+    btn.textContent = 'Unbind'
     const e = encodeURIComponent(item.source)
     btn.onclick = function () {
       const p = encodeURIComponent(item.properties_key)

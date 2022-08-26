@@ -33,7 +33,7 @@ function apply(base_url = '/api/policies') {
 
     const btn = document.createElement('button')
     btn.classList.add('btn-danger')
-    btn.innerHTML = 'Delete'
+    btn.textContent = 'Delete'
     btn.onclick = function () {
       const name = encodeURIComponent(item.name)
       const vhost = encodeURIComponent(item.vhost)

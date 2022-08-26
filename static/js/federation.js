@@ -32,7 +32,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   Table.renderCell(tr, 10, item.value['consumer-tag'])
   const btn = document.createElement('button')
   btn.classList.add('btn-danger')
-  btn.innerHTML = 'Delete'
+  btn.textContent = 'Delete'
   btn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)

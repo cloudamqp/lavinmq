@@ -26,7 +26,7 @@ function update (cb) {
 }
 
 function render (data) {
-  document.querySelector('#version').innerText = data[0].applications[0].version
+  document.querySelector('#version').textContent = data[0].applications[0].version
   for (const node of data) {
     updateDetails(node)
     updateStats(node)

@@ -14,7 +14,7 @@ function renderState(item) {
     state.appendChild(document.createTextNode(item.state))
     const tooltip = document.createElement('span')
     tooltip.classList.add("tooltiptext")
-    tooltip.innerText = item.error
+    tooltip.textContent = item.error
     state.appendChild(tooltip)
     return state
   } else {
@@ -61,7 +61,7 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   Table.renderCell(tr, 10, renderState(item))
   const btn = document.createElement('button')
   btn.classList.add('btn-danger')
-  btn.innerHTML = 'Delete'
+  btn.textContent = 'Delete'
   btn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
