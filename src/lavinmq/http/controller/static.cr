@@ -8,6 +8,7 @@ module LavinMQ
       include ::HTTP::Handler
 
       PUBLIC_DIR = "#{__DIR__}/../../../../static"
+      VIEWS_DIR  = "#{__DIR__}/../../../../views"
 
       class Release
         extend BakedFileSystem
@@ -21,11 +22,33 @@ module LavinMQ
           return
         end
 
+        view(context) && return
+
         is_dir_path = path.ends_with? "/"
         file_path = URI.decode_www_form(path)
         file_path = "#{file_path}index.html" if is_dir_path
 
         serve(context, file_path) || call_next(context)
+      end
+
+      VIEWS = {
+        "/":            {"index.ecr", "Overview"},
+        "/connections": {"connections.ecr", "Connections"},
+      }
+
+      private def view(context)
+        case context.request.path
+        when "/"
+          etag = Digest::MD5.hexdigest("/" + BUILD_TIME)
+          if context.request.headers["If-None-Match"]? == etag
+            context.response.status_code = 304
+          else
+            context.response.content_type = "text/html;charset=utf-8"
+            context.response.headers.add("ETag", etag)
+            ECR.embed "views/index.ecr", context.response
+          end
+          context
+        end
       end
 
       BUILD_TIME = {{ "#{`date +%s`}" }}
@@ -44,18 +67,20 @@ module LavinMQ
           file_path = "#{file_path}.html" unless File.exists?(file_path)
           file, etag = static(context, file_path) if File.exists?(file_path)
         {% end %}
-        return nil unless file && etag
-        context.response.content_type = mime_type(file.path)
-        if context.request.headers["If-None-Match"]? == etag && cache?(context.request.path)
-          context.response.status_code = 304
-        else
-          if cache?(context.request.path)
-            context.response.headers.add("Cache-Control", "public,max-age=300")
-            context.response.headers.add("ETag", etag)
+        if file && etag
+          context.response.content_type = mime_type(file.path)
+          if context.request.headers["If-None-Match"]? == etag && cache?(context.request.path)
+            context.response.status_code = 304
+          else
+            if cache?(context.request.path)
+              context.response.headers.add("Cache-Control", "public,max-age=300")
+              context.response.headers.add("ETag", etag)
+            end
+            context.response.content_length = file.size
+            IO.copy(file, context.response)
           end
-          context.response.content_length = file.size
-          IO.copy(file, context.response)
         end
+
         context
       ensure
         file.try &.close

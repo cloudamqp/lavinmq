@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Overview | LavinMQ</title>
+    <%-= ECR.render("views/head.ecr") -%>
+  </head>
+  <body>
+    <header>
+      <h2>Overview</h2>
+      <%-= ECR.render("views/usermenu.ecr") -%>
+    </header>
+    <%-= ECR.render("views/menu.ecr") -%>
+    <main>
+      <table id="overview" class="stats-table card">
+        <tbody>
+          <tr>
+            <td id="connections"></td>
+            <td id="channels"></td>
+            <td id="consumers"></td>
+            <td id="exchanges"></td>
+            <td id="queues"></td>
+            <td id="uptime"></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th><a href="/connections">Connections</a></th>
+            <th><a href="/channels">Channels</a></th>
+            <th>Consumers</th>
+            <th><a href="/exchanges">Exchanges</a></th>
+            <th><a href="/queues">Queues</a></th>
+            <th>Uptime</th>
+          </tr>
+        </tfoot>
+      </table>
+      <section class="card cols-4 cols-6-md">
+        <h3>Queued messages</h3>
+        <div class="chart-container" id="msgChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Data rates</h3>
+        <div class="chart-container" id="dataChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Message rates</h3>
+        <div class="chart-container" id="rateChart"></div>
+      </section>
+      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
+        <h3>Upload definitions</h3>
+        <label>
+          <span>File</span>
+          <input id="file" name="file" type="file" accept=".json" required />
+        </label>
+        <button type="submit" class="btn-primary">Upload</button>
+      </form>
+      <form id="exportDefinitions" method="post" class="form card cols-6">
+        <h3>Export definitions</h3>
+        <label>
+          <span>Virtual host</span>
+          <select id="definitionsVhost" name="vhost" required></select>
+        </label>
+        <button type="submit" class="btn-primary">Download</button>
+      </form>
+    </main>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <script src="/js/lib/chart.js"></script>
+    <script type="module">
+      import * as Overview from './js/overview.js'
+      import * as Chart from './js/chart.js'
+      import * as Vhosts from './js/vhosts.js'
+      import * as HTTP from './js/http.js'
+
+      const msgChart = Chart.render('msgChart', 'msgs', { aspectRatio: 2 }, true)
+      const dataChart = Chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
+      const rateChart = Chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
+
+      function updateCharts (response) {
+        let msgStats = {
+          messages_ready: response.queue_totals.messages_ready,
+          messages_unacked: response.queue_totals.messages_unacknowledged,
+          messages_ready_log: response.queue_totals.messages_ready_log,
+          messages_unacked_log: response.queue_totals.messages_unacknowledged_log,
+        }
+        Chart.update(msgChart, msgStats, "origin")
+        Chart.update(rateChart, response.message_stats)
+
+        const dataStats = {
+          send_details: response.send_oct_details,
+          receive_details: response.recv_oct_details
+        }
+        Chart.update(dataChart, dataStats)
+      }
+
+      Overview.start(updateCharts)
+      document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const body = new window.FormData(this)
+        HTTP.request('POST', '/api/definitions/upload', { body }).then(function () {
+          window.location.assign('/')
+        }).catch(function () {
+          window.alert('Upload failed')
+        })
+      })
+
+      Vhosts.addVhostOptions('exportDefinitions').then(() => {
+        const allOpt = '<option value="_all" selected>All</option>'
+        document.querySelector('#definitionsVhost').insertAdjacentHTML('afterbegin', allOpt)
+      })
+      document.querySelector('#exportDefinitions').addEventListener('submit', function (evt) {
+        evt.preventDefault()
+        const body = new window.FormData(this)
+        let url = '/api/definitions'
+        if (body.get('vhost') !== '_all') {
+          url += '/' + encodeURIComponent(body.get('vhost'))
+        }
+        HTTP.request('GET', url).then(function (data) {
+          const a = document.createElement('a')
+          a.classList.add('hide')
+          let name = 'lavinmq-definitions-' + window.location.hostname
+          name += '-' + new Date().toISOString() + '.json'
+          const blob = new window.Blob([JSON.stringify(data, null, 2)], { type: 'text/json', name })
+          a.download = name
+          a.href = URL.createObjectURL(blob)
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        }).catch(HTTP.standardErrorHandler)
+      })
+    </script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+<nav id="menu">
+  <h1>
+    <a href="/"><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
+    <small id="version"><%=VERSION%></small>
+    <small id="cluster_name"></small>
+  </h1>
+  <ul>
+    <li><a class="<%= context.request.path == "/" ? "active" : "" %>" href="/">Overview</a></li>
+    <li><a class="<%= context.request.path == "/connections" ? "active" : "" %>" href="/connections">Connections</a></li>
+    <li><a href="/channels">Channels</a></li>
+    <li><a href="/exchanges">Exchanges</a></li>
+    <li><a href="/queues">Queues</a></li>
+    <li><a href="/policies">Policies</a></li>
+    <li><a href="/operator-policies">Operator policies</a></li>
+    <li><a href="/shovels">Shovels</a></li>
+    <li><a href="/federation">Federation</a></li>
+    <li><a href="/vhosts">Virtual hosts</a></li>
+    <li><a href="/users">Users</a></li>
+    <li><a href="/nodes">Nodes</a></li>
+    <li><a href="/docs/" target="_blank">HTTP API</a></li>
+  </ul>
+</nav>
