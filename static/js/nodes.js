@@ -180,7 +180,6 @@ const updateStats = (nodeStats) => {
         td.textContent = items.heading + ': ' + numFormatter.format(nodeStats[items.key])
         row.append(td)
         metrics += 1
->>>>>>> 22f6782e (fixup! Convert all js scripts to js modules)
       }
     }
     if(metrics > 0) {
