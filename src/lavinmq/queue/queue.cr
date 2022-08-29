@@ -135,7 +135,7 @@ module LavinMQ
       end
       @policy = policy
       @operator_policy = operator_policy
-      step_loop
+      step_loop unless @closed
     end
 
     # force trigger a loop in delivery_loop
