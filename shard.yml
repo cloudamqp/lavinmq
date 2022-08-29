@@ -35,6 +35,8 @@ dependencies:
     branch: master
   systemd:
     github: 84codes/systemd.cr
+  rocksdb:
+    github: maiha/rocksdb.cr
 
 development_dependencies:
   ameba:

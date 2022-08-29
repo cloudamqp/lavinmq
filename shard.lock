@@ -24,6 +24,10 @@ shards:
     git: https://github.com/luislavena/radix.git
     version: 0.4.1
 
+  rocksdb:
+    git: https://github.com/maiha/rocksdb.cr.git
+    version: 1.0.1
+
   router:
     git: https://github.com/tbrand/router.cr.git
     version: 0.2.8
