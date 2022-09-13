@@ -35,7 +35,7 @@ module LavinMQ
 
         get "/api/definitions/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_policymaker(context, user(context), vhost)
+            refuse_unless_management(context, user(context), vhost)
             refuse_unless_vhost_access(context, user(context), vhost)
             export_vhost_definitions(vhost, context.response)
           end
