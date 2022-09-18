@@ -46,19 +46,19 @@ module LavinMQ
     end
 
     SERVER_PROPERTIES = AMQP::Table.new({
-      "product"      => "LavinMQ",
-      "platform"     => "Crystal #{Crystal::VERSION}",
-      "version"      => LavinMQ::VERSION,
-      "capabilities" => AMQP::Table.new({
-        "publisher_confirms"           => true,
-        "exchange_exchange_bindings"   => true,
-        "basic.nack"                   => true,
-        "consumer_cancel_notify"       => true,
-        "connection.blocked"           => true,
-        "consumer_priorities"          => true,
-        "authentication_failure_close" => true,
-        "per_consumer_qos"             => true,
-        "direct_reply_to"              => true,
+      "product":      "LavinMQ",
+      "platform":     "Crystal #{Crystal::VERSION}",
+      "version":      LavinMQ::VERSION,
+      "capabilities": AMQP::Table.new({
+        "publisher_confirms":           true,
+        "exchange_exchange_bindings":   true,
+        "basic.nack":                   true,
+        "consumer_cancel_notify":       true,
+        "connection.blocked":           true,
+        "consumer_priorities":          true,
+        "authentication_failure_close": true,
+        "per_consumer_qos":             true,
+        "direct_reply_to":              true,
       }),
     })
 
