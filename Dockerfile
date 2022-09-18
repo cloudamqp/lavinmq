@@ -7,7 +7,7 @@ COPY openapi openapi
 RUN make docs
 
 # Build objects file on build platform for speed
-FROM --platform=$BUILDPLATFORM 84codes/crystal:1.5.0-ubuntu-22.04 AS builder
+FROM --platform=$BUILDPLATFORM 84codes/crystal:1.5.1-ubuntu-22.04 AS builder
 RUN apt-get update && apt-get install -y make curl
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
@@ -20,7 +20,7 @@ ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
 
 # Link object files on target platform
-FROM 84codes/crystal:1.5.0-ubuntu-22.04 AS target-builder
+FROM 84codes/crystal:1.5.1-ubuntu-22.04 AS target-builder
 WORKDIR /tmp
 COPY Makefile .
 COPY --from=builder /tmp/bin bin
