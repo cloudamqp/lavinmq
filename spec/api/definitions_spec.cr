@@ -433,10 +433,9 @@ describe LavinMQ::HTTP::Server do
         s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         response = get("/api/definitions/new", headers: headers)
-        # Should Http have more access than management?
-        # response.status_code.should eq 401
-        # body = JSON.parse(response.body)
-        # body["reason"].should eq "Access refused"
+        response.status_code.should eq 401
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
       ensure
         s.users.delete("other_name", save: false)
         s.vhosts.delete("new")
