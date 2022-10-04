@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Allow shared user to export/import vhost definitions ([#379](https://github.com/cloudamqp/lavinmq/pull/379))
+
 ## [1.0.0-beta.3] - 2022-09-06
 
-Measure and log time it takes to collect metrics in stats_loop [#371](https://github.com/cloudamqp/lavinmq/pull/371).
+Measure and log time it takes to collect metrics in stats_loop ([#371](https://github.com/cloudamqp/lavinmq/pull/371))
 
 ### Added
 
