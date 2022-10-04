@@ -392,6 +392,39 @@ describe LavinMQ::HTTP::Server do
     ensure
       s.vhosts["/"].delete_policy("export_p2")
     end
+
+    describe "user tags and vhost access" do
+      it "export vhost definitions as management user" do
+        s.users.delete("guest")
+        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        s.vhosts.create("new")
+        s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+        response = get("/api/definitions/new", headers: headers)
+        response.status_code.should eq 200
+      ensure
+        s.users.delete("other_name", save: false)
+        s.vhosts.delete("new")
+        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
+        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
+      end
+
+      it "should refuse vhost access" do
+        s.users.delete("guest")
+        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        s.vhosts.create("new")
+        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+        response = get("/api/definitions/new", headers: headers)
+        response.status_code.should eq 401
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      ensure
+        s.users.delete("other_name", save: false)
+        s.vhosts.delete("new")
+        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
+        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
+      end
+    end
   end
 
   describe "POST /api/definitions/vhost" do
@@ -487,6 +520,61 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 400
       body = JSON.parse(response.body)
       body["reason"].as_s.should eq("Malformed JSON.")
+    end
+
+    describe "user tags and vhost access" do
+      it "import vhost definitions as policymaker user" do
+        s.users.delete("guest")
+        s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
+        s.vhosts.create("new")
+        s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+        body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
+        response = post("/api/definitions/new", headers: headers, body: body)
+        response.status_code.should eq 200
+        s.vhosts["new"].queues.has_key?("import_q1").should be_true
+      ensure
+        s.vhosts["new"].delete_queue("import_q1")
+        s.users.delete("other_name", save: false)
+        s.vhosts.delete("new")
+        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
+        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
+      end
+
+      it "should refuse vhost access" do
+        s.users.delete("guest")
+        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        s.vhosts.create("new")
+        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+        body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
+        response = post("/api/definitions/new", headers: headers, body: body)
+        response.status_code.should eq 401
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      ensure
+        s.users.delete("other_name", save: false)
+        s.vhosts.delete("new")
+        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
+        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
+      end
+
+      it "should refuse user tag access" do
+        s.users.delete("guest")
+        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        s.vhosts.create("new")
+        s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+        body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
+        response = post("/api/definitions/new", headers: headers, body: body)
+        response.status_code.should eq 401
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      ensure
+        s.users.delete("other_name", save: false)
+        s.vhosts.delete("new")
+        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
+        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
+      end
     end
   end
 
