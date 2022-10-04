@@ -307,14 +307,17 @@ describe LavinMQ::Shovel do
 
     describe "authentication error" do
       it "should be stopped" do
+        uri = URI.parse(AMQP_BASE_URL)
+        uri.user = "foo"
+        uri.password = "bar"
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          URI.parse("amqp://foo:bar@localhost:5672"),
+          uri,
           "q1"
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse("amqp://foo:bar@localhost:5672"),
+          uri,
           "q2"
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
