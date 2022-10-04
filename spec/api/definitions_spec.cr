@@ -427,7 +427,6 @@ describe LavinMQ::HTTP::Server do
 
       it "should refuse user tag access" do
         s.users.delete("guest")
-        # Http tag override refuse_unless_management
         s.users.create("other_name", "guest", [LavinMQ::Tag::Http], save: false) # Will be the new default_user
         s.vhosts.create("new")
         s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
