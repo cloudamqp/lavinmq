@@ -8,7 +8,6 @@ module LavinMQ
     Monitoring
     Management
     PolicyMaker
-    Http
 
     def to_json(json : JSON::Builder)
       to_s.downcase.to_json(json)

@@ -122,11 +122,11 @@ describe LavinMQ::HTTP::UsersController do
       s.users.create("alan", "pw")
       body = %({
         "password": "test",
-        "tags": "http"
+        "tags": "management"
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
-      s.users["alan"].tags.should eq([LavinMQ::Tag::Http])
+      s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
     ensure
       delete("/api/users/alan")
     end
