@@ -15,13 +15,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Validate and build the documentation
         run: ./build/build_docs_in_ci
 
       - name: Upload the documentation
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: index.html
           path: static/docs/index.html
@@ -40,7 +40,7 @@ jobs:
         run: |
           curl -fsSLO https://crystal-lang.org/install.sh
           chmod +x install.sh
-          ./install.sh --version=1.2
+          ./install.sh --version=1.6
 
       - name: Install dependencies
         run: |
@@ -49,12 +49,12 @@ jobs:
           yum install -y git rpmlint rpm-build openssl-devel zlib-devel help2man systemd-devel
 
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
       - name: Download the HTTP API documentation
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: index.html
           path: static/docs/
@@ -63,7 +63,7 @@ jobs:
         run: build/rpm
 
       - name: Upload packages
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: rpms
           path: builds/rpm
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: rpms
 
