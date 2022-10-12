@@ -39,7 +39,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Lint and build HTTP API documentation
         run: ./build/build_docs_in_ci
@@ -50,7 +50,7 @@ jobs:
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install dependencies
         run: apt-get update && apt-get install -y libsystemd-dev libyaml-dev
@@ -76,7 +76,7 @@ jobs:
           apt-get install -y make libsystemd-dev curl
 
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Build lavinmq
         run: |
@@ -87,7 +87,7 @@ jobs:
         run: bin/lavinmq-debug --build-info
 
       - name: Upload bin/
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: bin
           path: bin/
@@ -104,7 +104,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y make libevent-dev openjdk-11-jre-headless
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: bin
           path: bin
@@ -115,7 +115,7 @@ jobs:
           bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Clone java client
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: 84codes/rabbitmq-java-client
           path: rabbitmq-java-client
@@ -144,9 +144,9 @@ jobs:
           sudo apt-get install -y libevent-dev
 
       - name: Checkout LavinMQ for bunny_definitions.json
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: bin
           path: bin
@@ -162,7 +162,7 @@ jobs:
           bin/lavinmqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: ruby-amqp/bunny
           path: bunny
@@ -190,7 +190,7 @@ jobs:
     continue-on-error: true
 
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: bin
           path: bin
@@ -201,7 +201,7 @@ jobs:
           bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: cloudamqp/rabbitmq_http_api_client
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -226,7 +226,7 @@ jobs:
     continue-on-error: true
 
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: bin
           path: bin
@@ -242,7 +242,7 @@ jobs:
           go-version: 1.15.2
 
       - name: Clone http client
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: cloudamqp/rabbit-hole
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -261,9 +261,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: bin
           path: bin
