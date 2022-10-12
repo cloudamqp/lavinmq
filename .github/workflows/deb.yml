@@ -43,8 +43,8 @@ jobs:
       - name: Build deb package
         uses: docker/build-push-action@v3
         with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ github.workflow }}-${{ matrix.os }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-${{ matrix.os }}-${{ matrix.arch }}
           file: Dockerfile.deb
           platforms: linux/${{ matrix.arch }}
           build-args: |
