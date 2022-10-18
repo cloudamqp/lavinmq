@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.0.0-beta.4] - 2022-10-18
+
 ### Changed
 
-- Allow shared user to export/import vhost definitions ([#379](https://github.com/cloudamqp/lavinmq/pull/379))
+- Allow "policy maker"-user to export/import vhost definitions ([#379](https://github.com/cloudamqp/lavinmq/pull/379))
+
+### Fixed
+
+- Ensure Http tag does not give management access ([#381](https://github.com/cloudamqp/lavinmq/pull/381))
 
 ## [1.0.0-beta.3] - 2022-09-06
 
