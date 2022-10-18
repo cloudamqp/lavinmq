@@ -216,7 +216,7 @@ module LavinMQ
       @visited = Set(Exchange).new
       @found_queues = Set(Queue).new
 
-      private def publish_and_return(msg)
+      private def publish_and_return(msg) # ameba:disable Metrics/CyclomaticComplexity
         return true if direct_reply?(msg)
         if user_id = msg.properties.user_id
           if user_id != @client.user.name && !@client.user.can_impersonate?
