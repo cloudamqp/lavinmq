@@ -848,7 +848,9 @@ module LavinMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          collected += punch_hole(file.not_nil!, prev_sp.end_position, sp.position)
+          if f = file
+            collected += punch_hole(f, prev_sp.end_position, sp.position)
+          end
         else # dealing with a new segment
           # truncate the previous file
           if f = file
@@ -867,10 +869,10 @@ module LavinMQ
             end
           end
 
-          file = @segments[sp.segment]
-
-          # punch from start of the segment (but not the version prefix)
-          collected += punch_hole(file, sizeof(Int32), sp.position)
+          if file = @segments[sp.segment]?
+            # punch from start of the segment (but not the version prefix)
+            collected += punch_hole(file, sizeof(Int32), sp.position)
+          end
         end
         prev_sp = sp
       end

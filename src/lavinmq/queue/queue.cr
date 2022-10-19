@@ -560,7 +560,7 @@ module LavinMQ
       bytes = seg.to_slice(sp.position.to_i32, sp.bytesize)
       MessageMetadata.from_bytes(bytes)
     rescue e : KeyError
-      @log.error { "Segment file not found for #{sp}, removing index" }
+      @log.error { "Segment file not found for #{sp}, removing segment position" }
       @ready.delete(sp)
       delete_message sp
       nil
@@ -809,7 +809,7 @@ module LavinMQ
       redelivered = @requeued.includes?(sp)
       Envelope.new(sp, msg, redelivered)
     rescue ex : KeyError
-      @log.error { "Segment file not found for #{sp}, removing index" }
+      @log.error { "Segment file not found for #{sp}, removing segment position" }
       @ready.delete(sp)
       delete_message sp
       raise ex
