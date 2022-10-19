@@ -15,8 +15,9 @@ module LavinMQ
       super
       @index_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       @log.debug { "Index dir: #{@index_dir}" }
+      index_corrupted = false # might need to compact index if index files are corrupted
       if Dir.exists?(@index_dir)
-        restore_index
+        index_corrupted = restore_index
       else
         Dir.mkdir @index_dir
       end
@@ -29,6 +30,7 @@ module LavinMQ
       SchemaVersion.verify_or_prefix(@ack, :index)
       @ack.seek 0, IO::Seek::End
       @ack.advise(MFile::Advice::DontNeed)
+      compact_index! if index_corrupted
     end
 
     private def compact_index! : Nil
@@ -161,48 +163,64 @@ module LavinMQ
 
     SP_SIZE = SegmentPosition::BYTESIZE.to_i64
 
-    private def restore_index : Nil
+    # Returns weather queue index should be compacted or not
+    private def restore_index : Bool
       @log.info { "Restoring index" }
       enq_path = File.join(@index_dir, "enq")
       ack_path = File.join(@index_dir, "ack")
       SchemaVersion.migrate(enq_path, :index)
       SchemaVersion.migrate(ack_path, :index)
-      time = Time.measure do
-        truncate_sparse_file(enq_path)
-        truncate_sparse_file(ack_path)
-      end
-      @log.info { "Truncating sparse index in #{time.total_milliseconds} ms" }
-      File.open(enq_path) do |enq|
-        File.open(ack_path) do |ack|
+      File.open(enq_path, "r+") do |enq|
+        File.open(ack_path, "r+") do |ack|
           enq.buffer_size = Config.instance.file_buffer_size
           ack.buffer_size = Config.instance.file_buffer_size
           enq.advise(File::Advice::Sequential)
           ack.advise(File::Advice::Sequential)
           SchemaVersion.verify(enq, :index)
           SchemaVersion.verify(ack, :index)
+          truncate_sparse_file(enq)
+          truncate_sparse_file(ack)
 
           # Defer allocation of acked array in case we truncate due to zero sp.
           acked : Array(SegmentPosition)? = nil
 
+          last_valid_sp_pos = ack.pos
           loop do
             sp = SegmentPosition.from_io ack
-            break if sp.zero?
+            if sp.zero?
+              # can be holes in the file, because lseek HOLE rounds up to nearest block
+              new_pos = ((ack.pos // 4096) + 1) * 4096
+              ack.pos = new_pos
+              next
+            end
             unless acked
               ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
               acked = Array(SegmentPosition).new(ack_count)
             end
+            last_valid_sp_pos = ack.pos
             acked << sp
           rescue IO::EOFError
             break
+          end
+          if ack.size != last_valid_sp_pos
+            @log.info { "Truncating #{File.basename ack.path} from #{ack.size} to #{last_valid_sp_pos}" }
+            ack.truncate(last_valid_sp_pos)
           end
           acked.try &.sort!
 
           # Defer allocation of ready queue in case we truncate due to zero sp.
           ready : ReadyQueue? = nil
 
+          last_valid_sp_pos = enq.pos
+          lost_msgs = 0
           loop do
             sp = SegmentPosition.from_io enq
-            break if sp.zero?
+            if sp.zero?
+              # can be holes in the file, because lseek HOLE rounds up to nearest block
+              new_pos = ((enq.pos // 4096) + 1) * 4096
+              enq.pos = new_pos
+              next
+            end
             unless ready
               # To avoid repetetive allocations in Dequeue#increase_capacity
               # we redeclare the ready queue with a larger initial capacity
@@ -211,46 +229,47 @@ module LavinMQ
               @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
             end
             next if acked.try { |a| a.bsearch { |asp| asp >= sp } == sp }
+            # SP refers to a segment that has already been deleted
+            unless @vhost.@segments.has_key? sp.segment
+              lost_msgs += 1
+              next
+            end
+            last_valid_sp_pos = enq.pos
             ready << sp
           rescue IO::EOFError
             break
           end
+          if enq.size != last_valid_sp_pos
+            @log.info { "Truncating #{File.basename enq.path} from #{enq.size} to #{last_valid_sp_pos}" }
+            enq.truncate(last_valid_sp_pos)
+          end
+
           @log.info { "#{message_count} messages" }
           message_available if message_count > 0
+          if lost_msgs > 0
+            @log.error { "#{lost_msgs} dropped due to reference to missing segment file" }
+            return true # should compact_index! (but can't do it here)
+          end
         end
       end
+      false
     rescue ex : IO::Error
       @log.error { "Could not restore index: #{ex.inspect}" }
+      false
     end
 
     SEEK_HOLE = 4
 
     # Truncate sparse index file, can be if not gracefully shutdown.
     # If not truncated the restore_index will create too large arrays
-    private def truncate_sparse_file(path : String) : Nil
-      File.open(path, "r+") do |f|
-        {% if flag?(:linux) %}
-          seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
-          raise IO::Error.from_errno "Unable to seek" if seek_value == -1
-          @log.info { "Truncating #{File.basename path} from #{f.size} to #{seek_value}" }
-          f.truncate seek_value
-          return
-        {% else %}
-          f.buffer_size = Config.instance.file_buffer_size
-          f.advise(File::Advice::Sequential)
-          loop do
-            sp = SegmentPosition.from_io f
-            if sp.zero?
-              size = f.pos
-              @log.info { "Truncating #{File.basename path} from #{f.size} to #{size}" }
-              f.truncate size
-              break
-            end
-          rescue IO::EOFError
-            break
-          end
-        {% end %}
-      end
+    private def truncate_sparse_file(f : File) : Nil
+      {% if flag?(:linux) %}
+        seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
+        raise IO::Error.from_errno "Unable to seek" if seek_value == -1
+        return if f.size == seek_value
+        @log.info { "Truncating #{f.path} from #{f.size} to #{seek_value}" }
+        f.truncate seek_value
+      {% end %}
     end
 
     def enq_file_size
