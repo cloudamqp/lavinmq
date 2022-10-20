@@ -210,7 +210,6 @@ describe LavinMQ::Shovel do
     end
 
     it "should reconnect and continue" do
-      {% if flag?(:freebsd) %} pending! {% end %}
       config = %({
         "src-uri": "#{AMQP_BASE_URL}",
         "src-queue": "rc_q1",
@@ -235,6 +234,7 @@ describe LavinMQ::Shovel do
         q1.publish_confirm "shovel me 2", props: props
         q1.publish_confirm "shovel me 3", props: props
         q1.publish_confirm "shovel me 4", props: props
+        sleep 0.1
         4.times do |i|
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me #{i + 1}"
         end
