@@ -87,11 +87,6 @@ class MFile < IO
     buffer
   end
 
-  private def close_fd(fd)
-    code = LibC.close(fd)
-    raise File::Error.from_errno("Error closing file", file: @path) if code < 0
-  end
-
   @deleted = false
 
   def delete
@@ -111,7 +106,8 @@ class MFile < IO
       code = LibC.ftruncate(@fd, @size)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     ensure
-      close_fd(@fd)
+      code = LibC.close(@fd)
+      raise File::Error.from_errno("Error closing file", file: @path) if code < 0
     end
   end
 
@@ -201,7 +197,7 @@ class MFile < IO
       end
       size.to_i64
     {% else %}
-      return 0i64 # only linux supports MADV_REMOVE/hole punching
+      0i64 # only linux supports MADV_REMOVE/hole punching
     {% end %}
   end
 
