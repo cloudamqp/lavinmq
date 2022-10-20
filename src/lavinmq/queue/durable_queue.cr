@@ -20,17 +20,18 @@ module LavinMQ
         index_corrupted = restore_index
       else
         Dir.mkdir @index_dir
+        File.open(File.join(@index_dir, "enq"), "w") { |f| SchemaVersion.prefix(f, :index) }
+        File.open(File.join(@index_dir, "ack"), "w") { |f| SchemaVersion.prefix(f, :index) }
       end
       File.write(File.join(@index_dir, ".queue"), @name)
       @enq = MFile.new(File.join(@index_dir, "enq"), ack_max_file_size)
-      SchemaVersion.verify_or_prefix(@enq, :index)
-      @enq.seek 0, IO::Seek::End
       @enq.advise(MFile::Advice::DontNeed)
+      @enq.seek 0, IO::Seek::End
       @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
-      SchemaVersion.verify_or_prefix(@ack, :index)
-      @ack.seek 0, IO::Seek::End
       @ack.advise(MFile::Advice::DontNeed)
+      @ack.seek 0, IO::Seek::End
       compact_index! if index_corrupted
+      message_available if message_count > 0
     end
 
     private def compact_index! : Nil
@@ -166,96 +167,93 @@ module LavinMQ
     # Returns weather queue index should be compacted or not
     private def restore_index : Bool
       @log.info { "Restoring index" }
-      enq_path = File.join(@index_dir, "enq")
-      ack_path = File.join(@index_dir, "ack")
-      SchemaVersion.migrate(enq_path, :index)
-      SchemaVersion.migrate(ack_path, :index)
-      File.open(enq_path, "r+") do |enq|
-        File.open(ack_path, "r+") do |ack|
-          enq.buffer_size = Config.instance.file_buffer_size
-          ack.buffer_size = Config.instance.file_buffer_size
-          enq.advise(File::Advice::Sequential)
-          ack.advise(File::Advice::Sequential)
-          SchemaVersion.verify(enq, :index)
-          SchemaVersion.verify(ack, :index)
-          truncate_sparse_file(enq)
-          truncate_sparse_file(ack)
-
-          # Defer allocation of acked array in case we truncate due to zero sp.
-          acked : Array(SegmentPosition)? = nil
-
-          last_valid_sp_pos = ack.pos
-          loop do
-            sp = SegmentPosition.from_io ack
-            if sp.zero?
-              # can be holes in the file, because lseek HOLE rounds up to nearest block
-              new_pos = ((ack.pos // MFile::PAGESIZE) + 1) * MFile::PAGESIZE
-              ack.pos = new_pos
-              next
-            end
-            unless acked
-              ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
-              acked = Array(SegmentPosition).new(ack_count)
-            end
-            last_valid_sp_pos = ack.pos
-            acked << sp
-          rescue IO::EOFError
-            break
-          end
-          if ack.size != last_valid_sp_pos
-            @log.info { "Truncating #{File.basename ack.path} from #{ack.size} to #{last_valid_sp_pos}" }
-            ack.truncate(last_valid_sp_pos)
-          end
-          acked.try &.sort!
-
-          # Defer allocation of ready queue in case we truncate due to zero sp.
-          ready : ReadyQueue? = nil
-
-          last_valid_sp_pos = enq.pos
-          lost_msgs = 0
-          loop do
-            sp = SegmentPosition.from_io enq
-            if sp.zero?
-              # can be holes in the file, because lseek HOLE rounds up to nearest block
-              new_pos = ((enq.pos // 4096) + 1) * 4096
-              enq.pos = new_pos
-              next
-            end
-            unless ready
-              # To avoid repetetive allocations in Dequeue#increase_capacity
-              # we redeclare the ready queue with a larger initial capacity
-              enq_count = (enq.size.to_i64 - ack.size - (sizeof(Int32) * 2)) // SP_SIZE
-              capacity = Math.max(enq_count, 1024)
-              @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
-            end
-            next if acked.try { |a| a.bsearch { |asp| asp >= sp } == sp }
-            # SP refers to a segment that has already been deleted
-            unless @vhost.@segments.has_key? sp.segment
-              lost_msgs += 1
-              next
-            end
-            last_valid_sp_pos = enq.pos
-            ready << sp
-          rescue IO::EOFError
-            break
-          end
-          if enq.size != last_valid_sp_pos
-            @log.info { "Truncating #{File.basename enq.path} from #{enq.size} to #{last_valid_sp_pos}" }
-            enq.truncate(last_valid_sp_pos)
-          end
-
-          @log.info { "#{message_count} messages" }
-          message_available if message_count > 0
-          if lost_msgs > 0
-            @log.error { "#{lost_msgs} dropped due to reference to missing segment file" }
-            return true # should compact_index! (but can't do it here)
-          end
-        end
-      end
-      false
+      acked = restore_acks
+      restore_enq(acked)
     rescue ex : IO::Error
       @log.error { "Could not restore index: #{ex.inspect}" }
       false
+    end
+
+    private def restore_enq(acked) : Bool
+      enq_path = File.join(@index_dir, "enq")
+      SchemaVersion.migrate(enq_path, :index)
+      File.open(enq_path, "r+") do |enq|
+        enq.buffer_size = Config.instance.file_buffer_size
+        enq.advise(File::Advice::Sequential)
+        SchemaVersion.verify(enq, :index)
+        truncate_sparse_file(enq)
+
+        # To avoid repetetive allocations in Dequeue#increase_capacity
+        # we redeclare the ready queue with a larger initial capacity
+        enq_count = (enq.size.to_i64 - (sizeof(Int32))) // SP_SIZE - acked.size
+        capacity = Math.max(enq_count, 1024)
+        @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
+
+        last_valid_sp_pos = enq.pos
+        lost_msgs = 0
+        loop do
+          sp = SegmentPosition.from_io enq
+          if sp.zero?
+            # can be holes in the file, because lseek HOLE rounds up to nearest block
+            goto_next_block(enq)
+            next
+          end
+          next if acked.bsearch { |asp| asp >= sp } == sp
+          # SP refers to a segment that has already been deleted
+          unless @vhost.@segments.has_key? sp.segment
+            lost_msgs += 1
+            next
+          end
+          last_valid_sp_pos = enq.pos
+          ready << sp
+        rescue IO::EOFError
+          break
+        end
+        @log.info { "#{message_count} messages" }
+        if enq.size != last_valid_sp_pos
+          @log.info { "Truncating #{File.basename enq.path} from #{enq.size} to #{last_valid_sp_pos}" }
+          enq.truncate(last_valid_sp_pos)
+        end
+        if lost_msgs > 0
+          @log.error { "#{lost_msgs} dropped due to reference to missing segment file" }
+          return true # should compact_index! (but can't do it here)
+        end
+      end
+      false
+    end
+
+    private def restore_acks
+      ack_path = File.join(@index_dir, "ack")
+      SchemaVersion.migrate(ack_path, :index)
+      File.open(ack_path, "r+") do |ack|
+        ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
+        acked = Array(SegmentPosition).new(ack_count)
+
+        last_valid_sp_pos = ack.pos
+        loop do
+          sp = SegmentPosition.from_io ack
+          if sp.zero?
+            # can be holes in the file, because lseek HOLE rounds up to nearest block
+            goto_next_block(ack)
+            next
+          end
+          last_valid_sp_pos = ack.pos
+          acked << sp
+        rescue IO::EOFError
+          break
+        end
+        if ack.size != last_valid_sp_pos
+          @log.info { "Truncating #{File.basename ack.path} from #{ack.size} to #{last_valid_sp_pos}" }
+          ack.truncate(last_valid_sp_pos)
+        end
+        acked.sort!
+      end
+    end
+
+    # Jump to the next block in a file
+    private def goto_next_block(f)
+      new_pos = ((f.pos // MFile::PAGESIZE) + 1) * MFile::PAGESIZE
+      f.pos = new_pos
     end
 
     SEEK_HOLE = 4
