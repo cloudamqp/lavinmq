@@ -55,7 +55,7 @@ describe LavinMQ::HTTP::ConsumersController do
         conn = s.connections.to_a.last.name
         response = delete("/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/#{consumer}")
         response.status_code.should eq 204
-        sleep 0.01
+        wait_for { ch.has_subscriber?(consumer) == false }
         ch.has_subscriber?(consumer).should be_false
       end
     end
