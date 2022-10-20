@@ -234,7 +234,7 @@ jobs:
           bin/lavinmq-debug --data-dir /tmp/amqp &
 
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: 1.15.2
 
