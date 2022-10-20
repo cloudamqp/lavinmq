@@ -828,6 +828,7 @@ module LavinMQ
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def gc_segments(referenced_sps) : Nil
       @log.debug { "GC segments" }
       collected = 0_u64
@@ -846,14 +847,10 @@ module LavinMQ
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
           # punch a hole
-          if f = file
-            collected += punch_hole(f, prev_sp.end_position, sp.position)
-          end
+          collected += punch_hole(file, prev_sp.end_position, sp.position) if file
         else # dealing with a new segment
           # truncate the previous file
-          if f = file
-            collected += f.truncate(prev_sp.end_position)
-          end
+          collected += file.truncate(prev_sp.end_position) if file
 
           # if a segment is missing between this and previous SP
           # means that a segment is unused, so let's delete it
@@ -861,17 +858,16 @@ module LavinMQ
             collected += delete_segment(seg)
           end
 
-          if file = @segments[sp.segment]?
-            # punch from start of the segment (but not the version prefix)
-            collected += punch_hole(file, sizeof(Int32), sp.position)
-          end
+          file = @segments[sp.segment]?
+          # punch from start of the segment (but not the version prefix)
+          collected += punch_hole(file, sizeof(Int32), sp.position) if file
         end
         prev_sp = sp
       end
 
       # truncate the last opened segment to last message
       if file != @wfile
-        collected += file.not_nil!.truncate(prev_sp.end_position)
+        collected += file.truncate(prev_sp.end_position) if file
       end
 
       @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
