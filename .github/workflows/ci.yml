@@ -52,9 +52,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install dependencies
-        run: apt-get update && apt-get install -y libsystemd-dev libyaml-dev
-
       - name: Print Crystal version
         run: crystal -v
 
@@ -73,7 +70,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y make libsystemd-dev curl
+          apt-get install -y make curl
 
       - name: Checkout
         uses: actions/checkout@v3
