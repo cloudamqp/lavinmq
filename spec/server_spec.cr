@@ -999,7 +999,6 @@ describe LavinMQ::Server do
       Fiber.yield
       count.should eq 0
 
-      squeue = s.vhosts["/"].queues[qname]
       Fiber.yield
       s.vhosts["/"].queues[qname].@ready.size.should eq 1
       s.vhosts["/"].queues[qname].@unacked.size.should eq 0
