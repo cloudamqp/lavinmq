@@ -120,7 +120,17 @@ module TestHelpers
     h.close
   end
 
-  def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
+  # Keeps the same data directory
+  def restart_servers
+    dir = s.data_dir
+    close_servers
+    TestHelpers.create_servers(dir)
+  end
+
+  BASE_DIR = "/tmp/lavinmq_spec"
+
+  def self.create_servers(dir = File.join(BASE_DIR, Random.new.hex), level = LOG_LEVEL)
+    Dir.mkdir_p(dir)
     Log.setup(level)
     cfg = LavinMQ::Config.instance
     cfg.gc_segments_interval = 1

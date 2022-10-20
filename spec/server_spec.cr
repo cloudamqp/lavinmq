@@ -427,8 +427,7 @@ describe LavinMQ::Server do
       topic_x.bind(exchange: headers_x.name, routing_key: "", args: hdrs)
     end
 
-    close_servers
-    TestHelpers.setup
+    restart_servers
 
     with_channel do |ch|
       q = ch.queue
@@ -628,8 +627,9 @@ describe LavinMQ::Server do
       end
       ch.wait_for_confirm(1000)
     end
-    close_servers
-    TestHelpers.setup
+
+    restart_servers
+
     with_channel do |ch|
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete

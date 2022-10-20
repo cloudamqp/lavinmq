@@ -95,10 +95,11 @@ describe LavinMQ::DurableQueue do
       queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
       enq_path = queue.@enq.path
     end
+    data_dir = s.data_dir
     close_servers
     # emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    TestHelpers.setup
+    TestHelpers.create_servers(data_dir)
     queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
     # make sure that the @ready capacity doesn't take into account the preallocated size
     queue.@ready.capacity.should eq Math.pw2ceil(msg_count)

@@ -225,8 +225,7 @@ describe LavinMQ::Shovel do
         props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
         q1.publish_confirm "shovel me 1", props: props
       end
-      close_servers
-      TestHelpers.setup
+      restart_servers
       wait_for { s.vhosts["/"].shovels.not_nil!["rc_shovel"]?.try(&.running?) }
       with_channel do |ch|
         q1 = ch.queue("rc_q1", durable: true)
