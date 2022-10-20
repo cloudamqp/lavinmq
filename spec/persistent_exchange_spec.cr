@@ -184,9 +184,8 @@ describe "Persistent Exchange" do
 
   describe "x-persist-seconds" do
     it "should expire messages" do
-      {% if flag?(:freebsd) %} pending! {% end %}
       with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-persist-ms" => 1})
+        x_args = AMQP::Client::Arguments.new({"x-persist-ms" => 1000})
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue
         x.publish "test message 1", q.name
@@ -194,8 +193,9 @@ describe "Persistent Exchange" do
         q.bind(x.name, "#", args: bind_args)
         q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
         q.unbind(x.name, "#", args: bind_args)
-        sleep 0.01
+        sleep 1
         q.bind(x.name, "#", args: bind_args)
+        Fiber.yield
         q.get(no_ack: true).should be_nil
       end
     ensure
