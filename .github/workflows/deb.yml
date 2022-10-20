@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        os: [ubuntu-20.04, debian-11]
+        os: [ubuntu-22.04, ubuntu-20.04, debian-11]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
