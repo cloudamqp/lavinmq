@@ -986,8 +986,7 @@ describe LavinMQ::Server do
   end
 
   it "will requeue messages that can't be delivered" do
-    {% if flag?(:freebsd) %} pending! {% end %}
-    qname = ("requeue-failed-delivery")
+    qname = "requeue-failed-delivery"
     count = 0
     with_channel do |ch|
       ch.@connection.@io.as(TCPSocket).linger = 0
@@ -995,21 +994,18 @@ describe LavinMQ::Server do
       q.subscribe(no_ack: false) do |_msg|
         count += 1
       end
-      q.publish "1"
-      q.publish "2"
-      Fiber.yield
+      q.publish_confirm "1"
       ch.@connection.@io.as(TCPSocket).close
       Fiber.yield
       count.should eq 0
 
+      squeue = s.vhosts["/"].queues[qname]
       Fiber.yield
-      s.vhosts["/"].queues[qname].@ready.size.should eq 2
+      s.vhosts["/"].queues[qname].@ready.size.should eq 1
       s.vhosts["/"].queues[qname].@unacked.size.should eq 0
     end
   ensure
-    if n = qname
-      s.vhosts["/"].delete_queue(n)
-    end
+    s.vhosts["/"].delete_queue(qname) if qname
   end
 
   it "will limit message size" do
