@@ -841,9 +841,7 @@ module LavinMQ
       referenced_sps.each do |sp|
         next if sp == prev_sp # ignore duplicates
 
-        if prev_sp > sp
-          raise ReferencedSPs::NotInOrderError.new(prev_sp, sp)
-        end
+        raise ReferencedSPs::NotInOrderError.new(prev_sp, sp) if prev_sp > sp
         # if the last segment was the same as this
         if prev_sp.segment == sp.segment
           # if there's a hole between previous sp and this sp
@@ -860,13 +858,7 @@ module LavinMQ
           # if a segment is missing between this and previous SP
           # means that a segment is unused, so let's delete it
           ((prev_sp.segment + 1)...sp.segment).each do |seg|
-            if mfile = @segments.delete(seg)
-              collected += mfile.disk_usage
-              @log.info { "Deleting segment #{seg}" }
-              @segment_holes.delete(mfile)
-              mfile.close(truncate_to_size: false)
-              mfile.delete
-            end
+            collected += delete_segment(seg)
           end
 
           if file = @segments[sp.segment]?
@@ -878,11 +870,24 @@ module LavinMQ
       end
 
       # truncate the last opened segment to last message
-      if file && file != @wfile
-        collected += file.truncate(prev_sp.end_position)
+      if file != @wfile
+        collected += file.not_nil!.truncate(prev_sp.end_position)
       end
 
       @log.info { "Garbage collected #{collected.humanize_bytes}" } if collected > 0
+    end
+
+    private def delete_segment(seg) : Int
+      if mfile = @segments.delete(seg)
+        disk_usage = mfile.disk_usage
+        @log.info { "Deleting segment #{seg}" }
+        @segment_holes.delete(mfile)
+        mfile.close(truncate_to_size: false)
+        mfile.delete
+        disk_usage
+      else
+        0
+      end
     end
 
     private def gc_all_segements
