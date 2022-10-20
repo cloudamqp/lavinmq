@@ -189,7 +189,7 @@ module LavinMQ
             sp = SegmentPosition.from_io ack
             if sp.zero?
               # can be holes in the file, because lseek HOLE rounds up to nearest block
-              new_pos = ((ack.pos // 4096) + 1) * 4096
+              new_pos = ((ack.pos // MFile::PAGESIZE) + 1) * MFile::PAGESIZE
               ack.pos = new_pos
               next
             end
@@ -260,15 +260,21 @@ module LavinMQ
 
     SEEK_HOLE = 4
 
+    # If the file has been preallocated, this truncates the file to the last allocated block
     # Truncate sparse index file, can be if not gracefully shutdown.
     # If not truncated the restore_index will create too large arrays
     private def truncate_sparse_file(f : File) : Nil
       {% if flag?(:linux) %}
-        seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
-        raise IO::Error.from_errno "Unable to seek" if seek_value == -1
-        return if f.size == seek_value
-        @log.info { "Truncating #{f.path} from #{f.size} to #{seek_value}" }
-        f.truncate seek_value
+        pos = f.pos
+        begin
+          seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
+          raise IO::Error.from_errno "Unable to seek" if seek_value == -1
+          return if f.size == seek_value
+          @log.info { "Truncating #{File.basename f.path} from #{f.size} to #{seek_value}" }
+          f.truncate seek_value
+        ensure
+          f.pos = pos
+        end
       {% end %}
     end
 
