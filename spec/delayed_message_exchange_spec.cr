@@ -59,12 +59,11 @@ describe "Delayed Message Exchange" do
   end
 
   it "should deliver in correct order" do
-    {% if flag?(:freebsd) %} pending! {% end %}
     with_channel do |ch|
       x = ch.exchange(x_name, "topic", args: x_args)
       q = ch.queue(q_name)
       q.bind(x.name, "#")
-      hdrs = AMQP::Client::Arguments.new({"x-delay" => 5})
+      hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
       x.publish "delay-long", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
       hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
       x.publish "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
