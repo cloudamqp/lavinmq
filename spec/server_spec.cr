@@ -994,7 +994,7 @@ describe LavinMQ::Server do
       q.subscribe(no_ack: false) do |_msg|
         count += 1
       end
-      q.publish_confirm "1"
+      q.publish "1"
       ch.@connection.@io.as(TCPSocket).close
       Fiber.yield
       count.should eq 0
