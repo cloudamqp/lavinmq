@@ -226,6 +226,11 @@ module LavinMQ
       ack_path = File.join(@index_dir, "ack")
       SchemaVersion.migrate(ack_path, :index)
       File.open(ack_path, "r+") do |ack|
+        ack.buffer_size = Config.instance.file_buffer_size
+        ack.advise(File::Advice::Sequential)
+        SchemaVersion.verify(ack, :index)
+        truncate_sparse_file(ack)
+
         ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
         acked = Array(SegmentPosition).new(ack_count)
 
