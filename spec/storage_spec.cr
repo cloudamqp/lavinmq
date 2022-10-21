@@ -104,6 +104,38 @@ describe LavinMQ::DurableQueue do
     queue.@ready.capacity.should eq Math.pw2ceil(msg_count)
     queue.@ready.size.should eq msg_count
   end
+
+  # TODO: we know this works as expected although logs dont show
+  # next step is to shut down hard in order to try and trigger faulty index recovery
+  it "it should not insert zeros to enq/ack files" do
+    with_channel do |ch|
+      q = ch.queue("corruption_test", durable: true)
+      q.publish_confirm "Hello world"
+      # enq_path = queue.@enq.path
+    end
+    queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+    queue.@ready.size.should eq 1
+    # close_servers
+    # emulate the file was preallocated after server crash
+    # File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
+    # TestHelpers.setup
+    puts "GETS HERE 1"
+    sleep 2
+    with_channel do |ch|
+      puts "GETS HERE 2"
+      q = ch.queue("corruption_test", durable: true)
+      pp q
+      puts "publishing"
+      q.publish_confirm "Hello world"
+      puts "published"
+      queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+      # enq_path = queue.@enq.path
+    end
+    sleep 2
+    puts "GETS HERE 3"
+    queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+    queue.@ready.size.should eq 2
+  end
 end
 
 describe LavinMQ::VHost do
