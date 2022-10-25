@@ -439,6 +439,7 @@ module LavinMQ
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
         messages:                    @ready.size + @unacked.size,
+        messages_persistent:         @durable ? @ready.size + @unacked.size : 0,
         ready:                       @ready.size,
         ready_bytes:                 @ready.bytesize,
         ready_avg_bytes:             @ready.avg_bytesize,
