@@ -323,7 +323,7 @@ describe LavinMQ::Shovel do
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "auth_fail", vhost)
         spawn { shovel.run }
         wait_for { shovel.details_tuple[:error] }
-        shovel.details_tuple[:error].not_nil!.should contain "ACCESS_REFUSED"
+        shovel.details_tuple[:error].should eq "403 - ACCESS_REFUSED"
         shovel.terminate
         shovel.state.should eq "Terminated"
       end
