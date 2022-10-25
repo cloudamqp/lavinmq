@@ -52,6 +52,34 @@ describe LavinMQ::HTTP::QueuesController do
     ensure
       s.vhosts["/"].delete_queue("stats_q")
     end
+
+    it "should return no persistent message count" do
+      with_channel do |ch|
+        q = ch.queue("stats_q", auto_delete: false, durable: false, exclusive: false)
+        q.publish "m1"
+      end
+      response = get("/api/queues/%2f/stats_q")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body["messages"].should eq 1
+      body["messages_persistent"].should eq 0
+    ensure
+      s.vhosts["/"].delete_queue("stats_q")
+    end
+
+    it "should return persistent message count" do
+      with_channel do |ch|
+        q = ch.queue("stats_q", auto_delete: false, durable: true, exclusive: false)
+        q.publish "m1"
+      end
+      response = get("/api/queues/%2f/stats_q")
+      response.status_code.should eq 200
+      body = JSON.parse(response.body)
+      body["messages"].should eq 1
+      body["messages_persistent"].should eq 1
+    ensure
+      s.vhosts["/"].delete_queue("stats_q")
+    end
   end
 
   describe "GET /api/queues/vhost/name/size-details" do
