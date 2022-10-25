@@ -51,13 +51,15 @@ module LavinMQ
     end
 
     def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
-      seg = UInt32.from_io(io, format)
-      pos = UInt32.from_io(io, format)
-      bytesize = UInt32.from_io(io, format)
-      ts = Int64.from_io(io, format)
-      priority = io.read_byte || raise IO::EOFError.new
-      flags_value = io.read_byte || raise IO::EOFError.new
-      flags = SPFlags.from_value flags_value
+      buf = uninitialized UInt8[BYTESIZE]
+      slice = buf.to_slice
+      io.read_fully(slice)
+      seg = format.decode(UInt32, slice[0, 4])
+      pos = format.decode(UInt32, slice[4, 4])
+      bytesize = format.decode(UInt32, slice[8, 4])
+      ts = format.decode(Int64, slice[12, 8])
+      priority = slice[20]
+      flags = SPFlags.from_value slice[21]
       self.new(seg, pos, bytesize, ts, priority, flags)
     end
 
