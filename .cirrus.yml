@@ -6,7 +6,7 @@ freebsd_spec_task:
     - pkg install -y crystal shards security/openssl
   script: |
     shards install --production
-    crystal spec
+    crystal spec --no-color --order random
 
 freebsd_build_task:
   freebsd_instance:
@@ -26,7 +26,7 @@ osx_spec_task:
     - brew install crystal
   script: |
     shards install --production
-    crystal spec
+    crystal spec --no-color --order random
 
 osx_build_task:
   macos_instance:
