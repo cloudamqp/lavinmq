@@ -104,6 +104,31 @@ describe LavinMQ::DurableQueue do
     queue.@ready.capacity.should eq Math.pw2ceil(msg_count)
     queue.@ready.size.should eq msg_count
   end
+
+  # Index corruption bug
+  # https://github.com/cloudamqp/lavinmq/pull/384
+  it "must find messages written after a uncompacted hole" do
+    enq_path = ""
+    with_channel do |ch|
+      q = ch.queue("corruption_test", durable: true)
+      q.publish_confirm "Hello world"
+      queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+      enq_path = queue.@enq.path
+    end
+    close_servers
+    # Emulate the file was preallocated after server crash
+    File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
+    TestHelpers.setup
+    # Write another message after the prealloced space
+    with_channel do |ch|
+      q = ch.queue("corruption_test", durable: true)
+      q.publish_confirm "Hello world"
+    end
+    close_servers
+    TestHelpers.setup
+    queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+    queue.@ready.size.should eq 2
+  end
 end
 
 describe LavinMQ::VHost do
