@@ -267,8 +267,9 @@ module LavinMQ
     # Truncate sparse index file, can be if not gracefully shutdown.
     # If not truncated the restore_index will create too large arrays
     private def truncate_sparse_file(f : File) : Nil
+      pos = f.pos
       {% if flag?(:linux) %}
-        pos = f.pos
+        # use lseek SEEK_HOLE to find unallocated blocks and truncate from there
         begin
           seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
           raise IO::Error.from_errno "Unable to seek" if seek_value == -1
@@ -279,6 +280,23 @@ module LavinMQ
           f.pos = pos
         end
       {% end %}
+      # then read segment positions until we find only null bytes and truncate from there
+      size = pos
+      loop do
+        sp = SegmentPosition.from_io f
+        if sp.zero?
+          goto_next_block(f)
+        else
+          size += SP_SIZE
+        end
+      rescue IO::EOFError
+        break
+      end
+      return if f.size == size
+      @log.info { "Truncating #{File.basename f.path} from #{f.size} to #{size}" }
+      f.truncate size
+    ensure
+      f.pos = pos if pos
     end
 
     def enq_file_size
