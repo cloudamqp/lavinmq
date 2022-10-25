@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- If the server crashed the index files could in many cases be corrupted and result in message loss
 
 ## [1.0.0-beta.4] - 2022-10-18
 
