@@ -958,7 +958,7 @@ module LavinMQ
         end
         builder.field("consumer_details") do
           builder.array do
-            @consumers.each do |c|
+            @consumers.each.to_a.unstable_sort_by! { |c| {c.channel, c.tag} }.each do |c|
               c.to_json(builder)
               limit -= 1
               break if limit.zero?
