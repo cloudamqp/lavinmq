@@ -1,5 +1,5 @@
 name: lavinmq
-version: 1.0.0-beta.3
+version: 1.0.0-beta.4
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
@@ -10,6 +10,8 @@ authors:
   - Anton Dalgren <anton@cloudamqp.com>
   - Patrik Ragnarsson <patrik@84codes.com>
   - Oskar Gustafsson <oskar@84codes.com>
+  - Tobias Brodén <tobias@84codes.com>
+  - Christina Dahlén <christina@84codes.com>
 
 targets:
   lavinmq:
