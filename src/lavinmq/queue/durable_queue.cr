@@ -189,7 +189,6 @@ module LavinMQ
         capacity = Math.max(enq_count, 1024)
         @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
 
-        last_valid_sp_pos = enq.pos
         lost_msgs = 0
         loop do
           sp = SegmentPosition.from_io enq
@@ -204,16 +203,11 @@ module LavinMQ
             lost_msgs += 1
             next
           end
-          last_valid_sp_pos = enq.pos
           ready << sp
         rescue IO::EOFError
           break
         end
         @log.info { "#{message_count} messages" }
-        if enq.size != last_valid_sp_pos
-          @log.info { "Truncating #{File.basename enq.path} from #{enq.size} to #{last_valid_sp_pos}" }
-          enq.truncate(last_valid_sp_pos)
-        end
         if lost_msgs > 0
           @log.error { "#{lost_msgs} dropped due to reference to missing segment file" }
           return true # should compact_index! (but can't do it here)
@@ -234,7 +228,6 @@ module LavinMQ
         ack_count = ((ack.size - sizeof(Int32)) // SP_SIZE).to_u32
         acked = Array(SegmentPosition).new(ack_count)
 
-        last_valid_sp_pos = ack.pos
         loop do
           sp = SegmentPosition.from_io ack
           if sp.zero?
@@ -242,14 +235,9 @@ module LavinMQ
             goto_next_block(ack)
             next
           end
-          last_valid_sp_pos = ack.pos
           acked << sp
         rescue IO::EOFError
           break
-        end
-        if ack.size != last_valid_sp_pos
-          @log.info { "Truncating #{File.basename ack.path} from #{ack.size} to #{last_valid_sp_pos}" }
-          ack.truncate(last_valid_sp_pos)
         end
         acked.sort!
       end
@@ -267,27 +255,30 @@ module LavinMQ
     # Truncate sparse index file, can be if not gracefully shutdown.
     # If not truncated the restore_index will create too large arrays
     private def truncate_sparse_file(f : File) : Nil
-      pos = f.pos
+      start_pos = f.pos
       {% if flag?(:linux) %}
         # use lseek SEEK_HOLE to find unallocated blocks and truncate from there
         begin
           seek_value = LibC.lseek(f.fd, 0, SEEK_HOLE)
           raise IO::Error.from_errno "Unable to seek" if seek_value == -1
-          return if f.size == seek_value
-          @log.info { "Truncating #{File.basename f.path} from #{f.size} to #{seek_value}" }
-          f.truncate seek_value
+          if f.size != seek_value
+            @log.info { "Truncating unallocated blocks in #{File.basename f.path} from #{f.size} to #{seek_value}" }
+            f.truncate seek_value
+          end
         ensure
-          f.pos = pos
+          f.pos = start_pos
         end
       {% end %}
       # then read segment positions until we find only null bytes and truncate from there
-      size = pos
+      size = pos = start_pos
       loop do
         sp = SegmentPosition.from_io f
         if sp.zero?
           goto_next_block(f)
+          pos = f.pos
         else
-          size += SP_SIZE
+          pos += SP_SIZE
+          size = pos
         end
       rescue IO::EOFError
         break
@@ -296,7 +287,7 @@ module LavinMQ
       @log.info { "Truncating #{File.basename f.path} from #{f.size} to #{size}" }
       f.truncate size
     ensure
-      f.pos = pos if pos
+      f.pos = start_pos if start_pos
     end
 
     def enq_file_size
