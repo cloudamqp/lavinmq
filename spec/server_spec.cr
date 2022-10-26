@@ -306,6 +306,7 @@ describe LavinMQ::Server do
       10.times do |i|
         q.publish_confirm i.to_s
       end
+      mch.close
       if m = mch.receive?
         m.body_io.to_s.should eq "0"
       end

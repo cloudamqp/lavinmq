@@ -611,6 +611,7 @@ module LavinMQ
       load_definitions!
       spawn(name: "Load parameters") do
         sleep 0.05
+        next if @closed
         apply_parameters
         apply_policies
       end

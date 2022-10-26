@@ -353,7 +353,7 @@ module LavinMQ
       when AMQP::Frame::Channel::CloseOk
         @channels.delete(frame.channel).try &.close
       when AMQP::Frame::Channel::Flow
-        with_channel frame, &.client_flow(frame.active)
+        with_channel frame, &.flow(frame.active)
       when AMQP::Frame::Channel::FlowOk
         # noop
       when AMQP::Frame::Confirm::Select

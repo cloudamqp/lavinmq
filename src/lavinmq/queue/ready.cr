@@ -6,11 +6,21 @@ module LavinMQ
     class ReadyQueue
       @lock = Mutex.new(:reentrant)
       @initial_capacity : Int32
+      getter empty_change = Channel(Bool).new
       getter bytesize = 0u64
 
       def initialize(initial_capacity = 1024)
         @initial_capacity = initial_capacity.to_i32
         @ready = Deque(SegmentPosition).new(@initial_capacity)
+      end
+
+      private def notify_empty(is_empty)
+        while @empty_change.try_send? is_empty
+        end
+      end
+
+      def close
+        @empty_change.close
       end
 
       def includes?(sp)
@@ -30,6 +40,8 @@ module LavinMQ
           if sp = @ready.shift?
             @bytesize -= sp.bytesize
             sp
+          else
+            notify_empty(true)
           end
         end
       end
@@ -38,7 +50,8 @@ module LavinMQ
       # If broken with false yield, return the message to the queue
       def shift(&blk : SegmentPosition -> Bool)
         @lock.synchronize do
-          while sp = @ready.shift?
+          loop do
+            sp = @ready.shift? || return notify_empty(true)
             ok = yield sp
             unless ok
               @ready.unshift sp
@@ -86,11 +99,13 @@ module LavinMQ
       # returns SPs in the deque after the operation
       def insert(sp : SegmentPosition)
         @lock.synchronize do
+          was_empty = @ready.size.zero?
           if i = @ready.bsearch_index { |rsp| rsp > sp }
             @ready.insert(i, sp)
           else
             @ready.push(sp)
           end
+          notify_empty(false) if was_empty
           @bytesize += sp.bytesize
           @ready.size
         end
@@ -99,6 +114,7 @@ module LavinMQ
       # Insert SPs sorted, the array should ideally be sorted too
       def insert(sps : Enumerable(SegmentPosition))
         @lock.synchronize do
+          was_empty = @ready.size.zero?
           sps.reverse_each do |sp|
             if i = @ready.bsearch_index { |rsp| rsp > sp }
               @ready.insert(i, sp)
@@ -107,6 +123,7 @@ module LavinMQ
             end
             @bytesize += sp.bytesize
           end
+          notify_empty(false) if was_empty
           @ready.size
         end
       end
@@ -119,12 +136,14 @@ module LavinMQ
           if @ready.first == sp
             @ready.shift
             @bytesize -= sp.bytesize
+            notify_empty(true) if @ready.empty?
             return true
           else
             if idx = @ready.bsearch_index { |rsp| rsp >= sp }
               if @ready[idx] == sp
                 @ready.delete_at(idx)
                 @bytesize -= sp.bytesize
+                notify_empty(true) if @ready.empty?
                 return true
               end
             end
@@ -140,6 +159,7 @@ module LavinMQ
             @bytesize -= sp.bytesize
             yield sp
           end
+          notify_empty(true) if @ready.empty?
         end
       end
 
@@ -150,6 +170,7 @@ module LavinMQ
             @bytesize -= sp.bytesize
             yield sp
           end
+          notify_empty(true) if @ready.empty?
         end
       end
 
@@ -157,8 +178,10 @@ module LavinMQ
       # Returns number of SPs in the deque
       def push(sp : SegmentPosition) : Int32
         @lock.synchronize do
+          was_empty = @ready.empty?
           @ready.push(sp)
           @bytesize += sp.bytesize
+          notify_empty(false) if was_empty
           @ready.size
         end
       end
@@ -195,6 +218,7 @@ module LavinMQ
             @ready = Deque(SegmentPosition).new(@initial_capacity)
           end
           @bytesize = 0u64
+          notify_empty(true)
           count
         end
       end
@@ -250,7 +274,9 @@ module LavinMQ
 
       def insert(sp : SegmentPosition)
         @lock.synchronize do
+          was_empty = @ready.empty?
           insert_sorted(sp)
+          notify_empty(false) if was_empty
           @ready.size
         end
       end
@@ -258,9 +284,11 @@ module LavinMQ
       # Insert SPs sorted, the array should ideally be sorted too
       def insert(sps : Enumerable(SegmentPosition))
         @lock.synchronize do
+          was_empty = @ready.empty?
           sps.each do |sp|
             insert_sorted(sp)
           end
+          notify_empty(false) if was_empty
           @ready.size
         end
       end

@@ -31,7 +31,6 @@ module LavinMQ
       @ack.advise(MFile::Advice::DontNeed)
       @ack.seek 0, IO::Seek::End
       compact_index! if index_corrupted
-      message_available if message_count > 0
     end
 
     private def compact_index! : Nil

@@ -46,7 +46,6 @@ module LavinMQ
               context.response.status_code = 404
               break
             end
-            consumer.queue.rm_consumer(consumer)
             consumer.cancel
             context.response.status_code = 204
           end

@@ -15,7 +15,7 @@ module LavinMQ
       getter id, client, prefetch_size, prefetch_count,
         confirm, log, consumers, name
       property? running = true
-      getter? client_flow, global_prefetch
+      getter? flow = true, global_prefetch = false
 
       @next_publish_mandatory = false
       @next_publish_immediate = false
@@ -24,7 +24,6 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @log : Log
-      @client_flow = true
       @prefetch_size = 0_u32
       @prefetch_count = 0_u16
       @confirm_total = 0_u64
@@ -72,14 +71,14 @@ module LavinMQ
         }
       end
 
-      def client_flow(active : Bool)
-        @client_flow = active
-        @consumers.each(&.queue.consumer_available) if active
+      def flow(active : Bool)
+        @flow = active
+        @consumers.each &.flow(active)
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
       def state
-        !@running ? "closed" : (@client.vhost.flow? ? "running" : "flow")
+        !@running ? "closed" : @flow ? "running" : "flow"
       end
 
       def send(frame)
@@ -295,11 +294,8 @@ module LavinMQ
         confirm_ack
       end
 
-      def deliver(frame, msg, redelivered = false)
-        unless @running
-          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
-          return false
-        end
+      def deliver(frame, msg, redelivered = false) : Nil
+        raise ClosedError.new("Channel is closed") unless @running
         # Make sure publishes are confirmed before we deliver
         # can happend if the vhost spawned fsync fiber has not execed yet
         @client.vhost.send_publish_confirms
@@ -311,7 +307,6 @@ module LavinMQ
           @deliver_count += 1
           @client.vhost.event_tick(EventType::ClientDeliver)
         end
-        true
       end
 
       def consume(frame)
@@ -498,13 +493,10 @@ module LavinMQ
 
       def basic_qos(frame) : Nil
         @client.send_not_implemented(frame) if frame.prefetch_size != 0
-        notify_queues = frame.prefetch_count > @prefetch_count > 0
-        notify_queues ||= frame.prefetch_count.zero? && @prefetch_count > 0
         @prefetch_size = frame.prefetch_size
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
-        @consumers.each(&.queue.consumer_available) if notify_queues
       end
 
       def basic_recover(frame) : Nil
@@ -530,30 +522,19 @@ module LavinMQ
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
-        if frame.requeue
-          @consumers.each do |c|
-            q = c.queue
-            q.consumer_available
-            q.message_available
-          end
-        end
       end
 
       def close
         @running = false
-        @consumers.each do |c|
-          c.queue.rm_consumer(c) # this will requeue the consumer's unacked msgs
-        end
+        @consumers.each &.close
         @consumers.clear
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumers.delete(drc)
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
-            if unack.consumer.nil? # requeue basic_get msgs
-              @log.debug { "Requeing unacked msg #{unack.sp}" }
-              unack.queue.reject(unack.sp, true)
-            end
+            @log.debug { "Requeing unacked msg #{unack.sp}" }
+            unack.queue.reject(unack.sp, true)
           end
           @unacked.clear
         end
@@ -576,7 +557,7 @@ module LavinMQ
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
         if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
           c = @consumers.delete_at idx
-          c.queue.rm_consumer(c, basic_cancel: true)
+          c.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
@@ -597,6 +578,8 @@ module LavinMQ
             end
           end
       end
+
+      class ClosedError < Error; end
     end
   end
 end
