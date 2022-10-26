@@ -31,6 +31,7 @@ module LavinMQ
     end
 
     def delete_consumer(consumer)
+      consumer.close
       @lock.synchronize do
         @last_consumer_selected = nil if consumer == @last_consumer_selected
 

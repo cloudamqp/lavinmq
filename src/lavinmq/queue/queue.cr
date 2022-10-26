@@ -31,6 +31,7 @@ module LavinMQ
     include Stats
     include SortableJSON
 
+    getter to_deliver = ::Channel(SegmentPosition).new
     @durable = false
     @log : Log
     @message_ttl : ArgumentNumber?
@@ -47,7 +48,6 @@ module LavinMQ
     @read_lock = Mutex.new(:reentrant)
     @consumers = ConsumerStore.new
     @message_available = Channel(Nil).new(1)
-    @consumer_available = Channel(Nil).new(1)
     @consumers_empty = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @ready = ReadyQueue.new
@@ -141,7 +141,6 @@ module LavinMQ
     # force trigger a loop in delivery_loop
     private def step_loop
       message_available
-      consumer_available
     end
 
     private def clear_policy
@@ -159,13 +158,6 @@ module LavinMQ
     def message_available
       select
       when @message_available.send nil
-      else
-      end
-    end
-
-    def consumer_available
-      select
-      when @consumer_available.send nil
       else
       end
     end
@@ -280,26 +272,13 @@ module LavinMQ
       end
     end
 
-    private def deliver_loop # ameba:disable Metrics/CyclomaticComplexity
-      i = 0
+    private def deliver_loop
       loop do
-        break if @state.closed?
         if @ready.empty?
-          i = 0
           receive_or_expire || break
         end
-        if @state.running? && (c = @consumers.next_consumer(i))
-          deliver_to_consumer(c)
-          # deliver 4096 msgs to a consumer then change consumer
-          if (i += 1) == 4096
-            Fiber.yield
-            i = 0
-          end
-        else
-          break if @state.closed?
-          i = 0
-          consumer_or_expire || break
-        end
+        break if @state.closed?
+        deliver_or_expire || break
       rescue Channel::ClosedError
         break
       rescue ex
@@ -342,20 +321,22 @@ module LavinMQ
       true
     end
 
-    private def consumer_or_expire : Bool
-      @log.debug { "No consumer available" }
+    private def deliver_or_expire : Bool
+      @log.debug { "Deliver or expire" }
+      sp = @ready.first? || return true
       q_ttl = time_to_expiration
       m_ttl = time_to_message_expiration
       ttl = {q_ttl, m_ttl}.select(Time::Span).min?
       if ttl
-        @log.debug &.emit("Queue#consumer_or_expire", ttl: ttl.to_s)
+        @log.debug &.emit("Queue#deliver_or_expire", ttl: ttl.to_s)
         select
         when @paused.receive
           @log.debug { "Queue unpaused" }
-        when @consumer_available.receive
-          @log.debug { "Queue#consumer_or_expire Consumer available" }
+        when @to_deliver.send(sp)
+          @log.debug { "Delivered SP" }
+          @ready.shift == sp || raise "didnt shift the SP we expected"
         when @refresh_ttl_timeout.receive
-          @log.debug { "Queue#consumer_or_expire Refresh TTL timeout" }
+          @log.debug { "Queue#deliver_or_expire Refresh TTL timeout" }
         when timeout ttl
           return true if @state.closed?
           case ttl
@@ -366,10 +347,14 @@ module LavinMQ
           else raise "Unknown TTL"
           end
         end
-      elsif @state.flow? || @state.paused?
-        @paused.receive
       else
-        @consumer_available.receive
+        select
+        when @paused.receive
+          @log.debug { "Queue unpaused" }
+        when @to_deliver.send(sp)
+          @log.debug { "Delivered SP #{sp}" }
+          @ready.shift == sp || raise "didnt shift the SP we expected"
+        end
       end
       true
     end
@@ -405,7 +390,6 @@ module LavinMQ
       @closed = true
       @state = QueueState::Closed
       @message_available.close
-      @consumer_available.close
       @consumers_empty.close
       @consumers.cancel_consumers
       @consumers.clear
@@ -749,6 +733,13 @@ module LavinMQ
       false
     end
 
+    # If nil is returned it means that the delivery limit is reached
+    def get_msg(sp, no_ack) : Envelope?
+      env = read(sp)
+      env = with_delivery_count_header(env) if @delivery_limit && !no_ack
+      env
+    end
+
     # return the next message in the ready queue
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, &blk : Envelope -> _)
@@ -785,7 +776,7 @@ module LavinMQ
       env
     end
 
-    def read(sp : SegmentPosition)
+    def read(sp : SegmentPosition) : Envelope
       seg = segment_file(sp.segment)
       bytes = seg.to_slice(sp.position.to_i32, sp.bytesize)
       msg = BytesMessage.from_bytes(bytes)
@@ -809,7 +800,6 @@ module LavinMQ
       @ack_count += 1
       @unacked.delete(sp)
       delete_message(sp)
-      consumer_available
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
@@ -846,7 +836,6 @@ module LavinMQ
       else
         expire_msg(sp, :rejected)
       end
-      consumer_available
       @reject_count += 1
     end
 
@@ -866,7 +855,6 @@ module LavinMQ
       @consumers.add_consumer(consumer)
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
-      consumer_available
       spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
         notify_observers(:add_consumer, consumer)
       end

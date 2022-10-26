@@ -72,10 +72,24 @@ module LavinMQ
         }
       end
 
+      @client_flow_channel = ::Channel(Nil).new
+
       def client_flow(active : Bool)
         @client_flow = active
-        @consumers.each(&.queue.consumer_available) if active
+        # Notify all consumers waiting for client flow
+        loop do
+          select
+          when @client_flow_channel.send nil
+          else
+            break
+          end
+        end
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
+      end
+
+      def wait_for_client_flow
+        return if @client_flow
+        @client_flow_channel.receive
       end
 
       def state
@@ -504,7 +518,8 @@ module LavinMQ
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
-        @consumers.each(&.queue.consumer_available) if notify_queues
+        # FIXME
+        # @consumers.each(&.queue.consumer_available) if notify_queues
       end
 
       def basic_recover(frame) : Nil
@@ -533,7 +548,8 @@ module LavinMQ
         if frame.requeue
           @consumers.each do |c|
             q = c.queue
-            q.consumer_available
+            # FIXME
+            # q.consumer_available
             q.message_available
           end
         end
