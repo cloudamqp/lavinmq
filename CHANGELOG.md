@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- If the server crashed the index files could in many cases be corrupted and result in message loss
-
 ## [1.0.0-beta.4] - 2022-10-18
 
 ### Changed
@@ -20,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Ensure Http tag does not give management access ([#381](https://github.com/cloudamqp/lavinmq/pull/381))
+- If the server crashed, the index files could in many cases be corrupted and result in message loss ([#384](https://github.com/cloudamqp/lavinmq/pull/384))
 
 ## [1.0.0-beta.3] - 2022-09-06
 
