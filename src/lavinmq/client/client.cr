@@ -134,10 +134,12 @@ module LavinMQ
           when AMQP::Frame::Connection::Close
             @log.info { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
             send AMQP::Frame::Connection::CloseOk.new
-            return
+            @running = false
+            next
           when AMQP::Frame::Connection::CloseOk
             @log.debug { "Confirmed disconnect" }
-            return
+            @running = false
+            next
           end
           if @running
             process_frame(frame)
