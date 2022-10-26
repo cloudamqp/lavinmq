@@ -1,3 +1,4 @@
+require "log"
 require "../../sortable_json"
 
 module LavinMQ
@@ -6,13 +7,14 @@ module LavinMQ
       class Consumer
         include SortableJSON
 
-        getter no_ack, queue, unacked, tag, exclusive, channel, priority
+        getter no_ack, queue, unacked, tag, exclusive, channel, priority, prefetch_count
 
         @log : Log
         @unacked = 0_u32
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
+          @prefetch_count = @channel.prefetch_count
           @log = @channel.log.for "consumer=#{@tag}"
         end
 
@@ -20,16 +22,15 @@ module LavinMQ
           @tag
         end
 
-        def prefetch_count
-          @channel.prefetch_count
-        end
-
         def accepts?
           ch = @channel
           return false unless ch.client_flow?
           return true if prefetch_count.zero?
-          unacked = ch.global_prefetch? ? ch.consumers.sum(&.unacked) : @unacked
-          unacked < prefetch_count
+          if ch.global_prefetch?
+            ch.consumers.sum(&.unacked) < ch.prefetch_count
+          else
+            @unacked < @prefetch_count
+          end
         end
 
         def deliver(msg, sp, redelivered = false, recover = false)
