@@ -23,6 +23,27 @@ describe LavinMQ::DurableQueue do
         end
       end
     end
+
+    it "should ignore corrupt endings" do
+      with_vhost("corrupt_vhost") do |vhost|
+        enq_path = ""
+        with_channel(vhost: vhost.name) do |ch|
+          q = ch.queue("corrupt_q2")
+          queue = vhost.queues["corrupt_q2"].as(LavinMQ::DurableQueue)
+          enq_path = queue.@enq.path
+          2.times do |i|
+            q.publish_confirm "test message #{i}"
+          end
+        end
+        close_servers
+        File.open(enq_path, "r+") { |f| f.truncate(f.size - 3) }
+        TestHelpers.setup
+        with_channel(vhost: vhost.name) do |ch|
+          q = ch.queue_declare("corrupt_q2", passive: true)
+          q[:message_count].should eq 1
+        end
+      end
+    end
   end
 
   it "GC message index after MAX_ACKS" do
