@@ -1,4 +1,5 @@
 freebsd_spec_task:
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*', 'spec/*')"
   freebsd_instance:
     image_family: freebsd-13-0
   install_script:
@@ -9,6 +10,7 @@ freebsd_spec_task:
     crystal spec --no-color --order random
 
 freebsd_build_task:
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*')"
   freebsd_instance:
     image_family: freebsd-13-0
   install_script:
@@ -19,6 +21,7 @@ freebsd_build_task:
     path: bin/*
 
 osx_spec_task:
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*', 'spec/*')"
   macos_instance:
     image: monterey-base
   install_script:
@@ -29,6 +32,7 @@ osx_spec_task:
     crystal spec --no-color --order random
 
 osx_build_task:
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*')"
   macos_instance:
     image: monterey-base
   install_script:
