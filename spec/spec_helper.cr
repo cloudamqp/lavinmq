@@ -105,7 +105,7 @@ module TestHelpers
       return res if res
       break if Time.monotonic - sec > timeout
     end
-    fail "Execuction expired", file: file, line: line
+    fail "Execution expired", file: file, line: line
   end
 
   def test_headers(headers = nil)
