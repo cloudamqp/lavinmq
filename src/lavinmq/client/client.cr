@@ -132,6 +132,7 @@ module LavinMQ
           frame_size_ok?(frame) || return
           case frame
           when AMQP::Frame::Connection::Close
+            @log.info { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
             send AMQP::Frame::Connection::CloseOk.new
             return
           when AMQP::Frame::Connection::CloseOk
