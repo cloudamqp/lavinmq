@@ -35,7 +35,8 @@ module LavinMQ
               else
                 @queue.unacked.push(sp, self)
               end
-              deliver(env.message, sp)
+              deliver(env.message, sp, env.redelivered)
+              # FIXME: requeue if delivery failes
             end
             wait_until_accepts
           end

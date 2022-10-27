@@ -335,6 +335,11 @@ module LavinMQ
         when @to_deliver.send(sp)
           @log.debug { "Delivered SP" }
           @ready.shift == sp || raise "didnt shift the SP we expected"
+          if @requeued.includes? sp
+            @redeliver_count += 1
+          else
+            @deliver_count += 1
+          end
         when @refresh_ttl_timeout.receive
           @log.debug { "Queue#deliver_or_expire Refresh TTL timeout" }
         when timeout ttl
@@ -354,35 +359,14 @@ module LavinMQ
         when @to_deliver.send(sp)
           @log.debug { "Delivered SP #{sp}" }
           @ready.shift == sp || raise "didnt shift the SP we expected"
-        end
-      end
-      true
-    end
-
-    private def deliver_to_consumer(c)
-      # @log.debug { "Getting a new message" }
-      get(c.no_ack) do |env|
-        sp = env.segment_position
-        # @log.debug { "Delivering #{sp} to consumer" }
-        if c.deliver(env.message, sp, env.redelivered)
-          if c.no_ack
-            delete_message(sp)
-          else
-            @unacked.push(sp, c)
-          end
-          if env.redelivered
+          if @requeued.includes? sp
             @redeliver_count += 1
           else
             @deliver_count += 1
           end
-          # @log.debug { "Delivery of #{sp} done" }
-        else
-          @log.debug { "Delivery failed, returning #{sp} to ready" }
-          @ready.insert(sp)
         end
-        return
       end
-      @log.debug { "Consumer found, but not a message" }
+      true
     end
 
     def close : Bool
@@ -393,6 +377,7 @@ module LavinMQ
       @consumers_empty.close
       @consumers.cancel_consumers
       @consumers.clear
+      @to_deliver.close
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield
