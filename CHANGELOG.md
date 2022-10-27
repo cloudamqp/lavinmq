@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Add number of persistent messages in queue response ([#390](https://github.com/cloudamqp/lavinmq/pull/390))
+
 ## [1.0.0-beta.4] - 2022-10-18
 
 ### Changed
