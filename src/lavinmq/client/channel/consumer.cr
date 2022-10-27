@@ -11,6 +11,7 @@ module LavinMQ
 
         @log : Log
         @unacked = 0_u32
+        @prefetch_count : UInt16
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
