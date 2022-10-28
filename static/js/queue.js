@@ -88,13 +88,6 @@ function updateQueue (all) {
       document.getElementById('q-ready-bytes').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
-      if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
-        document.getElementById('q-first-timestamp').textContent = Helpers.formatTimestamp(item.first_message_timestamp)
-        document.getElementById('q-last-timestamp').textContent = Helpers.formatTimestamp(item.last_message_timestamp)
-      } else {
-        document.getElementById('q-first-timestamp').textContent = " - "
-        document.getElementById('q-last-timestamp').textContent = " - "
-      }
       item.consumer_details.filtered_count = item.consumers
       consumersTable.updateTable(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
@@ -368,13 +361,6 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
         document.getElementById('ms-q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
         document.getElementById('ms-q-ready-min-bytes').textContent = Helpers.nFormatter(item.ready_min_bytes) + 'B'
         document.getElementById('ms-q-ready-max-bytes').textContent = Helpers.nFormatter(item.ready_max_bytes) + 'B'
-        if (item.first_message_timestamp !== undefined && item.first_message_timestamp !== 0) {
-          document.getElementById('ms-q-first-timestamp').textContent = Helpers.formatTimestamp(item.first_message_timestamp)
-          document.getElementById('ms-q-last-timestamp').textContent = Helpers.formatTimestamp(item.last_message_timestamp)
-        } else {
-          document.getElementById('q-first-timestamp').textContent = " - "
-          document.getElementById('q-last-timestamp').textContent = " - "
-        }
         document.getElementById('ms-date-time').textContent = Helpers.formatTimestamp(new Date())
         document.getElementById('snapshotTable').removeAttribute("hidden")
       })
