@@ -51,7 +51,7 @@ module LavinMQ
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
-    @paused = Channel(Nil).new(1)
+    @paused = Channel(Bool).new
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
@@ -254,20 +254,22 @@ module LavinMQ
     def pause!
       return unless @state.running?
       @state = QueueState::Paused
+      @paused.send true
     end
 
     def resume!
       return unless @state.paused?
       @state = QueueState::Running
-      @paused.send nil
+      @paused.send false
     end
 
     def flow=(flow : Bool)
       if flow
         @state = QueueState::Running
-        @paused.send nil
+        @paused.send false
       else
         @state = QueueState::Flow
+        @paused.send true
       end
     end
 
@@ -277,6 +279,9 @@ module LavinMQ
           receive_or_expire || break
         end
         break if @state.closed?
+        until @state != QueueState::Paused && @state != QueueState::Flow
+          @paused.receive?
+        end
         deliver_or_expire || break
       rescue Channel::ClosedError
         break
@@ -320,6 +325,7 @@ module LavinMQ
       true
     end
 
+    # returning false means that the delivery loop should stop
     private def deliver_or_expire : Bool
       @log.debug { "Deliver or expire" }
       sp = @ready.first? || return true
@@ -329,8 +335,8 @@ module LavinMQ
       if ttl
         @log.debug &.emit("Queue#deliver_or_expire", ttl: ttl.to_s)
         select
-        when @paused.receive
-          @log.debug { "Queue unpaused" }
+        when paused = @paused.receive
+          @log.debug { "Queue #{paused ? "paused" : "unpaused"}" }
         when @to_deliver.send(sp)
           @log.debug { "Delivered SP" }
           @ready.shift == sp || raise "didnt shift the SP we expected"
@@ -353,8 +359,8 @@ module LavinMQ
         end
       else
         select
-        when @paused.receive
-          @log.debug { "Queue unpaused" }
+        when paused = @paused.receive
+          @log.debug { "Queue #{paused ? "paused" : "unpaused"}" }
         when @to_deliver.send(sp)
           @log.debug { "Delivered SP #{sp}" }
           @ready.shift == sp || raise "didnt shift the SP we expected"
