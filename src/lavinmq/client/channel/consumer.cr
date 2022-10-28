@@ -14,10 +14,12 @@ module LavinMQ
         @unacked = 0_u32
         @prefetch_count : UInt16
         @closed = false
+        @flow : Bool
 
         def initialize(@channel : Client::Channel, @tag : String,
                        @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
           @prefetch_count = @channel.prefetch_count
+          @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"
           spawn deliver_loop, name: "Consumer deliver loop"
         end
@@ -26,9 +28,29 @@ module LavinMQ
           @closed = true
         end
 
+        @flow_channel = ::Channel(Bool).new(1)
+
+        def flow(active : Bool)
+          @flow = active
+          select
+          when @flow_channel.send active
+          end
+        end
+
         private def deliver_loop
-          while !@closed && (sp = @queue.to_deliver.receive?)
-            @log.debug { "got SP #{sp}" }
+          sp = nil
+          loop do
+            break if @closed
+            wait_until_accepts
+            @log.debug { "Waiting for msg or channel flow change" }
+            select
+            when sp = @queue.to_deliver.receive?
+              break if sp.nil?
+              @log.debug { "Got SP #{sp}" }
+            when @flow_channel.receive
+              @log.debug { "Channel flow controlled while waiting for msgs" }
+              next
+            end
             if env = @queue.get_msg(sp, @no_ack)
               if @no_ack
                 @queue.delete_message(sp)
@@ -36,10 +58,11 @@ module LavinMQ
                 @queue.unacked.push(sp, self)
               end
               deliver(env.message, sp, env.redelivered)
-              # FIXME: requeue if delivery failes
+              sp = nil
             end
-            wait_until_accepts
           end
+        ensure
+          @queue.ready.insert(sp) if sp
           @log.debug { "deliver loop exiting" }
         end
 
@@ -50,13 +73,19 @@ module LavinMQ
         # blocks until the consumer can accept more messages
         private def wait_until_accepts
           ch = @channel
-          until ch.client_flow?
-            ch.wait_for_client_flow
+          until @flow
+            @log.debug { "Waiting for client flow" }
+            case @flow_channel.receive?
+            when true  then break
+            when false then next
+            else            return
+            end
           end
-          return true if prefetch_count.zero?
+          return true if @prefetch_count.zero?
+          @log.debug { "Waiting for prefetch capacity" }
           if ch.global_prefetch?
             until ch.consumers.sum(&.unacked) < ch.prefetch_count
-              sleep 0.1
+              sleep 0.1 # FIXME: terribly inefficent
             end
           else
             until @unacked < @prefetch_count
@@ -67,8 +96,8 @@ module LavinMQ
 
         def accepts?
           ch = @channel
-          return false unless ch.client_flow?
-          return true if prefetch_count.zero?
+          return false unless @flow
+          return true if @prefetch_count.zero?
           if ch.global_prefetch?
             ch.consumers.sum(&.unacked) < ch.prefetch_count
           else

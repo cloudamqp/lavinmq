@@ -15,7 +15,7 @@ module LavinMQ
       getter id, client, prefetch_size, prefetch_count,
         confirm, log, consumers, name
       property? running = true
-      getter? client_flow, global_prefetch
+      getter? flow = true, global_prefetch = false
 
       @next_publish_mandatory = false
       @next_publish_immediate = false
@@ -24,7 +24,6 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @log : Log
-      @client_flow = true
       @prefetch_size = 0_u32
       @prefetch_count = 0_u16
       @confirm_total = 0_u64
@@ -72,28 +71,14 @@ module LavinMQ
         }
       end
 
-      @client_flow_channel = ::Channel(Nil).new
-
-      def client_flow(active : Bool)
-        @client_flow = active
-        # Notify all consumers waiting for client flow
-        loop do
-          select
-          when @client_flow_channel.send nil
-          else
-            break
-          end
-        end
+      def flow(active : Bool)
+        @flow = active
+        @consumers.each &.flow(active)
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
-      def wait_for_client_flow
-        return if @client_flow
-        @client_flow_channel.receive
-      end
-
       def state
-        !@running ? "closed" : (@client.vhost.flow? ? "running" : "flow")
+        !@running ? "closed" : @flow ? "running" : "flow"
       end
 
       def send(frame)
