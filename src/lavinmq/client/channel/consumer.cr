@@ -38,7 +38,6 @@ module LavinMQ
         end
 
         private def deliver_loop
-          sp = nil
           loop do
             break if @closed
             wait_until_accepts
@@ -47,22 +46,20 @@ module LavinMQ
             when sp = @queue.to_deliver.receive?
               break if sp.nil?
               @log.debug { "Got SP #{sp}" }
+              if env = @queue.get_msg(sp, self)
+                begin
+                  deliver(env.message, sp, env.redelivered)
+                rescue ex
+                  @queue.ready.insert(sp)
+                  raise ex
+                end
+              end
             when @flow_channel.receive
               @log.debug { "Channel flow controlled while waiting for msgs" }
               next
             end
-            if env = @queue.get_msg(sp, @no_ack)
-              if @no_ack
-                @queue.delete_message(sp)
-              else
-                @queue.unacked.push(sp, self)
-              end
-              deliver(env.message, sp, env.redelivered)
-              sp = nil
-            end
           end
         ensure
-          @queue.ready.insert(sp) if sp
           @log.debug { "deliver loop exiting" }
         end
 

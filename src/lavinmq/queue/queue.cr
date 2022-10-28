@@ -338,13 +338,7 @@ module LavinMQ
         when paused = @paused.receive
           @log.debug { "Queue #{paused ? "paused" : "unpaused"}" }
         when @to_deliver.send(sp)
-          @log.debug { "Delivered SP" }
-          @ready.shift == sp || raise "didnt shift the SP we expected"
-          if @requeued.includes? sp
-            @redeliver_count += 1
-          else
-            @deliver_count += 1
-          end
+          @log.debug { "Delivered SP=#{sp}" }
         when @refresh_ttl_timeout.receive
           @log.debug { "Queue#deliver_or_expire Refresh TTL timeout" }
         when timeout ttl
@@ -724,10 +718,25 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def get_msg(sp, no_ack) : Envelope?
+    def get_msg(sp, consumer) : Envelope?
+      @ready.delete(sp) || return nil
+      if @requeued.includes? sp
+        @redeliver_count += 1
+      else
+        @deliver_count += 1
+      end
+      if consumer.no_ack
+        delete_message(sp)
+      else
+        @unacked.push(sp, consumer)
+      end
       env = read(sp)
-      env = with_delivery_count_header(env) if @delivery_limit && !no_ack
+      env = with_delivery_count_header(env) if @delivery_limit && !consumer.no_ack
       env
+    rescue ReadError
+      @ready.insert(sp)
+      close
+      nil
     end
 
     # return the next message in the ready queue
