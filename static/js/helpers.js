@@ -56,8 +56,7 @@ function argumentHelper (className, e) {
   if (val) {
     const currentVal = document.querySelector(`[name=${className}]`).value
     document.querySelector(`[name=${className}]`).value = currentVal ? currentVal + ', ' + val : val
-  }
-  else if (val === "") {
+  } else if (val === "") {
     document.querySelector(`[name=${className}]`).value = ""
   }
 }
@@ -67,8 +66,7 @@ function argumentHelperJSON (className, e) {
   const currentVal = document.querySelector(`[name=${className}]`).value
   if (currentVal === "" && val) {
     document.querySelector(`[name=${className}]`).value = "{\"" + val + "\": value}"
-  }
-  else if (currentVal[currentVal.length - 1] === "}" && val) {
+  } else if (currentVal[currentVal.length - 1] === "}" && val) {
     document.querySelector(`[name=${className}]`).value = currentVal.substr(0, currentVal.length - 1) + ",\n\"" + val + "\": value}"
   }
 }

@@ -172,10 +172,6 @@ module LavinMQ
         @ready[0]?
       end
 
-      def last?
-        @ready.last?
-      end
-
       def [](idx)
         @ready[idx]
       end

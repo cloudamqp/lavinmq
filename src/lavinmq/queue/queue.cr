@@ -430,7 +430,7 @@ module LavinMQ
     end
 
     def details_tuple
-      details = {
+      {
         name:                        @name,
         durable:                     @durable,
         exclusive:                   @exclusive,
@@ -453,41 +453,23 @@ module LavinMQ
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               stats_details,
         internal:                    @internal,
-        first_message_timestamp:     0,
-        last_message_timestamp:      0,
       }
-      return details if @ready.size.zero?
-      first_message = read(@ready.first?.not_nil!).message
-      last_message = read(@ready.last?.not_nil!).message
-      details.merge({
-        first_message_timestamp: first_message.timestamp,
-        last_message_timestamp:  last_message.timestamp,
-      })
     end
 
     def size_details_tuple
-      details = {
-        messages:                @ready.size + @unacked.size,
-        ready:                   @ready.size,
-        ready_bytes:             @ready.bytesize,
-        ready_avg_bytes:         @ready.avg_bytesize,
-        ready_max_bytes:         @ready.max_bytesize &.bytesize,
-        ready_min_bytes:         @ready.min_bytesize &.bytesize,
-        unacked:                 @unacked.size,
-        unacked_bytes:           @unacked.bytesize,
-        unacked_avg_bytes:       @unacked.avg_bytesize,
-        unacked_max_bytes:       @unacked.max_bytesize &.sp.bytesize,
-        unacked_min_bytes:       @unacked.min_bytesize &.sp.bytesize,
-        first_message_timestamp: 0,
-        last_message_timestamp:  0,
+      {
+        messages:          @ready.size + @unacked.size,
+        ready:             @ready.size,
+        ready_bytes:       @ready.bytesize,
+        ready_avg_bytes:   @ready.avg_bytesize,
+        ready_max_bytes:   @ready.max_bytesize &.bytesize,
+        ready_min_bytes:   @ready.min_bytesize &.bytesize,
+        unacked:           @unacked.size,
+        unacked_bytes:     @unacked.bytesize,
+        unacked_avg_bytes: @unacked.avg_bytesize,
+        unacked_max_bytes: @unacked.max_bytesize &.sp.bytesize,
+        unacked_min_bytes: @unacked.min_bytesize &.sp.bytesize,
       }
-      return details if @ready.size.zero?
-      first_message = read(@ready.first?.not_nil!).message
-      last_message = read(@ready.last?.not_nil!).message
-      details.merge({
-        first_message_timestamp: first_message.timestamp,
-        last_message_timestamp:  last_message.timestamp,
-      })
     end
 
     class RejectOverFlow < Exception; end
