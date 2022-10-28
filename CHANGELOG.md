@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Removed first/last timestamp from Queue view, as it as poorly implemented (#392)
+
 ### Fixed
 
 - Add number of persistent messages in queue response ([#390](https://github.com/cloudamqp/lavinmq/pull/390))
