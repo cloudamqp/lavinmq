@@ -10,7 +10,6 @@ require "./unacked"
 require "../client/channel"
 require "../message"
 require "../error"
-require "../consumer_store"
 
 module LavinMQ
   enum QueueState
@@ -46,7 +45,7 @@ module LavinMQ
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
     @read_lock = Mutex.new(:reentrant)
-    @consumers = ConsumerStore.new
+    @consumers = Array(Client::Channel::Consumer).new
     @message_available = Channel(Nil).new(1)
     @consumers_empty = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
@@ -214,7 +213,7 @@ module LavinMQ
     end
 
     def immediate_delivery?
-      @consumers.immediate_delivery?
+      @consumers.any? &.accepts?
     end
 
     def message_count
@@ -375,7 +374,7 @@ module LavinMQ
       @state = QueueState::Closed
       @message_available.close
       @consumers_empty.close
-      @consumers.cancel_consumers
+      @consumers.each &.cancel
       @consumers.clear
       @to_deliver.close
       # TODO: When closing due to ReadError, queue is deleted if exclusive
@@ -837,7 +836,7 @@ module LavinMQ
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = Time.monotonic
-      @consumers.add_consumer(consumer)
+      @consumers << consumer
       @exclusive_consumer = true if consumer.exclusive
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
@@ -846,7 +845,8 @@ module LavinMQ
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
-      deleted = @consumers.delete_consumer consumer
+      consumer.close
+      deleted = @consumers.delete consumer
       consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
       unless basic_cancel
         requeue_many(@unacked.delete(consumer))
