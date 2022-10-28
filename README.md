@@ -44,7 +44,7 @@ When a message is being consumed it removes the segment-position from the queue'
 in-memory array, and write the segment-position to an "ack" file. That way
 we can restore the queue index on boot by reading all the segment-position stored
 in the queue index file, then exclude all the segment-position read from the
-"ack" file.  The queue index is rewritten when the "ack" file becomes 16 MB,
+"ack" file. The queue index is rewritten when the "ack" file becomes 16 MB,
 that is, every `16 * 1024 * 1024 / 8 = 2097152` message.
 Then the current in-memory queue index is written to a new file and the
 "ack" file is truncated.
@@ -77,7 +77,7 @@ Here is an architectural description of the different flows in the server.
 #### Publish
 
 `Client#read_loop` reads from the socket, it calls `Channel#start_publish` for the Basic.Publish frame
-and `Channel#add_content` for Body frames.  When all content has been received
+and `Channel#add_content` for Body frames. When all content has been received
 (and appended to an `IO::Memory` object) it calls `VHost#publish` with a `Message` struct.
 `VHost#publish` finds all matching queues, writes the message to the message store and then
 calls `Queue#publish` with the segment position.
@@ -91,48 +91,48 @@ consumers and deliver a message to each.
 
 ## Features
 
-* AMQP 0-9-1 compatible
-* AMQPS (TLS)
-* HTTP API
-* Publisher confirm
-* Policies
-* Shovels
-* Queue federation
-* Exchange federation
-* Dead-lettering
-* TTL support on queue, message, and policy level
-* CC/BCC
-* Alternative exchange
-* Exchange to exchange bindings
-* Direct-reply-to RPC
-* Users and ACL rules
-* VHost separation
-* Consumer cancellation
-* Queue max-length
-* Importing/export definitions
-* Priority queues
-* Delayed exchanges
-* Rewindable queues (all messages that are published to an exchange
+- AMQP 0-9-1 compatible
+- AMQPS (TLS)
+- HTTP API
+- Publisher confirm
+- Policies
+- Shovels
+- Queue federation
+- Exchange federation
+- Dead-lettering
+- TTL support on queue, message, and policy level
+- CC/BCC
+- Alternative exchange
+- Exchange to exchange bindings
+- Direct-reply-to RPC
+- Users and ACL rules
+- VHost separation
+- Consumer cancellation
+- Queue max-length
+- Importing/export definitions
+- Priority queues
+- Delayed exchanges
+- Rewindable queues (all messages that are published to an exchange
   are stored and can be dumped into a queue when a certain binding is
   made, even if they have already been consumed before)
-* AMQP WebSocket
+- AMQP WebSocket
 
 Currently missing features
 
-* Transactions
-* Clustering
-* Plugins
+- Transactions
+- Clustering
+- Plugins
 
 ### Known differences to other AMQP servers
 
 There are a few edge-cases that are handled a bit differently in LavinMQ compared to other AMQP servers.
 
-* Messages being rejected and requeued with TTL 0 is delivered to consumers if there are any, not expired
-* When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
-* TTL of queues and messages are correct to the second, not to the millisecond
-* Messages are not expired if there are active consumers
-* Newlines are not removed from Queue or Exchange names, they are forbidden
-* Impersonator tag (for overriding user_id) is not supported (yet)
+- Messages being rejected and requeued with TTL 0 is delivered to consumers if there are any, not expired
+- When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
+- TTL of queues and messages are correct to the second, not to the millisecond
+- Messages are not expired if there are active consumers
+- Newlines are not removed from Queue or Exchange names, they are forbidden
+- Impersonator tag (for overriding user_id) is not supported (yet)
 
 ### Persistent Exchange
 
@@ -322,14 +322,16 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 
 ## Contributors
 
-* [Carl Hörberg](mailto:carl@84codes.com)
-* [Anders Bälter](mailto:anders@84codes.com)
-* [Magnus Landerblom](mailto:mange@cloudamqp.com)
-* [Magnus Hörberg](mailto:magnus@cloudamqp.com)
-* [Johan Eckerström](mailto:johan.e@cloudamqp.com)
-* [Anton Dalgren](mailto:anton@cloudamqp.com)
-* [Patrik Ragnarsson](mailto:patrik@84codes.com)
-* [Oskar Gustafsson](mailto:oskar@84codes.com)
+- [Carl Hörberg](mailto:carl@84codes.com)
+- [Anders Bälter](mailto:anders@84codes.com)
+- [Magnus Landerblom](mailto:mange@cloudamqp.com)
+- [Magnus Hörberg](mailto:magnus@cloudamqp.com)
+- [Johan Eckerström](mailto:johan.e@cloudamqp.com)
+- [Anton Dalgren](mailto:anton@cloudamqp.com)
+- [Patrik Ragnarsson](mailto:patrik@84codes.com)
+- [Oskar Gustafsson](mailto:oskar@84codes.com)
+- [Tobias Brodén](mailto:tobias@84codes.com)
+- [Christina Dahlén](mailto:christina@84codes.com)
 
 ## License
 
