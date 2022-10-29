@@ -254,22 +254,37 @@ module LavinMQ
     def pause!
       return unless @state.running?
       @state = QueueState::Paused
-      @paused.send true
+      @log.debug { "Paused" }
+      select
+      when @paused.send true
+      else
+      end
     end
 
     def resume!
       return unless @state.paused?
       @state = QueueState::Running
-      @paused.send false
+      @log.debug { "Resuming" }
+      select
+      when @paused.send false
+      else
+      end
     end
 
     def flow=(flow : Bool)
+      @log.debug { "flow=#{flow}" }
       if flow
         @state = QueueState::Running
-        @paused.send false
+        select
+        when @paused.send false
+        else
+        end
       else
         @state = QueueState::Flow
-        @paused.send true
+        select
+        when @paused.send true
+        else
+        end
       end
     end
 
@@ -278,9 +293,12 @@ module LavinMQ
         if @ready.empty?
           receive_or_expire || break
         end
-        break if @state.closed?
-        until @state != QueueState::Paused && @state != QueueState::Flow
-          @paused.receive?
+        loop do
+          case @state
+          when .closed?         then return
+          when .paused?, .flow? then @paused.receive
+          else                       break
+          end
         end
         deliver_or_expire || break
       rescue Channel::ClosedError
@@ -288,6 +306,7 @@ module LavinMQ
       rescue ex
         @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
       end
+    ensure
       @log.debug { "Delivery loop closed" }
     end
 
@@ -356,13 +375,7 @@ module LavinMQ
         when paused = @paused.receive
           @log.debug { "Queue #{paused ? "paused" : "unpaused"}" }
         when @to_deliver.send(sp)
-          @log.debug { "Delivered SP #{sp}" }
-          @ready.shift == sp || raise "didnt shift the SP we expected"
-          if @requeued.includes? sp
-            @redeliver_count += 1
-          else
-            @deliver_count += 1
-          end
+          @log.debug { "Delivered SP=#{sp}" }
         end
       end
       true
@@ -377,6 +390,7 @@ module LavinMQ
       @consumers.each &.cancel
       @consumers.clear
       @to_deliver.close
+      @paused.close
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield
