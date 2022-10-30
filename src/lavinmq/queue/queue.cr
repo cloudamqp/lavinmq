@@ -45,7 +45,7 @@ module LavinMQ
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
-    @refresh_ttl_timeout = Channel(Nil).new(1)
+    @refresh_ttl_timeout = Channel(Nil).new
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 
@@ -77,15 +77,27 @@ module LavinMQ
         if @ready.empty?
           @ready.empty_change.receive
         else
-          if ttl = time_to_message_expiration
-            select
-            when @ready.empty_change.receive
-              next
-            when timeout ttl
-              expire_messages
+          if @consumers.empty?
+            if ttl = time_to_message_expiration
+              select
+              when @ready.empty_change.receive
+                next
+              when @consumers_empty_change.receive
+                next
+              when timeout ttl
+                expire_messages
+              end
+            else
+              # first message in queue should not be expired
+              # @refresh_ttl_timeout.receive
+              @ready.empty_change.receive
             end
+          else
+            @consumers_empty_change.receive
           end
         end
+      rescue ::Channel::ClosedError
+        break
       end
     end
 
@@ -109,6 +121,7 @@ module LavinMQ
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
       end
@@ -307,6 +320,7 @@ module LavinMQ
       @consumers.clear
       @to_deliver.close
       @paused_change.close
+      @ready.close
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield

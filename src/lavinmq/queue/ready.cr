@@ -19,6 +19,10 @@ module LavinMQ
         end
       end
 
+      def close
+        @empty_change.close
+      end
+
       def includes?(sp)
         @ready.includes?(sp)
       end
