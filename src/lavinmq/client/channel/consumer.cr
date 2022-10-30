@@ -28,12 +28,32 @@ module LavinMQ
           @closed = true
         end
 
-        @flow_channel = ::Channel(Bool).new(1)
+        @flow_change = ::Channel(Bool).new
 
         def flow(active : Bool)
           @flow = active
-          select
-          when @flow_channel.send active
+          while @flow_change.try_send active
+          end
+        end
+
+        def wait_for_flow
+          return if @flow
+          until @flow_change.receive
+          end
+        end
+
+        @has_messages = true
+        @has_messages_change = ::Channel(Bool).new
+
+        def has_messages
+          @has_messages = true
+          while @has_messages_change.try_send active
+          end
+        end
+
+        def has_messages_or_block
+          return if @has_messages
+          until @has_messages_change.receive
           end
         end
 
@@ -41,26 +61,32 @@ module LavinMQ
           loop do
             break if @closed
             wait_until_accepts
-            @log.debug { "Waiting for msg or channel flow change" }
-            select
-            when sp = @queue.to_deliver.receive?
-              break if sp.nil?
-              @log.debug { "Got SP #{sp}" }
-              if env = @queue.get_msg(sp, self)
-                begin
-                  deliver(env.message, sp, env.redelivered)
-                rescue ex
-                  @queue.ready.insert(sp)
-                  raise ex
-                end
-              end
-            when @flow_channel.receive
-              @log.debug { "Channel flow controlled while waiting for msgs" }
-              next
-            end
+            wait_for_messages || next # returns false if queue is empty or change to flow mode
+            get_and_deliver_message
+          rescue ::Channel::ClosedError
+            break
           end
         ensure
           @log.debug { "deliver loop exiting" }
+        end
+
+        private def get_and_deliver_message
+          @log.debug { "Getting a new message" }
+          @queue.get_msg(self) do |env|
+            deliver(env.message, env.segment_position, env.redelivered)
+          end
+        end
+
+        private def wait_for_messages : Bool
+          return true unless @queue.ready.empty?
+          @log.debug { "Waiting for msg or channel flow change queue is empty = #{@queue.ready.empty?}" }
+          select
+          when is_empty = @queue.ready.empty_change.receive
+            !is_empty
+          when @flow_change.receive
+            @log.debug { "Channel flow controlled while waiting for msgs" }
+            false
+          end
         end
 
         def name
@@ -68,24 +94,18 @@ module LavinMQ
         end
 
         # blocks until the consumer can accept more messages
-        private def wait_until_accepts
+        private def wait_until_accepts : Nil
+          wait_for_flow
+          return if @prefetch_count.zero?
           ch = @channel
-          until @flow
-            @log.debug { "Waiting for client flow" }
-            case @flow_channel.receive?
-            when true  then break
-            when false then next
-            else            return
-            end
-          end
-          return true if @prefetch_count.zero?
-          @log.debug { "Waiting for prefetch capacity" }
           if ch.global_prefetch?
+            @log.debug { "Waiting for prefetch capacity" }
             until ch.consumers.sum(&.unacked) < ch.prefetch_count
               sleep 0.1 # FIXME: terribly inefficent
             end
           else
             until @unacked < @prefetch_count
+              @log.debug { "Waiting for prefetch capacity" }
               @has_capacity.receive
             end
           end
@@ -119,20 +139,14 @@ module LavinMQ
 
         def ack(sp)
           if @unacked == @prefetch_count
-            select
-            when @has_capacity.send(nil)
-            else
-            end
+            @has_capacity.try_send nil
           end
           @unacked -= 1
         end
 
         def reject(sp)
           if @unacked == @prefetch_count
-            select
-            when @has_capacity.send(nil)
-            else
-            end
+            @has_capacity.try_send nil
           end
           @unacked -= 1
         end

@@ -44,14 +44,50 @@ module LavinMQ
     @exclusive_consumer = false
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
-    @read_lock = Mutex.new(:reentrant)
     @consumers = Array(Client::Channel::Consumer).new
-    @message_available = Channel(Nil).new(1)
-    @consumers_empty = Channel(Nil).new(1)
     @refresh_ttl_timeout = Channel(Nil).new(1)
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
-    @paused = Channel(Bool).new
+
+    @paused = false
+    @paused_change = Channel(Bool).new
+
+    @consumers_empty_change = Channel(Bool).new
+
+    def queue_expire_loop
+      loop do
+        if @consumers.empty? && (ttl = time_to_expiration)
+          select
+          when @consumers_empty_change.receive
+            next
+          when timeout ttl
+            expire_queue
+            close
+          end
+        else
+          @consumers_empty_change.receive
+        end
+      rescue ::Channel::ClosedError
+        break
+      end
+    end
+
+    def message_expire_loop
+      loop do
+        if @ready.empty?
+          @ready.empty_change.receive
+        else
+          if ttl = time_to_message_expiration
+            select
+            when @ready.empty_change.receive
+              next
+            when timeout ttl
+              expire_messages
+            end
+          end
+        end
+      end
+    end
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
@@ -72,10 +108,9 @@ module LavinMQ
       @last_get_time = Time.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       handle_arguments
+      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
-      else
-        spawn deliver_loop, name: "Queue#deliver_loop #{@vhost.name}/#{@name}"
       end
     end
 
@@ -93,7 +128,6 @@ module LavinMQ
 
     def redeclare
       @last_get_time = Time.monotonic
-      step_loop # necessary to recalculate ttl
     end
 
     def has_exclusive_consumer?
@@ -134,12 +168,6 @@ module LavinMQ
       end
       @policy = policy
       @operator_policy = operator_policy
-      step_loop unless @closed
-    end
-
-    # force trigger a loop in delivery_loop
-    private def step_loop
-      message_available
     end
 
     private def clear_policy
@@ -154,25 +182,8 @@ module LavinMQ
       @unacked.size.to_u32
     end
 
-    def message_available
-      select
-      when @message_available.send nil
-      else
-      end
-    end
-
-    def consumers_empty
-      select
-      when @consumers_empty.send nil
-      else
-      end
-    end
-
     def refresh_ttl_timeout
-      select
-      when @refresh_ttl_timeout.send nil
-      else
-      end
+      @refresh_ttl_timeout.try_send nil
     end
 
     private def handle_arguments
@@ -242,7 +253,7 @@ module LavinMQ
             expire_messages
           end
         else
-          @message_available.receive
+          @ready.empty_change.receive
         end
       rescue Channel::ClosedError
         break
@@ -255,59 +266,25 @@ module LavinMQ
       return unless @state.running?
       @state = QueueState::Paused
       @log.debug { "Paused" }
-      select
-      when @paused.send true
-      else
-      end
+      @paused_change.try_send true
     end
 
     def resume!
       return unless @state.paused?
       @state = QueueState::Running
       @log.debug { "Resuming" }
-      select
-      when @paused.send false
-      else
-      end
+      @paused_change.try_send false
     end
 
     def flow=(flow : Bool)
       @log.debug { "flow=#{flow}" }
       if flow
         @state = QueueState::Running
-        select
-        when @paused.send false
-        else
-        end
+        @paused_change.try_send false
       else
         @state = QueueState::Flow
-        select
-        when @paused.send true
-        else
-        end
+        @paused_change.try_send true
       end
-    end
-
-    private def deliver_loop
-      loop do
-        if @ready.empty?
-          receive_or_expire || break
-        end
-        loop do
-          case @state
-          when .closed?         then return
-          when .paused?, .flow? then @paused.receive
-          else                       break
-          end
-        end
-        deliver_or_expire || break
-      rescue Channel::ClosedError
-        break
-      rescue ex
-        @log.error { "Unexpected exception in deliver_loop: #{ex.inspect_with_backtrace}" }
-      end
-    ensure
-      @log.debug { "Delivery loop closed" }
     end
 
     private def time_to_expiration : Time::Span?
@@ -321,76 +298,15 @@ module LavinMQ
       end
     end
 
-    private def receive_or_expire : Bool
-      @log.debug { "Waiting for msgs" }
-      unless @consumers.empty?
-        select
-        when @message_available.receive
-          return true
-        when @consumers_empty.receive
-          @log.debug { "Consumers empty" }
-        end
-      end
-      if q_ttl = time_to_expiration
-        select
-        when @message_available.receive
-        when timeout q_ttl
-          expire_queue && return false
-        end
-      else
-        @message_available.receive
-      end
-      @log.debug { "Message available" }
-      true
-    end
-
-    # returning false means that the delivery loop should stop
-    private def deliver_or_expire : Bool
-      @log.debug { "Deliver or expire" }
-      sp = @ready.first? || return true
-      q_ttl = time_to_expiration
-      m_ttl = time_to_message_expiration
-      ttl = {q_ttl, m_ttl}.select(Time::Span).min?
-      if ttl
-        @log.debug &.emit("Queue#deliver_or_expire", ttl: ttl.to_s)
-        select
-        when paused = @paused.receive
-          @log.debug { "Queue #{paused ? "paused" : "unpaused"}" }
-        when @to_deliver.send(sp)
-          @log.debug { "Delivered SP=#{sp}" }
-        when @refresh_ttl_timeout.receive
-          @log.debug { "Queue#deliver_or_expire Refresh TTL timeout" }
-        when timeout ttl
-          return true if @state.closed?
-          case ttl
-          when q_ttl
-            expire_queue && return false
-          when m_ttl
-            expire_messages
-          else raise "Unknown TTL"
-          end
-        end
-      else
-        select
-        when paused = @paused.receive
-          @log.debug { "Queue #{paused ? "paused" : "unpaused"}" }
-        when @to_deliver.send(sp)
-          @log.debug { "Delivered SP=#{sp}" }
-        end
-      end
-      true
-    end
-
     def close : Bool
       return false if @closed
       @closed = true
       @state = QueueState::Closed
-      @message_available.close
-      @consumers_empty.close
+      @consumers_empty_change.close
       @consumers.each &.cancel
       @consumers.clear
       @to_deliver.close
-      @paused.close
+      @paused_change.close
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield
@@ -462,12 +378,10 @@ module LavinMQ
       return false if @state.closed?
       # @log.debug { "Enqueuing message sp=#{sp}" }
       reject_on_overflow(sp)
-      was_empty = @ready.push(sp) == 1
+      @ready.push(sp)
       drop_overflow unless immediate_delivery?
       @publish_count += 1
-      if was_empty
-        message_available
-      elsif sp.expiration_ts > 0
+      if sp.expiration_ts > 0
         refresh_ttl_timeout
       end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
@@ -541,6 +455,22 @@ module LavinMQ
         else
           Time::Span.zero
         end
+      end
+    end
+
+    private def has_expired?(env) : Bool
+      sp = env.segment_position
+      if message_ttl = @message_ttl
+        expire_at = env.message.timestamp + message_ttl
+        if sp.expiration_ts > 0
+          Math.min(expire_at, sp.expiration_ts) < RoughTime.utc.to_unix_ms
+        else
+          expire_at < RoughTime.utc.to_unix_ms
+        end
+      elsif sp.expiration_ts > 0
+        sp.expiration_ts < RoughTime.utc.to_unix_ms
+      else
+        false
       end
     end
 
@@ -732,40 +662,45 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def get_msg(sp, consumer) : Envelope?
-      @ready.delete(sp) || return nil
-      if @requeued.includes? sp
-        @redeliver_count += 1
-      else
-        @deliver_count += 1
+    def get_msg(consumer : Client::Channel::Consumer) : Nil
+      get(consumer.no_ack) do |env|
+        sp = env.segment_position
+        if yield(env)
+          if @requeued.includes? sp
+            @redeliver_count += 1
+          else
+            @deliver_count += 1
+          end
+          if consumer.no_ack
+            delete_message(sp)
+          else
+            @unacked.push(sp, consumer)
+          end
+        else
+          @ready.insert(sp)
+        end
       end
-      if consumer.no_ack
-        delete_message(sp)
-      else
-        @unacked.push(sp, consumer)
-      end
-      env = read(sp)
-      env = with_delivery_count_header(env) if @delivery_limit && !consumer.no_ack
-      env
-    rescue ReadError
-      @ready.insert(sp)
-      close
-      nil
     end
 
     # return the next message in the ready queue
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, &blk : Envelope -> _)
       return nil if @state.closed?
-      if sp = @ready.shift?
+      while sp = @ready.shift? # retry if msg expired or deliver limit hit
         begin
           env = read(sp)
-          env = with_delivery_count_header(env) if @delivery_limit && !no_ack
-          return nil unless env
-          return yield env
+          if has_expired?(env) # guarantee to not deliver expired messages
+            expire_msg(env, :expired)
+            next
+          end
+          if @delivery_limit && !no_ack
+            env = with_delivery_count_header(env)
+          end
+          return yield env if env
         rescue ReadError
           @ready.insert(sp)
           close
+          return
         rescue ex
           @ready.insert(sp)
           raise ex
@@ -845,7 +780,6 @@ module LavinMQ
         was_empty = @ready.insert(sp) == 1
         @requeued << sp
         drop_overflow if @consumers.empty?
-        message_available if was_empty
       else
         expire_msg(sp, :rejected)
       end
@@ -859,7 +793,6 @@ module LavinMQ
       @reject_count += sps.size
       was_empty = @ready.insert(sps) == sps.size
       drop_overflow if @consumers.empty?
-      message_available if was_empty
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
@@ -886,8 +819,13 @@ module LavinMQ
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
-        consumers_empty if @consumers.empty?
+        notify_consumers_empty(true) if @consumers.empty?
         delete if @consumers.empty? && @auto_delete
+      end
+    end
+
+    private def notify_consumers_empty(is_empty)
+      while @consumers_empty_change.try_send is_empty
       end
     end
 
@@ -896,6 +834,7 @@ module LavinMQ
       # so we are purging all messages from the queue, not only ready
       @consumers.each(&.channel.close)
       count = @unacked.purge + purge(nil, trigger_gc: false)
+      notify_consumers_empty(true)
       count.to_u32
     end
 
