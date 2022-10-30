@@ -42,21 +42,6 @@ module LavinMQ
           end
         end
 
-        @has_messages = true
-        @has_messages_change = ::Channel(Bool).new
-
-        def has_messages
-          @has_messages = true
-          while @has_messages_change.try_send active
-          end
-        end
-
-        def has_messages_or_block
-          return if @has_messages
-          until @has_messages_change.receive
-          end
-        end
-
         private def deliver_loop
           loop do
             break if @closed
