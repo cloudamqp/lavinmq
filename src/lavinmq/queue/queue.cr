@@ -56,16 +56,21 @@ module LavinMQ
 
     def queue_expire_loop
       loop do
-        if @consumers.empty? && (ttl = time_to_expiration)
+        if @consumers.empty? && (ttl = queue_expiration_ttl)
+          @log.debug { "Queue expires in #{ttl}" }
           select
+          when @queue_expiration_ttl_change.receive
           when @consumers_empty_change.receive
-            next
           when timeout ttl
             expire_queue
             close
+            break
           end
         else
-          @consumers_empty_change.receive
+          select
+          when @queue_expiration_ttl_change.receive
+          when @consumers_empty_change.receive
+          end
         end
       rescue ::Channel::ClosedError
         break
@@ -141,6 +146,7 @@ module LavinMQ
 
     def redeclare
       @last_get_time = Time.monotonic
+      @queue_expiration_ttl_change.try_send nil
     end
 
     def has_exclusive_consumer?
@@ -166,6 +172,7 @@ module LavinMQ
         when "expires"
           @last_get_time = Time.monotonic
           @expires = v.as_i64
+          @queue_expiration_ttl_change.try_send nil
         when "dead-letter-exchange"
           @dlx = v.as_s
         when "dead-letter-routing-key"
@@ -206,6 +213,7 @@ module LavinMQ
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
       @expires = parse_header("x-expires", ArgumentNumber)
+      @queue_expiration_ttl_change.try_send nil
       validate_gt_zero("x-expires", @expires)
       @max_length = parse_header("x-max-length", ArgumentNumber)
       validate_positive("x-max-length", @max_length)
@@ -293,7 +301,9 @@ module LavinMQ
       end
     end
 
-    private def time_to_expiration : Time::Span?
+    @queue_expiration_ttl_change = Channel(Nil).new
+
+    private def queue_expiration_ttl : Time::Span?
       if e = @expires
         expires_in = @last_get_time + e.milliseconds - Time.monotonic
         if expires_in > Time::Span.zero
@@ -308,6 +318,7 @@ module LavinMQ
       return false if @closed
       @closed = true
       @state = QueueState::Closed
+      @queue_expiration_ttl_change.close
       @consumers_empty_change.close
       @consumers.each &.cancel
       @consumers.clear
@@ -654,6 +665,7 @@ module LavinMQ
     def basic_get(no_ack, force = false, &blk : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @last_get_time = Time.monotonic
+      @queue_expiration_ttl_change.try_send nil
       @get_count += 1
       get(no_ack) do |env|
         yield env
