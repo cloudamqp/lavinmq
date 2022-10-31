@@ -39,8 +39,7 @@ module LavinMQ
         end
 
         def wait_for_flow
-          @log.debug { "flow=#{@flow}" }
-          return if @flow
+          @log.debug { "waiting for flow" }
           until @flow_change.receive
           end
         end
@@ -84,19 +83,22 @@ module LavinMQ
 
         # blocks until the consumer can accept more messages
         private def wait_until_accepts : Nil
-          wait_for_flow
-          return if @prefetch_count.zero?
-          ch = @channel
-          if ch.global_prefetch?
-            @log.debug { "Waiting for prefetch capacity" }
-            until ch.consumers.sum(&.unacked) < ch.prefetch_count
-              sleep 0.1 # FIXME: terribly inefficent
-            end
-          else
-            until @unacked < @prefetch_count
+          loop do
+            wait_for_flow unless @flow
+            return if @prefetch_count.zero?
+            ch = @channel
+            if ch.global_prefetch?
               @log.debug { "Waiting for prefetch capacity" }
-              @has_capacity.receive
-              wait_for_flow
+              until ch.consumers.sum(&.unacked) < ch.prefetch_count
+                sleep 0.1 # FIXME: terribly inefficent
+              end
+              return if @flow
+            else
+              until @unacked < @prefetch_count
+                @log.debug { "Waiting for prefetch capacity" }
+                @has_capacity.receive
+              end
+              return if @flow
             end
           end
         end
