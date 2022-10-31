@@ -34,16 +34,7 @@ module LavinMQ
 
         def flow(active : Bool)
           @flow = active
-          @log.debug { "trying to notify flow change" }
-          while @flow_change.try_send active
-            @log.debug { "notified flow change" }
-          end
-        end
-
-        def wait_for_flow
-          @log.debug { "waiting for flow" }
-          until @flow_change.receive
-          end
+          @flow_change.try_send active
         end
 
         private def deliver_loop
@@ -68,12 +59,11 @@ module LavinMQ
 
         private def wait_for_messages : Bool
           loop do
-            return true if !@queue.paused? && !@queue.ready.empty?
+            return true if @flow && !@queue.paused? && !@queue.ready.empty?
             @log.debug { "Waiting for msg or queue/channel flow change" }
             select
             when is_flow = @flow_change.receive
               @log.debug { "Channel flow=#{is_flow}" }
-              wait_for_flow unless is_flow
             when is_empty = @queue.ready.empty_change.receive
               @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
             when is_paused = @queue.paused_change.receive
@@ -88,22 +78,17 @@ module LavinMQ
 
         # blocks until the consumer can accept more messages
         private def wait_until_accepts : Nil
-          loop do
-            wait_for_flow unless @flow
-            return if @prefetch_count.zero?
-            ch = @channel
-            if ch.global_prefetch?
+          return if @prefetch_count.zero?
+          ch = @channel
+          if ch.global_prefetch?
+            @log.debug { "Waiting for prefetch capacity" }
+            until ch.consumers.sum(&.unacked) < ch.prefetch_count
+              sleep 0.1 # FIXME: terribly inefficent
+            end
+          else
+            until @unacked < @prefetch_count
               @log.debug { "Waiting for prefetch capacity" }
-              until ch.consumers.sum(&.unacked) < ch.prefetch_count
-                sleep 0.1 # FIXME: terribly inefficent
-              end
-              return if @flow
-            else
-              until @unacked < @prefetch_count
-                @log.debug { "Waiting for prefetch capacity" }
-                @has_capacity.receive
-              end
-              return if @flow
+              @has_capacity.receive
             end
           end
         end
