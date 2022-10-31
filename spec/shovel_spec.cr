@@ -20,7 +20,7 @@ describe LavinMQ::Shovel do
   describe "AMQP" do
     vhost = s.vhosts.create("x")
 
-    pending "should shovel and stop when queue length is met" do
+    it "should shovel and stop when queue length is met" do
       source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
         URI.parse(AMQP_BASE_URL),
