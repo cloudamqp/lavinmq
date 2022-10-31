@@ -105,7 +105,7 @@ describe "Persistent Exchange" do
     end
 
     q_name = "replay_test_q"
-    pending "should retain x messages between restarts" do
+    it "should retain x messages between restarts" do
       with_channel do |ch|
         ch.confirm_select
         x_args = AMQP::Client::Arguments.new({"x-persist-messages" => 1})
