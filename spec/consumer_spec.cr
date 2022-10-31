@@ -33,6 +33,7 @@ describe LavinMQ::Client::Channel::Consumer do
 
   describe "with x-priority" do
     it "should respect priority" do
+      pending! "Consumer priorities not yet supported"
       with_channel do |ch|
         q = ch.queue("consumer-priority")
         ch.prefetch 1
@@ -60,6 +61,7 @@ describe LavinMQ::Client::Channel::Consumer do
     end
 
     it "should send to prioritized consumer if ready" do
+      pending! "Consumer priorities not yet supported"
       with_channel do |ch|
         q = ch.queue("consumer-priority")
         ch.prefetch 1
@@ -95,6 +97,7 @@ describe LavinMQ::Client::Channel::Consumer do
     end
 
     it "should round-robin to high priority consumers" do
+      pending! "Consumer priorities not yet supported"
       with_channel do |ch|
         q = ch.queue("consumer-priority")
         ch.prefetch 1
