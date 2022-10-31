@@ -24,9 +24,9 @@ module LavinMQ
           spawn deliver_loop, name: "Consumer deliver loop"
         end
 
-        def close
+        def close(basic_cancel = false)
           @closed = true
-          @queue.rm_consumer(self)
+          @queue.rm_consumer(self, basic_cancel)
           @has_capacity.close
           @flow_change.close
         end

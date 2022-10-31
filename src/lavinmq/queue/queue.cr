@@ -837,8 +837,10 @@ module LavinMQ
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
-        notify_consumers_empty(true) if @consumers.empty?
-        delete if @consumers.empty? && @auto_delete
+        if @consumers.empty?
+          notify_consumers_empty(true)
+          delete if @auto_delete
+        end
       end
     end
 

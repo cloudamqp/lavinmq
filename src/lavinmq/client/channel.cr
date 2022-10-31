@@ -563,7 +563,7 @@ module LavinMQ
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
         if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
           c = @consumers.delete_at idx
-          c.queue.rm_consumer(c, basic_cancel: true)
+          c.close(basic_cancel: true)
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
