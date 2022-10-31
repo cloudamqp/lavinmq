@@ -819,14 +819,18 @@ module LavinMQ
       @last_get_time = Time.monotonic
       @consumers << consumer
       @exclusive_consumer = true if consumer.exclusive
+      @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
         notify_observers(:add_consumer, consumer)
       end
     end
 
+    getter? has_priority_consumers = false
+
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       deleted = @consumers.delete consumer
+      @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
       consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
       unless basic_cancel
         requeue_many(@unacked.delete(consumer))

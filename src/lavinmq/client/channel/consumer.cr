@@ -60,6 +60,11 @@ module LavinMQ
 
         private def wait_for_messages : Bool
           loop do
+            if @queue.has_priority_consumers?
+              while @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
+                ::Channel.receive_first(@queue.consumers.map(&.has_capacity))
+              end
+            end
             return true if @flow && !@queue.paused? && !@queue.ready.empty?
             @log.debug { "Waiting for msg or queue/channel flow change" }
             select
@@ -105,10 +110,18 @@ module LavinMQ
           end
         end
 
-        getter has_capacity = ::Channel(Nil).new
+        getter has_capacity = ::Channel(Bool).new
+
+        private def notiy_has_capacity(value)
+          while @has_capacity.try_send? value
+          end
+        end
 
         private def deliver(msg, sp, redelivered = false, recover = false)
-          @unacked += 1 unless @no_ack || recover
+          unless @no_ack || recover
+            @unacked += 1
+            notiy_has_capacity(false) if @unacked == @prefetch_count
+          end
           persistent = msg.properties.delivery_mode == 2_u8
           # @log.debug { "Getting delivery tag" }
           delivery_tag = @channel.next_delivery_tag(@queue, sp, persistent, @no_ack, self)
@@ -121,17 +134,15 @@ module LavinMQ
         end
 
         def ack(sp)
-          if @unacked == @prefetch_count
-            @has_capacity.try_send? nil
-          end
+          was_full = @unacked == @prefetch_count
           @unacked -= 1
+          notiy_has_capacity(true) if was_full
         end
 
         def reject(sp)
-          if @unacked == @prefetch_count
-            @has_capacity.try_send? nil
-          end
+          was_full = @unacked == @prefetch_count
           @unacked -= 1
+          notiy_has_capacity(true) if was_full
         end
 
         def cancel
