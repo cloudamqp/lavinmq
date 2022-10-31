@@ -81,9 +81,9 @@ module LavinMQ
           return if @prefetch_count.zero?
           ch = @channel
           if ch.global_prefetch?
-            @log.debug { "Waiting for prefetch capacity" }
+            @log.debug { "Waiting for global prefetch capacity" }
             until ch.consumers.sum(&.unacked) < ch.prefetch_count
-              sleep 0.1 # FIXME: terribly inefficent
+              ::Channel.receive_first(ch.consumers.map(&.has_capacity))
             end
           else
             until @unacked < @prefetch_count
@@ -104,7 +104,7 @@ module LavinMQ
           end
         end
 
-        @has_capacity = ::Channel(Nil).new
+        getter has_capacity = ::Channel(Nil).new
 
         private def deliver(msg, sp, redelivered = false, recover = false)
           @unacked += 1 unless @no_ack || recover
