@@ -826,7 +826,6 @@ module LavinMQ
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
-      consumer.close
       deleted = @consumers.delete consumer
       consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
       unless basic_cancel

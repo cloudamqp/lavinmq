@@ -26,6 +26,7 @@ module LavinMQ
 
         def close
           @closed = true
+          @queue.rm_consumer(self)
           @has_capacity.close
           @flow_change.close
         end
@@ -136,7 +137,7 @@ module LavinMQ
         def cancel
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, true)
           @channel.consumers.delete self
-          @closed = true
+          close
         end
 
         def details_tuple

@@ -530,9 +530,7 @@ module LavinMQ
 
       def close
         @running = false
-        @consumers.each do |c|
-          c.queue.rm_consumer(c) # this will requeue the consumer's unacked msgs
-        end
+        @consumers.each &.close
         @consumers.clear
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumers.delete(drc)
