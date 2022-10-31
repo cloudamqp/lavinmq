@@ -796,7 +796,7 @@ module LavinMQ
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue
-        was_empty = @ready.insert(sp) == 1
+        @ready.insert(sp)
         @requeued << sp
         drop_overflow if @consumers.empty?
       else
@@ -810,7 +810,7 @@ module LavinMQ
       return if sps.empty?
       @log.debug { "Returning #{sps.size} msgs to ready state" }
       @reject_count += sps.size
-      was_empty = @ready.insert(sps) == sps.size
+      @ready.insert(sps)
       drop_overflow if @consumers.empty?
     end
 

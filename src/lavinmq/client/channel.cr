@@ -497,14 +497,10 @@ module LavinMQ
 
       def basic_qos(frame) : Nil
         @client.send_not_implemented(frame) if frame.prefetch_size != 0
-        notify_queues = frame.prefetch_count > @prefetch_count > 0
-        notify_queues ||= frame.prefetch_count.zero? && @prefetch_count > 0
         @prefetch_size = frame.prefetch_size
         @prefetch_count = frame.prefetch_count
         @global_prefetch = frame.global
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
-        # FIXME
-        # @consumers.each(&.queue.consumer_available) if notify_queues
       end
 
       def basic_recover(frame) : Nil
