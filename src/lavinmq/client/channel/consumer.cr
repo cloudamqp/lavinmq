@@ -34,7 +34,7 @@ module LavinMQ
 
         def flow(active : Bool)
           @flow = active
-          @flow_change.try_send active
+          @flow_change.try_send? active
         end
 
         private def deliver_loop
@@ -121,14 +121,14 @@ module LavinMQ
 
         def ack(sp)
           if @unacked == @prefetch_count
-            @has_capacity.try_send nil
+            @has_capacity.try_send? nil
           end
           @unacked -= 1
         end
 
         def reject(sp)
           if @unacked == @prefetch_count
-            @has_capacity.try_send nil
+            @has_capacity.try_send? nil
           end
           @unacked -= 1
         end
