@@ -4,7 +4,7 @@ module LavinMQ
   class Queue
     # ReadyQueue is a sorted Deque of SegmentPositions
     class ReadyQueue
-      @lock = Mutex.new
+      @lock = Mutex.new(:reentrant)
       @initial_capacity : Int32
       getter empty_change = Channel(Bool).new
       getter bytesize = 0u64
