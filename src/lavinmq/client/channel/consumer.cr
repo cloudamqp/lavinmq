@@ -48,7 +48,7 @@ module LavinMQ
           loop do
             break if @closed
             wait_until_accepts
-            wait_for_messages || next # returns false if queue is empty or change to flow mode
+            wait_for_messages
             get_and_deliver_message
           rescue ::Channel::ClosedError
             break
@@ -65,15 +65,18 @@ module LavinMQ
         end
 
         private def wait_for_messages : Bool
-          return true unless @queue.ready.empty?
-          @log.debug { "Waiting for msg or channel flow change queue is empty = #{@queue.ready.empty?}" }
-          select
-          when @flow_change.receive
-            @log.debug { "Channel flow controlled while waiting for msgs" }
-            false
-          when is_empty = @queue.ready.empty_change.receive
-            @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
-            !is_empty
+          loop do
+            return true if !@queue.paused? && !@queue.ready.empty?
+            @log.debug { "Waiting for msg or queue/channel flow change" }
+            select
+            when is_flow = @flow_change.receive
+              @log.debug { "Channel flow=#{is_flow}" }
+              wait_for_flow unless is_flow
+            when is_empty = @queue.ready.empty_change.receive
+              @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            when is_paused = @queue.paused_change.receive
+              @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+            end
           end
         end
 

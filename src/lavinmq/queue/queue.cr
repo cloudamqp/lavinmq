@@ -49,8 +49,8 @@ module LavinMQ
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 
-    @paused = false
-    @paused_change = Channel(Bool).new
+    getter? paused = false
+    getter paused_change = Channel(Bool).new
 
     @consumers_empty_change = Channel(Bool).new
 
@@ -279,24 +279,17 @@ module LavinMQ
       return unless @state.running?
       @state = QueueState::Paused
       @log.debug { "Paused" }
-      @paused_change.try_send true
+      @paused = true
+      while @paused_change.try_send true
+      end
     end
 
     def resume!
       return unless @state.paused?
       @state = QueueState::Running
       @log.debug { "Resuming" }
-      @paused_change.try_send false
-    end
-
-    def flow=(flow : Bool)
-      @log.debug { "flow=#{flow}" }
-      if flow
-        @state = QueueState::Running
-        @paused_change.try_send false
-      else
-        @state = QueueState::Flow
-        @paused_change.try_send true
+      @paused = false
+      while @paused_change.try_send false
       end
     end
 
