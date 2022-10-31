@@ -32,11 +32,14 @@ module LavinMQ
 
         def flow(active : Bool)
           @flow = active
+          @log.debug { "trying to notify flow change" }
           while @flow_change.try_send active
+            @log.debug { "notified flow change" }
           end
         end
 
         def wait_for_flow
+          @log.debug { "flow=#{@flow}" }
           return if @flow
           until @flow_change.receive
           end
@@ -66,11 +69,12 @@ module LavinMQ
           return true unless @queue.ready.empty?
           @log.debug { "Waiting for msg or channel flow change queue is empty = #{@queue.ready.empty?}" }
           select
-          when is_empty = @queue.ready.empty_change.receive
-            !is_empty
           when @flow_change.receive
             @log.debug { "Channel flow controlled while waiting for msgs" }
             false
+          when is_empty = @queue.ready.empty_change.receive
+            @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            !is_empty
           end
         end
 
@@ -92,6 +96,7 @@ module LavinMQ
             until @unacked < @prefetch_count
               @log.debug { "Waiting for prefetch capacity" }
               @has_capacity.receive
+              wait_for_flow
             end
           end
         end
