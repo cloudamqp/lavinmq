@@ -15,7 +15,7 @@ module LavinMQ
       end
 
       private def notify_empty(is_empty)
-        while @empty_change.try_send is_empty
+        while @empty_change.try_send? is_empty
         end
       end
 

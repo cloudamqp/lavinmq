@@ -843,7 +843,7 @@ module LavinMQ
     end
 
     private def notify_consumers_empty(is_empty)
-      while @consumers_empty_change.try_send is_empty
+      while @consumers_empty_change.try_send? is_empty
       end
     end
 
