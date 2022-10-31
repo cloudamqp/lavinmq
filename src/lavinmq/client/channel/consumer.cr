@@ -26,6 +26,8 @@ module LavinMQ
 
         def close
           @closed = true
+          @has_capacity.close
+          @flow_change.close
         end
 
         @flow_change = ::Channel(Bool).new
