@@ -31,7 +31,7 @@ function addVhostOptions (formId) {
       select.parentElement.insertAdjacentElement('beforebegin',err)
       return
     }
-    // let the selected vhost be put first in the list and '/' last
+
     const selectedVhost = window.sessionStorage.getItem('vhost')
     for (let i = 0; i < vhosts.length; i++) {
       const opt = document.createElement('option')
