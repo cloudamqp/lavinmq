@@ -27,11 +27,11 @@ function addVhostOptions (formId) {
       }
       const err = document.createElement('span')
       err.id = 'error-msg'
-      err.textContent = "Error fetching data: Please try to refresh the page!"
+      err.textContent = 'Error fetching data: Please try to refresh the page!'
       select.parentElement.insertAdjacentElement('beforebegin',err)
       return
     }
-
+    // let the selected vhost be put first in the list and '/' last
     for (let i = 0; i < vhosts.length; i++) {
       const opt = document.createElement('option')
       opt.text = vhosts[i].name
