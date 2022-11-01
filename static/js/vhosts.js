@@ -37,10 +37,8 @@ function addVhostOptions (formId) {
       const opt = document.createElement('option')
       opt.text = vhosts[i].name
       opt.value = vhosts[i].name
+      opt.selected = vhost[i].name === selectedVhost
       select.add(opt)
-    }
-    if (vhosts.map(v => v.name).includes(selectedVhost)) {
-      select.value = selectedVhost
     }
   })
 }
