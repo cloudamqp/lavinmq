@@ -80,7 +80,7 @@ describe LavinMQ::Server do
       end
       timeout.should be_false
     end
-    wait_for { s.connections.empty? }
+    wait_for(10.seconds) { s.connections.empty? }
   ensure
     s.vhosts["/"].delete_queue("reject")
   end
