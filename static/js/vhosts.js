@@ -35,9 +35,9 @@ function addVhostOptions (formId) {
     const selectedVhost = window.sessionStorage.getItem('vhost')
     for (let i = 0; i < vhosts.length; i++) {
       const opt = document.createElement('option')
-      opt.text = vhosts[i].name
+      opt.label = vhosts[i].name
       opt.value = vhosts[i].name
-      opt.selected = vhost[i].name === selectedVhost
+      opt.selected = vhosts[i].name === selectedVhost
       select.add(opt)
     }
   })
