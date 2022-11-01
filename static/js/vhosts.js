@@ -32,11 +32,15 @@ function addVhostOptions (formId) {
       return
     }
     // let the selected vhost be put first in the list and '/' last
+    const selectedVhost = window.sessionStorage.getItem('vhost')
     for (let i = 0; i < vhosts.length; i++) {
       const opt = document.createElement('option')
       opt.text = vhosts[i].name
       opt.value = vhosts[i].name
       select.add(opt)
+    }
+    if (vhosts.map(v => v.name).includes(selectedVhost)) {
+      select.value = selectedVhost
     }
   })
 }
