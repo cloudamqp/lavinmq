@@ -404,24 +404,6 @@ module LavinMQ
         end
       end
 
-      private def delete_all_unacked
-        @unack_lock.synchronize do
-          begin
-            @unacked.each { |unack| yield unack }
-          ensure
-            @unacked.clear
-          end
-        end
-      end
-
-      private def delete_consumers_unacked(consumer)
-        @unack_lock.synchronize do
-          @unacked.reject! do |unack|
-            unack.consumer == consumer
-          end
-        end
-      end
-
       private def delete_multiple_unacked(delivery_tag)
         @unack_lock.synchronize do
           if delivery_tag.zero?
@@ -551,13 +533,15 @@ module LavinMQ
       def close
         @running = false
         @consumers.each do |c|
-          delete_consumers_unacked(c)
           c.queue.rm_consumer(c)
         end
         @consumers.clear
-        delete_all_unacked do |unack|
-          @log.debug { "Requeing unacked msg #{unack.sp}" }
-          unack.queue.reject(unack.sp, true)
+        @unack_lock.synchronize do
+          @unacked.each do |unack|
+            @log.debug { "Requeing unacked msg #{unack.sp}" }
+            unack.queue.reject(unack.sp, true)
+          end
+          @unacked.clear
         end
         @next_msg_body_file.try &.close
         @client.vhost.event_tick(EventType::ChannelClosed)
