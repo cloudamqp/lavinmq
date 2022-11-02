@@ -517,9 +517,26 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
-        @consumers.each &.recover(frame.requeue)
-        delete_all_unacked do |unack|
-          unack.queue.reject(unack.sp, true) if unack.consumer.nil?
+        @unack_lock.synchronize do
+          if frame.requeue
+            @unacked.each do |unack|
+              if consumer = unack.consumer
+                consumer.reject(unack.sp)
+              end
+              unack.queue.reject(unack.sp, requeue: true)
+            end
+            @unacked.clear
+          else # redeliver to the original recipient
+            @unacked.each do |unack|
+              if consumer = unack.consumer
+                # FIXME: not if the consumer is cancelled
+                env = unack.queue.read(unack.sp)
+                consumer.deliver(env.message, env.segment_position, true, recover: true)
+              else
+                unack.queue.reject(unack.sp, requeue: true)
+              end
+            end
+          end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
         if frame.requeue
@@ -554,17 +571,6 @@ module LavinMQ
             @unacked.push Unack.new(tag, queue, sp, persistent, consumer)
           end
           tag
-        end
-      end
-
-      def recover(consumer)
-        @unack_lock.synchronize do
-          @unacked.reject! do |unack|
-            if unack.consumer == consumer
-              yield unack.sp
-              true
-            end
-          end
         end
       end
 
