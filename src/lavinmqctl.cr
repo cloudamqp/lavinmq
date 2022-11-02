@@ -42,7 +42,7 @@ class LavinMQCtl
     {"list_exchanges", "Lists exchanges", ""},
     {"delete_exchange", "Delete exchange", "<name>"},
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
-    {"set_permissions", "Set permissions for a user","<username> <configure> <write> <read>"}
+    {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
   }
 
   def initialize
@@ -609,11 +609,11 @@ class LavinMQCtl
     read = ARGV.shift?
     vhost = @options["vhost"]? || "/"
     abort @banner unless user && configure && read && write
-    url =  "/api/permissions/#{URI.encode_www_form(vhost)}/#{user}"
+    url = "/api/permissions/#{URI.encode_www_form(vhost)}/#{user}"
     body = {
       "configure": configure,
-      "read":     read,
-      "write":    write,
+      "read":      read,
+      "write":     write,
     }
     resp = http.put url, @headers, body.to_json
     handle_response(resp, 204)
