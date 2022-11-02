@@ -35,10 +35,7 @@ module LavinMQ
         end
 
         def deliver(msg, sp, redelivered = false, recover = false)
-          unless @no_ack || recover
-            @unacked += 1
-          end
-
+          @unacked += 1 unless @no_ack || recover
           persistent = msg.properties.delivery_mode == 2_u8
           # @log.debug { "Getting delivery tag" }
           delivery_tag = @channel.next_delivery_tag(@queue, sp, persistent, @no_ack, self)
