@@ -761,14 +761,16 @@ describe LavinMQ::Server do
 
   it "supports recover requeue" do
     with_channel do |ch|
-      q = ch.queue
-      q.publish "m1"
+      q = ch.queue("recover", exclusive: true)
+      5.times { q.publish "" }
       delivered = 0
-      q.subscribe(no_ack: false) { |_m| delivered += 1 }
+      tag = q.subscribe(no_ack: false) { |_m| delivered += 1 }
+      sleep 0.05
+      q.unsubscribe(tag)
       sleep 0.05
       ch.basic_recover(requeue: true)
       sleep 0.05
-      delivered.should eq 2
+      q.delete[:message_count].should eq 5
     end
   end
 

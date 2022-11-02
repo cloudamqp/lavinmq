@@ -58,19 +58,6 @@ module LavinMQ
           @unacked -= 1
         end
 
-        def recover(requeue)
-          @channel.recover(self) do |sp|
-            if requeue
-              reject(sp)
-              @queue.reject(sp, requeue: true)
-            else
-              # redeliver to the original recipient
-              env = @queue.read(sp)
-              deliver(env.message, sp, true, recover: true)
-            end
-          end
-        end
-
         def cancel
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, true)
           @channel.consumers.delete self
