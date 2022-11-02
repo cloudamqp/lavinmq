@@ -533,13 +533,15 @@ module LavinMQ
       def close
         @running = false
         @consumers.each do |c|
-          c.queue.rm_consumer(c)
+          c.queue.rm_consumer(c) # this will requeue the consumer's unacked msgs
         end
         @consumers.clear
         @unack_lock.synchronize do
           @unacked.each do |unack|
-            @log.debug { "Requeing unacked msg #{unack.sp}" }
-            unack.queue.reject(unack.sp, true)
+            if unack.consumer.nil? # requeue basic_get msgs
+              @log.debug { "Requeing unacked msg #{unack.sp}" }
+              unack.queue.reject(unack.sp, true)
+            end
           end
           @unacked.clear
         end
