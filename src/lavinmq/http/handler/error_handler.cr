@@ -9,7 +9,12 @@ module LavinMQ
       end
 
       def call(context)
-        call_next(context)
+        begin
+          call_next(context)
+        rescue e
+          context.response.flush
+          raise e
+        end
       rescue ex : Server::UnknownContentType
         context.response.content_type = "text/plain"
         context.response.status_code = 415
