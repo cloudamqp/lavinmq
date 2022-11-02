@@ -42,6 +42,7 @@ class LavinMQCtl
     {"list_exchanges", "Lists exchanges", ""},
     {"delete_exchange", "Delete exchange", "<name>"},
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
+    {"set_permissions", "Sets permissions for a user","<username> <conf> <write> <read>"}
   }
 
   def initialize
@@ -175,6 +176,7 @@ class LavinMQCtl
     when "delete_exchange"       then delete_exchange
     when "status"                then status
     when "set_vhost_limits"      then set_vhost_limits
+    when "set_permissions"       then set_permissions
     when "stop_app"
     when "start_app"
     else
@@ -598,6 +600,23 @@ class LavinMQCtl
       ok = true
     end
     ok || abort "max-queues or max-connections required"
+  end
+
+  private def set_permissions
+    user = ARGV.shift?
+    configure = ARGV.shift?
+    write = ARGV.shift?
+    read = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless user && configure && read && write
+    url =  "/api/permissions/#{URI.encode_www_form(vhost)}/#{user}"
+    body = {
+      "configure": configure,
+      "read":     read,
+      "write":    write,
+    }
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 204)
   end
 end
 
