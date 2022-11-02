@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.0.0-beta.5] - 2022-11-02
+
 ### Changed
 
 - Removed first/last timestamp from Queue view, as it as poorly implemented ([#392](https://github.com/cloudamqp/lavinmq/pull/392))
