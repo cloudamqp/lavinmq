@@ -42,7 +42,7 @@ class LavinMQCtl
     {"list_exchanges", "Lists exchanges", ""},
     {"delete_exchange", "Delete exchange", "<name>"},
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
-    {"set_permissions", "Sets permissions for a user","<username> <conf> <write> <read>"}
+    {"set_permissions", "Set permissions for a user","<username> <configure> <write> <read>"}
   }
 
   def initialize
