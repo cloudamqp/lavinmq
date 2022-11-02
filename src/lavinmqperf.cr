@@ -247,15 +247,13 @@ class Throughput < Perf
       ch.prefetch @prefetch unless @prefetch.zero?
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
-      canceled = false
       consumes_this_second = 0
       start = Time.monotonic
       q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
         @consumes += 1
         m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
         if @stopped || @consumes == @cmessages
-          ch.basic_cancel("c") unless canceled
-          canceled = true
+          ch.close
         end
         if @consume_rate.zero?
           Fiber.yield if @consumes % 128*1024 == 0
