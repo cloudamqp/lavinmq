@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Selects the selected vhost as default when creating queue ([#394](https://github.com/cloudamqp/lavinmq/pull/394)) 
 - Add number of persistent messages in queue response ([#390](https://github.com/cloudamqp/lavinmq/pull/390))
 
 ## [1.0.0-beta.4] - 2022-10-18
