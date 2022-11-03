@@ -117,7 +117,7 @@ module LavinMQ
           end
         end
 
-        private def deliver(msg, sp, redelivered = false, recover = false)
+        def deliver(msg, sp, redelivered = false, recover = false)
           unless @no_ack || recover
             @unacked += 1
             notiy_has_capacity(false) if @unacked == @prefetch_count
