@@ -106,15 +106,15 @@
             existingUser = true
           }
         })
-        let toasText = "User created: '" + username + "'"
+        let toastText = `User created: '${username}'`
         if (existingUser) {
-          window.confirm("Are you sure? This will update existing user: '" + username + "'")
-          toasText = "Upate existing user: '" + username + "'"
+          window.confirm(`Are you sure? This will update existing user: '${username}'`)
+          toastText = `Upated existing user: '${username}'`
         }
         HTTP.request('PUT', url, { body })
           .then(() => {
             usersTable.fetchAndUpdate()
-            DOM.toast(toasText)
+            DOM.toast(toastText)
             evt.target.reset()
           }).catch(HTTP.standardErrorHandler)
       })
