@@ -121,7 +121,7 @@
         const userUrl = '/api/users/' + urlEncodedUsername
         HTTP.request('GET', userUrl)
           .then(item => {
-            const hasPassword = item.password_hash.length ? '●' : '○'
+            const hasPassword = item.password_hash ? '●' : '○'
             document.getElementById('tags').textContent = item.tags
             document.getElementById('hasPassword').textContent = hasPassword
             tagHelper(item.tags)
