@@ -121,7 +121,7 @@ module TestHelpers
   end
 
   def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
-    Log.setup(level)
+    Log.setup(level) unless @@s
     cfg = LavinMQ::Config.instance
     cfg.gc_segments_interval = 1
     cfg.queue_max_acks = 10
