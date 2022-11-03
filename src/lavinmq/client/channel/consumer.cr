@@ -40,10 +40,13 @@ module LavinMQ
 
         private def deliver_loop
           loop do
-            break if @closed
             wait_until_accepts
-            wait_for_messages
+            wait_for_messages || break
             get_and_deliver_message
+          rescue Queue::ClosedError
+            break
+          rescue Client::Channel::ClosedError
+            break
           rescue ::Channel::ClosedError
             break
           end

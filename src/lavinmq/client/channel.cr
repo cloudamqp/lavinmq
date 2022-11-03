@@ -294,11 +294,8 @@ module LavinMQ
         confirm_ack
       end
 
-      def deliver(frame, msg, redelivered = false) : Bool
-        unless @running
-          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
-          return false
-        end
+      def deliver(frame, msg, redelivered = false) : Nil
+        raise ClosedError.new("Channel is closed") unless @running
         # Make sure publishes are confirmed before we deliver
         # can happend if the vhost spawned fsync fiber has not execed yet
         @client.vhost.send_publish_confirms
@@ -310,7 +307,6 @@ module LavinMQ
           @deliver_count += 1
           @client.vhost.event_tick(EventType::ClientDeliver)
         end
-        true
       end
 
       def consume(frame)
@@ -584,6 +580,8 @@ module LavinMQ
             end
           end
       end
+
+      class ClosedError < Error; end
     end
   end
 end

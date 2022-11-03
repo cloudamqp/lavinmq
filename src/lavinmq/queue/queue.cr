@@ -276,7 +276,7 @@ module LavinMQ
         else
           @ready.empty_change.receive
         end
-      rescue Channel::ClosedError
+      rescue ::Channel::ClosedError
         break
       rescue ex
         @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
@@ -404,7 +404,7 @@ module LavinMQ
       end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
-    rescue Channel::ClosedError
+    rescue ::Channel::ClosedError
       # if message_availabe channel is closed then abort
       false
     end
@@ -684,19 +684,12 @@ module LavinMQ
     def get_msg(consumer : Client::Channel::Consumer) : Nil
       get(consumer.no_ack) do |env|
         sp = env.segment_position
-        if yield(env)
-          if @requeued.includes? sp
-            @redeliver_count += 1
-          else
-            @deliver_count += 1
-          end
-          if consumer.no_ack
-            delete_message(sp)
-          else
-            @unacked.push(sp, consumer)
-          end
+        yield env
+        env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
+        if consumer.no_ack
+          delete_message(sp)
         else
-          @ready.insert(sp)
+          @unacked.push(sp, consumer)
         end
       end
     end
@@ -704,7 +697,7 @@ module LavinMQ
     # return the next message in the ready queue
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, &blk : Envelope -> _)
-      return nil if @state.closed?
+      raise ClosedError.new if @closed
       while sp = @ready.shift? # retry if msg expired or deliver limit hit
         begin
           env = read(sp)
@@ -927,5 +920,7 @@ module LavinMQ
     class Error < Exception; end
 
     class ReadError < Exception; end
+
+    class ClosedError < Error; end
   end
 end
