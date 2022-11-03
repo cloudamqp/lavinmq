@@ -124,7 +124,16 @@
             const hasPassword = item.password_hash.length ? '●' : '○'
             document.getElementById('tags').textContent = item.tags
             document.getElementById('hasPassword').textContent = hasPassword
+            tagHelper(item.tags)
           }).catch(HTTP.standardErrorHandler)
+      }
+
+      function tagHelper(tags) {
+        const vals = tags.split(',')
+        vals.forEach((val) =>  {
+          const currentVal = document.querySelector(`[name=tags]`).value
+          document.querySelector(`[name=tags]`).value = currentVal ? currentVal + ', ' + val : val
+        })
       }
       updateUser()
 
