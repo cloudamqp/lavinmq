@@ -1030,4 +1030,29 @@ describe LavinMQ::Server do
   ensure
     LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
   end
+
+  it "should requeue messages correctly on channel close" do
+    qname = "requeue-on-close"
+    with_channel do |ch|
+      q = ch.queue(qname)
+
+      10.times { q.publish_confirm "" }
+
+      q.get(no_ack: true)
+      q.get(no_ack: false)
+      q.get(no_ack: false)
+
+      count = 0
+      q.subscribe(no_ack: false) do |_msg|
+        count += 1
+      end
+      wait_for { count == 7 }
+    end
+    with_channel do |ch|
+      q = ch.queue(qname)
+      q.message_count.should eq 9
+    end
+  ensure
+    s.vhosts["/"].delete_queue(qname) if qname
+  end
 end
