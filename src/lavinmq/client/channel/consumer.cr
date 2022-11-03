@@ -60,21 +60,33 @@ module LavinMQ
 
         private def wait_for_messages : Bool
           loop do
+            return false if @closed
             if @queue.has_priority_consumers?
-              while @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
+              if @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
+                @log.debug { "Waiting for higher priority consumers to not have capacity" }
                 ::Channel.receive_first(@queue.consumers.map(&.has_capacity))
+                next
               end
             end
-            return true if @flow && !@queue.paused? && !@queue.ready.empty?
-            @log.debug { "Waiting for msg or queue/channel flow change" }
-            select
-            when is_flow = @flow_change.receive
-              @log.debug { "Channel flow=#{is_flow}" }
-            when is_empty = @queue.ready.empty_change.receive
+            if @queue.ready.empty?
+              @log.debug { "Waiting for queue not to be empty" }
+              is_empty = @queue.ready.empty_change.receive
               @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
-            when is_paused = @queue.paused_change.receive
-              @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+              next
             end
+            if @queue.paused?
+              @log.debug { "Waiting for queue not to be paused" }
+              is_paused = @queue.paused_change.receive
+              @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+              next
+            end
+            unless @flow
+              @log.debug { "Waiting for flow" }
+              is_flow = @flow_change.receive
+              @log.debug { "Channel flow=#{is_flow}" }
+              next
+            end
+            return true
           end
         end
 
