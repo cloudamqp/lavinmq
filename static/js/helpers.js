@@ -55,6 +55,7 @@ function argumentHelper (className, e) {
   const val = e.target.getAttribute('data-tag')
   if (val) {
     const currentVal = document.querySelector(`[name=${className}]`).value
+    if (currentVal.includes(val)) { return }
     document.querySelector(`[name=${className}]`).value = currentVal ? currentVal + ', ' + val : val
   } else if (val === "") {
     document.querySelector(`[name=${className}]`).value = ""
