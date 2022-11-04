@@ -349,7 +349,8 @@ module LavinMQ
 
       private def consumer_priority(frame) : Int32
         priority = 0
-        if prio_arg = frame.arguments["x-priority"]?
+        if frame.arguments.has_key? "x-priority"
+          prio_arg = frame.arguments["x-priority"]
           prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
           begin
             priority = prio_int.to_i
