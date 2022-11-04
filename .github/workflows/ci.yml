@@ -91,7 +91,7 @@ jobs:
 
   java-client-test:
     name: RabbitMQ java client test (allowed to fail)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     needs: compile
     continue-on-error: true
 
@@ -99,7 +99,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-dev openjdk-11-jre-headless
+          sudo apt-get install -y make libevent-2.1-7 openjdk-13-jre-headless
 
       - uses: actions/download-artifact@v3
         with:
@@ -114,7 +114,7 @@ jobs:
       - name: Clone java client
         uses: actions/checkout@v3
         with:
-          repository: 84codes/rabbitmq-java-client
+          repository: rabbitmq/rabbitmq-java-client
           path: rabbitmq-java-client
 
       - name: Run java tests (allowed to fail)
@@ -123,6 +123,8 @@ jobs:
         run: |
           cd rabbitmq-java-client
           make deps
+          ln -sf ../bin/lavinmqctl deps/rabbit/scripts/rabbitmqctl
+          sed -i '/Recovery/d; /Transactions/d' src/test/java/com/rabbitmq/client/test/functional/FunctionalTests.java
           ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests
 
       - name: >-
