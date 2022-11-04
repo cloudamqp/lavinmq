@@ -35,6 +35,7 @@ module LavinMQ
       @unacked = Deque(Unack).new
       @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
+      @direct_reply_consumer : String?
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
@@ -116,13 +117,17 @@ module LavinMQ
         end
       end
 
+      private def direct_reply_to?(str) : Bool
+        {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? str
+      end
+
       def next_msg_headers(frame, ts)
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
         raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         valid_expiration?(frame) || return
-        if direct_reply_request?(frame.properties.reply_to)
-          if @client.direct_reply_channel
-            frame.properties.reply_to = "#{DIRECT_REPLY_PREFIX}.#{@client.direct_reply_consumer_tag}"
+        if direct_reply_to?(frame.properties.reply_to)
+          if drc = @direct_reply_consumer
+            frame.properties.reply_to = "amq.direct.reply-to.#{drc}"
           else
             @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
             return
@@ -249,17 +254,20 @@ module LavinMQ
       end
 
       private def direct_reply?(msg) : Bool
-        return false unless msg.routing_key.starts_with?(DIRECT_REPLY_PREFIX)
-        consumer_tag = msg.routing_key.lchop("#{DIRECT_REPLY_PREFIX}.")
-        @client.vhost.direct_reply_channels[consumer_tag]?.try do |ch|
+        return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
+        consumer_tag = msg.routing_key[20..]
+        if ch = @client.vhost.direct_reply_consumers[consumer_tag]?
           deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
             1_u64, false,
             msg.exchange_name,
             msg.routing_key)
           ch.deliver(deliver, msg)
-          return true
+          @confirm_total += 1 if @confirm
+          confirm_ack
+          true
+        else
+          false
         end
-        false
       end
 
       def confirm_ack(multiple = false)
@@ -310,18 +318,18 @@ module LavinMQ
         if frame.consumer_tag.empty?
           frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
         end
-        if direct_reply_request?(frame.queue)
+        if direct_reply_to?(frame.queue)
           unless frame.no_ack
             @client.send_precondition_failed(frame, "Direct replys must be consumed in no-ack mode")
             return
           end
           @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
-          @client.direct_reply_consumer_tag = frame.consumer_tag
-          @client.vhost.direct_reply_channels[frame.consumer_tag] = self
+          @direct_reply_consumer = frame.consumer_tag
+          @client.vhost.direct_reply_consumers[frame.consumer_tag] = self
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-        elsif q = @client.vhost.queues[frame.queue]? || nil
+        elsif q = @client.vhost.queues[frame.queue]?
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
             return
@@ -537,6 +545,9 @@ module LavinMQ
           c.queue.rm_consumer(c) # this will requeue the consumer's unacked msgs
         end
         @consumers.clear
+        if drc = @direct_reply_consumer
+          @client.vhost.direct_reply_consumers.delete(drc)
+        end
         @unack_lock.synchronize do
           @unacked.each do |unack|
             if unack.consumer.nil? # requeue basic_get msgs
@@ -566,17 +577,13 @@ module LavinMQ
         if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
           c = @consumers.delete_at idx
           c.queue.rm_consumer(c, basic_cancel: true)
+        elsif @direct_reply_consumer == frame.consumer_tag
+          @direct_reply_consumer = nil
+          @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
         end
         unless frame.no_wait
           send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
         end
-      end
-
-      DIRECT_REPLY_PREFIX = "amq.direct.reply-to"
-
-      def direct_reply_request?(str)
-        # no regex for speed
-        str.try { |r| r == "amq.rabbitmq.reply-to" || r.starts_with? DIRECT_REPLY_PREFIX }
       end
 
       private def next_msg_body_file

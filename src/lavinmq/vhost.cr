@@ -26,7 +26,7 @@ module LavinMQ
       queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_channels, default_user, connections, dir, gc_runs, gc_timing, log
+      direct_reply_consumers, default_user, connections, dir, gc_runs, gc_timing, log
     property? flow = true
     property? dirty = false
     getter? closed = false
@@ -39,7 +39,7 @@ module LavinMQ
     @save = Channel(AMQP::Frame).new(128)
     @write_lock = Mutex.new(:checked)
     @wfile : MFile
-    @direct_reply_channels = Hash(String, Client::Channel).new
+    @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @fsync = false

@@ -16,7 +16,6 @@ module LavinMQ
     include Stats
     include SortableJSON
 
-    property direct_reply_consumer_tag
     getter vhost, channels, log, name
     getter user
     getter max_frame_size : UInt32
@@ -24,7 +23,6 @@ module LavinMQ
     getter heartbeat_timeout : UInt16
     getter auth_mechanism : String
     getter client_properties : AMQP::Table
-    getter direct_reply_consumer_tag : String?
     # getter log : Log
     getter remote_address : Socket::IPAddress
 
@@ -476,12 +474,6 @@ module LavinMQ
       @running = false
     end
 
-    def direct_reply_channel
-      if direct_reply_consumer_tag
-        @vhost.direct_reply_channels[direct_reply_consumer_tag]?
-      end
-    end
-
     def on_close(&blk : Client -> Nil)
       @on_close_callback = blk
     end
@@ -624,13 +616,19 @@ module LavinMQ
         send_precondition_failed(frame, "Queue name isn't valid")
       elsif q = @vhost.queues.fetch(frame.queue_name, nil)
         redeclare_queue(frame, q)
+      elsif {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? frame.queue_name
+        unless frame.no_wait
+          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
+        end
+      elsif frame.queue_name.starts_with?("amq.direct.reply-to.")
+        consumer_tag = frame.queue_name[20..]
+        if @vhost.direct_reply_consumers.has_key? consumer_tag
+          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 1_u32)
+        else
+          send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
+        end
       elsif frame.passive
         send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
-      elsif frame.queue_name =~ /^amq\.(rabbitmq|direct)\.reply-to/
-        unless frame.no_wait
-          consumer_count = direct_reply_channel.nil? ? 0_u32 : 1_u32
-          send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, consumer_count)
-        end
       elsif frame.queue_name.starts_with? "amq."
         send_access_refused(frame, "Not allowed to use the amq. prefix")
       elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
