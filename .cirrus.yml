@@ -1,27 +1,25 @@
 freebsd_spec_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*', 'spec/*')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   freebsd_instance:
-    image_family: freebsd-13-0
+    image_family: freebsd-14-0-snap
   install_script:
-    - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
     - pkg install -y crystal shards security/openssl
   script: |
     shards install --production
     crystal spec --no-color --order random
 
 freebsd_build_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**')"
   freebsd_instance:
-    image_family: freebsd-13-0
+    image_family: freebsd-14-0-snap
   install_script:
-    - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
     - pkg install -y crystal shards security/openssl gmake curl
   script: gmake -j2 DOCS= && rm bin/*.*
   artifacts:
     path: bin/*
 
 osx_spec_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*', 'spec/*')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   macos_instance:
     image: monterey-base
   install_script:
@@ -32,7 +30,7 @@ osx_spec_task:
     crystal spec --no-color --order random
 
 osx_build_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/*')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**')"
   macos_instance:
     image: monterey-base
   install_script:
