@@ -95,21 +95,18 @@
         const data = new window.FormData(this)
         const username = encodeURIComponent(data.get('username').trim())
         const url = '/api/users/' + username
+        let toastText = `User created: '${username}'`
+        const trs = document.querySelectorAll('#table tbody tr')
+        trs.forEach((tr) =>  {
+          if (username === tr.getAttribute('data-name')) {
+            window.confirm(`Are you sure? This will update existing user: '${username}'`)
+            toastText = `Upated existing user: '${username}'`
+            if (data.get('tags') === "") { data.set('tags', tr.childNodes[1].textContent) }
+          }
+        })
         const body = {
           password: data.get('password'),
           tags: data.get('tags')
-        }
-        let existingUser = false
-        let trs = document.querySelectorAll('#table tbody tr'), i
-        trs.forEach((tr) =>  {
-          if (username === tr.getAttribute('data-name')) {
-            existingUser = true
-          }
-        })
-        let toastText = `User created: '${username}'`
-        if (existingUser) {
-          window.confirm(`Are you sure? This will update existing user: '${username}'`)
-          toastText = `Upated existing user: '${username}'`
         }
         HTTP.request('PUT', url, { body })
           .then(() => {
