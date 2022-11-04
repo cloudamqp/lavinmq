@@ -93,11 +93,15 @@ module LavinMQ
     end
 
     def default_user : User
-      if tu = @users.values.find { |u| u.tags.includes?(Tag::Administrator) && !u.hidden? }
-        return tu
+      @users.each_value do |u|
+        if u.tags.includes?(Tag::Administrator) && !u.hidden?
+          return u
+        end
       end
-      if tu = @users.values.find { |u| u.tags.includes?(Tag::Administrator) }
-        return tu
+      @users.each_value do |u|
+        if u.tags.includes?(Tag::Administrator)
+          return u
+        end
       end
       raise "No user with administrator privileges found"
     end
