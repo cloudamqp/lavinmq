@@ -7,8 +7,13 @@ on:
       - main
     tags:
       - 'v*'
-    paths-ignore:
-      - 'spec/**'
+    paths:
+      - .github/workflows/docker.yml
+      - Dockerfile
+      - shard.lock
+      - src/**
+      - static/**
+      - openapi/**
 
 jobs:
   main:

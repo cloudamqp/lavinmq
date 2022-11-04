@@ -8,8 +8,14 @@ on:
       - main
     tags:
       - 'v*.*.*'
-    paths-ignore:
-      - 'spec/**'
+    paths:
+      - .github/workflows/deb.yml
+      - Dockerfile.deb
+      - build/deb
+      - shard.lock
+      - src/**
+      - static/**
+      - openapi/**
 
 jobs:
   build_deb:
