@@ -92,10 +92,14 @@ module LavinMQ
       end
     end
 
-    def default_user
-      tu = @users.find { |_, u| u.tags.includes? Tag::Administrator }
-      raise "No user with administrator privileges found" if tu.nil?
-      tu.not_nil!.last
+    def default_user : User
+      if tu = @users.values.find { |u| u.tags.includes?(Tag::Administrator) && !u.hidden? }
+        return tu
+      end
+      if tu = @users.values.find { |u| u.tags.includes?(Tag::Administrator) }
+        return tu
+      end
+      raise "No user with administrator privileges found"
     end
 
     def to_json(json : JSON::Builder)
