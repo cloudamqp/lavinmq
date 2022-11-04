@@ -77,12 +77,24 @@ describe LavinMQ::Server do
     end
 
     it "should be ok to declare reply-to queue to check if consumer is connected" do
+      reply_to = ""
       with_channel do |ch|
-        resp = ch.queue_declare("amq.direct.reply-to.random")
-        resp[:message_count].should eq 0
+        ch.queue("amq.direct.reply-to").subscribe(no_ack: true) { }
+        q = ch.queue("test")
+        props = AMQ::Protocol::Properties.new(reply_to: "amq.direct.reply-to")
+        q.publish_confirm("test", props: props)
+        reply_to = q.get.not_nil!.properties.reply_to.not_nil!
+        with_channel do |ch2|
+          drt = ch2.queue_declare(reply_to, passive: true)
+          drt[:consumer_count].should eq 1
+        end
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.direct.reply-to.random")
+
+      expect_raises(AMQP::Client::Channel::ClosedException, /NOT_FOUND/) do
+        with_channel do |ch|
+          ch.queue_declare(reply_to)
+        end
+      end
     end
 
     it "should return on mandatory publish to a reply routing key" do
