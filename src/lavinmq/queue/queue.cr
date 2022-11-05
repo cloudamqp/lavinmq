@@ -798,15 +798,6 @@ module LavinMQ
       @reject_count += 1
     end
 
-    private def requeue_many(sps : Enumerable(SegmentPosition))
-      return if @deleted
-      return if sps.empty?
-      @log.debug { "Returning #{sps.size} msgs to ready state" }
-      @reject_count += sps.size
-      @ready.insert(sps)
-      drop_overflow if @consumers.empty?
-    end
-
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = Time.monotonic
@@ -825,9 +816,6 @@ module LavinMQ
       deleted = @consumers.delete consumer
       @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
       consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
-      unless basic_cancel
-        requeue_many(@unacked.delete(consumer))
-      end
       if deleted
         @exclusive_consumer = false if consumer.exclusive
         @log.debug { "Removing consumer with #{consumer_unacked_size} \

@@ -533,10 +533,8 @@ module LavinMQ
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
-            if unack.consumer.nil? # requeue basic_get msgs
-              @log.debug { "Requeing unacked msg #{unack.sp}" }
-              unack.queue.reject(unack.sp, true)
-            end
+            @log.debug { "Requeing unacked msg #{unack.sp}" }
+            unack.queue.reject(unack.sp, true)
           end
           @unacked.clear
         end
@@ -559,7 +557,7 @@ module LavinMQ
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
         if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
           c = @consumers.delete_at idx
-          c.close(basic_cancel: true)
+          c.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
