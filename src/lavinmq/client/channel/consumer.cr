@@ -1,5 +1,6 @@
 require "log"
 require "../../sortable_json"
+require "../../error"
 
 module LavinMQ
   class Client
@@ -41,17 +42,11 @@ module LavinMQ
         private def deliver_loop
           loop do
             wait_until_accepts
-            wait_for_messages || break
+            wait_for_messages
             get_and_deliver_message
-          rescue Queue::ClosedError
-            break
-          rescue Client::Channel::ClosedError
-            break
-          rescue ::Channel::ClosedError
-            break
           end
-        ensure
-          @log.debug { "deliver loop exiting" }
+        rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
+          @log.debug { "deliver loop exiting: #{ex.inspect}" }
         end
 
         private def get_and_deliver_message
@@ -61,13 +56,16 @@ module LavinMQ
           end
         end
 
-        private def wait_for_messages : Bool
+        private def wait_for_messages : Nil
           loop do
-            return false if @closed
+            raise ClosedError.new if @closed
             if @queue.has_priority_consumers?
               if @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
                 @log.debug { "Waiting for higher priority consumers to not have capacity" }
-                ::Channel.receive_first(@queue.consumers.map(&.has_capacity))
+                begin
+                  ::Channel.receive_first(@queue.consumers.map(&.has_capacity))
+                rescue ::Channel::ClosedError
+                end
                 next
               end
             end
@@ -89,7 +87,7 @@ module LavinMQ
               @log.debug { "Channel flow=#{is_flow}" }
               next
             end
-            return true
+            return
           end
         end
 
@@ -188,6 +186,8 @@ module LavinMQ
             },
           }
         end
+
+        class ClosedError < Error; end
       end
     end
   end
