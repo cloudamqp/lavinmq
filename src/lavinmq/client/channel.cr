@@ -12,24 +12,22 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter id, client, prefetch_size, prefetch_count,
-        confirm, log, consumers, name
+      getter id, client, name
       property? running = true
-      getter? flow = true, global_prefetch = false
-
+      getter? flow = true
+      getter log : Log
+      getter consumers = Array(Consumer).new
+      getter confirm = false
+      getter prefetch_count = 0_u16
+      getter global_prefetch_count = 0_u16
+      getter has_capacity = ::Channel(Bool).new
+      @confirm_total = 0_u64
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
-      @log : Log
-      @prefetch_size = 0_u32
-      @prefetch_count = 0_u16
-      @confirm_total = 0_u64
-      @confirm = false
-      @global_prefetch = false
-      @consumers = Array(Consumer).new
       @delivery_tag = 0_u64
       @unacked = Deque(Unack).new
       @unack_lock = Mutex.new(:checked)
@@ -61,7 +59,7 @@ module LavinMQ
           user:                    @client.user.try(&.name),
           consumer_count:          @consumers.size,
           prefetch_count:          @prefetch_count,
-          global_prefetch_count:   @global_prefetch ? @prefetch_count : 0,
+          global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
           transactional:           false,
           messages_unacknowledged: @unacked.size,
@@ -299,7 +297,7 @@ module LavinMQ
         # Make sure publishes are confirmed before we deliver
         # can happend if the vhost spawned fsync fiber has not execed yet
         @client.vhost.send_publish_confirms
-        @client.deliver(frame, msg) || return false
+        @client.deliver(frame, msg)
         if redelivered
           @redeliver_count += 1
           @client.vhost.event_tick(EventType::ClientRedeliver)
@@ -394,36 +392,45 @@ module LavinMQ
       end
 
       private def delete_unacked(delivery_tag) : Unack?
+        found = nil
+        was_full = false
         @unack_lock.synchronize do
+          was_full = @unacked.size >= @global_prefetch_count
           # @unacked is always sorted so can do a binary search
           # optimization for acking first unacked
           if @unacked[0]?.try(&.tag) == delivery_tag
             @log.debug { "Unacked found tag:#{delivery_tag} at front" }
-            @unacked.shift
+            found = @unacked.shift
           elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
             return nil unless @unacked[idx].tag == delivery_tag
             @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
-            @unacked.delete_at(idx)
+            found = @unacked.delete_at(idx)
           end
+          has_capacity = @unacked.size < @global_prefetch_count
         end
+        notify_has_capacity(true) if was_full
+        found
       end
 
       private def delete_multiple_unacked(delivery_tag)
+        was_full = false
         @unack_lock.synchronize do
+          was_full = !has_capacity?
           if delivery_tag.zero?
             until @unacked.empty?
               yield @unacked.shift
             end
-            return
-          end
-          idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
-          return nil unless idx
-          return nil unless @unacked[idx].tag == delivery_tag
-          @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
-          (idx + 1).times do
-            yield @unacked.shift
+          else
+            idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
+            return nil unless idx
+            return nil unless @unacked[idx].tag == delivery_tag
+            @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
+            (idx + 1).times do
+              yield @unacked.shift
+            end
           end
         end
+        notify_has_capacity(true) if was_full
       end
 
       def basic_ack(frame)
@@ -493,9 +500,18 @@ module LavinMQ
 
       def basic_qos(frame) : Nil
         @client.send_not_implemented(frame) if frame.prefetch_size != 0
-        @prefetch_size = frame.prefetch_size
-        @prefetch_count = frame.prefetch_count
-        @global_prefetch = frame.global
+        if frame.global
+          @global_prefetch_count = frame.prefetch_count
+          if frame.prefetch_count.zero?
+            while @has_capacity.try_send?(true)
+            end
+          else
+            notify_has_capacity(true)
+          end
+        else
+          @prefetch_count = frame.prefetch_count
+          @consumers.each(&.prefetch_count = frame.prefetch_count)
+        end
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
       end
 
@@ -538,6 +554,7 @@ module LavinMQ
           end
           @unacked.clear
         end
+        @has_capacity.close
         @next_msg_body_file.try &.close
         @client.vhost.event_tick(EventType::ChannelClosed)
         @log.debug { "Closed" }
@@ -550,6 +567,19 @@ module LavinMQ
             @unacked.push Unack.new(tag, queue, sp, persistent, consumer)
           end
           tag
+        end
+      end
+
+      def has_capacity?
+        @unacked.size < @global_prefetch_count
+      end
+
+      private def notify_has_capacity(value)
+        return if @global_prefetch_count.zero?
+        capacity = @global_prefetch_count.to_i - @unacked.size
+        return unless capacity > 0
+        capacity.times do
+          @has_capacity.try_send?(value) || break
         end
       end
 
