@@ -398,6 +398,12 @@ module LavinMQ
         with_channel frame, &.basic_qos(frame)
       when AMQP::Frame::Basic::Recover
         with_channel frame, &.basic_recover(frame)
+      when AMQP::Frame::Tx::Select
+        with_channel frame, &.tx_select(frame)
+      when AMQP::Frame::Tx::Commit
+        with_channel frame, &.tx_commit(frame)
+      when AMQP::Frame::Tx::Rollback
+        with_channel frame, &.tx_rollback(frame)
       when AMQP::Frame::Heartbeat
         nil
       else

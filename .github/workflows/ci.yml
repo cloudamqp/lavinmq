@@ -179,7 +179,7 @@ jobs:
           cd bunny
           bundle exec rspec \
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
-            --exclude-pattern "**/*/tx_*, **/*/tls_*, **/*/connection_recovery_*"
+            --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*"
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
