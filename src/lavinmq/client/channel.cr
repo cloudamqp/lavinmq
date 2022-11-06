@@ -33,6 +33,7 @@ module LavinMQ
       @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
+      @tx = false
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
       property deliver_count, redeliver_count
@@ -88,6 +89,10 @@ module LavinMQ
       end
 
       def confirm_select(frame)
+        if @tx
+          @client.send_precondition_failed(frame, "Channel already in transactional mode")
+          return
+        end
         @confirm = true
         unless frame.no_wait
           send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
@@ -218,6 +223,8 @@ module LavinMQ
       @visited = Set(Exchange).new
       @found_queues = Set(Queue).new
 
+      @tx_publishes = Array(Message).new
+
       private def publish_and_return(msg) # ameba:disable Metrics/CyclomaticComplexity
         return true if direct_reply?(msg)
         if user_id = msg.properties.user_id
@@ -227,6 +234,11 @@ module LavinMQ
             raise Error::PreconditionFailed.new(text)
           end
         end
+        if @tx
+          @tx_publishes.push msg
+          return
+        end
+
         @confirm_total += 1 if @confirm
         ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues, @confirm
         if ok
@@ -433,7 +445,25 @@ module LavinMQ
         notify_has_capacity(true) if was_full
       end
 
+      record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
+      @tx_acks = Array(TxAck).new
+
       def basic_ack(frame)
+        if @tx
+          # TODO: check if delivery tag is already in @tx_acks
+          @unack_lock.synchronize do
+            if frame.delivery_tag.zero? && frame.multiple # all msgs so far
+              @tx_acks.push(TxAck.new @unacked.last.tag, frame.multiple, false, false)
+              return
+            elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
+              @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, false, false)
+              return
+            end
+          end
+          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
+          return
+        end
+
         found = false
         if frame.multiple
           delete_multiple_unacked(frame.delivery_tag) do |unack|
@@ -459,6 +489,17 @@ module LavinMQ
       end
 
       def basic_reject(frame)
+        if @tx
+          @unack_lock.synchronize do
+            if @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
+              @tx_acks.push(TxAck.new frame.delivery_tag, false, true, frame.requeue)
+              return
+            end
+          end
+          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
+          return
+        end
+
         @log.debug { "rejecting #{frame.inspect}" }
         if unack = delete_unacked(frame.delivery_tag)
           do_reject(frame.requeue, unack)
@@ -469,6 +510,20 @@ module LavinMQ
       end
 
       def basic_nack(frame)
+        if @tx
+          @unack_lock.synchronize do
+            if frame.delivery_tag.zero? && frame.multiple # all msgs so far
+              @tx_acks.push(TxAck.new @unacked.last.tag, true, true, frame.requeue)
+              return
+            elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
+              @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, true, frame.requeue)
+              return
+            end
+          end
+          @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
+          return
+        end
+
         found = false
         if frame.multiple
           delete_multiple_unacked(frame.delivery_tag) do |unack|
@@ -607,6 +662,62 @@ module LavinMQ
               f.delete
             end
           end
+      end
+
+      def tx_select(frame)
+        if @confirm
+          @client.send_precondition_failed(frame, "Channel already in confirm mode")
+          return
+        end
+        @tx = true
+        send AMQP::Frame::Tx::SelectOk.new(frame.channel)
+      end
+
+      def tx_commit(frame)
+        process_tx_acks
+        @tx_publishes.each do |msg|
+          @client.vhost.publish(msg, false, @visited, @found_queues, false) || basic_return(msg)
+        end
+        @tx_publishes.clear
+        send AMQP::Frame::Tx::CommitOk.new(frame.channel)
+      end
+
+      private def process_tx_acks
+        was_full = false
+        @unack_lock.synchronize do
+          was_full = !has_capacity?
+          @tx_acks.each do |tx_ack|
+            if idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
+              raise "BUG: Delivery tag not found" unless @unacked[idx].tag == tx_ack.delivery_tag
+              @log.debug { "Unacked bsearch found tag:#{tx_ack.delivery_tag} at index:#{idx}" }
+              if tx_ack.multiple
+                (idx + 1).times do
+                  unack = @unacked.shift
+                  if tx_ack.negative
+                    do_reject(tx_ack.requeue, unack)
+                  else
+                    do_ack(unack)
+                  end
+                end
+              else
+                unack = @unacked.delete_at(idx)
+                if tx_ack.negative
+                  do_reject(tx_ack.requeue, unack)
+                else
+                  do_ack(unack)
+                end
+              end
+            end
+          end
+          @tx_acks.clear
+        end
+        notify_has_capacity(true) if was_full
+      end
+
+      def tx_rollback(frame)
+        @tx_publishes.clear
+        @tx_acks.clear
+        send AMQP::Frame::Tx::RollbackOk.new(frame.channel)
       end
 
       class ClosedError < Error; end
