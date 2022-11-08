@@ -473,33 +473,25 @@ module LavinMQ
       end
     end
 
-    private def has_expired?(sp) : Bool
-      if message_ttl = @message_ttl
-        expire_at = sp.timestamp + message_ttl
-        if sp.expiration_ts > 0
-          Math.min(expire_at, sp.expiration_ts) < RoughTime.utc.to_unix_ms
-        else
-          expire_at < RoughTime.utc.to_unix_ms
-        end
-      elsif sp.expiration_ts > 0
-        sp.expiration_ts < RoughTime.utc.to_unix_ms
+    private def has_expired?(sp, requeue = false) : Bool
+      if ttl = @message_ttl
+        ttl = Math.min(ttl, sp.ttl) if sp.flags.has_ttl?
+        return false if ttl.zero? && !requeue && !@consumers.empty?
+        sp.timestamp + ttl < RoughTime.utc.to_unix_ms
+      elsif sp.flags.has_ttl?
+        return false if sp.ttl.zero? && !requeue && !@consumers.empty?
+        sp.timestamp + sp.ttl < RoughTime.utc.to_unix_ms
       else
         false
       end
     end
 
     private def expire_at(sp : SegmentPosition) : Int64?
-      if message_ttl = @message_ttl
-        meta = metadata(sp)
-        return nil unless meta
-        expire_at = meta.timestamp + message_ttl
-        if sp.expiration_ts > 0
-          Math.min(expire_at, sp.expiration_ts)
-        else
-          expire_at
-        end
-      elsif sp.expiration_ts > 0
-        sp.expiration_ts
+      if ttl = @message_ttl
+        ttl = Math.min(ttl, sp.ttl) if sp.flags.has_ttl?
+        sp.timestamp + ttl
+      elsif sp.flags.has_ttl?
+        sp.timestamp + sp.ttl
       else
         nil
       end
@@ -785,7 +777,7 @@ module LavinMQ
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue
-        if has_expired?(sp) # guarantee to not deliver expired messages
+        if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
           @ready.insert(sp)
