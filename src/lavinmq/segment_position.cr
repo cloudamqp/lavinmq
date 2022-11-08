@@ -5,19 +5,22 @@ module LavinMQ
     @[Flags]
     enum SPFlags : UInt8
       HasDLX
+      HasTTL
     end
 
-    getter segment : UInt32
-    getter position : UInt32
-    getter bytesize : UInt32
-    getter priority : UInt8
-    getter flags : SPFlags
-    getter expiration_ts : Int64
-    BYTESIZE = 22
+    # NOTE: order is important here
+    getter segment : UInt32  # 4
+    getter position : UInt32 # 4
+    getter timestamp : Int64 # 8
+    getter ttl : Int64       # 8
+    getter bytesize : UInt32 # 4
+    getter priority : UInt8  # 1
+    getter flags : SPFlags   # 1
+    BYTESIZE = 30
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @bytesize = 0_u32, @expiration_ts = 0_i64, @priority = 0_u8, @flags = SPFlags.new(0_u8))
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize = 0_u32, @timestamp = 0_i64, @ttl = 0u32, @priority = 0_u8, @flags = SPFlags.new(0_u8))
     end
 
     def self.zero
@@ -32,15 +35,26 @@ module LavinMQ
       @position + @bytesize
     end
 
+    def expiration_ts : Int64
+      @flags.has_ttl? ? @timestamp + @ttl : 0i64
+    end
+
+    def ttl? : UInt32?
+      if @flags.has_ttl?
+        @ttl
+      end
+    end
+
     def to_io(io : IO, format)
       buf = uninitialized UInt8[BYTESIZE]
       slice = buf.to_slice
       format.encode(@segment, slice[0, 4])
       format.encode(@position, slice[4, 4])
       format.encode(@bytesize, slice[8, 4])
-      format.encode(@expiration_ts, slice[12, 8])
-      slice[20] = @priority
-      slice[21] = @flags.value
+      format.encode(@timestamp, slice[12, 8])
+      format.encode(@ttl, slice[20, 8])
+      slice[28] = @priority
+      slice[29] = @flags.value
       io.write(slice)
     end
 
@@ -58,9 +72,10 @@ module LavinMQ
       pos = format.decode(UInt32, slice[4, 4])
       bytesize = format.decode(UInt32, slice[8, 4])
       ts = format.decode(Int64, slice[12, 8])
-      priority = slice[20]
-      flags = SPFlags.from_value slice[21]
-      self.new(seg, pos, bytesize, ts, priority, flags)
+      ttl = format.decode(Int64, slice[20, 8])
+      priority = slice[28]
+      flags = SPFlags.from_value slice[29]
+      self.new(seg, pos, bytesize, ts, ttl, priority, flags)
     end
 
     def self.from_i64(i : Int64)
@@ -86,22 +101,27 @@ module LavinMQ
     end
 
     def self.make(segment, position, msg)
-      expires_at =
-        if delay = msg.properties.headers.try(&.fetch("x-delay", nil)).try &.as(ArgumentNumber)
-          msg.timestamp + delay.to_i64
-        elsif exp_ms = msg.properties.expiration.try(&.to_i64?)
-          msg.timestamp + exp_ms
-        else
-          0_i64
+      flags = SPFlags::None
+      ttl = 0_i64
+      if h = msg.properties.headers
+        h.each do |key, value|
+          case key
+          when "x-delay"
+            flags |= SPFlags::HasTTL
+            ttl = value.as(ArgumentNumber).to_i64
+          when "x-dead-letter-exchange"
+            flags |= SPFlags::HasDLX
+          end
         end
+      end
+      unless flags.has_ttl?
+        if exp_ms = msg.properties.expiration.try(&.to_i64?)
+          flags |= SPFlags::HasTTL
+          ttl = exp_ms
+        end
+      end
       priority = msg.properties.priority || 0_u8
-      flags =
-        if msg.properties.headers.try(&.has_key?("x-dead-letter-exchange"))
-          SPFlags::HasDLX
-        else
-          SPFlags.new(0u8)
-        end
-      self.new(segment, position, msg.bytesize.to_u32, expires_at, priority, flags)
+      self.new(segment, position, msg.bytesize.to_u32, msg.timestamp, ttl, priority, flags)
     end
   end
 end
