@@ -20,7 +20,7 @@ module LavinMQ
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @bytesize = 0_u32, @timestamp = 0_i64, @ttl = 0u32, @priority = 0_u8, @flags = SPFlags.new(0_u8))
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize = 0_u32, @timestamp = 0_i64, @ttl = 0u32, @priority = 0_u8, @flags = SPFlags::None)
     end
 
     def self.zero

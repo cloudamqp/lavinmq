@@ -473,10 +473,9 @@ module LavinMQ
       end
     end
 
-    private def has_expired?(env) : Bool
-      sp = env.segment_position
+    private def has_expired?(sp) : Bool
       if message_ttl = @message_ttl
-        expire_at = env.message.timestamp + message_ttl
+        expire_at = sp.timestamp + message_ttl
         if sp.expiration_ts > 0
           Math.min(expire_at, sp.expiration_ts) < RoughTime.utc.to_unix_ms
         else
@@ -697,11 +696,11 @@ module LavinMQ
       raise ClosedError.new if @closed
       while sp = @ready.shift? # retry if msg expired or deliver limit hit
         begin
-          env = read(sp)
-          if has_expired?(env) # guarantee to not deliver expired messages
-            expire_msg(env, :expired)
+          if has_expired?(sp) # guarantee to not deliver expired messages
+            expire_msg(sp, :expired)
             next
           end
+          env = read(sp)
           if @delivery_limit && !no_ack
             env = with_delivery_count_header(env)
           end
@@ -786,9 +785,13 @@ module LavinMQ
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @unacked.delete(sp)
       if requeue
-        @ready.insert(sp)
-        @requeued << sp
-        drop_overflow if @consumers.empty?
+        if has_expired?(sp) # guarantee to not deliver expired messages
+          expire_msg(sp, :expired)
+        else
+          @ready.insert(sp)
+          @requeued << sp
+          drop_overflow if @consumers.empty?
+        end
       else
         expire_msg(sp, :rejected)
       end

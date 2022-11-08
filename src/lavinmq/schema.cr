@@ -16,10 +16,12 @@ module LavinMQ
   end
 
   class SchemaVersion
+    Log = ::Log.for("SchemaVersion")
+
     VERSIONS = {
       definition: 1,
       message:    1,
-      index:      2,
+      index:      3,
     }
 
     def self.verify(file, type) : Int32
@@ -54,50 +56,55 @@ module LavinMQ
     end
 
     def self.migrate(file, type, current_version)
+      Log.info { "Migrating #{file.path} from version #{current_version} to #{VERSIONS[type]}" }
       case type
       when :index
         case current_version
         when 1
-          MigrateIndexV1toV2.run(file)
+          MigrateIndex(SegmentPositionV1).run(file)
           return
         when 2
+          MigrateIndex(SegmentPositionV2).run(file)
           return
         end
       end
       raise UnsupportedSchemaVersion.new current_version, file.path
     end
 
-    class MigrateIndexV1toV2
+    class MigrateIndex(T)
       def self.run(file)
-        data_dir = File.join(File.dirname(file.path), "..") # data dir is one level up from index files
+        # data dir is one level up from index files
+        data_dir = File.join(File.dirname(file.path), "..")
         File.open("#{file.path}.tmp", "w") do |f|
           SchemaVersion.prefix(f, :index)
           prev_segment = 0u32
           seg = nil
           loop do
-            sp_v1 =
+            sp =
               begin
-                SegmentPositionV1.from_io file
+                T.from_io file
               rescue IO::EOFError
                 break
               end
-            if prev_segment != sp_v1.segment
+            if sp.zero?
+              goto_next_block(file)
+              next
+            end
+            if prev_segment != sp.segment
               seg.try &.close
-              seg = open_segment data_dir, sp_v1.segment
+              seg = open_segment data_dir, sp.segment
             end
             if segment = seg
-              segment.pos = sp_v1.position
+              segment.pos = sp.position
               begin
                 msg = MessageMetadata.from_io seg.not_nil!
-                sp = SegmentPosition.make(sp_v1.segment, sp_v1.position, msg)
-                f.write_bytes sp
+                new_sp = SegmentPosition.make(sp.segment, sp.position, msg)
+                f.write_bytes new_sp
               rescue IO::EOFError
-                # if the message has been truncated by GC already
-                next
+                next # if the message has been truncated by GC already
               end
             else
-              # if the file has been deleted by GC already
-              next
+              next # if the file has been deleted by GC already
             end
           end
           seg.try &.close
@@ -115,21 +122,46 @@ module LavinMQ
         nil
       end
 
-      struct SegmentPositionV1
-        getter segment : UInt32
-        getter position : UInt32
+      # Jump to the next block in a file
+      private def self.goto_next_block(f)
+        new_pos = ((f.pos // 4096) + 1) * 4096
+        f.pos = new_pos
+      end
+    end
 
-        def initialize(@segment : UInt32, @position : UInt32)
-        end
+    abstract struct SegmentPositionBase
+      getter segment : UInt32
+      getter position : UInt32
 
-        def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
-          seg = UInt32.from_io(io, format)
-          pos = UInt32.from_io(io, format)
-          # SegmentPosition at schema version 1 included also bytesize, expiration_ts and priority
-          # skipping them as we don't need them
-          io.skip(sizeof(UInt32) + sizeof(Int64) + sizeof(UInt8))
-          self.new(seg, pos)
-        end
+      def initialize(@segment : UInt32, @position : UInt32)
+      end
+
+      def zero?
+        segment == position == 0u32
+      end
+    end
+
+    struct SegmentPositionV1 < SegmentPositionBase
+      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
+        seg = UInt32.from_io(io, format)
+        pos = UInt32.from_io(io, format)
+        # SegmentPosition at schema version 1 also included:
+        # bytesize, expiration_ts and priority
+        # skipping them as we don't need them
+        io.skip(sizeof(UInt32) + sizeof(Int64) + sizeof(UInt8))
+        self.new(seg, pos)
+      end
+    end
+
+    struct SegmentPositionV2 < SegmentPositionBase
+      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
+        seg = UInt32.from_io(io, format)
+        pos = UInt32.from_io(io, format)
+        # SegmentPosition at schema version 2 also included:
+        # bytesize, expiration_ts and priority, flags
+        # skipping them as we don't need them
+        io.skip(sizeof(UInt32) + sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
+        self.new(seg, pos)
       end
     end
   end
