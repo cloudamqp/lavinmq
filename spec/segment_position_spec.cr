@@ -96,12 +96,13 @@ describe LavinMQ::SegmentPosition do
     end
 
     it "should always be sorted (ExpirationReadyQueue)" do
+      flags = LavinMQ::SegmentPosition::SPFlags::HasTTL
       sps = [
-        LavinMQ::SegmentPosition.new(0, 0, expiration_ts: 1_i64),
-        LavinMQ::SegmentPosition.new(0, 1, expiration_ts: 3_i64),
-        LavinMQ::SegmentPosition.new(0, 2, expiration_ts: 1_i64),
-        LavinMQ::SegmentPosition.new(0, 3, expiration_ts: 5_i64),
-        LavinMQ::SegmentPosition.new(0, 4, expiration_ts: 4_i64),
+        LavinMQ::SegmentPosition.new(0, 0, ttl: 1_i64, flags: flags),
+        LavinMQ::SegmentPosition.new(0, 1, ttl: 3_i64, flags: flags),
+        LavinMQ::SegmentPosition.new(0, 2, ttl: 1_i64, flags: flags),
+        LavinMQ::SegmentPosition.new(0, 3, ttl: 5_i64, flags: flags),
+        LavinMQ::SegmentPosition.new(0, 4, ttl: 4_i64, flags: flags),
       ]
       ready = LavinMQ::Queue::ExpirationReadyQueue.new(sps.size)
       ready.insert(sps)
