@@ -70,7 +70,7 @@ module LavinMQ
           body = parse_body(context)
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
-          tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s)
+          tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
           hashing_algorithm = body["hashing_algorithm"]?.try &.as_s? || "SHA256"
           if u = @amqp_server.users[name]?
             if password_hash
