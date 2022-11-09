@@ -464,7 +464,7 @@ module LavinMQ
       sp = @ready.first? || return
       @log.debug { "Checking if message #{sp} has to be expired" }
       if expire_at = expire_at(sp)
-        expire_in = expire_at - RoughTime.utc.to_unix_ms
+        expire_in = expire_at - RoughTime.unix_ms
         if expire_in > 0
           expire_in.milliseconds
         else
@@ -477,10 +477,10 @@ module LavinMQ
       if ttl = @message_ttl
         ttl = Math.min(ttl, sp.ttl) if sp.flags.has_ttl?
         return false if ttl.zero? && !requeue && !@consumers.empty?
-        sp.timestamp + ttl < RoughTime.utc.to_unix_ms
+        sp.timestamp + ttl < RoughTime.unix_ms
       elsif sp.flags.has_ttl?
         return false if sp.ttl.zero? && !requeue && !@consumers.empty?
-        sp.timestamp + sp.ttl < RoughTime.utc.to_unix_ms
+        sp.timestamp + sp.ttl < RoughTime.unix_ms
       else
         false
       end
@@ -499,11 +499,10 @@ module LavinMQ
 
     private def expire_messages : Nil
       i = 0
-      now = RoughTime.utc.to_unix_ms
       @ready.shift do |sp|
         @log.debug { "Checking if next message #{sp} has to be expired" }
         if expire_at = expire_at(sp)
-          expire_in = expire_at - now
+          expire_in = expire_at - RoughTime.unix_ms
           @log.debug { "expire sp=#{sp} expire_in=#{expire_in}" }
           if expire_in <= 0
             expire_msg(sp, :expired)
@@ -642,7 +641,7 @@ module LavinMQ
         props, msg.size, IO::Memory.new(msg.body))
     end
 
-    private def expire_queue(now = Time.monotonic) : Bool
+    private def expire_queue : Bool
       @log.debug { "Trying to expire queue" }
       return false unless @consumers.empty?
       @log.debug { "Queue expired" }

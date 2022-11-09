@@ -123,7 +123,7 @@ module LavinMQ
         {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? str
       end
 
-      def next_msg_headers(frame, ts)
+      def next_msg_headers(frame)
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
         raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         valid_expiration?(frame) || return
@@ -143,12 +143,12 @@ module LavinMQ
         end
         @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
-        finish_publish(@next_msg_body_tmp, ts) if frame.body_size.zero?
+        finish_publish(@next_msg_body_tmp) if frame.body_size.zero?
       end
 
       @next_msg_body_file_pos = 0
 
-      def add_content(frame, ts)
+      def add_content(frame)
         if @next_publish_exchange_name.nil? || @next_msg_props.nil?
           frame.body.skip(frame.body_size)
           raise Error::UnexpectedFrame.new(frame)
@@ -161,14 +161,14 @@ module LavinMQ
           if (@next_msg_body_file_pos += copied) == @next_msg_size
             # as the body_io won't be read until tx_commit there's no need to rewind
             # bodies can be appended sequentially to the tmp file
-            finish_publish(next_msg_body_file, ts)
+            finish_publish(next_msg_body_file)
             @next_msg_body_file_pos = 0
           end
         elsif frame.body_size == @next_msg_size
           IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
           @next_msg_body_tmp.rewind
           begin
-            finish_publish(@next_msg_body_tmp, ts)
+            finish_publish(@next_msg_body_tmp)
           ensure
             @next_msg_body_tmp.clear
           end
@@ -180,7 +180,7 @@ module LavinMQ
           if next_msg_body_file.pos == @next_msg_size
             next_msg_body_file.rewind
             begin
-              finish_publish(next_msg_body_file, ts)
+              finish_publish(next_msg_body_file)
             ensure
               next_msg_body_file.truncate
               next_msg_body_file.rewind
@@ -208,12 +208,12 @@ module LavinMQ
         @client.vhost.flow?
       end
 
-      private def finish_publish(body_io, ts)
+      private def finish_publish(body_io)
         @publish_count += 1
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
-        props.timestamp ||= ts if Config.instance.set_timestamp
-        msg = Message.new(ts.to_unix * 1000,
+        props.timestamp = RoughTime.utc if props.timestamp.nil? && Config.instance.set_timestamp
+        msg = Message.new(RoughTime.unix_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
           props,
