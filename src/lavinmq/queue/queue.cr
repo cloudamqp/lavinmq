@@ -801,7 +801,9 @@ module LavinMQ
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = Time.monotonic
+      was_empty = @consumers.empty?
       @consumers << consumer
+      notify_consumers_empty(false) if was_empty
       @exclusive_consumer = true if consumer.exclusive
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
