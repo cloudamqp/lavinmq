@@ -45,7 +45,7 @@ module LavinMQ
     @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
-    @refresh_ttl_timeout = Channel(Nil).new
+    @message_ttl_change = Channel(Nil).new
     @ready = ReadyQueue.new
     @unacked = UnackQueue.new
 
@@ -85,17 +85,19 @@ module LavinMQ
           if @consumers.empty?
             if ttl = time_to_message_expiration
               select
-              when @ready.empty_change.receive
-                next
+              when @message_ttl_change.receive
+              when @ready.empty_change.receive # might be empty now (from basic get)
               when @consumers_empty_change.receive
-                next
               when timeout ttl
                 expire_messages
               end
             else
               # first message in queue should not be expired
-              # @refresh_ttl_timeout.receive
-              @ready.empty_change.receive
+              # wait for empty queue or TTL change
+              select
+              when @message_ttl_change.receive
+              when @ready.empty_change.receive
+              end
             end
           else
             @consumers_empty_change.receive
@@ -166,7 +168,7 @@ module LavinMQ
           drop_overflow
         when "message-ttl"
           @message_ttl = v.as_i64
-          expire_messages
+          @message_ttl_change.try_send?(nil)
         when "overflow"
           @reject_on_overflow = v.as_s == "reject-publish"
         when "expires"
@@ -202,10 +204,6 @@ module LavinMQ
       @unacked.size.to_u32
     end
 
-    def refresh_ttl_timeout
-      @refresh_ttl_timeout.try_send nil
-    end
-
     private def handle_arguments
       @dlx = parse_header("x-dead-letter-exchange", String)
       @dlrk = parse_header("x-dead-letter-routing-key", String)
@@ -221,6 +219,7 @@ module LavinMQ
       validate_positive("x-max-length-bytes", @max_length_bytes)
       @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
       validate_positive("x-message-ttl", @message_ttl)
+      @message_ttl_change.try_send?(nil)
       @delivery_limit = parse_header("x-delivery-limit", ArgumentNumber)
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
@@ -268,8 +267,8 @@ module LavinMQ
       loop do
         if ttl = time_to_message_expiration
           select
-          when @refresh_ttl_timeout.receive
-            @log.debug { "Queue#expire_loop Refresh TTL timeout" }
+          when @message_ttl_change.receive
+            @log.debug { "Queue#expire_loop Message TTL changed" }
           when timeout ttl
             expire_messages
           end
@@ -319,6 +318,7 @@ module LavinMQ
       @closed = true
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
+      @message_ttl_change.close
       @consumers_empty_change.close
       @consumers.each &.cancel
       @consumers.clear
@@ -399,9 +399,6 @@ module LavinMQ
       @ready.push(sp)
       drop_overflow unless immediate_delivery?
       @publish_count += 1
-      if sp.expiration_ts > 0
-        refresh_ttl_timeout
-      end
       # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
       true
     rescue ::Channel::ClosedError
