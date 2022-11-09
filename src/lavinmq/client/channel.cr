@@ -146,12 +146,25 @@ module LavinMQ
         finish_publish(@next_msg_body_tmp, ts) if frame.body_size.zero?
       end
 
+      @next_msg_body_file_pos = 0
+
       def add_content(frame, ts)
         if @next_publish_exchange_name.nil? || @next_msg_props.nil?
           frame.body.skip(frame.body_size)
           raise Error::UnexpectedFrame.new(frame)
         end
-        if frame.body_size == @next_msg_size
+        if @tx # in transaction mode, copy all bodies to the tmp file serially
+          copied = IO.copy(frame.body, next_msg_body_file, frame.body_size)
+          if copied != frame.body_size
+            raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
+          end
+          if (@next_msg_body_file_pos += copied) == @next_msg_size
+            # as the body_io won't be read until tx_commit there's no need to rewind
+            # bodies can be appended sequentially to the tmp file
+            finish_publish(next_msg_body_file, ts)
+            @next_msg_body_file_pos = 0
+          end
+        elsif frame.body_size == @next_msg_size
           IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
           @next_msg_body_tmp.rewind
           begin
@@ -223,7 +236,8 @@ module LavinMQ
       @visited = Set(Exchange).new
       @found_queues = Set(Queue).new
 
-      @tx_publishes = Array(Message).new
+      record TxMessage, message : Message, mandatory : Bool, immediate : Bool
+      @tx_publishes = Array(TxMessage).new
 
       private def publish_and_return(msg) # ameba:disable Metrics/CyclomaticComplexity
         return true if direct_reply?(msg)
@@ -235,7 +249,7 @@ module LavinMQ
           end
         end
         if @tx
-          @tx_publishes.push msg
+          @tx_publishes.push TxMessage.new(msg, @next_publish_mandatory, @next_publish_immediate)
           return
         end
 
@@ -244,7 +258,7 @@ module LavinMQ
         if ok
           @client.vhost.waiting4confirm(self) if @confirm
         else
-          basic_return(msg)
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate)
         end
       rescue e : Error::PreconditionFailed
         msg.body_io.skip(msg.size)
@@ -286,12 +300,12 @@ module LavinMQ
         send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
       end
 
-      def basic_return(msg)
+      def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
         @return_unroutable_count += 1
-        if @next_publish_immediate
+        if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
-        elsif @next_publish_mandatory
+        elsif mandatory
           retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
         else
@@ -675,11 +689,20 @@ module LavinMQ
 
       def tx_commit(frame)
         process_tx_acks
-        @tx_publishes.each do |msg|
-          @client.vhost.publish(msg, false, @visited, @found_queues, false) || basic_return(msg)
+        process_tx_publishes
+        send AMQP::Frame::Tx::CommitOk.new(frame.channel)
+      end
+
+      private def process_tx_publishes
+        next_msg_body_file.rewind
+        @tx_publishes.each do |tx_msg|
+          @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues, false) ||
+            basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate)
         end
         @tx_publishes.clear
-        send AMQP::Frame::Tx::CommitOk.new(frame.channel)
+      ensure
+        next_msg_body_file.truncate
+        next_msg_body_file.rewind
       end
 
       private def process_tx_acks
