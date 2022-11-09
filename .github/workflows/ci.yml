@@ -32,8 +32,15 @@ jobs:
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
-      - run: shards install
-      - run: bin/ameba --no-color
+      - name: Checkout ameba
+        uses: actions/checkout@v3
+        with:
+          repository: crystal-ameba/ameba
+          path: ameba
+      - name: Build ameba
+        run: make -C ameba
+      - name: Run ameba
+        run: ameba/bin/ameba
 
   api-lint:
     name: Lint and build HTTP API documentation
