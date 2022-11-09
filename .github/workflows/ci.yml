@@ -59,7 +59,7 @@ jobs:
         run: shards install --without-development --frozen
 
       - name: Spec
-        run: crystal spec --no-color --order random
+        run: crystal spec --order random
 
   compile:
     name: Compile LavinMQ
