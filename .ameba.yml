@@ -24,18 +24,6 @@ Lint/NotNil:
   - src/lavinmq/vhost.cr
   - src/lavinmq/schema.cr
   - src/lavinmqperf.cr
-  - spec/api/http_api_spec.cr
-  - spec/api/definitions_spec.cr
-  - spec/api/exchanges_spec.cr
-  - spec/api/users_spec.cr
-  - spec/policies_spec.cr
-  - spec/upstream_spec.cr
-  - spec/vhost_spec.cr
-  - spec/queue_spec.cr
-  - spec/spec_helper.cr
-  - spec/reply_to_spec.cr
-  - spec/shovel_spec.cr
-  - spec/server_spec.cr
-  - spec/delayed_message_exchange_spec.cr
+  - spec/**/*
   Enabled: true
   Severity: Warning
