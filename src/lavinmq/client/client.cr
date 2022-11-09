@@ -27,12 +27,12 @@ module LavinMQ
     getter remote_address : Socket::IPAddress
 
     @connected_at : Int64
-    @heartbeat_interval : Time::Span?
+    @heartbeat_interval_ms : Int64?
     # @remote_address : Socket::IPAddress
     @local_address : Socket::IPAddress
     @running = true
-    @last_recv_frame = RoughTime.utc
-    @last_sent_frame = RoughTime.utc
+    @last_recv_frame = RoughTime.monotonic
+    @last_sent_frame = RoughTime.monotonic
     rate_stats(%w(send_oct recv_oct))
     DEFAULT_EX = "amq.default"
 
@@ -48,7 +48,7 @@ module LavinMQ
       @max_frame_size = tune_ok.frame_max
       @channel_max = tune_ok.channel_max
       @heartbeat_timeout = tune_ok.heartbeat
-      @heartbeat_interval = tune_ok.heartbeat.zero? ? nil : (tune_ok.heartbeat / 2).seconds
+      @heartbeat_interval_ms = tune_ok.heartbeat.zero? ? nil : ((tune_ok.heartbeat / 2) * 1000).to_i64
       @auth_mechanism = start_ok.mechanism
       @name = "#{@remote_address} -> #{@local_address}"
       @client_properties = start_ok.client_properties
@@ -183,11 +183,9 @@ module LavinMQ
     end
 
     private def send_heartbeat
-      now = RoughTime.utc
+      now = RoughTime.monotonic
       if @last_recv_frame + (@heartbeat_timeout + 5).seconds < now
-        recv_ago = (now - @last_recv_frame).total_seconds.round(1)
-        sent_ago = (now - @last_sent_frame).total_seconds.round(1)
-        @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{recv_ago} s ago, sent frame #{sent_ago} s ago" }
+        @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{(now - @last_recv_frame).total_seconds} s ago, sent frame #{(now - @last_sent_frame).total_seconds} s ago" }
         false
       else
         send AMQP::Frame::Heartbeat.new
@@ -211,7 +209,7 @@ module LavinMQ
         s.write_bytes frame, IO::ByteFormat::NetworkEndian
         s.flush
       end
-      @last_sent_frame = RoughTime.utc
+      @last_sent_frame = RoughTime.monotonic
       @send_oct_count += 8_u64 + frame.bytesize
       if frame.is_a?(AMQP::Frame::Connection::CloseOk)
         return false
@@ -277,7 +275,7 @@ module LavinMQ
           pos += length
         end
         socket.flush unless websocket # Websockets need to send one frame per WS frame
-        @last_sent_frame = RoughTime.utc
+        @last_sent_frame = RoughTime.monotonic
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
@@ -342,7 +340,7 @@ module LavinMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def process_frame(frame) : Nil
-      @last_recv_frame = now = RoughTime.utc
+      @last_recv_frame = RoughTime.monotonic
       @recv_oct_count += 8_u64 + frame.bytesize
       case frame
       when AMQP::Frame::Channel::Open
@@ -379,9 +377,9 @@ module LavinMQ
       when AMQP::Frame::Basic::Publish
         start_publish(frame)
       when AMQP::Frame::Header
-        with_channel frame, &.next_msg_headers(frame, now)
+        with_channel frame, &.next_msg_headers(frame)
       when AMQP::Frame::Body
-        with_channel frame, &.add_content(frame, now)
+        with_channel frame, &.add_content(frame)
       when AMQP::Frame::Basic::Consume
         consume(frame)
       when AMQP::Frame::Basic::Get
@@ -410,8 +408,8 @@ module LavinMQ
         @log.error { "#{frame.inspect}, not implemented" }
         send_not_implemented(frame)
       end
-      if heartbeat_interval = @heartbeat_interval
-        if @last_sent_frame + heartbeat_interval < now
+      if heartbeat_interval_ms = @heartbeat_interval_ms
+        if @last_sent_frame + heartbeat_interval_ms.milliseconds < RoughTime.monotonic
           send AMQP::Frame::Heartbeat.new
         end
       end
