@@ -213,8 +213,8 @@ module LavinMQ
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
       @expires = parse_header("x-expires", ArgumentNumber)
-      @queue_expiration_ttl_change.try_send nil
       validate_gt_zero("x-expires", @expires)
+      @queue_expiration_ttl_change.try_send nil
       @max_length = parse_header("x-max-length", ArgumentNumber)
       validate_positive("x-max-length", @max_length)
       @max_length_bytes = parse_header("x-max-length-bytes", ArgumentNumber)
