@@ -78,8 +78,11 @@ module LavinMQ
       case start_ok.mechanism
       when "PLAIN"
         resp = start_ok.response
-        i = resp.index('\u0000', 1).not_nil!
-        {resp[1...i], resp[(i + 1)..-1]}
+        if i = resp.index('\u0000', 1)
+          {resp[1...i], resp[(i + 1)..-1]}
+        else
+          raise "Invalid authentication response"
+        end
       when "AMQPLAIN"
         io = ::IO::Memory.new(start_ok.response)
         tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
