@@ -593,7 +593,9 @@ module LavinMQ
               end
               unack.queue.reject(unack.sp, requeue: true)
             end
+            was_full = !has_capacity?
             @unacked.clear
+            notify_has_capacity(true) if was_full
           else # redeliver to the original recipient
             @unacked.each do |unack|
               if consumer = unack.consumer
