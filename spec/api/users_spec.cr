@@ -118,6 +118,19 @@ describe LavinMQ::HTTP::UsersController do
       delete("/api/users/alan")
     end
 
+    it "should create user with uniq tags" do
+      body = %({
+        "password": "test",
+        "tags": "management,management"
+      })
+      response = put("/api/users/alan", body: body)
+      response.status_code.should eq 201
+      s.users["alan"].tags.size.should eq 1
+      s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
+    ensure
+      delete("/api/users/alan")
+    end
+
     it "should update user" do
       s.users.create("alan", "pw")
       body = %({
@@ -126,6 +139,20 @@ describe LavinMQ::HTTP::UsersController do
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
+      s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
+    ensure
+      delete("/api/users/alan")
+    end
+
+    it "should update user with uniq tags" do
+      s.users.create("alan", "pw")
+      body = %({
+        "password": "test",
+        "tags": "management,management"
+      })
+      response = put("/api/users/alan", body: body)
+      response.status_code.should eq 204
+      s.users["alan"].tags.size.should eq 1
       s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
     ensure
       delete("/api/users/alan")

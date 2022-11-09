@@ -61,6 +61,7 @@
       import * as HTTP from './js/http.js'
       import * as Helpers from './js/helpers.js'
       import * as Table from './js/table.js'
+      import * as DOM from './js/dom.js'
 
       let usersTable = null
       HTTP.request('GET', '/api/permissions').then(permissions => {
@@ -79,7 +80,7 @@
             userLink.textContent = item.name
             Table.renderCell(tr, 0, userLink)
           }
-          const hasPassword = item.password_hash.length ? '●' : '○'
+          const hasPassword = item.password_hash ? '●' : '○'
           const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
           Table.renderCell(tr, 1, item.tags)
           Table.renderCell(tr, 2, vhosts)
@@ -94,6 +95,15 @@
         const data = new window.FormData(this)
         const username = encodeURIComponent(data.get('username').trim())
         const url = '/api/users/' + username
+        let toastText = `User created: '${username}'`
+        const trs = document.querySelectorAll('#table tbody tr')
+        trs.forEach((tr) =>  {
+          if (username === tr.getAttribute('data-name')) {
+            window.confirm(`Are you sure? This will update existing user: '${username}'`)
+            toastText = `Upated existing user: '${username}'`
+            if (data.get('tags') === "") { data.set('tags', tr.childNodes[1].textContent) }
+          }
+        })
         const body = {
           password: data.get('password'),
           tags: data.get('tags')
@@ -101,6 +111,7 @@
         HTTP.request('PUT', url, { body })
           .then(() => {
             usersTable.fetchAndUpdate()
+            DOM.toast(toastText)
             evt.target.reset()
           }).catch(HTTP.standardErrorHandler)
       })

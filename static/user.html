@@ -121,10 +121,19 @@
         const userUrl = '/api/users/' + urlEncodedUsername
         HTTP.request('GET', userUrl)
           .then(item => {
-            const hasPassword = item.password_hash.length ? '●' : '○'
+            const hasPassword = item.password_hash ? '●' : '○'
             document.getElementById('tags').textContent = item.tags
             document.getElementById('hasPassword').textContent = hasPassword
+            tagHelper(item.tags)
           }).catch(HTTP.standardErrorHandler)
+      }
+
+      function tagHelper(tags) {
+        const vals = tags.split(',')
+        vals.forEach((val) =>  {
+          const currentVal = document.querySelector(`[name=tags]`).value
+          document.querySelector(`[name=tags]`).value = currentVal ? currentVal + ', ' + val : val
+        })
       }
       updateUser()
 
@@ -196,6 +205,7 @@
         HTTP.request('PUT', url, { body })
           .then(() => {
             updateUser()
+            DOM.toast("User updated")
             evt.target.reset()
           }).catch(HTTP.standardErrorHandler)
       })
