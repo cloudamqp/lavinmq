@@ -17,17 +17,19 @@ on:
 
 jobs:
   format:
+    name: Format check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal
+    container: 84codes/crystal:latest-ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
       - run: crystal tool format --check
 
   lint:
+    name: Lint check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal
+    container: 84codes/crystal:latest-ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
       - run: shards install
