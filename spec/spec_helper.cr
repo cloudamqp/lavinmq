@@ -26,23 +26,27 @@ AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
 HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
 
-[AMQP_PORT, AMQPS_PORT, HTTP_PORT].each do |port|
-  if TestHelpers.port_busy?(port)
-    puts "TCP port #{port} collision!"
-    puts "Make sure no other process is listening to port #{port}"
-    Spec.abort!
+{% unless flag?(:skipServerSetup) %}
+  [AMQP_PORT, AMQPS_PORT, HTTP_PORT].each do |port|
+    if TestHelpers.port_busy?(port)
+      puts "TCP port #{port} collision!"
+      puts "Make sure no other process is listening to port #{port}"
+      Spec.abort!
+    end
   end
-end
+{% end %}
 
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
-Spec.after_each do
-  s.vhosts.each_value do |vhost|
-    vhost.queues.each_key do |queue_name|
-      vhost.delete_queue(queue_name)
+{% unless flag?(:skipServerSetup) %}
+  Spec.after_each do
+    s.vhosts.each_value do |vhost|
+      vhost.queues.each_key do |queue_name|
+        vhost.delete_queue(queue_name)
+      end
     end
   end
-end
+{% end %}
 
 module TestHelpers
   class_property s, h
