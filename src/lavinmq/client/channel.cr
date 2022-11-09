@@ -642,13 +642,13 @@ module LavinMQ
       end
 
       def has_capacity?
-        @unacked.size < @global_prefetch_count
+        @unacked.count(&.consumer) < @global_prefetch_count
       end
 
       private def notify_has_capacity(value)
         return if @global_prefetch_count.zero?
-        capacity = @global_prefetch_count.to_i - @unacked.size
-        return unless capacity > 0
+        capacity = @global_prefetch_count.to_i - @unacked.count(&.consumer)
+        return if capacity.negative?
         capacity.times do
           @has_capacity.try_send?(value) || break
         end
