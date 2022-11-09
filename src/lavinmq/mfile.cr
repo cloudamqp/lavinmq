@@ -134,6 +134,7 @@ class MFile < IO
   end
 
   def write(slice : Bytes) : Nil
+    raise IO::Error.new("MFile closed") if @closed
     pos = @pos
     raise IO::EOFError.new if pos + slice.size > @capacity
     slice.copy_to(@buffer + pos, slice.size)
@@ -142,6 +143,7 @@ class MFile < IO
   end
 
   def read(slice : Bytes)
+    raise IO::Error.new("MFile closed") if @closed
     pos = @pos
     len = pos + slice.size
     raise IO::EOFError.new if len > @size
