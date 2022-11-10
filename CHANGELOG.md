@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.6] - 2022-11-10
+ 
+### Fixed
+
+ - Improved user handling ([#400](https://github.com/cloudamqp/lavinmq/pull/400))
+ - BasicRecover w/ requeue should return all unacked messages to the queues ([#398](https://github.com/cloudamqp/lavinmq/pull/398))
+ 
+### Added 
+
+ - Support for AMQP transactions ([#403](https://github.com/cloudamqp/lavinmq/pull/403))
+ - support for set_permissions to lavinmqctl ([#397](https://github.com/cloudamqp/lavinmq/pull/397))
+ - Let consumers pull messages from queues ([#391](https://github.com/cloudamqp/lavinmq/pull/391)
+
+### Changed
+
+- Keep same Logger for server restarts ([#399](https://github.com/cloudamqp/lavinmq/pull/399))
+
 
 ## [1.0.0-beta.5] - 2022-11-02
 
