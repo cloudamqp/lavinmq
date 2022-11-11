@@ -45,6 +45,7 @@ module LavinMQ
     end
 
     def listen(s : TCPServer)
+      s.tcp_defer_accept = true
       @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
       loop do
@@ -104,6 +105,7 @@ module LavinMQ
 
     def listen_tls(bind, port, context)
       s = TCPServer.new(bind, port)
+      s.tcp_defer_accept = true
       @listeners[s] = :amqps
       @log.info { "Listening on #{s.local_address} (TLS)" }
       while client = s.accept?

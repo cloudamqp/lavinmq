@@ -19,6 +19,30 @@ class Socket
   end
 end
 
+lib LibC
+  TCP_DEFER_ACCEPT = 9
+end
+
+class TCPSocket
+  # Returns `true` if quick acks are enabled. Only available in Linux.
+  def tcp_defer_accept? : Bool
+    {% if flag?(:linux) %}
+      getsockopt_bool LibC::TCP_DEFER_ACCEPT, level: Protocol::TCP
+    {% else %}
+      false
+    {% end %}
+  end
+
+  # Enables TCP quick acks when set to `true`, otherwise disables it. Only available in Linux.
+  def tcp_defer_accept=(val : Bool)
+    {% if flag?(:linux) %}
+      setsockopt_bool LibC::TCP_DEFER_ACCEPT, val, level: Protocol::TCP
+    {% else %}
+      raise NotImplementedError.new("TCPSocket#tcp_defer_accept=")
+    {% end %}
+  end
+end
+
 module IO::Evented
   def evented_sendfile(limit : Int, errno_msg : String) : Int64
     limit = limit.to_i64
