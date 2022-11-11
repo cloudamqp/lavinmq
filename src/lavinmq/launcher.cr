@@ -132,6 +132,9 @@ module LavinMQ
     end
 
     private def run_gc
+      STDOUT.puts "Clearing string pool"
+      STDOUT.flush
+      AMQ::Protocol::ShortString::POOL.clear
       STDOUT.puts "Garbage collecting"
       STDOUT.flush
       GC.collect
