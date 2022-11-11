@@ -12,9 +12,9 @@ RUN apt-get update && apt-get install -y make curl
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
 RUN make js lib
+COPY ./static ./static
 COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
 COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
-COPY ./static ./static
 COPY ./src ./src
 ARG TARGETARCH
 RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
