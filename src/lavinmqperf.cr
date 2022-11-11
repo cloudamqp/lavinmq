@@ -48,6 +48,8 @@ class Throughput < Perf
   @cmessages = 0
   @queue_args = AMQP::Client::Arguments.new
   @consumer_args = AMQP::Client::Arguments.new
+  @pub_in_transaction = 0
+  @ack_in_transaction = 0
 
   def initialize
     super
@@ -63,8 +65,14 @@ class Throughput < Perf
     @parser.on("-a MESSAGES", "--ack MESSAGES", "Ack after X consumed messages (default 0)") do |v|
       @ack = v.to_i
     end
-    @parser.on("-c outstanding", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
+    @parser.on("-c max-unconfirmed", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
       @confirm = v.to_i
+    end
+    @parser.on("-t msgs-in-transaction", "--transaction max-uncommited-messages", "Publish messages in transactions") do |v|
+      @pub_in_transaction = v.to_i
+    end
+    @parser.on("-T acks-in-transaction", "--transaction max-uncommited-acknowledgements", "Ack messages in transactions") do |v|
+      @ack_in_transaction = v.to_i
     end
     @parser.on("-u queue", "--queue=name", "Queue name (default perf-test)") do |v|
       @queue = v
@@ -204,19 +212,21 @@ class Throughput < Perf
     props = AMQ::Protocol::Properties.new(delivery_mode: @persistent ? 2u8 : nil)
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
+      ch.tx_select if @pub_in_transaction > 0
+      ch.confirm_select if @confirm > 0
       Fiber.yield
       start = Time.monotonic
       pubs_this_second = 0
       until @stopped
         data.rewind
         if @confirm > 0
-          ch.confirm_select
           msgid = ch.basic_publish data, @exchange, @routing_key, props: props
           ch.wait_for_confirm(msgid) if (msgid % @confirm) == 0
         else
           ch.basic_publish data, @exchange, @routing_key, props: props
         end
         @pubs += 1
+        ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
         break if @pubs == @pmessages
         unless @rate.zero?
           pubs_this_second += 1
@@ -244,6 +254,7 @@ class Throughput < Perf
         ch = a.channel
         ch.queue(@queue, passive: true)
       end
+      ch.tx_select if @ack_in_transaction > 0
       ch.prefetch @prefetch unless @prefetch.zero?
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
@@ -252,6 +263,7 @@ class Throughput < Perf
       q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
         @consumes += 1
         m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
         if @stopped || @consumes == @cmessages
           ch.close
         end
