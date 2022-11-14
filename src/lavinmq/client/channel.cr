@@ -698,14 +698,17 @@ module LavinMQ
       private def process_tx_publishes
         next_msg_body_file.rewind
         @tx_publishes.each do |tx_msg|
-          @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues, false) ||
+          @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues, true) ||
             basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate)
         end
         @tx_publishes.clear
+        @client.vhost.fsync
       ensure
         next_msg_body_file.truncate
         next_msg_body_file.rewind
       end
+
+      @queues_to_fsync = Set(Queue).new
 
       private def process_tx_acks
         was_full = false
@@ -723,6 +726,7 @@ module LavinMQ
                   else
                     do_ack(unack)
                   end
+                  @queues_to_fsync.add(unack.queue) unless tx_ack.requeue
                 end
               else
                 unack = @unacked.delete_at(idx)
@@ -731,10 +735,13 @@ module LavinMQ
                 else
                   do_ack(unack)
                 end
+                @queues_to_fsync.add(unack.queue) unless tx_ack.requeue
               end
             end
           end
           @tx_acks.clear
+          @queues_to_fsync.each &.fsync_ack
+          @queues_to_fsync.clear
         end
         notify_has_capacity(true) if was_full
       end
