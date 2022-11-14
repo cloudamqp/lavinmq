@@ -122,12 +122,14 @@ module LavinMQ
     @queues_to_fsync = Set(DurableQueue).new
 
     def fsync
-      @log.debug { "fsync segment file" }
-      @wfile.fsync
-      @queues_to_fsync_lock.synchronize do
-        @log.debug { "fsyncing #{@queues_to_fsync.size} queues" }
-        @queues_to_fsync.each &.fsync_enq
-        @queues_to_fsync.clear
+      unless @queues_to_fsync.empty?
+        @log.debug { "fsync segment file" }
+        @wfile.fsync
+        @queues_to_fsync_lock.synchronize do
+          @log.debug { "fsyncing #{@queues_to_fsync.size} queues" }
+          @queues_to_fsync.each &.fsync_enq
+          @queues_to_fsync.clear
+        end
       end
       send_publish_confirms
       @fsync = false
