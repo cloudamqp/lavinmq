@@ -95,6 +95,7 @@ consumers and deliver a message to each.
 - AMQPS (TLS)
 - HTTP API
 - Publisher confirm
+- Transactions
 - Policies
 - Shovels
 - Queue federation
@@ -119,7 +120,6 @@ consumers and deliver a message to each.
 
 Currently missing features
 
-- Transactions
 - Clustering
 - Plugins
 
