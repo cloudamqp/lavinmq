@@ -4,6 +4,9 @@ require "option_parser"
 require "amqp-client"
 require "benchmark"
 require "json"
+require "log"
+
+Log.setup_from_env
 
 class Perf
   @uri = URI.parse "amqp://guest:guest@localhost"
