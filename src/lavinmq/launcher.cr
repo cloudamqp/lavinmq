@@ -122,11 +122,6 @@ module LavinMQ
       STDOUT.puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
       LavinMQ::Reporter.report(@amqp_server)
-      STDOUT.puts "String pool size: #{AMQ::Protocol::ShortString::POOL.size}"
-      File.open(File.join(@amqp_server.data_dir, "string_pool.dump"), "w") do |f|
-        STDOUT.puts "Dumping string pool to #{f.path}"
-        LavinMQ::Reporter.dump_string_pool(f)
-      end
       LavinMQ::Reporter.print_queue_segments(@amqp_server, STDOUT)
       STDOUT.flush
     end

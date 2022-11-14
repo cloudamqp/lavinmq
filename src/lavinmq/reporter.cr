@@ -43,16 +43,6 @@ module LavinMQ
       end
     end
 
-    def self.dump_string_pool(io)
-      pool = AMQ::Protocol::ShortString::POOL
-      io.puts "# size=#{pool.size} capacity=#{pool.@capacity}"
-      pool.@capacity.times do |i|
-        str = pool.@values[i]
-        next if str.empty?
-        io.puts str
-      end
-    end
-
     macro puts_size_capacity(obj, indent = 0)
       STDOUT << " " * {{ indent }}
       STDOUT << "{{ obj.name }}"
