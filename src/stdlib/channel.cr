@@ -9,10 +9,10 @@ class Channel(T)
     case send_internal(value)
     in .delivered?
       true
-    in .closed?
-      raise ClosedError.new
     in .none?
       false
+    in .closed?
+      raise ClosedError.new
     end
   ensure
     @lock.unlock
@@ -27,9 +27,7 @@ class Channel(T)
     case send_internal(value)
     in .delivered?
       true
-    in .closed?
-      false
-    in .none?
+    in .none?, .closed?
       false
     end
   ensure
