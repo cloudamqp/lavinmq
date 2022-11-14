@@ -219,14 +219,10 @@ class Throughput < Perf
       pubs_this_second = 0
       until @stopped
         data.rewind
-        if @confirm > 0
-          msgid = ch.basic_publish data, @exchange, @routing_key, props: props
-          ch.wait_for_confirm(msgid) if (msgid % @confirm) == 0
-        else
-          ch.basic_publish data, @exchange, @routing_key, props: props
-        end
-        @pubs += 1
+        msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
+        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
         ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
+        @pubs += 1
         break if @pubs == @pmessages
         unless @rate.zero?
           pubs_this_second += 1
