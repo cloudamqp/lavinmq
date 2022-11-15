@@ -2,7 +2,7 @@ version: 2.0
 shards:
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 1.3.0
+    version: 1.3.1
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
@@ -10,7 +10,7 @@ shards:
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 1.0.9+git.commit.674d68fa7f648aa34780cedac854d4772317f572
+    version: 1.0.9+git.commit.15a288714b6f5db827e7bbc621cd3b35de215db1
 
   baked_file_system:
     git: https://github.com/schovi/baked_file_system.git
