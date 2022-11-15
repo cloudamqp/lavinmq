@@ -1,10 +1,13 @@
 import * as HTTP from './http.js'
 
 function fetch (cb) {
-  const vhost = window.sessionStorage.getItem('vhost')
+  let vhost = window.sessionStorage.getItem('vhost')
   const url = '/api/vhosts'
   return HTTP.request('GET', url).then(function (vhosts) {
-    if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
+    if (vhost === null && vhosts.length > 0) {
+      vhost = vhosts.find(value => true).name
+      window.sessionStorage.setItem('vhost', vhost)
+    } else if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
       window.sessionStorage.removeItem('vhost')
     }
     cb(vhosts)
@@ -33,6 +36,13 @@ function addVhostOptions (formId) {
     }
 
     const selectedVhost = window.sessionStorage.getItem('vhost')
+    if(formId === 'exportDefinitions') {
+      const opt = document.createElement('option')
+      opt.value = '_all'
+      opt.selected = '_all' === selectedVhost
+      opt.textContent = 'All'
+      select.add(opt)
+    }
     for (let i = 0; i < vhosts.length; i++) {
       const opt = document.createElement('option')
       opt.label = vhosts[i].name
@@ -51,6 +61,7 @@ addVhostOptions('user-vhost').then(() => {
     const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
     if (opt) {
       document.querySelector('#userMenuVhost').value = vhost
+      window.sessionStorage.setItem('vhost', vhost)
     }
   } else {
     window.sessionStorage.setItem('vhost', '_all')
