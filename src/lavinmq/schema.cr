@@ -97,7 +97,7 @@ module LavinMQ
             if segment = seg
               segment.pos = sp.position
               begin
-                msg = MessageMetadata.from_io seg.not_nil!
+                msg = MessageMetadata.from_io segment
                 new_sp = SegmentPosition.make(sp.segment, sp.position, msg)
                 f.write_bytes new_sp
               rescue IO::EOFError
