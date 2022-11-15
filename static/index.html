@@ -103,7 +103,14 @@
       document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const body = new window.FormData(this)
-        HTTP.request('POST', '/api/definitions/upload', { body }).then(function () {
+        let url = '/api/definitions'
+        const selectedVhost = window.sessionStorage.getItem('vhost')
+        if(selectedVhost === '_all') {
+          url += '/upload'
+        } else {
+          url += '/' + encodeURIComponent(selectedVhost) + '/upload'
+        }
+        HTTP.request('POST', url, { body }).then(function () {
           window.location.assign('/')
         }).catch(function () {
           window.alert('Upload failed')
