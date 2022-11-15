@@ -737,8 +737,6 @@ module LavinMQ
     rescue ex
       @log.error(exception: ex) { "Error reading message #{sp.inspect}, possible message loss." }
       raise ReadError.new(cause: ex)
-    ensure
-      @requeued.delete(sp) if redelivered
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -751,6 +749,7 @@ module LavinMQ
 
     protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
+      @requeued.delete(sp)
       @vhost.dirty = true
     end
 
