@@ -94,7 +94,7 @@ module LavinMQ
 
     def bytesize
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
-        @properties.bytesize + sizeof(UInt64)
+        @properties.bytesize + sizeof(UInt64) + @size
     end
 
     def persistent?
