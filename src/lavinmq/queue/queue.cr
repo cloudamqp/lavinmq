@@ -735,7 +735,7 @@ module LavinMQ
       delete_message sp
       raise ex
     rescue ex
-      @log.error { "Error reading message #{sp}, possible message loss. #{ex.inspect}" }
+      @log.error(exception: ex) { "Error reading message #{sp.inspect}, possible message loss." }
       raise ReadError.new(cause: ex)
     ensure
       @requeued.delete(sp) if redelivered
