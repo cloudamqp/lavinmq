@@ -71,8 +71,8 @@
             window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
             resolve(permissions)
           }).catch(e => {
-              document.getElementById("table-error").textContent = e.status === 401 ? e.body + ": You need administrator role to see this view" : e.body
-              reject(e)
+            Table.toggleDisplayError(e.status === 401 ? e.body + ': You need administrator role to see this view' : e.body)
+            reject(e)
           })
         })
         permissionsPromise.then(permissions => {

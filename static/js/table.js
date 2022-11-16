@@ -128,9 +128,8 @@ function renderTable (id, options = {}, renderRow) {
 
   function fetchAndUpdate () {
     const fullUrl = `${url}?${buildQuery(currentPage)}`
-    const tableError = document.getElementById(id + '-error')
     return HTTP.request('GET', fullUrl).then(function (response) {
-      tableError.textContent = ''
+      toggleDisplayError(false)
       try {
         window.sessionStorage.setItem(fullUrl, JSON.stringify(response))
       } catch (e) {
@@ -139,9 +138,9 @@ function renderTable (id, options = {}, renderRow) {
       updateTable(response)
     }).catch(function (e) {
       if (e.body) {
-        tableError.textContent = 'Error fetching data: ' + e.body
+        toggleDisplayError('Error fetching data: ' + e.body)
       } else {
-        tableError.textContent = "Error fetching data: Can't reach server, please try to refresh the page!"
+        toggleDisplayError("Error fetching data: Can't reach server, please try to refresh the page.")
         console.error(e)
       }
       if (timer) {
@@ -167,26 +166,32 @@ function renderTable (id, options = {}, renderRow) {
     }
 
     let start = 0
+    toggleDisplayError(false)
     for (let i = 0; i < data.length; i++) {
       const item = data[i]
-      const foundIndex = findIndex(t.rows, start, item)
-      if (foundIndex !== -1) {
-        if (foundIndex !== i) {
-          renderRow(t.rows[i], item, true)
-          setKeyAttributes(t.rows[i], item)
-          if (data[foundIndex]) {
-            renderRow(t.rows[foundIndex], data[foundIndex], true)
-            setKeyAttributes(t.rows[foundIndex], data[foundIndex])
+      try {
+        console.log(item)
+        const foundIndex = findIndex(t.rows, start, item)
+        if (foundIndex !== -1) {
+          if (foundIndex !== i) {
+            renderRow(t.rows[i], item, true)
+            setKeyAttributes(t.rows[i], item)
+            if (data[foundIndex]) {
+              renderRow(t.rows[foundIndex], data[foundIndex], true)
+              setKeyAttributes(t.rows[foundIndex], data[foundIndex])
+            }
+          } else {
+            renderRow(t.children[i], item, false)
           }
+          start = Math.min(i + 1, foundIndex)
         } else {
-          renderRow(t.children[i], item, false)
+          const tr = t.insertRow(i)
+          setKeyAttributes(tr, item)
+          renderRow(tr, item, true)
+          start = i + 1
         }
-        start = Math.min(i + 1, foundIndex)
-      } else {
-        const tr = t.insertRow(i)
-        setKeyAttributes(tr, item)
-        renderRow(tr, item, true)
-        start = i + 1
+      } catch (e) {
+        toggleDisplayError(item.error || e.message)
       }
     }
 
@@ -437,4 +442,15 @@ function updateQueryState (params) {
   window.history.replaceState(null, '', newurl)
 }
 
-export { renderCell, renderTable, renderHtmlCell }
+function toggleDisplayError (message = null) {
+  const tableError = document.getElementById('table-error')
+  if (message) {
+    tableError.style.display = 'block'
+    tableError.textContent = 'Something went wrong: ' + message
+  } else {
+    tableError.style.display = 'none'
+    tableError.textContent = ''
+  }
+}
+
+export { renderCell, renderTable, renderHtmlCell, toggleDisplayError }

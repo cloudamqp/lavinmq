@@ -87,7 +87,7 @@
           Table.renderCell(tr, 3, hasPassword, 'center')
         })
       }).catch(e => {
-        document.getElementById("table-error").textContent = e.status === 401 ? "Access refused: You need administrator role to see this view" : e.body
+        Table.toggleDisplayError(e.status === 401 ? 'Access refused: You need administrator role to see this view' : e.body)
       })
 
       document.querySelector('#createUser').addEventListener('submit', function (evt) {

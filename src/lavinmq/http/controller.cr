@@ -43,7 +43,12 @@ module LavinMQ
           {error: "payload_too_large", reason: "Max allowed page_size 10000"}.to_json(context.response)
           return context
         end
-        all_items = filter_values(params, iterator.map(&.details_tuple))
+        iterator = iterator.map do |i|
+          i.details_tuple
+        rescue e
+          {error: e.message}
+        end
+        all_items = filter_values(params, iterator)
         if sort_by = params.fetch("sort", nil).try &.split(".")
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
@@ -94,7 +99,7 @@ module LavinMQ
           nt = i[keys.first].as?(NamedTuple) || return
           dig(nt, keys[1..])
         else
-          i[keys.first]
+          i[keys.first]? || 0
         end
       end
 
