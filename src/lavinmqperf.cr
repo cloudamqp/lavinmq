@@ -331,7 +331,7 @@ class BindChurn < Perf
     AMQP::Client.start(@uri) do |c|
       ch = c.channel
       temp_q = ch.queue
-      durable_q = ch.queue("durable")
+      durable_q = ch.queue("bind-churn-durable-#{r.hex(8)}")
 
       Benchmark.ips do |x|
         x.report("bind non-durable queue") do
@@ -341,7 +341,8 @@ class BindChurn < Perf
           durable_q.bind "amq.direct", r.hex(10)
         end
       end
-      durable_q.delete
+    ensure
+      durable_q.delete if durable_q
     end
   end
 end
@@ -350,21 +351,22 @@ class QueueChurn < Perf
   def run
     super
 
+    r = Random.new
     AMQP::Client.start(@uri) do |c|
       ch = c.channel
-      durable_q = ch.queue("durable")
 
       Benchmark.ips do |x|
         x.report("create/delete transient queue") do
           q = ch.queue
-          q.delete
+        ensure
+          q.delete if q
         end
         x.report("create/delete durable queue") do
-          q = ch.queue("durable")
-          q.delete
+          q = ch.queue("queue-churn-durable-#{r.hex(8)}")
+        ensure
+          q.delete if q
         end
       end
-      durable_q.delete
     end
   end
 end
