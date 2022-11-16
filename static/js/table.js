@@ -14,7 +14,7 @@ function getQueryVariable (variable) {
 function renderTable (id, options = {}, renderRow) {
   let sortKey = getQueryVariable('sort')
   let reverseOrder = strToBool(getQueryVariable('reverseOrder'))
-  const view = window.location.pathname.split("/").pop()
+  const view = window.location.pathname.split('/').pop()
   if (!sortKey || reverseOrder === null) {
     sortKey = window.sessionStorage.getItem(view + '-sortkey')
     reverseOrder = strToBool(window.sessionStorage.getItem(view + '-reverseorder'))
@@ -116,7 +116,7 @@ function renderTable (id, options = {}, renderRow) {
     if (searchTerm) {
       q += `&name=${searchTerm}&use_regex=true`
     }
-    if (sortKey > "") {
+    if (sortKey > '') {
       q += `&sort=${sortKey}&sort_reverse=${reverseOrder}`
     }
     return q
