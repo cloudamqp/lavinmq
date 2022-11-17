@@ -639,7 +639,7 @@ module LavinMQ
     end
 
     private def redeclare_queue(frame, q)
-      if q.exclusive && (queue_exclusive_to_other_client?(q) || !q.match?(frame))
+      if queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
         send_resource_locked(frame, "Exclusive queue")
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
@@ -655,6 +655,10 @@ module LavinMQ
       else
         send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
       end
+    end
+
+    private def invalid_exclusive_redclare?(frame, q)
+      q.exclusive && !frame.passive && !q.match?(frame)
     end
 
     @last_queue_name : String?
