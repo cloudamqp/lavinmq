@@ -477,10 +477,10 @@ module LavinMQ
       if ttl = @message_ttl
         ttl = Math.min(ttl, sp.ttl) if sp.flags.has_ttl?
         return false if ttl.zero? && !requeue && !@consumers.empty?
-        sp.timestamp + ttl < RoughTime.unix_ms
+        sp.timestamp + ttl <= RoughTime.unix_ms
       elsif sp.flags.has_ttl?
         return false if sp.ttl.zero? && !requeue && !@consumers.empty?
-        sp.timestamp + sp.ttl < RoughTime.unix_ms
+        sp.timestamp + sp.ttl <= RoughTime.unix_ms
       else
         false
       end
