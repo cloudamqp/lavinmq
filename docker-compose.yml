@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  lavinmq-storage-specs:
+    build:
+      dockerfile: dev.Dockerfile
+    environment:
+      SPEC_CONTAINER: true
+    volumes:
+      - type: bind
+        source: ./
+        target: /src
+      - type: tmpfs
+        target: /1MB
+        tmpfs:
+          size: 1M
+      - type: tmpfs
+        target: /16K
+        tmpfs:
+          size: 16K
+    entrypoint: crystal spec special_spec; sleep

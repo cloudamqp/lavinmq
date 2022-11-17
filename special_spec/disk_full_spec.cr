@@ -1,17 +1,30 @@
 require "../spec/spec_helper"
 
-# To run these specs you need to create a small RAM-disk, see https://gist.github.com/htr3n/344f06ba2bb20b1056d7d5570fe7f596.
-
+# These specs rely on specific volumes being mounted and size limited
+# Must be run via Docker (compose)
 describe "when disk is full" do
+  before_all do
+    # Start with servers stopped
+    close_servers
+  end
+
+  before_each do
+    pending!("Must be run in container test environment") unless ENV["SPEC_CONTAINER"]?
+  end
+
+  after_each do
+    pp `df -h`
+  end
+
   it "should raise error on start server" do
     expect_raises(File::Error) do
-      TestHelpers.create_servers("/Volumes/TinyDisk-0.5MB")
+      TestHelpers.create_servers("/16K")
     end
   end
 
   it "should raise error on publish" do
     close_servers
-    TestHelpers.create_servers("/Volumes/TinyDisk-1MB")
+    TestHelpers.create_servers("/1MB")
     message = "m"
     with_channel do |ch|
       q = ch.queue("queue")
