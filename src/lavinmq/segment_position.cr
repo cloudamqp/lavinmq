@@ -108,7 +108,7 @@ module LavinMQ
           case key
           when "x-delay"
             flags |= SPFlags::HasTTL
-            ttl = value.as(ArgumentNumber).to_i64
+            ttl = value.as(Int).to_i64
           when "x-dead-letter-exchange"
             flags |= SPFlags::HasDLX
           end
