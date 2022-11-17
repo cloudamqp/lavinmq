@@ -23,7 +23,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
         os: [ubuntu-22.04, ubuntu-20.04, debian-11]
     runs-on: ubuntu-latest
     steps:
@@ -49,10 +48,10 @@ jobs:
       - name: Build deb package
         uses: docker/build-push-action@v3
         with:
-          cache-from: type=gha,scope=${{ github.workflow }}-${{ matrix.os }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-${{ matrix.os }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ github.workflow }}-${{ matrix.os }}
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-${{ matrix.os }}
           file: Dockerfile.deb
-          platforms: linux/${{ matrix.arch }}
+          platforms: linux/amd64,linux/arm64
           build-args: |
             build_image=84codes/crystal:1.6.2-${{ matrix.os }}
             target_image=${{ env.OS }}:${{ env.VERSION }}
@@ -62,33 +61,37 @@ jobs:
       - uses: actions/upload-artifact@v3
         name: Upload artifact
         with:
-          name: lavinmq-${{ matrix.os }}-${{ matrix.arch }}.deb
-          path: builds/**/*.deb
+          name: deb-packages
+          path: builds
 
       - name: Upload to Packagecloud
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
-          PKG_FILE=$(find builds -name "*.deb" | head -1)
-          ID=$(echo $PKG_FILE | cut -d/ -f2)
-          VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f3)
-          DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
-          curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
-            -F "package[distro_version_id]=${DIST_ID}" \
-            -F "package[package_file]=@${PKG_FILE}" \
-            https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
+          for PKG_FILE in $(find builds -name "*.deb")
+          do
+            ID=$(echo $PKG_FILE | cut -d/ -f3)
+            VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f4)
+            DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
+            curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
+              -F "package[distro_version_id]=${DIST_ID}" \
+              -F "package[package_file]=@${PKG_FILE}" \
+              https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
+          done
         if: startsWith(github.ref, 'refs/tags/v')
 
       - name: Upload to Packagecloud head repo
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
-          PKG_FILE=$(find builds -name "*.deb" | head -1)
-          ID=$(echo $PKG_FILE | cut -d/ -f2)
-          VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f3)
-          DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
-          curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
-            -F "package[distro_version_id]=${DIST_ID}" \
-            -F "package[package_file]=@${PKG_FILE}" \
-            https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
+          for PKG_FILE in $(find builds -name "*.deb")
+          do
+            ID=$(echo $PKG_FILE | cut -d/ -f3)
+            VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f4)
+            DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
+            curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
+              -F "package[distro_version_id]=${DIST_ID}" \
+              -F "package[package_file]=@${PKG_FILE}" \
+              https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
+          done
         if: github.ref == 'refs/heads/main'
