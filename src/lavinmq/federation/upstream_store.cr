@@ -74,7 +74,7 @@ module LavinMQ
         upstreams = Array(Upstream).new
         config.as_a.each do |cfg|
           upstream = @upstreams[cfg["upstream"].as_s]
-          if (cfg.as_h.keys.size > 1)
+          if cfg.as_h.keys.size > 1
             upstream = upstream.dup
             config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
             config["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
