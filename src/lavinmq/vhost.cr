@@ -48,6 +48,7 @@ module LavinMQ
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
+    @segment_id : UInt32
 
     def initialize(@name : String, @server_data_dir : String,
                    @default_user : User)
@@ -59,6 +60,7 @@ module LavinMQ
       load_limits
       @segments = load_segments_on_disk
       @wfile = @segments.last_value
+      @segment_id = @segments.last_key
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
@@ -264,7 +266,7 @@ module LavinMQ
           wfile = open_new_segment(msg.bytesize)
         end
         pos = wfile.seek(0, IO::Seek::End)
-        sp = SegmentPosition.make(@segments.last_key, pos.to_u32, msg)
+        sp = SegmentPosition.make(@segment_id, pos.to_u32, msg)
         if store_offset
           msg.properties.headers.not_nil!["x-offset"] = sp.to_i64
         end
@@ -286,13 +288,14 @@ module LavinMQ
     private def open_new_segment(next_msg_size = 0) : MFile
       fsync
       segments = @segments
-      next_id = segments.empty? ? 1_u32 : segments.last_key + 1
+      next_id = segments.empty? ? 1_u32 : @segment_id + 1
       @log.debug { "Opening message store segment #{next_id}" }
       filename = "msgs.#{next_id.to_s.rjust(10, '0')}"
       path = File.join(@data_dir, filename)
       capacity = Config.instance.segment_size + next_msg_size
       wfile = MFile.new(path, capacity)
       SchemaVersion.prefix(wfile, :message)
+      @segment_id = next_id
       @wfile = segments[next_id] = wfile
     end
 
