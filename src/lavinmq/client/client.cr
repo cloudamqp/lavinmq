@@ -611,10 +611,6 @@ module LavinMQ
       q.exclusive && !@exclusive_queues.includes?(q)
     end
 
-    private def invalid_exclusive_redeclare?(frame, q)
-      !(frame.passive || frame.exclusive || !q.exclusive)
-    end
-
     private def declare_queue(frame)
       if !frame.queue_name.empty? && !valid_entity_name(frame.queue_name)
         send_precondition_failed(frame, "Queue name isn't valid")
@@ -643,7 +639,7 @@ module LavinMQ
     end
 
     private def redeclare_queue(frame, q)
-      if queue_exclusive_to_other_client?(q) || invalid_exclusive_redeclare?(frame, q)
+      if q.exclusive && (queue_exclusive_to_other_client?(q) || !q.match?(frame))
         send_resource_locked(frame, "Exclusive queue")
       elsif q.internal?
         send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
@@ -654,6 +650,8 @@ module LavinMQ
             q.message_count, q.consumer_count)
         end
         @last_queue_name = frame.queue_name
+      elsif frame.exclusive && !q.exclusive
+        send_resource_locked(frame, "Not an exclusive queue")
       else
         send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
       end
