@@ -195,7 +195,7 @@ describe "Persistent Exchange" do
         q.unbind(x.name, "#", args: bind_args)
         sleep 1
         q.bind(x.name, "#", args: bind_args)
-        Fiber.yield
+        sleep 0.1
         q.get(no_ack: true).should be_nil
       end
     ensure
