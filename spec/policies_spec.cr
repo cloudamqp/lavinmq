@@ -5,7 +5,7 @@ describe LavinMQ::VHost do
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
-  } of String => JSON::Any
+  }
 
   it "should be able to add policy" do
     vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
@@ -238,6 +238,34 @@ describe LavinMQ::VHost do
     ensure
       s.vhosts["/"].delete_policy("ml")
       s.vhosts["/"].delete_operator_policy("ml1")
+    end
+  end
+
+  describe "together with arguments" do
+    it "arguments should have priority for non numeric arguments" do
+      vhost.exchanges["x-with-ae"] = LavinMQ::DirectExchange.new(vhost, "x-with-ae",
+        arguments: {"x-alternate-exchange" => "ae2".as(AMQ::Protocol::Field)})
+      vhost.add_policy("test", ".*", "all", definitions, 0_i8)
+      sleep 0.01
+      vhost.exchanges["amq.direct"].@alternate_exchange.should eq "dead-letters"
+      vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
+      vhost.delete_policy("test")
+      sleep 0.01
+      vhost.exchanges["amq.direct"].@alternate_exchange.should be_nil
+      vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
+    end
+
+    it "should use the lowest value" do
+      vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test1", arguments: {"x-max-length" => 1_i64.as(AMQ::Protocol::Field)})
+      vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test2", arguments: {"x-max-length" => 11_i64.as(AMQ::Protocol::Field)})
+      vhost.add_policy("test", ".*", "all", definitions, 0_i8)
+      sleep 0.01
+      vhost.queues["test1"].@max_length.should eq 1
+      vhost.queues["test2"].@max_length.should eq 10
+      vhost.delete_policy("test")
+      sleep 0.01
+      vhost.queues["test1"].@max_length.should eq 1
+      vhost.queues["test2"].@max_length.should eq 11
     end
   end
 end
