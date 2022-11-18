@@ -115,17 +115,22 @@ describe LavinMQ::HTTP::QueuesController do
 
   describe "PUT /api/queues/vhost/name" do
     it "should create queue" do
-      body = %({
-        "durable": false,
-        "auto_delete": true,
-        "arguments": {
-          "max-length": 10
-        }
-      })
-      response = put("/api/queues/%2f/putqueue", body: body)
+      body = {
+        "durable"     => false,
+        "auto_delete" => true,
+        "arguments"   => {
+          "max-length" => 10,
+        },
+      }
+      response = put("/api/queues/%2f/putqueue", body: body.to_json)
       response.status_code.should eq 201
       response = get("/api/queues/%2f/putqueue")
       response.status_code.should eq 200
+      json = JSON.parse(response.body)
+      json["name"].should eq "putqueue"
+      body.each do |key, value|
+        json[key].should eq value
+      end
     ensure
       s.vhosts["/"].delete_queue("putqueue")
     end
