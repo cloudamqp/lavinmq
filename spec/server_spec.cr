@@ -1004,7 +1004,7 @@ describe LavinMQ::Server do
 
       Fiber.yield
       s.vhosts["/"].queues[qname].@ready.size.should eq 1
-      s.vhosts["/"].queues[qname].@unacked.size.should eq 0
+      s.vhosts["/"].queues[qname].unacked_count.should eq 0
     end
   ensure
     s.vhosts["/"].delete_queue(qname) if qname

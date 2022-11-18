@@ -15,7 +15,11 @@ module LavinMQ
       end
 
       def self.new(ready : Queue::SortedReadyQueue)
-        SPUnsortedReadyQueue.new(ready)
+        SPUnsortedQueue.new(ready)
+      end
+
+      def self.new(sps : Array(SegmentPosition))
+        SPUnsortedQueue.new(sps)
       end
 
       def <=>(other : self)
@@ -56,7 +60,7 @@ module LavinMQ
       end
     end
 
-    class SPUnsortedReadyQueue < SPQueue
+    class SPUnsortedQueue < SPQueue
       @list : Array(SegmentPosition)
 
       # FIXME: This could be a performance issue on long queues
@@ -65,6 +69,10 @@ module LavinMQ
       # SortedReadyQueue could be sorted on any attribute on a SP
       def initialize(ready : Queue::SortedReadyQueue)
         @list = ready.to_a.sort! { |a, b| b <=> a }
+      end
+
+      def initialize(@list : Array(SegmentPosition))
+        @list.sort! { |a, b| b <=> a }
       end
 
       def peek : SegmentPosition
@@ -83,33 +91,6 @@ module LavinMQ
       end
 
       def unlock : Nil
-      end
-    end
-
-    class SPUnackQueue < SPQueue
-      def initialize(@unack : Queue::UnackQueue)
-      end
-
-      def peek : SegmentPosition
-        @unack[@pos].sp
-      end
-
-      def shift : SegmentPosition
-        v = @unack[@pos].sp
-        @pos += 1
-        v
-      end
-
-      def empty? : Bool
-        @pos == @unack.size
-      end
-
-      def lock : Nil
-        @unack.lock
-      end
-
-      def unlock : Nil
-        @unack.unlock
       end
     end
   end

@@ -13,7 +13,6 @@ module LavinMQ
           puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
           puts_size_capacity q.@consumers, 6
           puts_size_capacity q.@ready, 6
-          puts_size_capacity q.@unacked, 6
           puts_size_capacity q.@requeued, 6
           puts_size_capacity q.@deliveries, 6
         end
@@ -36,7 +35,7 @@ module LavinMQ
       amqp_server.vhosts.each_value do |vhost|
         vhost.queues.each_value do |q|
           s = Set(UInt32).new
-          q.unacked.each_sp { |sp| s << sp.segment }
+          q.consumers.each.flat_map(&.channel.unacked_for_queue(q)).each { |sp| s << sp.segment }
           q.ready.each { |sp| s << sp.segment }
           io.puts "queue=\"#{vhost.name}/#{q.name}\" segments=#{s}"
         end

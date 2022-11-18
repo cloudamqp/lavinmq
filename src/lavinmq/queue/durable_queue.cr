@@ -40,25 +40,24 @@ module LavinMQ
       i = 0
       @enq.close
       @enq = MFile.new(File.join(@index_dir, "enq.tmp"),
-        SP_SIZE * (@ready.size + @unacked.size + 1_000_000))
+        SP_SIZE * (@ready.size + @unacked_count + 1_000_000))
       SchemaVersion.prefix(@enq, :index)
       @ready.locked_each do |all_ready|
-        @unacked.locked_each do |all_unacked|
-          next_unacked = all_unacked.next.as?(UnackQueue::Unack).try &.sp
-          while sp = all_ready.next.as?(SegmentPosition)
-            while next_unacked && next_unacked < sp
-              @enq.write_bytes next_unacked
-              i += 1
-              next_unacked = all_unacked.next.as?(UnackQueue::Unack).try &.sp
-            end
-            @enq.write_bytes sp
-            i += 1
-          end
-          while next_unacked
+        unacked = @consumers.flat_map(&.channel.unacked_for_queue(self)).sort!.each
+        next_unacked = unacked.next.as?(SegmentPosition)
+        while sp = all_ready.next.as?(SegmentPosition)
+          while next_unacked && next_unacked < sp
             @enq.write_bytes next_unacked
             i += 1
-            next_unacked = all_unacked.next.as?(UnackQueue::Unack).try &.sp
+            next_unacked = unacked.next.as?(SegmentPosition)
           end
+          @enq.write_bytes sp
+          i += 1
+        end
+        while next_unacked
+          @enq.write_bytes next_unacked
+          i += 1
+          next_unacked = unacked.next.as?(SegmentPosition)
         end
       end
 

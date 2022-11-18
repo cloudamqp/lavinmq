@@ -829,8 +829,25 @@ module LavinMQ
         ex.referenced_sps(referenced_sps)
       end
       @queues.each_value do |q|
-        referenced_sps << SPQueue.new(q.unacked)
         referenced_sps << SPQueue.new(q.ready)
+      end
+
+      unacked_count = 0
+      @connections.each do |c|
+        c.channels.each_value do |ch|
+          unacked_count += ch.unacked_count
+        end
+      end
+      if unacked_count > 0
+        unacked = Array(SegmentPosition).new(unacked_count)
+        @connections.each do |c|
+          c.channels.each_value do |ch|
+            ch.each_unacked do |unack|
+              unacked << unack.sp
+            end
+          end
+        end
+        referenced_sps << SPQueue.new(unacked)
       end
     end
 

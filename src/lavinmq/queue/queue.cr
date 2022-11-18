@@ -6,7 +6,6 @@ require "../observable"
 require "../stats"
 require "../sortable_json"
 require "./ready"
-require "./unacked"
 require "../client/channel"
 require "../message"
 require "../error"
@@ -47,7 +46,9 @@ module LavinMQ
     @consumers = Array(Client::Channel::Consumer).new
     @message_ttl_change = Channel(Nil).new
     @ready = ReadyQueue.new
-    @unacked = UnackQueue.new
+
+    getter unacked_count = 0u32
+    getter unacked_bytesize = 0u64
 
     getter? paused = false
     getter paused_change = Channel(Bool).new
@@ -114,7 +115,7 @@ module LavinMQ
       %w(message_count unacked_count))
 
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready,
-      unacked, last_get_time
+      last_get_time
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? closed
@@ -206,10 +207,6 @@ module LavinMQ
       return if @policy.nil?
       @policy = nil
       @vhost.upstreams.try &.stop_link(self)
-    end
-
-    def unacked_count
-      @unacked.size.to_u32
     end
 
     private def handle_arguments
@@ -362,14 +359,14 @@ module LavinMQ
         arguments:                   @arguments,
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
-        messages:                    @ready.size + @unacked.size,
-        messages_persistent:         @durable ? @ready.size + @unacked.size : 0,
+        messages:                    @ready.size + @unacked_count,
+        messages_persistent:         @durable ? @ready.size + @unacked_count : 0,
         ready:                       @ready.size,
         ready_bytes:                 @ready.bytesize,
         ready_avg_bytes:             @ready.avg_bytesize,
-        unacked:                     @unacked.size,
-        unacked_bytes:               @unacked.bytesize,
-        unacked_avg_bytes:           @unacked.avg_bytesize,
+        unacked:                     @unacked_count,
+        unacked_bytes:               @unacked_bytesize,
+        unacked_avg_bytes:           unacked_avg_bytes,
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
         exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
@@ -382,18 +379,23 @@ module LavinMQ
 
     def size_details_tuple
       {
-        messages:          @ready.size + @unacked.size,
+        messages:          @ready.size + @unacked_count,
         ready:             @ready.size,
         ready_bytes:       @ready.bytesize,
         ready_avg_bytes:   @ready.avg_bytesize,
         ready_max_bytes:   @ready.max_bytesize &.bytesize,
         ready_min_bytes:   @ready.min_bytesize &.bytesize,
-        unacked:           @unacked.size,
-        unacked_bytes:     @unacked.bytesize,
-        unacked_avg_bytes: @unacked.avg_bytesize,
-        unacked_max_bytes: @unacked.max_bytesize &.sp.bytesize,
-        unacked_min_bytes: @unacked.min_bytesize &.sp.bytesize,
+        unacked:           @unacked_count,
+        unacked_bytes:     @unacked_bytesize,
+        unacked_avg_bytes: unacked_avg_bytes,
+        unacked_max_bytes: 0,
+        unacked_min_bytes: 0,
       }
+    end
+
+    private def unacked_avg_bytes : UInt64
+      return 0u64 if @unacked_count.zero?
+      @unacked_bytesize // @unacked_count
     end
 
     class RejectOverFlow < Exception; end
@@ -665,12 +667,6 @@ module LavinMQ
       @get_count += 1
       get(no_ack) do |env|
         yield env
-        # ack/unack the message after it has been delivered
-        if no_ack
-          delete_message(env.segment_position)
-        else
-          @unacked.push(env.segment_position, nil)
-        end
       end
     end
 
@@ -679,11 +675,6 @@ module LavinMQ
       get(consumer.no_ack) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
-        if consumer.no_ack
-          delete_message(env.segment_position)
-        else
-          @unacked.push(env.segment_position, consumer)
-        end
       end
     end
 
@@ -702,7 +693,16 @@ module LavinMQ
             env = with_delivery_count_header(env)
           end
           if env
-            yield env
+            yield env # deliver the message
+            # ack/unack the message after it has been delivered
+            if no_ack
+              @log.debug { "Deleting: #{sp}" }
+              delete_message(sp)
+            else
+              @log.debug { "Unacked: #{sp}" }
+              @unacked_count += 1
+              @unacked_bytesize += sp.bytesize
+            end
             return true
           end
         rescue ReadError
@@ -753,7 +753,8 @@ module LavinMQ
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count += 1
-      @unacked.delete(sp)
+      @unacked_count -= 1
+      @unacked_bytesize -= sp.bytesize
       delete_message(sp)
     end
 
@@ -771,19 +772,13 @@ module LavinMQ
         end
         @log.info { "Compacting ready queue took #{elapsed.total_milliseconds} ms" }
       end
-      unacked = @unacked
-      if unacked.capacity > 1024 && unacked.capacity > unacked.size * 2
-        elapsed = Time.measure do
-          unacked.compact
-        end
-        @log.info { "Compacting unacked queue took #{elapsed.total_milliseconds} ms" }
-      end
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @unacked.delete(sp)
+      @unacked_count -= 1
+      @unacked_bytesize -= sp.bytesize
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
@@ -817,10 +812,9 @@ module LavinMQ
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       deleted = @consumers.delete consumer
       @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
-      consumer_unacked_size = @unacked.sum { |u| u.consumer == consumer ? 1 : 0 }
       if deleted
         @exclusive_consumer = false if consumer.exclusive
-        @log.debug { "Removing consumer with #{consumer_unacked_size} \
+        @log.debug { "Removing consumer with #{consumer.unacked} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
         notify_observers(:rm_consumer, consumer)
@@ -840,7 +834,7 @@ module LavinMQ
       # closing all channels will move all unacked back into ready queue
       # so we are purging all messages from the queue, not only ready
       @consumers.each(&.channel.close)
-      count = @unacked.purge + purge(nil, trigger_gc: false)
+      count = purge(nil, trigger_gc: false)
       notify_consumers_empty(true)
       count.to_u32
     end
