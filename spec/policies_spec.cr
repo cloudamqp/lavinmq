@@ -247,9 +247,11 @@ describe LavinMQ::VHost do
       vhost.exchanges["x-with-ae"] = LavinMQ::DirectExchange.new(vhost, "x-with-ae",
         arguments: {"x-alternate-exchange" => "ae2".as(AMQ::Protocol::Field)})
       vhost.add_policy("test", ".*", "all", definitions, 100_i8)
+      sleep 0.01
       vhost.exchanges["no-ae"].@alternate_exchange.should eq "dead-letters"
       vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
       vhost.delete_policy("test")
+      sleep 0.01
       vhost.exchanges["no-ae"].@alternate_exchange.should be_nil
       vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
     ensure
@@ -262,9 +264,11 @@ describe LavinMQ::VHost do
       vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test1", arguments: {"x-max-length" => 1_i64.as(AMQ::Protocol::Field)})
       vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test2", arguments: {"x-max-length" => 11_i64.as(AMQ::Protocol::Field)})
       vhost.add_policy("test", ".*", "all", definitions, 100_i8)
+      sleep 0.01
       vhost.queues["test1"].@max_length.should eq 1
       vhost.queues["test2"].@max_length.should eq 10
       vhost.delete_policy("test")
+      sleep 0.01
       vhost.queues["test1"].@max_length.should eq 1
       vhost.queues["test2"].@max_length.should eq 11
     ensure
