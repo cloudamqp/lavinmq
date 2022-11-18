@@ -9,7 +9,7 @@ require "http/client"
 require "socket"
 require "uri"
 
-FileUtils.rm_rf("/tmp/spec")
+FileUtils.rm_rf("/tmp/lavinmq-spec")
 
 {% if flag?(:verbose) %}
   LOG_LEVEL = Log::Severity::Debug
@@ -124,7 +124,7 @@ module TestHelpers
     h.close
   end
 
-  def self.create_servers(dir = "/tmp/spec", level = LOG_LEVEL)
+  def self.create_servers(dir = "/tmp/lavinmq-spec", level = LOG_LEVEL)
     Log.setup(level) unless @@s
     cfg = LavinMQ::Config.instance
     cfg.gc_segments_interval = 1
