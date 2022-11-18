@@ -29,7 +29,7 @@ RUN make all -j && rm bin/*.*
 # Resulting image with minimal layers
 FROM ubuntu:22.04
 RUN apt-get update && \
-    apt-get install -y libssl3 libevent-2.1-7 && \
+    apt-get install -y libssl3 libevent-2.1-7 ca-certificates && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 COPY --from=target-builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
