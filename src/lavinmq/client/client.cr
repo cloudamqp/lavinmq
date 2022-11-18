@@ -658,7 +658,7 @@ module LavinMQ
     end
 
     private def invalid_exclusive_redclare?(frame, q)
-      q.exclusive && !frame.passive && !q.match?(frame)
+      q.exclusive && !frame.passive && !frame.exclusive
     end
 
     @last_queue_name : String?
