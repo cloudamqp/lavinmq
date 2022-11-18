@@ -24,7 +24,6 @@ RUN make docs
 
 # Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM base AS builder
-RUN apt-get update && apt-get install -y make curl
 COPY Makefile .
 RUN make js lib
 COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
