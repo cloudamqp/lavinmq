@@ -327,7 +327,7 @@ class BindChurn < Perf
   def run
     super
 
-    r = Random.new
+    r = Random::DEFAULT
     AMQP::Client.start(@uri) do |c|
       ch = c.channel
       temp_q = ch.queue
@@ -351,7 +351,7 @@ class QueueChurn < Perf
   def run
     super
 
-    r = Random.new
+    r = Random::DEFAULT
     AMQP::Client.start(@uri) do |c|
       ch = c.channel
 
