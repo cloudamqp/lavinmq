@@ -49,9 +49,9 @@ module LavinMQ
         # TODO: Support persitent exchange as policy
         case k
         when "alternate-exchange"
-          @alternate_exchange = v.as_s?
+          @alternate_exchange ||= v.as_s?
         when "delayed-message"
-          @delayed = v.as?(Bool) == true
+          @delayed ||= v.as?(Bool) == true
           init_delayed_queue if @delayed
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
@@ -139,8 +139,8 @@ module LavinMQ
 
     private def init_persistent_queue
       return if @persistent_queue
-      persist_messages = @arguments["x-persist-messages"]?.try &.as?(ArgumentNumber)
-      persist_ms = @arguments["x-persist-ms"]?.try &.as?(ArgumentNumber)
+      persist_messages = @arguments["x-persist-messages"]?.try &.as?(Int)
+      persist_ms = @arguments["x-persist-ms"]?.try &.as?(Int)
       return unless persist_messages || persist_ms
       raise "Exchange can't be persistent and delayed" if delayed?
       q_name = "amq.persistent.#{@name}"
@@ -193,7 +193,7 @@ module LavinMQ
       if (pq = @persistent_queue) && headers && !headers.empty?
         method = headers.select(REPUBLISH_HEADERS).first_key?
         return unless method
-        arg = headers[method].try &.as?(ArgumentNumber)
+        arg = headers[method].try &.as?(Int)
         return true if arg.nil? || pq.empty?
         persisted = pq.message_count
         @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
@@ -207,7 +207,7 @@ module LavinMQ
       true
     end
 
-    private def republish(queue : Queue, method : String, arg : ArgumentNumber)
+    private def republish(queue : Queue, method : String, arg : Int)
       return unless pq = @persistent_queue
       republish = ->(sp : SegmentPosition) do
         case type

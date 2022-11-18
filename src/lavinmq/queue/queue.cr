@@ -33,11 +33,11 @@ module LavinMQ
     getter to_deliver = ::Channel(SegmentPosition).new
     @durable = false
     @log : Log
-    @message_ttl : ArgumentNumber?
-    @max_length : ArgumentNumber?
-    @max_length_bytes : ArgumentNumber?
-    @expires : ArgumentNumber?
-    @delivery_limit : ArgumentNumber?
+    @message_ttl : Int64?
+    @max_length : Int64?
+    @max_length_bytes : Int64?
+    @expires : Int64?
+    @delivery_limit : Int64?
     @dlx : String?
     @dlrk : String?
     @reject_on_overflow = false
@@ -161,30 +161,38 @@ module LavinMQ
         @log.debug { "Applying policy #{k}: #{v}" }
         case k
         when "max-length"
-          @max_length = v.as_i64
-          drop_overflow
+          unless @max_length.try &.< v.as_i64
+            @max_length = v.as_i64
+            drop_overflow
+          end
         when "max-length-bytes"
-          @max_length_bytes = v.as_i64
-          drop_overflow
+          unless @max_length_bytes.try &.< v.as_i64
+            @max_length_bytes = v.as_i64
+            drop_overflow
+          end
         when "message-ttl"
-          @message_ttl = v.as_i64
-          @message_ttl_change.try_send?(nil)
-        when "overflow"
-          @reject_on_overflow = v.as_s == "reject-publish"
+          unless @message_ttl.try &.< v.as_i64
+            @message_ttl = v.as_i64
+            @message_ttl_change.try_send?(nil)
+          end
         when "expires"
-          @last_get_time = Time.monotonic
-          @expires = v.as_i64
-          @queue_expiration_ttl_change.try_send nil
+          unless @expires.try &.< v.as_i64
+            @expires = v.as_i64
+            @last_get_time = Time.monotonic
+            @queue_expiration_ttl_change.try_send nil
+          end
+        when "overflow"
+          @reject_on_overflow ||= v.as_s == "reject-publish"
         when "dead-letter-exchange"
-          @dlx = v.as_s
+          @dlx ||= v.as_s
         when "dead-letter-routing-key"
-          @dlrk = v.as_s
+          @dlrk ||= v.as_s
+        when "delivery-limit"
+          @delivery_limit ||= v.as_i64
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
-        when "delivery-limit"
-          @delivery_limit = v.as_i64
         else nil
         end
       end
@@ -210,17 +218,17 @@ module LavinMQ
       if @dlrk && @dlx.nil?
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
-      @expires = parse_header("x-expires", ArgumentNumber)
+      @expires = parse_header("x-expires", Int).try &.to_i64
       validate_gt_zero("x-expires", @expires)
       @queue_expiration_ttl_change.try_send nil
-      @max_length = parse_header("x-max-length", ArgumentNumber)
+      @max_length = parse_header("x-max-length", Int).try &.to_i64
       validate_positive("x-max-length", @max_length)
-      @max_length_bytes = parse_header("x-max-length-bytes", ArgumentNumber)
+      @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
       validate_positive("x-max-length-bytes", @max_length_bytes)
-      @message_ttl = parse_header("x-message-ttl", ArgumentNumber)
+      @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
       validate_positive("x-message-ttl", @message_ttl)
       @message_ttl_change.try_send?(nil)
-      @delivery_limit = parse_header("x-delivery-limit", ArgumentNumber)
+      @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
     end
@@ -533,11 +541,12 @@ module LavinMQ
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      @log.debug { "Expiring #{sp} (#{sp.flags}) now due to #{reason}, headers=#{msg.properties.headers}" }
       if sp.flags.has_dlx? || @dlx
-        dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
-        if dlx
-          unless dead_letter_loop?(msg.properties.headers, reason)
+        if dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
+          if dead_letter_loop?(msg.properties.headers, reason)
+            @log.debug { "#{sp} in a dead letter loop, dropping it" }
+          else
             dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
             props = handle_dlx_header(msg, reason)
             dead_letter_msg(msg, sp, props, dlx, dlrk)
