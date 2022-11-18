@@ -8,11 +8,11 @@ COPY ./src ./src
 
 # Run specs on build platform
 FROM --platform=$BUILDPLATFORM base AS test
-RUN crystal tool format --check
-COPY .ameba.yml .
-RUN bin/ameba
 COPY ./spec ./spec
 RUN crystal spec --order random
+COPY .ameba.yml .
+RUN bin/ameba
+RUN crystal tool format --check
 
 # Build docs in npm container
 FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
