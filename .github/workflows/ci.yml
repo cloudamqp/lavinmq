@@ -1,6 +1,14 @@
 name: CI
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'spec/**'
+      - 'shard.*'
+      - 'static/**'
+      - '.github/workflows/ci.yml'
+      - 'build/build_docs_in_ci'
+      - 'openapi/**'
   push:
     branches:
       - main
@@ -11,9 +19,7 @@ on:
       - 'static/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
-      - 'openapi/openapi.yaml'
-      - 'openapi/paths/**'
-      - 'openapi/schemas/**'
+      - 'openapi/**'
 
 jobs:
   format:

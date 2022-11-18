@@ -2,6 +2,13 @@ name: Docker images
 
 on:
   pull_request:
+    paths:
+      - .github/workflows/docker.yml
+      - Dockerfile
+      - shard.lock
+      - src/**
+      - static/**
+      - openapi/**
   push:
     branches:
       - main

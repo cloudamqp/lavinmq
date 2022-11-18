@@ -1,8 +1,14 @@
 name: Debian packages
 on:
   pull_request:
-    paths-ignore:
-      - 'spec/**'
+    paths:
+      - .github/workflows/deb.yml
+      - Dockerfile.deb
+      - build/deb
+      - shard.lock
+      - src/**
+      - static/**
+      - openapi/**
   push:
     branches:
       - main
