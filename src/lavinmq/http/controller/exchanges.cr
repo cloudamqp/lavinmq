@@ -1,6 +1,5 @@
 require "uri"
 require "../controller"
-require "../resource_helpers"
 require "../binding_helpers"
 
 module LavinMQ
@@ -16,7 +15,6 @@ module LavinMQ
     end
 
     class ExchangesController < Controller
-      include ResourceHelpers
       include ExchangeHelpers
       include BindingHelpers
 
@@ -53,12 +51,11 @@ module LavinMQ
             durable = body["durable"]?.try(&.as_bool?) || false
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
             internal = body["internal"]?.try(&.as_bool?) || false
-            arguments = parse_arguments(body)
-            tbl = AMQP::Table.new arguments
+            tbl = (args = body["arguments"]?.try(&.as_h?)) ? AMQP::Table.new(args) : AMQP::Table.new
             if delayed = body["delayed"]?
               tbl["x-delayed-exchange"] = delayed.try(&.as_bool?)
             end
-            ae = arguments["x-alternate-exchange"]?.try &.as?(String)
+            ae = tbl["x-alternate-exchange"]?.try &.as?(String)
             ae_ok = ae.nil? || (user.can_write?(vhost, ae) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")

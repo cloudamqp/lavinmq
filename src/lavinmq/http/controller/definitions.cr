@@ -1,12 +1,9 @@
 require "uri"
 require "../controller"
-require "../resource_helpers"
 
 module LavinMQ
   module HTTP
     class DefinitionsController < Controller
-      include ResourceHelpers
-
       private def register_routes
         get "/api/definitions" do |context, _params|
           refuse_unless_administrator(context, user(context))
@@ -171,7 +168,7 @@ module LavinMQ
           vhost = q["vhost"].as_s
           durable = q["durable"].as_bool
           auto_delete = q["auto_delete"].as_bool
-          arguments = AMQP::Table.new parse_arguments(q)
+          arguments = AMQP::Table.new(q["arguments"].as_h)
           next unless v = fetch_vhost?(vhosts, vhost)
           v.declare_queue(name, durable, auto_delete, arguments)
         end
@@ -186,7 +183,7 @@ module LavinMQ
           durable = e["durable"].as_bool
           internal = e["internal"].as_bool
           auto_delete = e["auto_delete"].as_bool
-          arguments = AMQP::Table.new parse_arguments(e)
+          arguments = AMQP::Table.new(e["arguments"].as_h)
           next unless v = fetch_vhost?(vhosts, vhost)
           v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
         end
@@ -200,7 +197,7 @@ module LavinMQ
           destination = b["destination"].as_s
           destination_type = b["destination_type"].as_s
           routing_key = b["routing_key"].as_s
-          arguments = AMQP::Table.new parse_arguments(b)
+          arguments = AMQP::Table.new(b["arguments"].as_h)
           next unless v = fetch_vhost?(vhosts, vhost)
           case destination_type
           when "queue"

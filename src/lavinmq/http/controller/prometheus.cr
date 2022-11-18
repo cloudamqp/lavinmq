@@ -1,6 +1,5 @@
 require "uri"
 require "../controller"
-require "../resource_helpers"
 require "../binding_helpers"
 
 module LavinMQ

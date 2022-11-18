@@ -4,12 +4,10 @@ require "./queues"
 require "./exchanges"
 require "../binding_helpers"
 require "../controller"
-require "../resource_helpers"
 
 module LavinMQ
   module HTTP
     class BindingsController < Controller
-      include ResourceHelpers
       include BindingHelpers
       include QueueHelpers
       include ExchangeHelpers
@@ -62,12 +60,12 @@ module LavinMQ
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
                           body["routingKey"]?.try(&.as_s?)
-            arguments = parse_arguments(body)
+            arguments = (args = body["arguments"]?.try(&.as_h?)) ? AMQP::Table.new(args) : AMQP::Table.new
             unless routing_key
               bad_request(context, "Field 'routing_key' is required")
             end
-            ok = e.vhost.bind_queue(q.name, e.name, routing_key, AMQP::Table.new(arguments))
-            props = BindingDetails.hash_key({routing_key, arguments})
+            ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
+            props = BindingDetails.hash_key({routing_key, arguments.to_h})
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             @log.debug do
@@ -145,12 +143,12 @@ module LavinMQ
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
                           body["routingKey"]?.try(&.as_s?)
-            arguments = parse_arguments(body)
+            arguments = (args = body["arguments"]?.try(&.as_h?)) ? AMQP::Table.new(args) : AMQP::Table.new
             unless routing_key
               bad_request(context, "Field 'routing_key' is required")
             end
-            source.vhost.bind_exchange(destination.name, source.name, routing_key, AMQP::Table.new arguments)
-            props = BindingDetails.hash_key({routing_key, arguments})
+            source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
+            props = BindingDetails.hash_key({routing_key, arguments.to_h})
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
           end

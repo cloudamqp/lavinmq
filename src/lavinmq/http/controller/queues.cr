@@ -1,6 +1,5 @@
 require "uri"
 require "../controller"
-require "../resource_helpers"
 require "../binding_helpers"
 
 module LavinMQ
@@ -15,7 +14,6 @@ module LavinMQ
     end
 
     class QueuesController < Controller
-      include ResourceHelpers
       include BindingHelpers
       include QueueHelpers
 
@@ -52,9 +50,8 @@ module LavinMQ
             body = parse_body(context)
             durable = body["durable"]?.try(&.as_bool?) || false
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
-            arguments = parse_arguments(body)
-            tbl = AMQP::Table.new arguments
-            dlx = arguments["x-dead-letter-exchange"]?.try &.as?(String)
+            tbl = (args = body["arguments"]?.try(&.as_h?)) ? AMQP::Table.new(args) : AMQP::Table.new
+            dlx = tbl["x-dead-letter-exchange"]?.try &.as?(String)
             dlx_ok = dlx.nil? || (user.can_write?(vhost, dlx) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
