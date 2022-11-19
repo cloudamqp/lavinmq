@@ -399,7 +399,7 @@ module LavinMQ
           else
             @get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)
-            q.basic_get(frame.no_ack) do |env|
+            ok = q.basic_get(frame.no_ack) do |env|
               persistent = env.message.properties.delivery_mode == 2_u8
               delivery_tag = next_delivery_tag(q, env.segment_position,
                 persistent, frame.no_ack,
@@ -408,9 +408,8 @@ module LavinMQ
                 env.redelivered, env.message.exchange_name,
                 env.message.routing_key, q.message_count)
               deliver(get_ok, env.message, env.redelivered)
-              return
             end
-            send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
+            send AMQP::Frame::Basic::GetEmpty.new(frame.channel) unless ok
           end
         else
           @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")

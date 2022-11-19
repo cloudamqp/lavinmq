@@ -671,28 +671,25 @@ module LavinMQ
         else
           @unacked.push(env.segment_position, nil)
         end
-        return true
       end
-      false
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def get_msg(consumer : Client::Channel::Consumer) : Nil
+    def get_msg(consumer : Client::Channel::Consumer) : Bool
       get(consumer.no_ack) do |env|
-        sp = env.segment_position
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
         if consumer.no_ack
-          delete_message(sp)
+          delete_message(env.segment_position)
         else
-          @unacked.push(sp, consumer)
+          @unacked.push(env.segment_position, consumer)
         end
       end
     end
 
     # return the next message in the ready queue
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack : Bool, &blk : Envelope -> _)
+    private def get(no_ack : Bool, &blk : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       while sp = @ready.shift? # retry if msg expired or deliver limit hit
         begin
@@ -704,7 +701,10 @@ module LavinMQ
           if @delivery_limit && !no_ack
             env = with_delivery_count_header(env)
           end
-          return yield env if env
+          if env
+            yield env
+            return true
+          end
         rescue ReadError
           @ready.insert(sp)
           close
@@ -714,6 +714,7 @@ module LavinMQ
           raise ex
         end
       end
+      false
     end
 
     private def with_delivery_count_header(env) : Envelope?
