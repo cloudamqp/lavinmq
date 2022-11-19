@@ -1,4 +1,4 @@
-require "../spec/spec_helper"
+require "./spec_helper"
 
 # To run these specs you need to create a small RAM-disk, see https://gist.github.com/htr3n/344f06ba2bb20b1056d7d5570fe7f596.
 
