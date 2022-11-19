@@ -1,17 +1,26 @@
 require "./spec_helper"
 
-# To run these specs you need to create a small RAM-disk, see https://gist.github.com/htr3n/344f06ba2bb20b1056d7d5570fe7f596.
-
 describe "when disk is full" do
+  before_each do
+    close_servers
+    system "mkdir -p /tmp/tmpfs"
+  end
+
+  after_each do
+    close_servers
+    system "umount /tmp/tmpfs"
+  end
+
   it "should raise error on start server" do
+    system("mount -t tmpfs -o size=500k lavinmq-spec /tmp/tmpfs") || pending! "Root required for tmpfs"
     expect_raises(File::Error) do
-      TestHelpers.create_servers("/Volumes/TinyDisk-0.5MB")
+      TestHelpers.create_servers("/tmp/tmpfs")
     end
   end
 
   it "should raise error on publish" do
-    close_servers
-    TestHelpers.create_servers("/Volumes/TinyDisk-1MB")
+    system("mount -t tmpfs -o size=1m lavinmq-spec /tmp/tmpfs") || pending! "Root required for tmpfs"
+    TestHelpers.create_servers("/tmp/tmpfs")
     message = "m"
     with_channel do |ch|
       q = ch.queue("queue")
@@ -21,7 +30,7 @@ describe "when disk is full" do
     end
   end
 
-  it "should raise error on close server" do
+  pending "should raise error on close server" do
     expect_raises(File::Error) do
       close_servers
     end
