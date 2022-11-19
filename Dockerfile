@@ -2,14 +2,18 @@
 FROM --platform=$BUILDPLATFORM 84codes/crystal:1.6.2-ubuntu-22.04 AS base
 WORKDIR /tmp
 COPY shard.yml shard.lock .
-RUN shards install
+RUN shards install --production
 COPY ./static ./static
 COPY ./src ./src
 
 # Run specs on build platform
-FROM --platform=$BUILDPLATFORM base AS test
+FROM --platform=$BUILDPLATFORM base AS spec
 COPY ./spec ./spec
 RUN crystal spec --order random
+
+# Lint in another layer
+FROM --platform=$BUILDPLATFORM base AS lint
+RUN shards install # install ameba only in this layer
 COPY .ameba.yml .
 RUN bin/ameba
 RUN crystal tool format --check
