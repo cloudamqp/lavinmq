@@ -708,7 +708,7 @@ module LavinMQ
         rescue ReadError
           @ready.insert(sp)
           close
-          return
+          return false
         rescue ex
           @ready.insert(sp)
           raise ex
