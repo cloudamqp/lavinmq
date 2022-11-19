@@ -270,4 +270,31 @@ describe LavinMQ::Queue do
       s.vhosts["/"].delete_exchange(x_name)
     end
   end
+
+  it "should keep track of unacked basic_get messages" do
+    with_channel do |ch|
+      q = ch.queue
+      q.publish_confirm "a"
+
+      msg = q.get(no_ack: false)
+      msg.should_not be_nil
+      sq = s.vhosts["/"].queues[q.name]
+      sq.@unacked.size.should eq 1
+    end
+  end
+
+  it "should keep track of unacked deliviered messages" do
+    with_channel do |ch|
+      q = ch.queue
+      q.publish_confirm "a"
+
+      done = Channel(Nil).new
+      q.subscribe(no_ack: false) do |_msg|
+        done.send nil
+      end
+      done.receive
+      sq = s.vhosts["/"].queues[q.name]
+      sq.@unacked.size.should eq 1
+    end
+  end
 end
