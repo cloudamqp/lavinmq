@@ -279,7 +279,10 @@ describe LavinMQ::Queue do
       msg = q.get(no_ack: false)
       msg.should_not be_nil
       sq = s.vhosts["/"].queues[q.name]
-      sq.@unacked.size.should eq 1
+      sq.unacked_count.should eq 1
+      msg.not_nil!.ack
+      sleep 0.01
+      sq.unacked_count.should eq 0
     end
   end
 
@@ -288,13 +291,16 @@ describe LavinMQ::Queue do
       q = ch.queue
       q.publish_confirm "a"
 
-      done = Channel(Nil).new
-      q.subscribe(no_ack: false) do |_msg|
-        done.send nil
+      done = Channel(AMQP::Client::DeliverMessage).new
+      q.subscribe(no_ack: false) do |msg|
+        done.send msg
       end
-      done.receive
+      msg = done.receive
       sq = s.vhosts["/"].queues[q.name]
-      sq.@unacked.size.should eq 1
+      sq.unacked_count.should eq 1
+      msg.ack
+      sleep 0.01
+      sq.unacked_count.should eq 0
     end
   end
 end
