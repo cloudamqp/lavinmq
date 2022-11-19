@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe "when disk is full" do
+describe LavinMQ::Server do
   before_each do
     system "mkdir -p /tmp/tmpfs"
   end
@@ -9,14 +9,14 @@ describe "when disk is full" do
     system "umount /tmp/tmpfs 2> /dev/null"
   end
 
-  it "should raise error on start server" do
+  it "will raise error on start server when out of disk" do
     system("mount -t tmpfs -o size=500k lavinmq-spec /tmp/tmpfs") || pending! "Root required for tmpfs"
     expect_raises(File::Error) do
       LavinMQ::Server.new("/tmp/tmpfs")
     end
   end
 
-  it "should raise error on publish" do
+  it "will raise error on publish when out of disk" do
     system("mount -t tmpfs -o size=1m lavinmq-spec /tmp/tmpfs") || pending! "Root required for tmpfs"
     s = LavinMQ::Server.new("/tmp/tmpfs")
     spawn { s.listen("127.0.0.2", 5672) }
@@ -30,7 +30,7 @@ describe "when disk is full" do
     s.close
   end
 
-  pending "should raise error on close server" do
+  pending "will raise error on close server when out of disk" do
     expect_raises(File::Error) do
     end
   end
