@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Include the message timestamp and the TTL in the queue index for faster handling of expired message when the Queue has a message TTL
+- Migrating index files to the new queue index format
+- New RoughTime methods for faster time lookups
+- Transaction support in lavinmqperf
+- Spec stage/layer in `Dockerfile`: `docker build --target spec .`
+
+### Fixed
+
+- Queue/exchange arguments has priority over policies, but lowest value wins in case of numeric property
+- Removed the use of StringPool for short strings, no performance impact and lower memory usage
+- Proper error message if listing in UI includes error items
+- Correct handling of zero TTL messages (expire on requeue)
+- 6% publish rate increase due to caching of segment id (1.6M msgs/s locally)
+- Include ca-certificates in container image so that lavinmqperf can connect to AMQPS servers with valid certs
+- Unacked basic_get messages werent accounted for, which in rare cases could lead to message loss (unacked for a long time and then requeued)
+
+### Changed
+
+- Always fsync on transaction commit (if the transaction included persistent messages)
+- Build container image and debian packages with crystal 1.6.2
+- lavinmqctl list_connections connection_properties emulates the rabbitmqctl output format
+- Command line arguments overrides config file settings
+- lavinmqperf queue-churn uses random queue names for parallel runs
+
 ## [1.0.0-beta.6] - 2022-11-10
  
 ### Fixed
