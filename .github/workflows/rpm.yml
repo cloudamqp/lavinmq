@@ -7,95 +7,76 @@ on:
       - 'v*.*.*'
     paths-ignore:
       - 'spec/**'
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  build_docs:
-    name: Build HTTP API documentation
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Validate and build the documentation
-        run: ./build/build_docs_in_ci
-
-      - name: Upload the documentation
-        uses: actions/upload-artifact@v3
-        with:
-          name: index.html
-          path: static/docs/index.html
-
   build_rpm:
     name: Build RPM
-    needs: build_docs
     strategy:
-      fail-fast: false
       matrix:
-        os: ['rockylinux:8.5']
-    runs-on: ubuntu-20.04
-    container: ${{ matrix.os }}
-    steps:
-      - name: Install crystal
-        run: |
-          curl -fsSLO https://crystal-lang.org/install.sh
-          chmod +x install.sh
-          ./install.sh --version=1.6
-
-      - name: Install dependencies
-        run: |
-          yum install -y dnf-plugins-core
-          yum config-manager --set-enabled powertools
-          yum install -y git rpmlint rpm-build openssl-devel zlib-devel help2man systemd-devel
-
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Download the HTTP API documentation
-        uses: actions/download-artifact@v3
-        with:
-          name: index.html
-          path: static/docs/
-
-      - name: Build RPM package
-        run: build/rpm
-
-      - name: Upload packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: rpms
-          path: builds/rpm
-
-  upload_packages:
-    name: Upload to Packagecloud
-    needs: build_rpm
+        os: ['fedora-37']
     runs-on: ubuntu-latest
     steps:
-      - name: Download packages
-        uses: actions/download-artifact@v3
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set OS/Version env variables
+        run: |
+          echo "OS=$(echo ${{ matrix.os }} | cut -d- -f1)" >> $GITHUB_ENV
+          echo "VERSION=$(echo ${{ matrix.os }} | cut -d- -f2)" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build deb package
+        uses: docker/build-push-action@v3
         with:
-          name: rpms
+          cache-from: type=gha,scope=${{ github.workflow }}-${{ matrix.os }}
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-${{ matrix.os }}
+          file: Dockerfile.rpm
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            build_image=84codes/crystal:1.6.2-${{ matrix.os }}
+          outputs: RPMS
 
-      - name: Display folder structure
-        run: ls -R
-
-      - uses: actions/setup-ruby@v1
+      - uses: actions/upload-artifact@v3
+        name: Upload artifact
         with:
-          ruby-version: '2.7'
+          name: rpm-packages
+          path: RPMS
 
-      - name: Install packagecloud cli
-        run: gem install package_cloud
-
-      - name: Upload to packagecloud head repo
-        run: package_cloud push cloudamqp/lavinmq-head/el/8 **/*.rpm
-        env:
-          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
-        if: github.ref == 'refs/heads/main'
-
-      - name: Upload to packagecloud release repo
-        run: package_cloud push cloudamqp/lavinmq/el/8 **/*.rpm
-        env:
-          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
+      - name: Upload to Packagecloud
+        run: |
+          set -eux
+          curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
+          for PKG_FILE in $(find RPMS -name "*.rpm")
+          do
+            ID=$(echo $PKG_FILE | cut -d/ -f3)
+            VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f4)
+            DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
+            curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
+              -F "package[distro_version_id]=${DIST_ID}" \
+              -F "package[package_file]=@${PKG_FILE}" \
+              https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
+          done
         if: startsWith(github.ref, 'refs/tags/v')
+
+      - name: Upload to Packagecloud head repo
+        run: |
+          set -eux
+          curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
+          for PKG_FILE in $(find RPMS -name "*.rpm")
+          do
+            ID=$(echo $PKG_FILE | cut -d/ -f3)
+            VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f4)
+            DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
+            curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
+              -F "package[distro_version_id]=${DIST_ID}" \
+              -F "package[package_file]=@${PKG_FILE}" \
+              https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
+          done
+        if: github.ref == 'refs/heads/main'

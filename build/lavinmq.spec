@@ -1,46 +1,33 @@
-#!/bin/bash
-set -eux
-pkg_version=$(git describe --tags | cut -c2- | tr - .)
-pkg_revision=${1:-1}
-root=~/rpmbuild
-
-mkdir -p $root/{RPMS,SRPMS,SOURCES,SPECS,tmp}
-
-git archive --format=tar.gz -o $root/SOURCES/lavinmq.tar.gz --prefix=lavinmq-$pkg_version/ HEAD
-
-cat > $root/SPECS/lavinmq.spec << EOF
 Name:    lavinmq
-Version: $pkg_version
-Release: $pkg_revision%{?dist}
+Version: 1.0.0
+Release: 0.1beta7%{?dist}
 Summary: Message queue server that implements the AMQP 0-9-1 protocol
 
 License: ASL 2.0
-%{?systemd_requires}
-BuildRequires: systemd crystal help2man zlib-devel openssl-devel
+BuildRequires: systemd-rpm-macros crystal help2man
 Requires(pre): shadow-utils
 URL: https://github.com/cloudamqp/lavinmq
-Source0: %{name}.tar.gz
+Source: https://github.com/cloudamqp/lavinmq/archive/refs/tags/v1.0.0-beta.7.tar.gz
 
 %description
 A resource efficient message queue server implementing the AMQP protocol
 
 %prep
-%setup -q
+%setup -n lavinmq-1.0.0-beta.7
 
 %check
+#crystal tool format --check
 #crystal spec
 
 %build
-shards build --production --debug
-cp bin/%{name} bin/%{name}-debug
-shards build --production --release --no-debug
+make -j2
 
 %install
 install -D -m 0755 bin/%{name} %{buildroot}/%{_bindir}/%{name}
 install -D -m 0755 bin/%{name}-debug %{buildroot}/%{_bindir}/%{name}-debug
 install -D -m 0755 bin/%{name}ctl %{buildroot}/%{_bindir}/%{name}ctl
 install -D -m 0755 bin/%{name}perf %{buildroot}/%{_bindir}/%{name}perf
-install -D -m 0644 extras/%{name}.service %{buildroot}%{_unitdir}/%{name}.service
+install -D -m 0644 extras/%{name}.service %{buildroot}/%{_unitdir}/%{name}.service
 install -D -m 0644 extras/config.ini %{buildroot}/%{_sysconfdir}/%{name}/%{name}.ini
 mkdir -p %{buildroot}/%{_mandir}/man1
 help2man -Nn "fast and advanced message queue server" bin/lavinmq > %{buildroot}/%{_mandir}/man1/lavinmq.1
@@ -75,11 +62,3 @@ exit 0
 %changelog
 * Wed Jul 03 2019 CloudAMQP <contact@cloudamqp.com>
 - Initial version of the package
-EOF
-
-rpmlint $root/SPECS/lavinmq.spec
-rpmbuild -bb $root/SPECS/lavinmq.spec
-rm -rf builds/rpm
-mkdir -p builds
-mv $root/RPMS builds/rpm
-#rpmlint $root/RPMS/lavinmq-$pkg_version*
