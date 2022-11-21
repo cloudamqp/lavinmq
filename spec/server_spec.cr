@@ -1024,7 +1024,7 @@ describe LavinMQ::Server do
   it "should measure time it takes to collect metrics in stats_loop" do
     stats_interval = LavinMQ::Config.instance.stats_interval
     LavinMQ::Config.instance.stats_interval = 100
-    server = LavinMQ::Server.new("/tmp/spec")
+    server = LavinMQ::Server.new("/tmp/lavinmq-spec")
     should_eventually(be_true, 1.seconds) { server.stats_collection_duration_seconds_total > Time::Span.zero }
     server.stats_rates_collection_duration_seconds.should_not eq Time::Span.zero
     server.stats_system_collection_duration_seconds.should_not eq Time::Span.zero

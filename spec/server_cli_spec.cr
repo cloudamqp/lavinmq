@@ -7,7 +7,7 @@ describe "LavinMQ::ServerCLI" do
       file.print <<-CONFIG
         [main]
         log_level = info
-        data_dir = /tmp/spec
+        data_dir = /tmp/lavinmq-spec
         [mgmt]
         [amqp]
       CONFIG
