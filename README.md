@@ -12,7 +12,7 @@ Read more at [LavinMQ.com](https://lavinmq.com)
 
 ## Installation
 
-### From source:
+### From source
 
 Begin with installing Crystal. Refer to
 [Crystal's installation documentation](https://crystal-lang.org/install/)
@@ -20,7 +20,7 @@ on how to install Crystal.
 
 Clone the git repository and build the project. 
 
-```bash
+```sh
 git clone git@github.com:cloudamqp/lavinmq.git
 cd lavinmq
 shards build --release --production
@@ -29,40 +29,19 @@ install bin/lavinmq /usr/local/bin/lavinmq # optional
 
 Now, LavinMQ is ready to be used. You can check the version with:
 
-```bash
+```sh
 lavinmq -v
 ```
 
-### In Debian/Ubuntu:
+### Debian/Ubuntu
 
-```bash
+```sh
 curl -L https://packagecloud.io/cloudamqp/lavinmq/gpgkey | sudo apt-key add -
-echo "deb https://packagecloud.io/cloudamqp/lavinmq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
-
-sudo apt update
-sudo apt install lavinmq
+. /etc/os-release
+echo "deb https://packagecloud.io/cloudamqp/lavinmq/$ID $VERSION_CODENAME main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
+sudo apt-get update
+sudo apt-get install lavinmq
 ```
-
-### In Fedora/CentOS/Redhat/Amazon Linux:
-
-```bash
-sudo tee /etc/yum.repos.d/lavinmq.repo << EOF
-[lavinmq]
-name=lavinmq
-baseurl=https://packagecloud.io/cloudamqp/lavinmq/el/8/$basearch
-repo_gpgcheck=1
-gpgcheck=0
-enabled=1
-gpgkey=https://packagecloud.io/cloudamqp/lavinmq/gpgkey
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-metadata_expire=300
-EOF
-sudo dnf install lavinmq
-sudo systemctl start lavinmq
-```
-
-
 
 ## Usage
 
