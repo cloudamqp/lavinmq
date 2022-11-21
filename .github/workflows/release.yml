@@ -10,27 +10,10 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # to be able to figure out which is next to latest tag
-
-      # Needed because of https://github.com/actions/checkout/issues/290
-      - name: Fetch annotated tags
-        run: git fetch --force --tags
-
-      - name: Construct the release notes
-        run: |
-          echo 'RELEASE_NOTES<<EOF' >> $GITHUB_ENV
-          ./build/release_notes >> $GITHUB_ENV
-          echo 'EOF' >> $GITHUB_ENV
+      - name: Checkout the repository
+        run: git clone ${{ github.repositoryUrl }} .
 
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+        run: gh release create "${{ github.ref }}" --notes "$(./build/release_notes)"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref }}
-          body: ${{ env.RELEASE_NOTES }}
