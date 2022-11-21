@@ -226,12 +226,9 @@ Currently missing features
 
 There are a few edge-cases that are handled a bit differently in LavinMQ compared to other AMQP servers.
 
-- Messages being rejected and requeued with TTL 0 is delivered to consumers if there are any, not expired
 - When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
-- TTL of queues and messages are correct to the second, not to the millisecond
-- Messages are not expired if there are active consumers
+- TTL of queues and messages are correct to the 0.1 second, not to the millisecond
 - Newlines are not removed from Queue or Exchange names, they are forbidden
-- Impersonator tag (for overriding user_id) is not supported (yet)
 
 ### Persistent Exchange
 
