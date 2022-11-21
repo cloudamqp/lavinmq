@@ -131,9 +131,9 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 ## Performance
 
 A single m6g.large EC2 instance, with a GP3 EBS drive (XFS formatted),
-can sustain about 600.000 messages/s (16 byte msg body, single queue, single producer,
-single consumer). A single producer can push 1.200.000 msgs/s and if there's no producers
-auto-ack consumers can receive 1.000.000 msgs/s.
+can sustain about 700.000 messages/s (16 byte msg body, single queue, single producer,
+single consumer). A single producer can push 1.600.000 msgs/s and if there's no producers
+auto-ack consumers can receive 1.200.000 msgs/s.
 
 Enqueueing 10 million messages only uses 80 MB RAM. 8000
 connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
