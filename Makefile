@@ -26,7 +26,7 @@ bin static/js/lib:
 	mkdir -p $@
 
 static/js/lib/%: | static/js/lib
-	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.0.0/$(@F)
+	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.1.0/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
 	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
