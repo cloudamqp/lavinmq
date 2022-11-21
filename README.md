@@ -9,9 +9,10 @@ Aims to be very fast, has low RAM requirements, handles very long queues,
 many connections, and requires minimal configuration.
 
 Read more at [LavinMQ.com](https://lavinmq.com)
+
 ## Installation
 
-#### From source:
+### From source:
 
 Begin with installing Crystal. Refer to
 [Crystal's installation documentation](https://crystal-lang.org/install/)
@@ -32,9 +33,9 @@ Now, LavinMQ is ready to be used. You can check the version with:
 lavinmq -v
 ```
 
-#### In Debian/Ubuntu:
+### In Debian/Ubuntu:
 
-```bash       
+```bash
 curl -L https://packagecloud.io/cloudamqp/lavinmq/gpgkey | sudo apt-key add -
 echo "deb https://packagecloud.io/cloudamqp/lavinmq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
 
@@ -42,7 +43,7 @@ sudo apt update
 sudo apt install lavinmq
 ```
 
-#### In Fedora/CentOS/Redhat/Amazon Linux:
+### In Fedora/CentOS/Redhat/Amazon Linux:
 
 ```bash
 sudo tee /etc/yum.repos.d/lavinmq.repo << EOF
@@ -345,6 +346,7 @@ messages from that offset.
 - [Tobias Brodén](mailto:tobias@84codes.com)
 - [Christina Dahlén](mailto:christina@84codes.com)
 - [Erica Weistrand](mailto:erica@84codes.com)
+- [Viktor Erlingsson](mailto:viktor@84codes.com)
 
 ## License
 
