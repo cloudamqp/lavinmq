@@ -8,6 +8,125 @@ Written in [Crystal](https://crystal-lang.org/).
 Aims to be very fast, has low RAM requirements, handles very long queues,
 many connections, and requires minimal configuration.
 
+Read more at [LavinMQ.com](https://lavinmq.com)
+## Installation
+
+#### From source:
+
+Begin with installing Crystal. Refer to
+[Crystal's installation documentation](https://crystal-lang.org/install/)
+on how to install Crystal.
+
+Clone the git repository and build the project. 
+
+```bash
+git clone git@github.com:cloudamqp/lavinmq.git
+cd lavinmq
+shards build --release --production
+install bin/lavinmq /usr/local/bin/lavinmq # optional
+```
+
+Now, LavinMQ is ready to be used. You can check the version with:
+
+```bash
+lavinmq -v
+```
+
+#### In Debian/Ubuntu:
+
+```bash       
+curl -L https://packagecloud.io/cloudamqp/lavinmq/gpgkey | sudo apt-key add -
+echo "deb https://packagecloud.io/cloudamqp/lavinmq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
+
+sudo apt update
+sudo apt install lavinmq
+```
+
+#### In Fedora/CentOS/Redhat/Amazon Linux:
+
+```bash
+sudo tee /etc/yum.repos.d/lavinmq.repo << EOF
+[lavinmq]
+name=lavinmq
+baseurl=https://packagecloud.io/cloudamqp/lavinmq/el/8/$basearch
+repo_gpgcheck=1
+gpgcheck=0
+enabled=1
+gpgkey=https://packagecloud.io/cloudamqp/lavinmq/gpgkey
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+metadata_expire=300
+EOF
+sudo dnf install lavinmq
+sudo systemctl start lavinmq
+```
+
+
+
+## Usage
+
+LavinMQ only requires one argument, and it's a path to a data directory. 
+
+Run LavinMQ with: 
+`lavinmq -D /var/lib/lavinmq`
+
+More configuration options can be viewed with `-h`,
+and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
+for an example.
+
+## Docker
+
+Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/lavinmq).
+Fetch and run the latest version with:
+
+`docker run --rm -it -P -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq`
+
+You are then able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
+start publishing/consuming messages to `amqp://guest:guest@localhost`.
+
+## Debugging
+
+In Linux, `perf` is the tool of choice when tracing and measuring performance.
+
+To see which syscalls that are made use:
+
+```bash
+sudo perf trace -p $(pidof lavinmq)
+```
+
+To get a live analysis of the mostly called functions, run:
+
+```bash
+sudo perf top -p $(pidof lavinmq)
+```
+
+A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
+
+In OS X the app, [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
+
+Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment).
+
+## Contributing
+
+1. Fork, create feature branch
+1. Build with `make -j`
+1. Performance test with `bin/lavinmqperf throughput` and compare against `main`
+1. Submit pull request
+
+### Develop
+
+1. Run specs with `crystal spec`
+1. Compile and run locally with `crystal run src/lavinmq.cr -- -D /tmp/amqp`
+1. Pull js dependencies with `make js`
+1. Build API docs with `make docs` (requires `npx`)
+1. Build with `shards build`
+
+### Release
+
+1. Update `CHANGELOG.md`
+1. Bump version in `shards.yml`
+1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
+
 ## Performance
 
 A single m6g.large EC2 instance, with a GP3 EBS drive (XFS formatted),
@@ -28,7 +147,7 @@ library for IO, is garbage collected, adopts a CSP-like [concurrency
 model](https://crystal-lang.org/docs/guides/concurrency.html) and compiles down
 to a single binary. You can liken it to Go, but with a nicer syntax.
 
-Instead of trying to cache message in RAM we write all messages as fast as we can to
+Instead of trying to cache messages in RAM, we write all messages as fast as we can to
 disk and let the OS cache do the caching.
 
 Each vhost is backed by a message store on disk, it's just a series of files (segments),
@@ -213,113 +332,6 @@ that value, bind a new queue to the exchange and supply that
 value as `x-from` for that binding and the new queue would get all
 messages from that offset.
 
-## Installation
-
-In Debian/Ubuntu:
-
-```bash
-curl -L https://packagecloud.io/cloudamqp/lavinmq/gpgkey | sudo apt-key add -
-echo "deb https://packagecloud.io/cloudamqp/lavinmq/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
-
-sudo apt update
-sudo apt install lavinmq
-```
-
-In Fedora/CentOS/Redhat/Amazon Linux:
-
-```bash
-sudo tee /etc/yum.repos.d/lavinmq.repo << EOF
-[lavinmq]
-name=lavinmq
-baseurl=https://packagecloud.io/cloudamqp/lavinmq/el/8/$basearch
-repo_gpgcheck=1
-gpgcheck=0
-enabled=1
-gpgkey=https://packagecloud.io/cloudamqp/lavinmq/gpgkey
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-metadata_expire=300
-EOF
-sudo dnf install lavinmq
-sudo systemctl start lavinmq
-```
-
-From source:
-
-```bash
-git clone git@github.com:cloudamqp/lavinmq.git
-cd lavinmq
-make
-sudo make install # optional
-```
-
-Refer to
-[Crystal's installation documentation](https://crystal-lang.org/install/)
-on how to install Crystal.
-
-## Usage
-
-LavinMQ only requires one argument, and it's a path to a data directory:
-
-`lavinmq -D /var/lib/lavinmq`
-
-More configuration options can be viewed with `-h`,
-and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
-for an example.
-
-## Docker
-
-Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/lavinmq).
-Fetch and run the latest version with:
-
-`docker run --rm -it -P -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq`
-
-You are now able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
-start publishing/consuming messages to `amqp://guest:guest@localhost`.
-
-## Debugging
-
-In Linux `perf` is the tool of choice when tracing and measuring performance.
-
-To see which syscalls that are made use:
-
-```bash
-sudo perf trace -p $(pidof lavinmq)
-```
-
-To get a live analysis of the mostly called functions, run:
-
-```bash
-sudo perf top -p $(pidof lavinmq)
-```
-
-A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
-
-In OS X the app [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
-
-Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment).
-
-## Contributing
-
-1. Fork, create feature branch
-1. Build with `make -j`
-1. Performance test with `bin/lavinmqperf throughput` and compare against `main`
-1. Submit pull request
-
-### Develop
-
-1. Run specs with `crystal spec`
-1. Compile and run locally with `crystal run src/lavinmq.cr -- -D /tmp/amqp`
-1. Pull js dependencies with `make js`
-1. Build API docs with `make docs` (requires `npx`)
-1. Build with `shards build`
-
-### Release
-
-1. Update `CHANGELOG.md`
-1. Bump version in `shards.yml`
-1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
-
 ## Contributors
 
 - [Carl Hörberg](mailto:carl@84codes.com)
@@ -332,6 +344,7 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 - [Oskar Gustafsson](mailto:oskar@84codes.com)
 - [Tobias Brodén](mailto:tobias@84codes.com)
 - [Christina Dahlén](mailto:christina@84codes.com)
+- [Erica Weistrand](mailto:erica@84codes.com)
 
 ## License
 
