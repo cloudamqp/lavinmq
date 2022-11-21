@@ -1,12 +1,27 @@
 name: RPM
 on:
+  pull_request:
+    paths:
+      - .github/workflows/rpm.yml
+      - Dockerfile.rpm
+      - build/lavinmq.spec
+      - shard.lock
+      - src/**
+      - static/**
+      - openapi/**
   push:
     branches:
       - main
     tags:
       - 'v*.*.*'
-    paths-ignore:
-      - 'spec/**'
+    paths:
+      - .github/workflows/rpm.yml
+      - Dockerfile.rpm
+      - build/lavinmq.spec
+      - shard.lock
+      - src/**
+      - static/**
+      - openapi/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
