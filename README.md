@@ -70,14 +70,14 @@ In Linux, `perf` is the tool of choice when tracing and measuring performance.
 
 To see which syscalls that are made use:
 
-```bash
-sudo perf trace -p $(pidof lavinmq)
+```sh
+perf trace -p $(pidof lavinmq)
 ```
 
 To get a live analysis of the mostly called functions, run:
 
-```bash
-sudo perf top -p $(pidof lavinmq)
+```sh
+perf top -p $(pidof lavinmq)
 ```
 
 A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
