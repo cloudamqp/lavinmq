@@ -26,6 +26,11 @@ RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true
 
+FROM fedora:37 AS test
+COPY --from=builder /root/rpmbuild/RPMS /tmp/RPMS
+RUN find /tmp/RPMS -type f -exec dnf install -y {} \;
+RUN lavinmq --version
+
 # Copy the deb package to a scratch image, that then can be exported
 FROM scratch
 COPY --from=builder /root/rpmbuild/RPMS /root/rpmbuild/SRPMS .
