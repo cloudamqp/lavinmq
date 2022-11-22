@@ -36,11 +36,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set OS/Version env variables
-        run: |
-          echo "OS=$(echo ${{ matrix.os }} | cut -d- -f1)" >> $GITHUB_ENV
-          echo "VERSION=$(echo ${{ matrix.os }} | cut -d- -f2)" >> $GITHUB_ENV
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
@@ -68,13 +63,14 @@ jobs:
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
+          OS=$(echo "${{ matrix.os }}" | cut -d- -f1)
+          VERSION=$(echo "${{ matrix.os }}" | cut -d- -f2)
+          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION}\").id" distributions.json)
           for PKG_FILE in $(find RPMS -name "*.rpm")
-          do
-            DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION}\").id" distributions.json)
-            curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
-              -F "package[distro_version_id]=${DIST_ID}" \
-              -F "package[package_file]=@${PKG_FILE}" \
-              https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
+          do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
+                  -F "package[distro_version_id]=${DIST_ID}" \
+                  -F "package[package_file]=@${PKG_FILE}" \
+                  https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
         if: startsWith(github.ref, 'refs/tags/v')
 
@@ -82,12 +78,13 @@ jobs:
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
+          OS=$(echo "${{ matrix.os }}" | cut -d- -f1)
+          VERSION=$(echo "${{ matrix.os }}" | cut -d- -f2)
+          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION}\").id" distributions.json)
           for PKG_FILE in $(find RPMS -name "*.rpm")
-          do
-            DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION}\").id" distributions.json)
-            curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
-              -F "package[distro_version_id]=${DIST_ID}" \
-              -F "package[package_file]=@${PKG_FILE}" \
-              https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
+          do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
+                  -F "package[distro_version_id]=${DIST_ID}" \
+                  -F "package[package_file]=@${PKG_FILE}" \
+                  https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
           done
         if: github.ref == 'refs/heads/main'
