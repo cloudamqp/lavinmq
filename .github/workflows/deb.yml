@@ -13,7 +13,7 @@ on:
     branches:
       - main
     tags:
-      - 'v*.*.*'
+      - v*
     paths:
       - .github/workflows/deb.yml
       - Dockerfile.deb
@@ -102,4 +102,4 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
           done
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
