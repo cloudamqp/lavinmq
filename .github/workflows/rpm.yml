@@ -32,21 +32,18 @@ jobs:
       matrix:
         os: ['fedora-37']
     runs-on: ubuntu-latest
+    # Set permissions if you're using OIDC token authentication
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build deb package
-        uses: docker/build-push-action@v3
+      # The depot CLI still needs to be available in your workflow
+      - uses: depot/setup-action@v1
+      - uses: depot/build-push-action@v1
         with:
-          cache-from: type=gha,scope=${{ github.workflow }}-${{ matrix.os }}
-          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-${{ matrix.os }}
           file: Dockerfile.rpm
           platforms: linux/amd64,linux/arm64
           build-args: |
