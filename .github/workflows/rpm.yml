@@ -69,7 +69,7 @@ jobs:
           ID=$(echo "${{ matrix.os }}" | cut -d- -f1)
           VERSION_ID=$(echo "${{ matrix.os }}" | cut -d- -f2)
           DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_ID}\").id" distributions.json)
-          for PKG_FILE in $(find RPMS -name "*.rpm")
+          for PKG_FILE in $(find RPMS -name "*.rpm" | sort -u -t/ -k3)
           do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
                   -F "package[distro_version_id]=${DIST_ID}" \
                   -F "package[package_file]=@${PKG_FILE}" \
@@ -84,7 +84,7 @@ jobs:
           ID=$(echo "${{ matrix.os }}" | cut -d- -f1)
           VERSION_ID=$(echo "${{ matrix.os }}" | cut -d- -f2)
           DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_ID}\").id" distributions.json)
-          for PKG_FILE in $(find RPMS -name "*.rpm")
+          for PKG_FILE in $(find RPMS -name "*.rpm" | sort -u -t/ -k3)
           do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
                   -F "package[distro_version_id]=${DIST_ID}" \
                   -F "package[package_file]=@${PKG_FILE}" \
