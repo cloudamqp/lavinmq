@@ -1,5 +1,4 @@
-ARG build_image
-ARG target_image
+ARG build_image=84codes/crystal:1.6.2-ubuntu-22.04
 
 # Build docs
 FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
@@ -11,7 +10,6 @@ RUN redoc-cli bundle openapi/openapi.yaml
 
 # Build objects file on build platform for speed
 FROM --platform=$BUILDPLATFORM $build_image AS builder
-RUN apt-get update && apt-get install -y curl
 WORKDIR /tmp
 COPY Makefile shard.yml shard.lock .
 RUN make js lib
@@ -19,23 +17,27 @@ COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
 COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
 COPY ./static ./static
 COPY ./src ./src
-ARG pkg_version
-RUN sed -i "s/VERSION = .*/VERSION = \"${pkg_version}\"/" src/lavinmq/version.cr
+ARG git_describe
+RUN sed -i -E "s/(VERSION =) .*/\1 \"$(echo $git_describe | cut -c2-)\"/" src/lavinmq/version.cr
 ARG TARGETARCH
-RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
+RUN make objects target=$TARGETARCH-linux-gnu -j2
 
 # Link and build deb package on target platform
-FROM $build_image AS build-stage
+FROM $build_image AS pkg-builder
 WORKDIR /tmp
-RUN apt-get update && \
-    apt-get install -y make gcc libc-dev libpcre3-dev libevent-dev libssl-dev zlib1g-dev libgc-dev libsystemd-dev help2man
+RUN apt-get update && apt-get install -y help2man
 COPY README.md LICENSE NOTICE CHANGELOG.md build/deb Makefile .
 COPY extras extras
 COPY --from=builder /tmp/bin bin
 RUN make all -j && rm bin/*.*
-ARG pkg_version
-RUN ./deb $pkg_version
+ARG git_describe
+RUN ./deb $(echo $git_describe | cut -c2-)
+
+FROM ubuntu:22.04 AS test
+COPY --from=pkg-builder /tmp/builds /tmp/builds
+RUN apt-get update && find /tmp/builds -type f -exec apt-get install -y {} \;
+RUN lavinmq --version
 
 # Copy the deb package to a scratch image, that then can be exported
-FROM scratch AS export-stage
-COPY --from=build-stage /tmp/builds .
+FROM scratch
+COPY --from=pkg-builder /tmp/builds .

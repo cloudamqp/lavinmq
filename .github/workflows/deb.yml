@@ -33,37 +33,26 @@ jobs:
       matrix:
         os: [ubuntu-22.04, ubuntu-20.04, debian-11]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Set package version
-        run: echo "PKG_VERSION=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
+      - name: git describe
+        run: echo "git_describe=$(git describe --tags)" >> $GITHUB_ENV
 
-      - name: Set OS/Version env variables
-        run: |
-          echo "OS=$(echo ${{ matrix.os }} | cut -d- -f1)" >> $GITHUB_ENV
-          echo "VERSION=$(echo ${{ matrix.os }} | cut -d- -f2)" >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build deb package
-        uses: docker/build-push-action@v3
+      - uses: depot/setup-action@v1
+      - uses: depot/build-push-action@v1
         with:
-          cache-from: type=gha,scope=${{ github.workflow }}-${{ matrix.os }}
-          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-${{ matrix.os }}
           file: Dockerfile.deb
           platforms: linux/amd64,linux/arm64
           build-args: |
             build_image=84codes/crystal:1.6.2-${{ matrix.os }}
-            target_image=${{ env.OS }}:${{ env.VERSION }}
-            pkg_version=${{ env.PKG_VERSION }}
+            git_describe=${{ env.git_describe }}
           outputs: builds
 
       - uses: actions/upload-artifact@v3
