@@ -63,9 +63,9 @@ jobs:
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
-          OS=$(echo "${{ matrix.os }}" | cut -d- -f1)
-          VERSION=$(echo "${{ matrix.os }}" | cut -d- -f2)
-          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION}\").id" distributions.json)
+          ID=$(echo "${{ matrix.os }}" | cut -d- -f1)
+          VERSION_ID=$(echo "${{ matrix.os }}" | cut -d- -f2)
+          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_ID}\").id" distributions.json)
           for PKG_FILE in $(find RPMS -name "*.rpm")
           do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
                   -F "package[distro_version_id]=${DIST_ID}" \
@@ -78,9 +78,9 @@ jobs:
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
-          OS=$(echo "${{ matrix.os }}" | cut -d- -f1)
-          VERSION=$(echo "${{ matrix.os }}" | cut -d- -f2)
-          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION}\").id" distributions.json)
+          ID=$(echo "${{ matrix.os }}" | cut -d- -f1)
+          VERSION_ID=$(echo "${{ matrix.os }}" | cut -d- -f2)
+          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_ID}\").id" distributions.json)
           for PKG_FILE in $(find RPMS -name "*.rpm")
           do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
                   -F "package[distro_version_id]=${DIST_ID}" \
