@@ -38,7 +38,10 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        run: git clone ${{ github.repositoryUrl }} .
+
+      - name: git describe
+        run: echo "git_describe=$(git describe --tags)" >> $GITHUB_ENV
 
       # The depot CLI still needs to be available in your workflow
       - uses: depot/setup-action@v1
@@ -48,6 +51,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             build_image=84codes/crystal:1.6.2-${{ matrix.os }}
+            git_describe=${{ env.git_describe }}
           outputs: RPMS
 
       - uses: actions/upload-artifact@v3

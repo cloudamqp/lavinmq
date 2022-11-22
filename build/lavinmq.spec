@@ -1,39 +1,27 @@
 Name:    lavinmq
-Version: 1.0.0
-Release: 0.1beta7%{?dist}
 Summary: Message queue server that implements the AMQP 0-9-1 protocol
+Version: 1.0.0
+Release: 1%{?dist}
 
 License: ASL 2.0
-BuildRequires: systemd-rpm-macros crystal help2man
+BuildRequires: systemd-rpm-macros crystal npm curl help2man
 Requires(pre): shadow-utils
 URL: https://github.com/cloudamqp/lavinmq
-Source: https://github.com/cloudamqp/lavinmq/archive/refs/tags/v1.0.0-beta.7.tar.gz
+Source: lavinmq.tar.gz
 
 %description
 A resource efficient message queue server implementing the AMQP protocol
 
 %prep
-%setup -n lavinmq-1.0.0-beta.7
+%setup -qn lavinmq
 
 %check
-#crystal tool format --check
-#crystal spec
 
 %build
 make -j2
 
 %install
-install -D -m 0755 bin/%{name} %{buildroot}/%{_bindir}/%{name}
-install -D -m 0755 bin/%{name}-debug %{buildroot}/%{_bindir}/%{name}-debug
-install -D -m 0755 bin/%{name}ctl %{buildroot}/%{_bindir}/%{name}ctl
-install -D -m 0755 bin/%{name}perf %{buildroot}/%{_bindir}/%{name}perf
-install -D -m 0644 extras/%{name}.service %{buildroot}/%{_unitdir}/%{name}.service
-install -D -m 0644 extras/config.ini %{buildroot}/%{_sysconfdir}/%{name}/%{name}.ini
-mkdir -p %{buildroot}/%{_mandir}/man1
-help2man -Nn "fast and advanced message queue server" bin/lavinmq > %{buildroot}/%{_mandir}/man1/lavinmq.1
-help2man -Nn "control utility for lavinmq server" bin/lavinmqctl > %{buildroot}/%{_mandir}/man1/lavinmqctl.1
-help2man -Nn "performance testing tool for amqp servers" bin/lavinmqperf > %{buildroot}/%{_mandir}/man1/lavinmqperf.1
-mkdir -p %{buildroot}/%{_sharedstatedir}/%{name}
+make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}
 
 %pre
 getent group %{name} >/dev/null || groupadd -r %{name}
