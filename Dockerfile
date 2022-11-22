@@ -33,7 +33,7 @@ RUN make js lib
 COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
 COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
 ARG TARGETARCH
-RUN make objects target=$TARGETARCH-unknown-linux-gnu -j2
+RUN make objects target=$TARGETARCH-linux-gnu -j2
 
 # Link object files on target platform
 FROM 84codes/crystal:1.6.2-ubuntu-22.04 AS target-builder
