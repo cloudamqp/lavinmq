@@ -60,7 +60,7 @@ Homepage: https://github.com/cloudamqp/lavinmq
 Section: net
 Priority: optional
 Architecture: $architecture
-Depends: systemd,adduser,$(ldd ../bin/* | awk '/=>/ {print $3}' | xargs dpkg -S | awk -F: "/$architecture/ { print \$1 }" | sort -u | paste -sd,)
+Depends: systemd,adduser,$(ldd ../bin/* | awk '/=>/ {print $1}' | xargs dpkg -S | awk -F: "/$architecture/ { print \$1 }" | sort -u | paste -sd,)
 Installed-Size: $(du -ks usr | cut -f1)
 Maintainer: CloudAMQP <contact@cloudamqp.com>
 Description: message queue server that implements the AMQP 0-9-1 protocol
