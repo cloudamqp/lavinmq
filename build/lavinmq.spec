@@ -18,7 +18,7 @@ A resource efficient message queue server implementing the AMQP protocol
 %check
 
 %build
-make -j2
+make
 
 %install
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}

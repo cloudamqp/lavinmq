@@ -1,5 +1,5 @@
 # Base layer
-FROM --platform=$BUILDPLATFORM 84codes/crystal:1.6.2-ubuntu-22.04 AS base
+FROM 84codes/crystal:1.6.2-ubuntu-22.04 AS base
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production
@@ -7,19 +7,19 @@ COPY ./static ./static
 COPY ./src ./src
 
 # Run specs on build platform
-FROM --platform=$BUILDPLATFORM base AS spec
+FROM base AS spec
 COPY ./spec ./spec
 RUN crystal spec --order random
 
 # Lint in another layer
-FROM --platform=$BUILDPLATFORM base AS lint
+FROM base AS lint
 RUN shards install # install ameba only in this layer
 COPY .ameba.yml .
 RUN bin/ameba
 RUN crystal tool format --check
 
 # Build docs in npm container
-FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
+FROM node:lts AS docbuilder
 WORKDIR /tmp
 RUN npm install -g redoc-cli
 RUN npm install -g @stoplight/spectral-cli
@@ -27,28 +27,20 @@ COPY Makefile shard.yml .
 COPY openapi openapi
 RUN make docs
 
-# Build objects file on build platform for speed
-FROM --platform=$BUILDPLATFORM base AS builder
+# Build
+FROM base AS builder
 COPY Makefile .
 RUN make js lib
 COPY --from=docbuilder /tmp/openapi/openapi.yaml /tmp/openapi/.spectral.json openapi/
 COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
-ARG TARGETARCH
-RUN make objects target=$TARGETARCH-linux-gnu -j2
-
-# Link object files on target platform
-FROM 84codes/crystal:1.6.2-ubuntu-22.04 AS target-builder
-WORKDIR /tmp
-COPY Makefile .
-COPY --from=builder /tmp/bin bin
-RUN make all -j && rm bin/*.*
+RUN make -j2
 
 # Resulting image with minimal layers
 FROM ubuntu:22.04
 RUN apt-get update && \
     apt-get install -y libssl3 libevent-2.1-7 ca-certificates && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
-COPY --from=target-builder /tmp/bin/* /usr/bin/
+COPY --from=builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
 VOLUME /var/lib/lavinmq
 WORKDIR /var/lib/lavinmq
