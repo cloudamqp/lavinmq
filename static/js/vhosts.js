@@ -51,6 +51,7 @@ addVhostOptions('user-vhost').then(() => {
     const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
     if (opt) {
       document.querySelector('#userMenuVhost').value = vhost
+      window.sessionStorage.setItem('vhost', vhost)
     }
   } else {
     window.sessionStorage.setItem('vhost', '_all')

@@ -46,6 +46,19 @@ module LavinMQ
             import_vhost_definitions(vhost, body)
           end
         end
+
+        post "/api/definitions/:vhost/upload" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
+            refuse_unless_vhost_access(context, user(context), vhost)
+            ::HTTP::FormData.parse(context.request) do |part|
+              if part.name == "file"
+                body = JSON.parse(part.body)
+                import_vhost_definitions(vhost, body)
+              end
+            end
+          end
+        end
       end
 
       private def import_vhost_definitions(name, body)

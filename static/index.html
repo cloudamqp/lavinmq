@@ -56,6 +56,10 @@
       <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
         <h3>Upload definitions</h3>
         <label>
+          <span>Virtual host</span>
+          <select id="uploadDefinitionsVhost" name="vhost" required></select>
+        </label>
+        <label>
           <span>File</span>
           <input id="file" name="file" type="file" accept=".json" required />
         </label>
@@ -65,7 +69,7 @@
         <h3>Export definitions</h3>
         <label>
           <span>Virtual host</span>
-          <select id="definitionsVhost" name="vhost" required></select>
+          <select id="exportDefinitionsVhost" name="vhost" required></select>
         </label>
         <button type="submit" class="btn-primary">Download</button>
       </form>
@@ -100,10 +104,20 @@
       }
 
       Overview.start(updateCharts)
+      Vhosts.addVhostOptions('importDefinitions').then(() => {
+        const allOpt = '<option value="_all" selected>All</option>'
+        document.querySelector('#uploadDefinitionsVhost').insertAdjacentHTML('afterbegin', allOpt)
+      })
       document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const body = new window.FormData(this)
-        HTTP.request('POST', '/api/definitions/upload', { body }).then(function () {
+        let url = '/api/definitions'
+        if(body.get('vhost') === '_all') {
+          url += '/upload'
+        } else {
+          url += '/' + encodeURIComponent(body.get('vhost')) + '/upload'
+        }
+        HTTP.request('POST', url, { body }).then(function () {
           window.location.assign('/')
         }).catch(function () {
           window.alert('Upload failed')
@@ -112,7 +126,7 @@
 
       Vhosts.addVhostOptions('exportDefinitions').then(() => {
         const allOpt = '<option value="_all" selected>All</option>'
-        document.querySelector('#definitionsVhost').insertAdjacentHTML('afterbegin', allOpt)
+        document.querySelector('#exportDefinitionsVhost').insertAdjacentHTML('afterbegin', allOpt)
       })
       document.querySelector('#exportDefinitions').addEventListener('submit', function (evt) {
         evt.preventDefault()
