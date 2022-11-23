@@ -84,7 +84,7 @@
         </label>
         <label>
           <span>Password</span>
-          <input type="password" name="password" required>
+          <input type="password" name="password" placeholder="Leave empty to only update tags">
         </label>
         <label>
           <span>Tags</span>
@@ -204,7 +204,7 @@
         }
         if (data.get('remove_password') === 'on') {
           body.password_hash = ''
-        } else {
+        } else if (data.get('password') != "") {
           body.password = data.get('password')
         }
         HTTP.request('PUT', url, { body })

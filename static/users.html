@@ -46,7 +46,7 @@
         </label>
         <label>
           <span>Password</span>
-          <input type="password" name="password" required>
+          <input type="password" name="password">
         </label>
         <label>
           <span>Tags</span>
@@ -112,8 +112,10 @@
           }
         })
         const body = {
-          password: data.get('password'),
           tags: data.get('tags')
+        }
+        if (data.get('password') != "") {
+          body.password = data.get('password')
         }
         HTTP.request('PUT', url, { body })
           .then(() => {
