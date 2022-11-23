@@ -1,4 +1,4 @@
-BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf bin/lavinmq-debug
+BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
@@ -10,11 +10,8 @@ all: $(BINS)
 .PHONY: objects
 objects: $(BINS:=.o)
 
-bin/%-debug.o bin/%-debug.sh: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(basename $@) --debug -Dbake_static $(CRYSTAL_FLAGS) > $(basename $@).sh
-
 bin/%.o bin/%.sh: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(basename $@) --release --no-debug $(CRYSTAL_FLAGS) > $(basename $@).sh
+	crystal build $< -o $(basename $@) --debug $(CRYSTAL_FLAGS) > $(basename $@).sh
 
 bin/%: bin/%.sh bin/%.o
 	$(file < $<)
@@ -36,7 +33,7 @@ static/docs/index.html: openapi/openapi.yaml openapi/.spectral.json $(wildcard o
 	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint $<
 	npx redoc-cli build $< -o $@
 
-man1/lavinmq.1 man1/lavinmq-debug.1: bin/lavinmq | man1
+man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
 
 man1/lavinmqctl.1: bin/lavinmqctl | man1
@@ -45,7 +42,7 @@ man1/lavinmqctl.1: bin/lavinmqctl | man1
 man1/lavinmqperf.1: bin/lavinmqperf | man1
 	help2man -Nn "performance testing tool for amqp servers" $< -o $@
 
-MANPAGES := man1/lavinmq.1 man1/lavinmq-debug.1 man1/lavinmqctl.1 man1/lavinmqperf.1
+MANPAGES := man1/lavinmq.1 man1/lavinmqctl.1 man1/lavinmqperf.1
 
 .PHONY: docs
 docs: $(DOCS)
@@ -74,7 +71,7 @@ BINDIR := $(PREFIX)/bin
 DOCDIR := $(PREFIX)/share/doc
 MANDIR := $(PREFIX)/share/man
 SYSCONFDIR := /etc
-UNITDIR := $(SYSCONFDIR)/systemd/system
+UNITDIR := /lib/systemd/system
 SHAREDSTATEDIR := /var/lib
 
 .PHONY: install
@@ -83,13 +80,14 @@ install: $(BINS) $(MANPAGES) extras/config.ini extras/lavinmq.service README.md 
 	install -D -m 0644 -t $(DESTDIR)$(MANDIR)/man1 $(MANPAGES)
 	install -D -m 0644 extras/config.ini $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
-	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md CHANGELOG.md NOTICE
+	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
+	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
 	install -d -m 0755 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: uninstall
 uninstall:
-	$(RM) $(DESTDIR)$(BINDIR)/lavinmq{,ctl,perf,-debug}
-	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf,-debug}.1
+	$(RM) $(DESTDIR)$(BINDIR)/lavinmq{,ctl,perf}
+	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service
 	$(RM) $(DESTDIR)$(DOCDIR)/{lavinmq,README.md,CHANGELOG.md,NOTICE}

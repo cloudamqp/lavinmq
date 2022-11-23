@@ -43,7 +43,7 @@ jobs:
           fetch-depth: 0
 
       - name: git describe
-        run: echo "git_describe=$(git describe --tags)" >> $GITHUB_ENV
+        run: echo "version=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
@@ -52,7 +52,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             build_image=84codes/crystal:1.6.2-${{ matrix.os }}
-            git_describe=${{ env.git_describe }}
+            version=${{ env.version }}
           outputs: builds
 
       - uses: actions/upload-artifact@v3

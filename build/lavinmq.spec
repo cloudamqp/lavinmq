@@ -39,7 +39,7 @@ exit 0
 %systemd_postun_with_restart %{name}.service
 
 %files
-%doc README.md NOTICE CHANGELOG.md
+%doc README.md NOTICE changelog
 %license LICENSE
 %{_bindir}/%{name}*
 %{_unitdir}/%{name}.service

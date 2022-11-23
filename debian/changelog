@@ -1,0 +1,5 @@
+lavinmq (1.0.0-1) unstable; urgency=low
+
+  * New upstream release. Closes: #8484
+
+ -- CloudAMQP <contact@CloudAMQP.com>  Wed, 23 Nov 2022 00:00:01 +0000

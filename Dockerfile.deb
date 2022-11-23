@@ -1,43 +1,29 @@
-ARG build_image=84codes/crystal:1.6.2-ubuntu-22.04
+ARG build_image=84codes/crystal:latest-ubuntu-22.04
 
-# Build docs
-FROM --platform=$BUILDPLATFORM node:lts AS docbuilder
-WORKDIR /tmp
-RUN npm install -g redoc-cli
-COPY shard.yml .
-COPY openapi openapi
-RUN redoc-cli bundle openapi/openapi.yaml
-
-# Build objects file on build platform for speed
-FROM --platform=$BUILDPLATFORM $build_image AS builder
-WORKDIR /tmp
-COPY Makefile shard.yml shard.lock .
-RUN make js lib
-COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
-COPY --from=docbuilder /tmp/redoc-static.html static/docs/index.html
-COPY ./static ./static
-COPY ./src ./src
-ARG git_describe
-RUN sed -i -E "s/(VERSION =) .*/\1 \"$(echo $git_describe | cut -c2-)\"/" src/lavinmq/version.cr
-ARG TARGETARCH
-RUN make objects target=$TARGETARCH-linux-gnu -j2
-
-# Link and build deb package on target platform
-FROM $build_image AS pkg-builder
-WORKDIR /tmp
-RUN apt-get update && apt-get install -y help2man
-COPY README.md LICENSE NOTICE CHANGELOG.md build/deb Makefile .
-COPY extras extras
-COPY --from=builder /tmp/bin bin
-RUN make all -j && rm bin/*.*
-ARG git_describe
-RUN ./deb $(echo $git_describe | cut -c2-)
+FROM $build_image AS builder
+RUN curl -fsSL https://deb.nodesource.com/setup_19.x | bash -
+RUN apt-get install -y devscripts nodejs help2man lintian debhelper
+ARG version
+WORKDIR /usr/src/lavinmq_${version}
+RUN pwd
+COPY Makefile README.md LICENSE NOTICE CHANGELOG.md shard.yml shard.lock ./
+COPY extras/lavinmq.service extras/config.ini extras/
+COPY openapi/ openapi/
+COPY static/ static/
+COPY src/ src/
+RUN sed -i -E "s/(VERSION =) .*/\1 \"$version\"/" src/lavinmq/version.cr
+RUN tar -czf ../lavinmq_${version}.orig.tar.gz -C /usr/src lavinmq_${version}
+COPY debian/ debian/
+COPY extras/lavinmq.service debian/
+RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
+RUN debuild -us -uc
 
 FROM ubuntu:22.04 AS test
-COPY --from=pkg-builder /tmp/builds /tmp/builds
-RUN apt-get update && find /tmp/builds -type f -exec apt-get install -y {} \;
+COPY --from=builder /usr/src/*deb .
+RUN apt-get update && apt-get install -y ./*.deb ./*.ddeb
 RUN lavinmq --version
 
 # Copy the deb package to a scratch image, that then can be exported
 FROM scratch
-COPY --from=pkg-builder /tmp/builds .
+ARG version
+COPY --from=builder /usr/src/*deb .
