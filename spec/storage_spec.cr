@@ -10,6 +10,7 @@ describe LavinMQ::DurableQueue do
         s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
         q.get(no_ack: true).try(&.body_io.to_s).should eq("message")
       end
+    ensure
       close_servers
       FileUtils.rm_rf("./spec/resources/data_dir_index_v2_new")
       TestHelpers.setup
