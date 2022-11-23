@@ -43,8 +43,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: git describe
-        run: echo "git_describe=$(git describe --tags)" >> $GITHUB_ENV
+      - name: Generate version string
+        run: |
+          git_describe=$(git describe --tags)
+          version=$(cut -d- -f1 <<< ${git_describe:1:-1})
+          if [ -n "$(cut -d- -f2 <<< $git_describe)" ]
+          then version=$version~$(cut -d- -f2 <<< $git_describe | tr -d .)
+          fi
+          if [ -n "$(cut -d- -f3- <<< $git_describe)" ]
+          then version=$version^$(cut -d- -f3- <<< $git_describe | tr - .)
+          fi
+          echo "version=$version" >> $GITHUB_ENV
 
       # The depot CLI still needs to be available in your workflow
       - uses: depot/setup-action@v1
@@ -54,7 +63,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             build_image=84codes/crystal:1.6.2-${{ matrix.os }}
-            git_describe=${{ env.git_describe }}
+            version=${{ env.version }}
           outputs: RPMS
 
       - uses: actions/upload-artifact@v3
