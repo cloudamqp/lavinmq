@@ -11,9 +11,6 @@ require "uri"
 
 FileUtils.rm_rf("/tmp/lavinmq-spec")
 
-FileUtils.rm_rf("./spec/resources/data_dir_index_v2_new")
-FileUtils.cp_r("./spec/resources/data_dir_index_v2", "./spec/resources/data_dir_index_v2_new")
-
 {% if flag?(:verbose) %}
   LOG_LEVEL = Log::Severity::Debug
 {% elsif flag?(:warn) %}

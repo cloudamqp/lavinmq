@@ -2,6 +2,10 @@ require "./spec_helper"
 
 describe LavinMQ::DurableQueue do
   context "after migration between index version 2 to 3" do
+    before_each do
+      FileUtils.rm_rf("./spec/resources/data_dir_index_v2_new")
+      FileUtils.cp_r("./spec/resources/data_dir_index_v2", "./spec/resources/data_dir_index_v2_new")
+    end
     it "should get message" do
       close_servers
       TestHelpers.create_servers("./spec/resources/data_dir_index_v2_new")
