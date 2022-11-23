@@ -1,6 +1,21 @@
 require "./spec_helper"
 
 describe LavinMQ::DurableQueue do
+  context "after migration between index version 2 to 3" do
+    it "should get message" do
+      close_servers
+      TestHelpers.create_servers("./spec/resources/data_dir_index_v2_new")
+      with_channel do |ch|
+        q = ch.queue("queue")
+        queue = s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
+        q.get(no_ack: true).try(&.body_io.to_s).should eq("message")
+      end
+      close_servers
+      FileUtils.rm_rf("./spec/resources/data_dir_index_v2_new")
+      TestHelpers.setup
+    end
+  end
+
   context "with corrupt segments" do
     context "when consumed" do
       it "should be closed" do
