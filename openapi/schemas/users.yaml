@@ -14,7 +14,7 @@ user-properties:
       - monitoring
       - management
       - policymaker
-      - http
+      - impersonator
     hashing_algorithm:
       type: string
       description: Hashing algorithm used to generate the password hash (defaults to "SHA256" for PUT requests).

@@ -137,3 +137,11 @@ UploadDefinitionsRequestBody:
       description: JSON file with definitions, uses the same format as the request body of the `POST /definitions` endpoint.
       type: string
       format: binary
+
+UploadDefinitionsVhostRequestBody:
+  type: object
+  properties:
+    file:
+      description: JSON file with vhost definitions, uses the same format as the request body of the `POST /definitions/{vhost}` endpoint.
+      type: string
+      format: binary

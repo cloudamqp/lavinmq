@@ -48,6 +48,8 @@ components:
       "$ref": "./schemas/definitions.yaml#/PostDefinitionsVhostRequestBody"
     definitions-UploadDefinitionsRequestBody:
       "$ref": "./schemas/definitions.yaml#/UploadDefinitionsRequestBody"
+    definitions-UploadDefinitionsVhostRequestBody:
+      "$ref": "./schemas/definitions.yaml#/UploadDefinitionsVhostRequestBody"
     exchange:
       "$ref": "./schemas/exchanges.yaml#/exchange"
     exchanges:
@@ -161,6 +163,8 @@ paths:
     "$ref": "./paths/definitions.yaml#/~1definitions~1upload"
   "/definitions/{vhost}":
     "$ref": "./paths/definitions.yaml#/~1definitions~1{vhost}"
+  "/definitions/{vhost}/upload":
+    "$ref": "./paths/definitions.yaml#/~1definitions~1{vhost}~1upload"
   "/exchanges":
     "$ref": "./paths/exchanges.yaml#/~1exchanges"
   "/exchanges/{vhost}":
