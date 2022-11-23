@@ -7,7 +7,7 @@ describe LavinMQ::DurableQueue do
       TestHelpers.create_servers("./spec/resources/data_dir_index_v2_new")
       with_channel do |ch|
         q = ch.queue("queue")
-        queue = s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
+        s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
         q.get(no_ack: true).try(&.body_io.to_s).should eq("message")
       end
       close_servers
