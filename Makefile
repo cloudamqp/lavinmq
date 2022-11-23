@@ -2,19 +2,14 @@ BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie --cross-compile $(if $(target),--target $(target))
+CRYSTAL_FLAGS := --release
+override CRYSTAL_FLAGS += --debug --error-on-warnings --link-flags=-pie
 
 .PHONY: all
 all: $(BINS)
 
-.PHONY: objects
-objects: $(BINS:=.o)
-
-bin/%.o bin/%.sh: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(basename $@) --debug $(CRYSTAL_FLAGS) > $(basename $@).sh
-
-bin/%: bin/%.sh bin/%.o
-	$(file < $<)
+bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $(basename $@) $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
 	shards install --production
