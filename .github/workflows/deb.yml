@@ -43,8 +43,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: git describe
-        run: echo "version=$(git describe --tags | cut -c2-)" >> $GITHUB_ENV
+      - name: Generate version string
+        run: |
+          git_describe=$(git describe --tags)
+          version=$(cut -d- -f1 <<< ${git_describe:1:-1})
+          if [ -n "$(cut -d- -f2 <<< $git_describe)" ]
+          then version=$version~$(cut -d- -f2- <<< $git_describe)
+          fi
+          echo "version=$version" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
