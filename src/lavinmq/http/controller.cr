@@ -196,6 +196,7 @@ module LavinMQ
       end
 
       private def refuse_unless_vhost_access(context, user, vhost)
+        return if user.tags.any? &.administrator?
         unless user.permissions.has_key?(vhost)
           @log.warn { "user=#{user.name} does not have permissions to access vhost=#{vhost}" }
           access_refused(context)
@@ -203,14 +204,14 @@ module LavinMQ
       end
 
       private def refuse_unless_management(context, user, vhost = nil)
-        unless user.tags.any? { |t| t.management? || t.administrator? || t.policy_maker? || t.monitoring? }
+        unless user.tags.any? { |t| t.administrator? || t.monitoring? ||
+               t.policy_maker? || t.management? }
           @log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
           access_refused(context)
         end
       end
 
       private def refuse_unless_policymaker(context, user, vhost = nil)
-        refuse_unless_management(context, user, vhost)
         unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
           @log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
           access_refused(context)
@@ -218,7 +219,6 @@ module LavinMQ
       end
 
       private def refuse_unless_monitoring(context, user)
-        refuse_unless_management(context, user)
         unless user.tags.any? { |t| t.administrator? || t.monitoring? }
           @log.warn { "user=#{user.name} does not have monitoring access" }
           access_refused(context)
@@ -226,8 +226,6 @@ module LavinMQ
       end
 
       private def refuse_unless_administrator(context, user : User)
-        refuse_unless_policymaker(context, user)
-        refuse_unless_monitoring(context, user)
         unless user.tags.any? &.administrator?
           @log.warn { "user=#{user.name} does not have administrator access" }
           access_refused(context)

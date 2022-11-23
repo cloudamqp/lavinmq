@@ -8,6 +8,7 @@ module LavinMQ
     Monitoring
     Management
     PolicyMaker
+    Impersonator
 
     def to_json(json : JSON::Builder)
       to_s.downcase.to_json(json)
