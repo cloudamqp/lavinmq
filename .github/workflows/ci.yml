@@ -86,7 +86,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Build lavinmq
-        run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS=
+        run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS=-Dbake_static
 
       - name: Print build info
         run: bin/lavinmq --build-info
