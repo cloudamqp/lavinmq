@@ -115,6 +115,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     .catch(HTTP.alertErrorHandler)
 })
 
+window.addProperty = addProperty
 function addProperty (key, value) { // eslint-disable-line no-unused-vars
   const el = document.querySelector('#publishMessage textarea[name=properties]')
   const properties = DOM.parseJSON(el.value || '{}')
