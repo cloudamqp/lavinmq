@@ -69,7 +69,9 @@ function argumentHelperJSON (className, e) {
     value = 'value'
   }
   const currentVal = document.querySelector(`[name=${className}]`).value
-  if (currentVal === "" && val) {
+  if (currentVal.includes(val)) {
+    return
+  } else if (currentVal === "" && val) {
     document.querySelector(`[name=${className}]`).value = `{"${val}": ${value}}`
   } else if (currentVal[currentVal.length - 1] === "}" && val) {
     document.querySelector(`[name=${className}]`).value = currentVal.substr(0, currentVal.length - 1) + `,\n"${val}": ${value}}`
