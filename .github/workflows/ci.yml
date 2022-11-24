@@ -82,21 +82,14 @@ jobs:
     container: 84codes/crystal:latest-ubuntu-20.04
 
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y make curl
-
       - name: Checkout
         uses: actions/checkout@v3
 
       - name: Build lavinmq
-        run: |
-          make -j bin/lavinmq-debug bin/lavinmqctl DOCS=
-          rm bin/*.*
+        run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS=
 
       - name: Print build info
-        run: bin/lavinmq-debug --build-info
+        run: bin/lavinmq --build-info
 
       - name: Upload bin/
         uses: actions/upload-artifact@v3
@@ -124,7 +117,7 @@ jobs:
       - name: Run LavinMQ in background
         run: |
           chmod +x bin/*
-          bin/lavinmq-debug --data-dir /tmp/amqp &
+          bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Clone java client
         uses: actions/checkout@v3
@@ -166,8 +159,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq-debug
-          bin/lavinmq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Import definitions
         run: |
@@ -210,8 +203,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq-debug
-          bin/lavinmq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
         uses: actions/checkout@v3
@@ -246,8 +239,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq-debug
-          bin/lavinmq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Install Go
         uses: actions/setup-go@v3
@@ -283,8 +276,8 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq-debug
-          bin/lavinmq-debug --data-dir /tmp/amqp &
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Test the static HTTP controller
         run: ./extras/static_requests.sh
