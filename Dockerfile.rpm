@@ -16,6 +16,7 @@ COPY static/ static/
 COPY src/ src/
 RUN sed -i -E "s/(VERSION =) .*/\1 \"$version\"/" src/lavinmq/version.cr
 RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
+ARG MAKEFLAGS
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true
 
