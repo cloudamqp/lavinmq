@@ -3,20 +3,23 @@ require "./spec_helper"
 describe LavinMQ::DurableQueue do
   context "after migration between index version 2 to 3" do
     before_each do
-      FileUtils.cp_r("./spec/resources/data_dir_index_v2", "./spec/resources/data_dir_index_v2_new")
+      FileUtils.cp_r("./spec/resources/data_dir_index_v2", "/tmp/lavinmq-spec-index-v2")
     end
-    it "should get message" do
-      close_servers
-      TestHelpers.create_servers("./spec/resources/data_dir_index_v2_new")
-      with_channel do |ch|
-        q = ch.queue("queue")
-        s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
-        q.get(no_ack: true).try(&.body_io.to_s).should eq("message")
+
+    after_each do
+      FileUtils.rm_rf("/tmp/lavinmq-spec-index-v2")
+    end
+
+    it "should succefully convert queue index" do
+      s = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
+      begin
+        q = s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
+        q.basic_get(true) do |env|
+          String.new(env.message.body).to_s.should eq "message"
+        end.should be_true
+      ensure
+        s.close
       end
-    ensure
-      close_servers
-      FileUtils.rm_rf("./spec/resources/data_dir_index_v2_new")
-      TestHelpers.setup
     end
   end
 
