@@ -31,7 +31,7 @@ RUN make docs
 FROM --platform=$BUILDPLATFORM base AS builder
 COPY Makefile .
 RUN make js lib
-COPY --from=docbuilder /tmp/openapi/openapi.yaml openapi/openapi.yaml
+COPY --from=docbuilder /tmp/openapi/openapi.yaml /tmp/openapi/.spectral.json openapi/
 COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
 ARG TARGETARCH
 RUN make objects target=$TARGETARCH-linux-gnu -j2
