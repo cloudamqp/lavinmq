@@ -32,7 +32,8 @@ static/js/lib/chart.js: | static/js/lib
 	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
 		tar -zxOf- package/dist/Chart.bundle.min.js > $@
 
-static/docs/index.html: openapi/openapi.yaml $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
+static/docs/index.html: openapi/openapi.yaml openapi/.spectral.json $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
+	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint $<
 	npx redoc-cli build $< -o $@
 
 man1/lavinmq.1 man1/lavinmq-debug.1: bin/lavinmq | man1
