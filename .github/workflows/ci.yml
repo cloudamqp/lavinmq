@@ -131,7 +131,7 @@ jobs:
         run: |
           cd rabbitmq-java-client
           make deps
-          sed -i '/Recovery/d; /Transactions/d' src/test/java/com/rabbitmq/client/test/functional/FunctionalTests.java
+          sed -i '/Recovery/d' src/test/java/com/rabbitmq/client/test/functional/FunctionalTests.java
           ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests -Drabbitmqctl.bin=../bin/lavinmqctl
 
       - name: >-
