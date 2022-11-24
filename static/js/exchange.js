@@ -138,3 +138,7 @@ function updateAutocomplete(e) {
   Helpers.autoCompleteDatalist("exchange-dest-list", type)
 }
 updateAutocomplete('q')
+
+document.querySelector('#dataTags').onclick = e => {
+  Helpers.argumentHelperJSON("properties", e)
+}

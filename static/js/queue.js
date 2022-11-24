@@ -371,3 +371,7 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges')
 Helpers.autoCompleteDatalist('queue-list', 'queues')
+
+document.querySelector('#dataTags').onclick = e => {
+  Helpers.argumentHelperJSON("properties", e)
+}

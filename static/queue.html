@@ -169,7 +169,15 @@
         <label>
           <span>Properties</span>
           <textarea name="properties" placeholder='{ "key": value }' style="height: 65px;"></textarea>
-          <a onclick="addProperty('content_type', 'application/json')">JSON</a>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="content_type" value='"application/json"'>Content Type
+              <span class="tooltiptext">Content type of the payload used by application. Default set to 'application/json'</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="expiration">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
+            </a>
+          </div>
         </label>
         <label>
           <span>Payload</span>

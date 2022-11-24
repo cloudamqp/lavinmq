@@ -64,11 +64,15 @@ function argumentHelper (className, e) {
 
 function argumentHelperJSON (className, e) {
   const val = e.target.getAttribute('data-tag')
+  let value = e.target.getAttribute('value')
+  if (value === null) {
+    value = 'value'
+  }
   const currentVal = document.querySelector(`[name=${className}]`).value
   if (currentVal === "" && val) {
-    document.querySelector(`[name=${className}]`).value = "{\"" + val + "\": value}"
+    document.querySelector(`[name=${className}]`).value = `{"${val}": ${value}}`
   } else if (currentVal[currentVal.length - 1] === "}" && val) {
-    document.querySelector(`[name=${className}]`).value = currentVal.substr(0, currentVal.length - 1) + ",\n\"" + val + "\": value}"
+    document.querySelector(`[name=${className}]`).value = currentVal.substr(0, currentVal.length - 1) + `,\n"${val}": ${value}}`
   }
 }
 
