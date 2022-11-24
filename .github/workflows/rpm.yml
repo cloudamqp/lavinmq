@@ -45,13 +45,15 @@ jobs:
 
       - name: Generate version string
         run: |
-          git_describe=$(git describe --tags)
-          version=$(cut -d- -f1 <<< ${git_describe:1:-1})
-          if [ -n "$(cut -d- -f2 <<< $git_describe)" ]
-          then version=$version~$(cut -d- -f2 <<< $git_describe | tr -d .)
+          last_tag=$(git describe --tags --abbrev=0)
+          version=$(cut -d- -f1 <<< ${last_tag:1})
+          pre_release=$(cut -d- -f2 <<< $last_tag)
+          if [ -n "$pre_release" ]
+          then version=$version~$(tr -d . <<< $pre_release)
           fi
-          if [ -n "$(cut -d- -f3- <<< $git_describe)" ]
-          then version=$version^$(cut -d- -f3- <<< $git_describe | tr - .)
+          post_release=${$(git describe --tags)//$last_tag/}
+          if [ -n "$post_release" ]
+          then version=$version^$(tr - . <<< ${post_release:1})
           fi
           echo "version=$version" >> $GITHUB_ENV
 
