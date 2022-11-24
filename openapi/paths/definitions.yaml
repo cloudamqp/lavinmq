@@ -149,6 +149,13 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/definitions/{vhost}/upload":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
   post:
     tags:
     - definitions
