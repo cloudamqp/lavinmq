@@ -1,12 +1,12 @@
 on:
   push:
     tags:
-      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+      - v*
 
 name: Create Release
 
 jobs:
-  build:
+  release:
     name: Create Release
     runs-on: ubuntu-latest
     steps:
@@ -14,6 +14,6 @@ jobs:
         run: git clone ${{ github.repositoryUrl }} .
 
       - name: Create Release
-        run: gh release create "${{ github.ref }}" --notes "$(./build/release_notes)"
+        run: gh release create "${{ github.ref }}" --notes "$(./generate-release-notes)"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
