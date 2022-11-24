@@ -72,11 +72,10 @@ jobs:
       - name: Upload to Packagecloud
         run: |
           set -eux
+          . /etc/os-release
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
           for PKG_FILE in $(find builds -name "*.deb")
           do
-            ID=$(echo $PKG_FILE | cut -d/ -f3)
-            VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f4)
             DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
             curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
               -F "package[distro_version_id]=${DIST_ID}" \
@@ -88,11 +87,10 @@ jobs:
       - name: Upload to Packagecloud head repo
         run: |
           set -eux
+          . /etc/os-release
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
           for PKG_FILE in $(find builds -name "*.deb")
           do
-            ID=$(echo $PKG_FILE | cut -d/ -f3)
-            VERSION_CODENAME=$(echo $PKG_FILE | cut -d/ -f4)
             DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_CODENAME}\").id" distributions.json)
             curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
               -F "package[distro_version_id]=${DIST_ID}" \
