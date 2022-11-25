@@ -1,6 +1,28 @@
 require "./spec_helper"
 
 describe LavinMQ::DurableQueue do
+  context "after migration between index version 2 to 3" do
+    before_each do
+      FileUtils.cp_r("./spec/resources/data_dir_index_v2", "/tmp/lavinmq-spec-index-v2")
+    end
+
+    after_each do
+      FileUtils.rm_rf("/tmp/lavinmq-spec-index-v2")
+    end
+
+    it "should succefully convert queue index" do
+      s = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
+      begin
+        q = s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
+        q.basic_get(true) do |env|
+          String.new(env.message.body).to_s.should eq "message"
+        end.should be_true
+      ensure
+        s.close
+      end
+    end
+  end
+
   context "with corrupt segments" do
     context "when consumed" do
       it "should be closed" do
