@@ -49,11 +49,12 @@ jobs:
           version=$(cut -d- -f1 <<< ${last_tag:1})
           pre_release=$(cut -d- -f2 <<< $last_tag)
           if [ -n "$pre_release" ]
-          then version=$version~$(tr -d . <<< $pre_release)
+          then version=$version~${pre_release//./}
           fi
-          post_release=${$(git describe --tags)//$last_tag/}
+          git_describe=$(git describe --tags)
+          post_release=${git_describe//$last_tag/}
           if [ -n "$post_release" ]
-          then version=$version^$(tr - . <<< ${post_release:1})
+          then version=$version^${post_release//-/.}
           fi
           echo "version=$version" >> $GITHUB_ENV
 
