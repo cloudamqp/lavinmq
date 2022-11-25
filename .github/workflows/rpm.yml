@@ -9,6 +9,7 @@ on:
       - src/**
       - static/**
       - openapi/**
+      - lavinmq.spec
   push:
     branches:
       - main
@@ -22,6 +23,7 @@ on:
       - src/**
       - static/**
       - openapi/**
+      - lavinmq.spec
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
