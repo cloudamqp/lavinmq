@@ -717,6 +717,7 @@ module LavinMQ
       end
 
       def tx_commit(frame)
+        return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         process_tx_acks
         process_tx_publishes
         send AMQP::Frame::Tx::CommitOk.new(frame.channel)
@@ -774,6 +775,7 @@ module LavinMQ
       end
 
       def tx_rollback(frame)
+        return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         @tx_publishes.clear
         @tx_acks.clear
         send AMQP::Frame::Tx::RollbackOk.new(frame.channel)
