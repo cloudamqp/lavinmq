@@ -47,6 +47,9 @@ class LavinMQCtl
 
   def initialize
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
+    if host = ENV["LAVINMQCTL_HOST"]?
+      @options["host"] = host
+    end
     global_options
     COMPAT_CMDS.each do |cmd|
       @parser.on(cmd[0], cmd[1]) do
