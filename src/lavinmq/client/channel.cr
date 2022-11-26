@@ -255,8 +255,7 @@ module LavinMQ
         end
 
         @confirm_total += 1 if @confirm
-        ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues, @confirm
-        if ok
+        if @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues, @confirm
           @client.vhost.waiting4confirm(self) if @confirm
         else
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate)
