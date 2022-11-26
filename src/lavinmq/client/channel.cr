@@ -125,6 +125,7 @@ module LavinMQ
 
       def next_msg_headers(frame)
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
+        raise Error::UnexpectedFrame.new(frame) if @next_msg_props
         raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         valid_expiration?(frame) || return
         if direct_reply_to?(frame.properties.reply_to)
