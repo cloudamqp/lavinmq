@@ -17,6 +17,19 @@ class Socket
       {% end %}
     end
   end
+
+  struct IPAddress
+    def loopback? : Bool
+      case addr = @addr
+      in LibC::InAddr
+        addr.s_addr & 0x000000ff_u32 == 0x0000007f_u32
+      in LibC::In6Addr
+        bytes = ipv6_addr8(addr)
+        bytes == StaticArray[0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 1_u8] ||
+          bytes.to_slice[0, 13] == Bytes[0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 255_u8, 255_u8, 127_u8]
+      end
+    end
+  end
 end
 
 module IO::Evented
