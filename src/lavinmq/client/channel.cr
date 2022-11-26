@@ -485,6 +485,9 @@ module LavinMQ
               @tx_acks.push(TxAck.new @unacked.last.tag, frame.multiple, false, false)
               return
             elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
+              if @tx_acks.any? { |tx_ack| tx_ack.delivery_tag == frame.delivery_tag }
+                @client.send_precondition_failed(frame, "Delivery tag already acked")
+              end
               @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, false, false)
               return
             end
