@@ -159,8 +159,8 @@ module LavinMQ
         @log.error { ex.inspect }
         send_not_implemented(ex)
       rescue ex : AMQP::Error::FrameDecode
-        @log.error { ex.inspect }
-        send_frame_error
+        @log.error { ex.inspect_with_backtrace }
+        send_frame_error(ex.message)
       rescue ex : IO::Error | OpenSSL::SSL::Error
         @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
         break
