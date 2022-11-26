@@ -104,18 +104,18 @@ module LavinMQ
           @client.send_precondition_failed(frame, "Server low on disk space")
           return
         end
-        @next_publish_exchange_name = frame.exchange
-        @next_publish_routing_key = frame.routing_key
-        @next_publish_mandatory = frame.mandatory
-        @next_publish_immediate = frame.immediate
-        ex = @client.vhost.exchanges[@next_publish_exchange_name]?
-        unless ex
-          msg = "No exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}'"
-          @client.send_not_found(frame, msg)
-        end
-        if ex && ex.internal
-          msg = "Exchange '#{@next_publish_exchange_name}' in vhost '#{@client.vhost.name}' is internal"
-          @client.send_access_refused(frame, msg)
+        raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
+        if ex = @client.vhost.exchanges[frame.exchange]?
+          if !ex.internal
+            @next_publish_exchange_name = frame.exchange
+            @next_publish_routing_key = frame.routing_key
+            @next_publish_mandatory = frame.mandatory
+            @next_publish_immediate = frame.immediate
+          else
+            @client.send_access_refused(frame, "Exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}' is internal")
+          end
+        else
+          @client.send_not_found(frame, "No exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}'")
         end
       end
 
