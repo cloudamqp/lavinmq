@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Upload definitions to a specific vhost only
+- Building RPM packages (for Fedora 37 currently, please request others if needed)
+- Build DEB debuginfo/debugsource packages
+- Include debug symbols in the container image binaries, and remove `lavinmq-debug`
+- `install` target in `Makefile`
+
+### Changed
+
+- Allow administrators to change user's tags without also updating password
+
+### Fixed
+
+- Unacked messages are only stored on the Channel level now, no double booking in the Queue, ~17% performance increase
+
 ## [1.0.0-beta.7] - 2022-11-21
 
 ### Added
