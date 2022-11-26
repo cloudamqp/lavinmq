@@ -202,9 +202,12 @@ class LavinMQCtl
       c.basic_auth(uri.user, uri.password) if uri.user
       c
     else
-      socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
-      @socket = socket
-      HTTP::Client.new(socket, @@cfg.http_bind, @@cfg.http_port)
+      begin
+        @socket = socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
+        HTTP::Client.new(socket, @@cfg.http_bind, @@cfg.http_port)
+      rescue Socket::ConnectError
+        abort "LavinMQ is not running, socket not found: #{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET}"
+      end
     end
   end
 
