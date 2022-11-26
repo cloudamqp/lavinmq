@@ -320,9 +320,6 @@ module LavinMQ
 
       def deliver(frame, msg, redelivered = false) : Nil
         raise ClosedError.new("Channel is closed") unless @running
-        # Make sure publishes are confirmed before we deliver
-        # can happend if the vhost spawned fsync fiber has not execed yet
-        @client.vhost.send_publish_confirms
         @client.deliver(frame, msg)
         if redelivered
           @redeliver_count += 1

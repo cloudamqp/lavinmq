@@ -133,11 +133,6 @@ module LavinMQ
           @queues_to_fsync.clear
         end
       end
-      send_publish_confirms
-      @fsync = false
-    end
-
-    def send_publish_confirms
       @awaiting_confirm_lock.synchronize do
         @log.debug { "send confirm to #{@awaiting_confirm.size} channels" }
         @awaiting_confirm.each do |ch|
@@ -146,6 +141,7 @@ module LavinMQ
           @log.warn { "Could not send confirm to #{ch.name}: #{ex.inspect}" }
         end
         @awaiting_confirm.clear
+        @fsync = false
       end
     end
 
