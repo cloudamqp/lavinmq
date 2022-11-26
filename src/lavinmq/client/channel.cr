@@ -603,6 +603,7 @@ module LavinMQ
         @unack_lock.synchronize do
           if frame.requeue
             @unacked.each do |unack|
+              next if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
                 consumer.reject(unack.sp)
               end
@@ -613,6 +614,7 @@ module LavinMQ
             notify_has_capacity(true) if was_full
           else # redeliver to the original recipient
             @unacked.each do |unack|
+              next if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
                 # FIXME: not if the consumer is cancelled
                 env = unack.queue.read(unack.sp)
@@ -624,6 +626,16 @@ module LavinMQ
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+      end
+
+      private def delivery_tag_is_in_tx?(delivery_tag) : Bool
+        if @tx
+          @tx_acks.any? do |tx_ack|
+            (tx_ack.delivery_tag > delivery_tag && tx_ack.multiple) || tx_ack.delivery_tag == delivery_tag
+          end
+        else
+          false
+        end
       end
 
       def close
