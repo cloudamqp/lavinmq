@@ -323,7 +323,7 @@ class LavinMQCtl
 
   private def set_user_tags
     username = ARGV.shift?
-    tags = ARGV
+    tags = ARGV.join(",")
     abort @banner unless username && tags
     resp = http.put "/api/users/#{username}", @headers, {tags: tags}.to_json
     handle_response(resp, 204)
