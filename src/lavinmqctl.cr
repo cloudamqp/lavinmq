@@ -426,7 +426,7 @@ class LavinMQCtl
     name = ARGV.shift?
     abort @banner unless name
     puts "Closing connection #{name} ..." unless quiet?
-    @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via lavinmqctl"
+    @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
     resp = http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     handle_response(resp, 204)
   end
@@ -435,7 +435,7 @@ class LavinMQCtl
     resp = http.get "/api/connections", @headers
     handle_response(resp, 200)
     if conns = JSON.parse(resp.body).as_a?
-      @headers["X-Reason"] = ARGV.shift? || "CONNECTION_FORCED - Closed via lavinmqctl"
+      @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
       conns.each do |u|
         next unless conn = u.as_h?
         name = conn["name"].to_s
