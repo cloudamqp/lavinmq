@@ -3,7 +3,7 @@ SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
 DOCS := static/docs/index.html
 CRYSTAL_FLAGS := --release
-override CRYSTAL_FLAGS += --debug --error-on-warnings --link-flags=-pie
+override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
 .PHONY: all
 all: $(BINS)
