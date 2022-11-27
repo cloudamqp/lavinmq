@@ -17,6 +17,10 @@ module LavinMQ
     def self.parse_list(list : String) : Array(Tag)
       list.split(",").compact_map { |t| Tag.parse?(t.strip) }
     end
+
+    def self.parse_list(list : Array(JSON::Any)) : Array(Tag)
+      list.compact_map { |t| Tag.parse?(t.as_s.strip) }
+    end
   end
 
   class User
@@ -177,7 +181,7 @@ module LavinMQ
     end
 
     def can_impersonate?
-      @tags.includes? "impersonator"
+      @tags.includes? Tag::Impersonator
     end
 
     def invalidate_acl_caches
