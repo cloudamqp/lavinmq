@@ -117,7 +117,7 @@ jobs:
       - name: Run LavinMQ in background
         run: |
           chmod +x bin/*
-          bin/lavinmq --data-dir /tmp/amqp &
+          bin/lavinmq --data-dir=/tmp/amqp --bind=::1 &
 
       - name: Clone java client
         uses: actions/checkout@v3
