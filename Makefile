@@ -39,6 +39,9 @@ man1/lavinmqperf.1: bin/lavinmqperf | man1
 
 MANPAGES := man1/lavinmq.1 man1/lavinmqctl.1 man1/lavinmqperf.1
 
+.PHONY: man
+man: $(MANPAGES)
+
 .PHONY: docs
 docs: $(DOCS)
 
