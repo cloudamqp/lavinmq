@@ -739,6 +739,7 @@ module LavinMQ
       private def process_tx_publishes
         next_msg_body_file.rewind
         @tx_publishes.each do |tx_msg|
+          tx_msg.message.timestamp = RoughTime.unix_ms
           @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues, true) ||
             basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate)
         end

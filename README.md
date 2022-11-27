@@ -230,7 +230,6 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 - When comparing queue/exchange/binding arguments non-effective parameters are also considered, and not ignored
 - TTL of queues and messages are correct to the 0.1 second, not to the millisecond
 - Newlines are not removed from Queue or Exchange names, they are forbidden
-- Messages publishes in a transaction gets the timestamp when the are received by the server, not when the transaction is commited
 
 ### Persistent Exchange
 
