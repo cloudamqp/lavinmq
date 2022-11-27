@@ -137,7 +137,7 @@ module LavinMQ
           when AMQP::Frame::Connection::CloseOk
             @log.debug { "Confirmed disconnect" }
             @running = false
-            next
+            return
           end
           if @running
             process_frame(frame)
