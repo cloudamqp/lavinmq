@@ -99,7 +99,7 @@ describe LavinMQ::Client::Channel::Consumer do
         q = ch.queue("consumer-priority")
         ch.prefetch 1
         subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 5})
-        msgs = Channel(Int32?).new(3)
+        msgs = Channel(Int32?).new(1)
 
         q.subscribe(no_ack: false) do |msg|
           msgs.send nil
@@ -119,12 +119,9 @@ describe LavinMQ::Client::Channel::Consumer do
         q.publish_confirm("priority")
         q.publish_confirm("priority")
         q.publish_confirm("priority")
-        m1 = msgs.receive
-        m2 = msgs.receive
-        m1.should eq 1
-        m2.should eq 2
-        m1 = msgs.receive
-        m1.should eq 1
+        msgs.receive.should eq 1
+        msgs.receive.should eq 2
+        msgs.receive.should eq 1
       end
     ensure
       s.vhosts["/"].delete_queue("consumer-priority")

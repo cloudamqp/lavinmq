@@ -244,9 +244,7 @@ describe LavinMQ::Federation::Upstream do
         # Should reconnect
         wait_for { upstream.links.first?.try(&.state.running?) }
         upstream_ex.publish_confirm "federate me", "rk3"
-        wait_for {
-          msgs.size == 3
-        }
+        wait_for { msgs.size == 3 }
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
