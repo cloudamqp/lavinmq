@@ -96,6 +96,4 @@ uninstall:
 
 .PHONY: clean
 clean:
-	rm -rf bin
-	rm -f static/docs/index.html
-	rm -f static/js/lib/*
+	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES)
