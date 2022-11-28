@@ -11,6 +11,9 @@ all: $(BINS)
 bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $(basename $@) $(CRYSTAL_FLAGS)
 
+bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $(basename $@) $(CRYSTAL_FLAGS) --debug
+
 lib: shard.yml shard.lock
 	shards install --production
 
