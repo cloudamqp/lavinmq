@@ -41,3 +41,13 @@ osx_build_task:
   script: make -j2 DOCS=
   artifacts:
     path: bin/*
+
+arm_spec_task:
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+  arm_container:
+    image: 84codes/crystal:latest-ubuntu-22.04
+    cpu: 2
+    memory: 4G
+    greedy: true
+  install_script: shards install --production --no-color
+  script: crystal spec --order random --no-color
