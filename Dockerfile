@@ -33,7 +33,7 @@ RUN make js lib
 COPY --from=docbuilder /tmp/openapi/openapi.yaml /tmp/openapi/.spectral.json openapi/
 COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
 ARG MAKEFLAGS=-j2
-RUN make
+RUN make all bin/lavinmq-debug
 
 # Resulting image with minimal layers
 FROM ubuntu:22.04
