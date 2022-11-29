@@ -21,8 +21,7 @@ RUN crystal tool format --check
 # Build docs in npm container
 FROM node:lts AS docbuilder
 WORKDIR /tmp
-RUN npm install -g redoc-cli
-RUN npm install -g @stoplight/spectral-cli
+RUN npm install redoc-cli @stoplight/spectral-cli
 COPY Makefile shard.yml .
 COPY openapi openapi
 RUN make docs
