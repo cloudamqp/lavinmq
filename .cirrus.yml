@@ -21,7 +21,7 @@ freebsd_build_task:
 osx_spec_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-base:latest
+    image: ghcr.io/cirruslabs/macos-monterey-base:latest
   install_script:
     - brew install crystal
   script: |
@@ -31,7 +31,7 @@ osx_spec_task:
 osx_build_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**')"
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-base:latest
+    image: ghcr.io/cirruslabs/macos-monterey-base:latest
   install_script:
     - brew install crystal
   env:
