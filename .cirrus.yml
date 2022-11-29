@@ -23,6 +23,7 @@ osx_spec_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-monterey-base:latest
   install_script:
+    - brew update
     - brew install crystal
   script: |
     shards install --production --no-color
@@ -33,6 +34,7 @@ osx_build_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-monterey-base:latest
   install_script:
+    - brew update
     - brew install crystal
   env:
     PKG_CONFIG_PATH: /usr/local/opt/openssl@1.1/lib/pkgconfig
