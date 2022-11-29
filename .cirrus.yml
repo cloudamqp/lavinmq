@@ -3,7 +3,7 @@ freebsd_task:
   freebsd_instance:
     image_family: freebsd-14-0-snap
   install_script:
-    - pkg install -y crystal shards security/openssl
+    - pkg install -y crystal shards security/openssl curl gmake
   spec_script: |
     shards install --production --no-color
     crystal spec --order random --no-color
