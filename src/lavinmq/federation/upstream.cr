@@ -24,10 +24,9 @@ module LavinMQ
       @exchange : String?
       @expires : Int64?
       @msg_ttl : Int64?
-      @ack_timeout : Time::Span = 1.seconds
       getter name, log, vhost, type, consumer_tag
       property uri, prefetch, reconnect_delay, ack_mode, exchange,
-        max_hops, expires, msg_ttl, queue, ack_timeout
+        max_hops, expires, msg_ttl, queue
 
       def initialize(@vhost : VHost, @name : String, raw_uri : String,
                      @exchange = nil, @queue = nil,

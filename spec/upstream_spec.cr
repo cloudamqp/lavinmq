@@ -21,7 +21,6 @@ module UpstreamSpecHelpers
     downstream_vhost = s.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
       "#{AMQP_BASE_URL}/upstream", "upstream_ex")
-    upstream.ack_timeout = 1.milliseconds
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
   end
