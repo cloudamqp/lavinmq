@@ -76,6 +76,24 @@ jobs:
       - name: Spec
         run: crystal spec --order random
 
+  spec_osx:
+    name: Spec OS X
+    runs-on: macos-latest
+    steps:
+      - run: brew install crystal
+
+      - name: Print Crystal version
+        run: crystal -v
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Shards install
+        run: shards install --without-development --frozen
+
+      - name: Spec
+        run: crystal spec --order random
+
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-latest
