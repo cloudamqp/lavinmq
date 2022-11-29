@@ -12,16 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upload definitions to a specific vhost only
 - Building RPM packages (for Fedora 37 currently, please request others if needed)
 - Build DEB debuginfo/debugsource packages
-- Include debug symbols in the container image binaries, and remove `lavinmq-debug`
-- `install` target in `Makefile`
+- Include debug symbols in the container image binaries
+- `install`/`uninstall` targets in `Makefile`
 
 ### Changed
 
 - Allow administrators to change user's tags without also updating password
+- Doesn't try to send publish confirms before publish (so messaged being delivered might still be unconfirmed)
+- Understandable error message from lavinmqctl if lavinmq isn't running
+- Lint openapi spec before building API docs
 
 ### Fixed
 
+- Messages published in a transaction now gets their timestamp at the time of commit
+- Impersonator tag now works as it should (allow messages to have another `user_id` property than the user publishing it)
 - Unacked messages are only stored on the Channel level now, no double booking in the Queue, ~17% performance increase
+- Close client socket as soon as Connection#CloseOk has been read
+- Close channel if a new publish starts before another publish has finished
+- Prevent double ack in a transaction
+- Precondition error if trying to TxCommit/Rollback when TxSelect hasn't been issued
+- Don't requeue uncommited ack:ed messages in Tx on BasicRecover
 
 ## [1.0.0-beta.7] - 2022-11-21
 
