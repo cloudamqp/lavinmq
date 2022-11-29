@@ -228,22 +228,24 @@ describe LavinMQ::Federation::Upstream do
         wait_for { upstream.links.first?.try &.state.running? }
         downstream_q = downstream_ch.queue("downstream_q")
         downstream_q.bind("downstream_ex", "#")
-        msgs = [] of AMQP::Client::DeliverMessage
+        msgs = Channel(String).new
         downstream_q.subscribe do |msg|
-          msgs << msg
+          msgs.send msg.body_io.to_s
         end
-        upstream_ex.publish_confirm "federate me", "rk1"
-        wait_for { msgs.size == 1 }
+        upstream_ex.publish_confirm "msg1", "rk1"
+        msgs.receive.should eq "msg1"
+        sleep 0.01 # allow the downstream federation to ack the msg
         upstream_vhost.connections.each do |conn|
           next unless conn.client_name.starts_with?("Federation link")
           conn.close
         end
         wait_for { upstream.links.first?.try { |l| l.state.stopped? || l.state.starting? } }
-        upstream_ex.publish_confirm "federate me", "rk2"
+        upstream_ex.publish "msg2", "rk2"
         # Should reconnect
         wait_for { upstream.links.first?.try(&.state.running?) }
-        upstream_ex.publish_confirm "federate me", "rk3"
-        wait_for { msgs.size == 3 }
+        upstream_ex.publish "msg3", "rk3"
+        msgs.receive.should eq "msg2"
+        msgs.receive.should eq "msg3"
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
