@@ -7,7 +7,7 @@ describe LavinMQ::Client::Channel::Consumer do
       with_channel do |ch|
         q = ch.queue("consumer-priority")
         ch.prefetch 1
-        msgs = Channel(Int32).new(2)
+        msgs = Channel(Int32).new
 
         q.subscribe(no_ack: false) do |msg|
           msgs.send 1
@@ -19,12 +19,10 @@ describe LavinMQ::Client::Channel::Consumer do
           msg.ack
         end
 
-        q.publish_confirm("priority")
-        q.publish_confirm("priority")
-        m1 = msgs.receive
-        m2 = msgs.receive
-        m1.should eq 1
-        m2.should eq 2
+        q.publish("priority")
+        q.publish("priority")
+        msgs.receive.should eq 1
+        msgs.receive.should eq 2
       end
     ensure
       s.vhosts["/"].delete_queue("consumer-priority")
@@ -99,13 +97,8 @@ describe LavinMQ::Client::Channel::Consumer do
         q = ch.queue("consumer-priority")
         ch.prefetch 1
         subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 5})
-        msgs = Channel(Int32?).new(1)
 
-        q.subscribe(no_ack: false) do |msg|
-          msgs.send nil
-          msg.ack
-        end
-
+        msgs = Channel(Int32).new
         q.subscribe(no_ack: false, args: subscriber_args) do |msg|
           msgs.send 1
           msg.ack
@@ -116,12 +109,11 @@ describe LavinMQ::Client::Channel::Consumer do
           msg.ack
         end
 
-        q.publish_confirm("priority")
-        q.publish_confirm("priority")
-        q.publish_confirm("priority")
-        msgs.receive.should eq 1
-        msgs.receive.should eq 2
-        msgs.receive.should eq 1
+        100.times { q.publish("priority") }
+        50.times do
+          msgs.receive.should eq 1
+          msgs.receive.should eq 2
+        end
       end
     ensure
       s.vhosts["/"].delete_queue("consumer-priority")
