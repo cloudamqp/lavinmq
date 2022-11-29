@@ -9,7 +9,8 @@ COPY ./src ./src
 # Run specs on build platform
 FROM base AS spec
 COPY ./spec ./spec
-RUN crystal spec --order random
+ARG spec_args="--order random"
+RUN crystal spec ${spec_args}
 
 # Lint in another layer
 FROM base AS lint
