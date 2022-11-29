@@ -193,9 +193,8 @@ describe "Persistent Exchange" do
         q.bind(x.name, "#", args: bind_args)
         q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
         q.unbind(x.name, "#", args: bind_args)
-        sleep 1
+        sleep 1.1
         q.bind(x.name, "#", args: bind_args)
-        sleep 0.2
         q.get(no_ack: true).should be_nil
       end
     ensure
