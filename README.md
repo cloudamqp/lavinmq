@@ -107,6 +107,16 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 1. Bump version in `shards.yml`
 1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
 
+## LavinMQ on various plattforms
+All AMQP client libraries work with LavinMQ and there are AMQP client libraries for almost every platform on the market. Here are  guides for a couple of common plattforms. 
+
+1. [Ruby](https://lavinmq.com/documentation/ruby-sample-code)
+2. [Node.js](https://lavinmq.com/documentation/nodejs-sample-code)
+3. [Java](https://lavinmq.com/documentation/java-sample-code)
+4. [Python](https://lavinmq.com/documentation/python-sample-code)
+5. [PHP](https://lavinmq.com/documentation/php-sample-code)
+6. [Crystal](https://lavinmq.com/documentation/crystal-sample-code)
+
 ## Performance
 
 A single m6g.large EC2 instance, with a GP3 EBS drive (XFS formatted),
