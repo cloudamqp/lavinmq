@@ -1,11 +1,21 @@
 import * as helpers from './helpers.js'
+import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title } from './lib/chart.js'
+import './lib/chartjs-adapter-luxon.esm.js'
+Chart.register(TimeScale)
+Chart.register(LinearScale)
+Chart.register(LineController)
+Chart.register(PointElement)
+Chart.register(LineElement)
+Chart.register(Legend)
+Chart.register(Tooltip)
+Chart.register(Title)
 
 const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
   '#EE6868', '#2F6497', '#6C8893']
 
 const POLLING_RATE = 5000
-const X_AXIS_LENGTH = 600000 //10 min
-const MAX_TICKS = X_AXIS_LENGTH/POLLING_RATE
+const X_AXIS_LENGTH = 600000 // 10 min
+const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
 
 function render (id, unit, options = {}, stacked = false) {
   const el = document.getElementById(id)
@@ -17,18 +27,16 @@ function render (id, unit, options = {}, stacked = false) {
   const legendEl = document.createElement('div')
   legendEl.classList.add('legend')
   el.append(legendEl)
+
   const chart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: [],
-      datasets: []
+      datasets: [],
+      labels: []
     },
     options: Object.assign({
       responsive: true,
       aspectRatio: 4,
-      legend: {
-        display: false
-      },
       tooltips: {
         mode: 'x',
         intersect: false,
@@ -46,7 +54,7 @@ function render (id, unit, options = {}, stacked = false) {
         intersect: false
       },
       scales: {
-        xAxes: [{
+        x: {
           type: 'time',
           distribution: 'series',
           gridLines: {
@@ -58,8 +66,8 @@ function render (id, unit, options = {}, stacked = false) {
               second: 'HH:mm:ss'
             }
           }
-        }],
-        yAxes: [{
+        },
+        y: {
           scaleLabel: {
             display: true,
             labelString: unit,
@@ -71,66 +79,15 @@ function render (id, unit, options = {}, stacked = false) {
             suggestedMax: 10,
             callback: helpers.nFormatter
           },
-          stacked: stacked
-        }]
-      },
-      legendCallback: function (chart) {
-        const text = []
-        let total = 0
-        for (let i = 0; i < chart.data.datasets.length; i++) {
-          const dataSet = chart.data.datasets[i]
-          const value = dataSet.data[-1] ? dataSet.data[-1].y : ''
-          total += value
-          text.push(`<div class="legend-item checked">
-              <div class="toggle"></div>
-              <div class="color-ref" style="background-color:${dataSet.backgroundColor}"></div>
-              <div>
-                <div class="legend-label">${dataSet.label}</div>
-                <div class="legend-value">${helpers.formatNumber(value)}</div>
-              </div>
-            </div>`)
+          stacked: false,
+          beginAtZero: true
         }
-        if (stacked) {
-          text.push(`<div class="legend-item checked">
-              <div class="toggle"></div>
-              <div class="color-ref" style="background-color:${chartColors.slice(-1)[0]}"></div>
-              <div>
-                <div class="legend-label">Total</div>
-                <div class="legend-value">${helpers.formatNumber(total)}</div>
-              </div>
-            </div>`)
-        }
-        return text.join('')
       }
     }, options)
   })
   legendEl.classList.add(chart.id + '-legend')
-
-  legendEl.innerHTML = chart.generateLegend()
-  addLegendClickHandler(legendEl)
   return chart
 }
-
-function addLegendClickHandler (legendEl) {
-  legendEl.addEventListener('click', e => {
-    let target = e.target
-    while (!target.classList.contains('legend-item')) {
-      target = target.parentElement
-    }
-    const parent = target.parentElement
-    const chartId = parseInt(parent.classList[1].split('-')[0], 10)
-    const chart = Chart.instances[chartId]
-    const index = Array.prototype.slice.call(parent.children).indexOf(target)
-
-    chart.legend.options.onClick.call(chart, e, chart.legend.legendItems[index])
-    if (chart.isDatasetVisible(index)) {
-      target.classList.add('checked')
-    } else {
-      target.classList.remove('checked')
-    }
-  })
-}
-
 function formatLabel (key) {
   const label = key.replace(/_/g, ' ').replace(/(rate|details|messages)/ig, '').trim()
     .replace(/^\w/, c => c.toUpperCase())
@@ -197,7 +154,6 @@ function update (chart, data, filled = false) {
   let keys = Object.keys(data)
   const hasDetails = keys.find(key => key.match(/_details$/))
   if (hasDetails) { keys = keys.filter(key => key.match(/_details$/)) }
-  const legend = chart.ctx.canvas.closest('.chart-container').querySelector('.legend')
   for (const key in data) {
     if (key.match(/_log$/)) continue
     if (hasDetails && !key.match(/_details$/)) continue
@@ -207,7 +163,6 @@ function update (chart, data, filled = false) {
       const color = chartColors[i % chartColors.length]
       dataset = createDataset(key, color, filled)
       chart.data.datasets.push(dataset)
-      legend.innerHTML = chart.generateLegend()
       const log = data[`${key}_log`] || data[key].log || []
       log.forEach((p, i) => {
         const pDate = new Date(date.getTime() - POLLING_RATE * (log.length - i))
@@ -215,17 +170,6 @@ function update (chart, data, filled = false) {
       })
     }
     addToDataset(dataset, data[key], date)
-    setTimeout(() => {
-      legend.children[i].querySelector('.legend-value').textContent = helpers.formatNumber(dataset.data.slice(-1)[0].y)
-    }, 50)
-  }
-  if (chart.config.options.scales.yAxes[0].stacked) {
-    setTimeout(() => {
-      const value = chart.data.datasets.reduce((accumulator, dataset) => {
-        return accumulator + dataset.data.slice(-1)[0].y
-      }, 0)
-      legend.children[legend.children.length - 1].querySelector('.legend-value').textContent = helpers.formatNumber(value)
-    }, 50)
   }
   chart.update()
 }
