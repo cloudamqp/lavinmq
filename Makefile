@@ -1,6 +1,6 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
-JS := static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map
+JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js
 DOCS := static/docs/index.html
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
@@ -17,15 +17,25 @@ bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 lib: shard.yml shard.lock
 	shards install --production
 
-bin static/js/lib man1:
+bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
 static/js/lib/%: | static/js/lib
 	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v2.1.0/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v2.9.4/chart.js-2.9.4.tgz | \
-		tar -zxOf- package/dist/Chart.bundle.min.js > $@
+	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
+		tar -zxOf- package/dist/chart.js > $@
+
+static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
+	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
+		tar -zxOf- package/dist/chunks/helpers.segment.js > $@
+
+static/js/lib/luxon.js: | static/js/lib
+	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.js
+
+static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
+	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.0/dist/chartjs-adapter-luxon.esm.js
 
 static/docs/index.html: openapi/openapi.yaml openapi/.spectral.json $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
 	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint $<
