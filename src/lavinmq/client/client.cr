@@ -10,6 +10,7 @@ require "../rough_time"
 require "../error"
 require "./amqp_connection"
 require "../config"
+require "../http/handler/websocket"
 
 module LavinMQ
   class Client
@@ -36,7 +37,7 @@ module LavinMQ
     rate_stats(%w(send_oct recv_oct))
     DEFAULT_EX = "amq.default"
 
-    def initialize(@socket : TCPSocket | OpenSSL::SSL::Socket | UNIXSocket | WebSocketIO,
+    def initialize(@socket : IO,
                    @connection_info : ConnectionInfo,
                    @vhost : VHost,
                    @user : User,

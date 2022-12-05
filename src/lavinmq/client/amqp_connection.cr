@@ -1,3 +1,5 @@
+require "../version"
+
 module LavinMQ
   module AMQPConnection
     def self.start(socket, connection_info, vhosts, users)
