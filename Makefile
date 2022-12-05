@@ -36,6 +36,8 @@ static/js/lib/luxon.js: | static/js/lib
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
 	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.0/dist/chartjs-adapter-luxon.esm.js
+	sed -i '' "7s/.*/import { _adapters } from '.\/chart.js';/" $@
+	sed -i '' "8s/.*/import { DateTime } from '.\/luxon.js';/" $@
 
 static/docs/index.html: openapi/openapi.yaml openapi/.spectral.json $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
 	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint $<
