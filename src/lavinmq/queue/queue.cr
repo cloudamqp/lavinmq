@@ -129,9 +129,10 @@ module LavinMQ
       @last_get_time = Time.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       handle_arguments
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
+      else
+        spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       end
     end
 
