@@ -57,7 +57,8 @@ module LavinMQ
 
     def queue_expire_loop
       loop do
-        if @consumers.empty? && (ttl = queue_expiration_ttl)
+        ttl = queue_expiration_ttl || break
+        if @consumers.empty?
           @log.debug { "Queue expires in #{ttl}" }
           select
           when @queue_expiration_ttl_change.receive
@@ -128,7 +129,6 @@ module LavinMQ
       @last_get_time = Time.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
@@ -177,10 +177,14 @@ module LavinMQ
             @message_ttl_change.try_send?(nil)
           end
         when "expires"
+          had_no_expires = @expires.nil?
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
             @last_get_time = Time.monotonic
             @queue_expiration_ttl_change.try_send nil
+            if had_no_expires
+              spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+            end
           end
         when "overflow"
           @reject_on_overflow ||= v.as_s == "reject-publish"
@@ -215,9 +219,13 @@ module LavinMQ
       if @dlrk && @dlx.nil?
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
+      had_no_expires = @expires.nil?
       @expires = parse_header("x-expires", Int).try &.to_i64
       validate_gt_zero("x-expires", @expires)
       @queue_expiration_ttl_change.try_send nil
+      if had_no_expires && @expires
+        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      end
       @max_length = parse_header("x-max-length", Int).try &.to_i64
       validate_positive("x-max-length", @max_length)
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
