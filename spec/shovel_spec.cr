@@ -43,7 +43,7 @@ describe LavinMQ::Shovel do
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
         q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
-        s.vhosts["/"].shovels.not_nil!.empty?.should be_true
+        s.vhosts["/"].shovels.empty?.should be_true
       end
     ensure
       ShovelSpecHelpers.cleanup "ql_"
@@ -86,7 +86,7 @@ describe LavinMQ::Shovel do
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
-        shovel.not_nil!.running?.should be_true
+        shovel.running?.should be_true
       end
     ensure
       ShovelSpecHelpers.cleanup "sf_"
@@ -112,8 +112,8 @@ describe LavinMQ::Shovel do
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ap_"
         x.publish_confirm "shovel me", "ap_q1"
-        spawn { shovel.not_nil!.run }
-        wait_for { shovel.not_nil!.running? }
+        spawn shovel.run
+        wait_for { shovel.running? }
         sleep 0.1 # Give time for message to be shoveled
         s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
         q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
@@ -141,8 +141,8 @@ describe LavinMQ::Shovel do
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
         x.publish_confirm "shovel me", "na_q1"
-        spawn { shovel.not_nil!.run }
-        wait_for { shovel.not_nil!.running? }
+        spawn { shovel.run }
+        wait_for { shovel.running? }
         sleep 0.1 # Give time for message to be shoveled
         s.vhosts["/"].queues["na_q1"].message_count.should eq 0
         q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
@@ -197,7 +197,7 @@ describe LavinMQ::Shovel do
       )
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "od_shovel", vhost)
       with_channel do |ch|
-        spawn { shovel.not_nil!.run }
+        spawn { shovel.run }
         x, q2 = ShovelSpecHelpers.setup_qs ch, "od_"
         x.publish_confirm "shovel me", "od_q1"
         rmsg = nil
@@ -226,7 +226,7 @@ describe LavinMQ::Shovel do
       end
       close_servers
       TestHelpers.setup
-      wait_for { s.vhosts["/"].shovels.not_nil!["rc_shovel"]?.try(&.running?) }
+      wait_for { s.vhosts["/"].shovels["rc_shovel"]?.try(&.running?) }
       with_channel do |ch|
         q1 = ch.queue("rc_q1", durable: true)
         q2 = ch.queue("rc_q2", durable: true)
@@ -260,7 +260,7 @@ describe LavinMQ::Shovel do
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "ssl_shovel", vhost)
       with_channel do |ch|
         x, q2 = ShovelSpecHelpers.setup_qs ch, "ssl_"
-        spawn { shovel.not_nil!.run }
+        spawn { shovel.run }
         x.publish_confirm "shovel me", "ssl_q1"
         msgs = Channel(AMQP::Client::DeliverMessage).new
         q2.subscribe { |m| msgs.send m }
@@ -289,14 +289,14 @@ describe LavinMQ::Shovel do
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch2_shovel", vhost)
       with_channel do |ch|
         x = ShovelSpecHelpers.setup_qs(ch, "prefetch2_").first
-        spawn { shovel.not_nil!.run }
+        spawn { shovel.run }
         x.publish_confirm "shovel me 1", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
         sleep 10.milliseconds
-        shovel.not_nil!.terminate
+        shovel.terminate
         s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
         s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
       end
@@ -343,14 +343,14 @@ describe LavinMQ::Shovel do
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "c_shovel", vhost)
       with_channel do |ch|
         x, _ = ShovelSpecHelpers.setup_qs ch, "c_"
-        spawn { shovel.not_nil!.run }
+        spawn { shovel.run }
         10.times do
           x.publish_confirm "shovel me", "c_q1"
         end
         wait_for { s.vhosts["/"].queues["c_q2"].message_count == 10 }
-        shovel.not_nil!.details_tuple[:message_count].should eq 10
+        shovel.details_tuple[:message_count].should eq 10
       end
-      shovel.not_nil!.state.should eq "Running"
+      shovel.state.should eq "Running"
     ensure
       ShovelSpecHelpers.cleanup "c_"
       shovel.try &.delete
@@ -375,7 +375,7 @@ describe LavinMQ::Shovel do
         context
       end
       server.bind_tcp http_port
-      spawn { server.not_nil!.listen }
+      spawn { server.listen }
 
       vhost = s.vhosts.create("x")
       # # Setup shovel source and destination
@@ -408,7 +408,7 @@ describe LavinMQ::Shovel do
         h["X-a"].should eq "b"
         body.should eq "shovel me"
 
-        s.vhosts["/"].shovels.not_nil!.empty?.should be_true
+        s.vhosts["/"].shovels.empty?.should be_true
       end
     ensure
       ShovelSpecHelpers.cleanup "ql_"
@@ -427,7 +427,7 @@ describe LavinMQ::Shovel do
         context
       end
       server.bind_tcp http_port
-      spawn { server.not_nil!.listen }
+      spawn server.listen
 
       vhost = s.vhosts.create("x")
       # # Setup shovel source and destination
