@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed 
+
+- Updated Chart.js version form v2.9.4 to v4.0.1 [#426](https://github.com/cloudamqp/lavinmq/pull/426)
+
 ## [1.0.0-beta.8] - 2022-11-29
 
 ### Added
