@@ -36,6 +36,7 @@ function render (id, unit, options = {}, stacked = false) {
     },
     options: Object.assign({
       responsive: true,
+      maintainAspectRatio: false,
       aspectRatio: 4,
       tooltips: {
         mode: 'x',
