@@ -24,9 +24,6 @@ function render (id, unit, options = {}, stacked = false) {
   const ctx = document.createElement('canvas')
   graphContainer.append(ctx)
   el.append(graphContainer)
-  const legendEl = document.createElement('div')
-  legendEl.classList.add('legend')
-  el.append(legendEl)
 
   const chart = new Chart(ctx, {
     type: 'line',
@@ -37,7 +34,7 @@ function render (id, unit, options = {}, stacked = false) {
     options: Object.assign({
       responsive: true,
       maintainAspectRatio: false,
-      aspectRatio: 4,
+      aspectRatio: 1.3,
       tooltips: {
         mode: 'x',
         intersect: false,
@@ -86,7 +83,6 @@ function render (id, unit, options = {}, stacked = false) {
       }
     }, options)
   })
-  legendEl.classList.add(chart.id + '-legend')
   return chart
 }
 function formatLabel (key) {

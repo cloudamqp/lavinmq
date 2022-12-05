@@ -187,12 +187,12 @@ const updateStats = (nodeStats) => {
     }
   }
 }
-const memoryChart = Chart.render('memoryChart', 'MB', { aspectRatio: 2 })
-const ioChart = Chart.render('ioChart', 'ops', { aspectRatio: 2 })
-const cpuChart = Chart.render('cpuChart', '%', { aspectRatio: 2 }, true)
-const connectionChurnChart = Chart.render('connectionChurnChart', '/s', { aspectRatio: 2 })
-const channelChurnChart = Chart.render('channelChurnChart', '/s', { aspectRatio: 2 })
-const queueChurnChart = Chart.render('queueChurnChart', '/s', { aspectRatio: 2 })
+const memoryChart = Chart.render('memoryChart', 'MB')
+const ioChart = Chart.render('ioChart', 'ops')
+const cpuChart = Chart.render('cpuChart', '%', true)
+const connectionChurnChart = Chart.render('connectionChurnChart', '/s')
+const channelChurnChart = Chart.render('channelChurnChart', '/s')
+const queueChurnChart = Chart.render('queueChurnChart', '/s')
 
 const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10 ** 6).toFixed(2)
 
