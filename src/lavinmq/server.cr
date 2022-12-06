@@ -190,7 +190,7 @@ module LavinMQ
     end
 
     def handle_connection(socket, connection_info)
-      client = Client.start(socket, connection_info, @vhosts, @users)
+      client = AMQPConnection.start(socket, connection_info, @vhosts, @users)
     ensure
       socket.close if client.nil?
     end
