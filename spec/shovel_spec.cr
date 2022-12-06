@@ -360,7 +360,6 @@ describe LavinMQ::Shovel do
   describe "HTTP" do
     it "should shovel" do
       # # Setup HTTP server
-      http_port = 16778
       h = Hash(String, String).new
       body = "<no body>"
       path = "<no path>"
@@ -374,8 +373,8 @@ describe LavinMQ::Shovel do
         context.response.print "ok"
         context
       end
-      server.bind_tcp http_port
-      spawn { server.listen }
+      addr = server.bind_unused_port
+      spawn server.listen
 
       vhost = s.vhosts.create("x")
       # # Setup shovel source and destination
@@ -387,7 +386,7 @@ describe LavinMQ::Shovel do
       )
       dest = LavinMQ::Shovel::HTTPDestination.new(
         "spec",
-        URI.parse("http://a:b@127.0.0.1:#{http_port}/pp")
+        URI.parse("http://a:b@#{addr}/pp")
       )
 
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -398,7 +397,7 @@ describe LavinMQ::Shovel do
         props = AMQP::Client::Properties.new("text/plain", nil, headers)
         x.publish_confirm "shovel me", "ql_q1", props: props
         shovel.run
-        wait_for { shovel.running? || shovel.terminated? }
+        sleep 0.01
 
         # Check that we have sent one message successfully
         path.should eq "/pp"
@@ -418,7 +417,6 @@ describe LavinMQ::Shovel do
 
     it "should set path for URI from headers" do
       # # Setup HTTP server
-      http_port = 16778
       path = "<no path>"
       server = HTTP::Server.new do |context|
         path = context.request.path
@@ -426,7 +424,7 @@ describe LavinMQ::Shovel do
         context.response.print "ok"
         context
       end
-      server.bind_tcp http_port
+      addr = server.bind_unused_port
       spawn server.listen
 
       vhost = s.vhosts.create("x")
@@ -439,7 +437,7 @@ describe LavinMQ::Shovel do
       )
       dest = LavinMQ::Shovel::HTTPDestination.new(
         "spec",
-        URI.parse("http://a:b@127.0.0.1:#{http_port}")
+        URI.parse("http://a:b@#{addr}")
       )
 
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
