@@ -34,7 +34,7 @@ module LavinMQ
           {
             upstream:       @upstream.name,
             vhost:          @upstream.vhost.name,
-            timestamp:      @last_changed ? Time.unix_ms(@last_changed.not_nil!) : nil,
+            timestamp:      @last_changed.try { |v| Time.unix_ms(v) },
             type:           self.is_a?(QueueLink) ? "queue" : "exchange",
             uri:            @scrubbed_uri,
             resource:       name,
@@ -52,7 +52,7 @@ module LavinMQ
 
         private def state(state)
           @log.debug { "state change #{@state}->#{state}" }
-          @last_changed = Time.utc.to_unix_ms
+          @last_changed = RoughTime.unix_ms
           @state = state
         end
 
@@ -226,7 +226,7 @@ module LavinMQ
               end
               q_name = q[:queue_name]
               cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-                @last_changed = Time.utc.to_unix_ms
+                @last_changed = RoughTime.unix_ms
                 headers, received_from = received_from_header(msg)
                 received_from << ::AMQP::Client::Arguments.new({
                   "uri"         => @scrubbed_uri,
@@ -367,7 +367,7 @@ module LavinMQ
               state(State::Running)
 
               cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-                @last_changed = Time.utc.to_unix_ms
+                @last_changed = RoughTime.unix_ms
                 headers, received_from = received_from_header(msg)
                 received_from << ::AMQP::Client::Arguments.new({
                   "uri"         => @scrubbed_uri,

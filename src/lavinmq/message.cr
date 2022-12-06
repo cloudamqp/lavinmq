@@ -59,7 +59,7 @@ module LavinMQ
 
     def initialize(@exchange_name : String, @routing_key : String,
                    body : String, @properties = AMQP::Properties.new)
-      @timestamp = Time.utc.to_unix_ms
+      @timestamp = RoughTime.unix_ms
       @size = body.bytesize.to_u64
       @body_io = IO::Memory.new(body)
     end

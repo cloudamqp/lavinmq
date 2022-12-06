@@ -126,7 +126,7 @@ module LavinMQ
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
-      @last_get_time = Time.monotonic
+      @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       handle_arguments
       if @internal
@@ -149,7 +149,7 @@ module LavinMQ
     end
 
     def redeclare
-      @last_get_time = Time.monotonic
+      @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send nil
     end
 
@@ -181,7 +181,7 @@ module LavinMQ
           had_no_expires = @expires.nil?
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
-            @last_get_time = Time.monotonic
+            @last_get_time = RoughTime.monotonic
             @queue_expiration_ttl_change.try_send nil
             if had_no_expires
               spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
@@ -318,7 +318,7 @@ module LavinMQ
 
     private def queue_expiration_ttl : Time::Span?
       if e = @expires
-        expires_in = @last_get_time + e.milliseconds - Time.monotonic
+        expires_in = @last_get_time + e.milliseconds - RoughTime.monotonic
         if expires_in > Time::Span.zero
           expires_in
         else
@@ -671,7 +671,7 @@ module LavinMQ
 
     def basic_get(no_ack, force = false, &blk : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
-      @last_get_time = Time.monotonic
+      @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send nil
       @get_count += 1
       get(no_ack) do |env|
@@ -804,7 +804,7 @@ module LavinMQ
 
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
-      @last_get_time = Time.monotonic
+      @last_get_time = RoughTime.monotonic
       was_empty = @consumers.empty?
       @consumers << consumer
       notify_consumers_empty(false) if was_empty
