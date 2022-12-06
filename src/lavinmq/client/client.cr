@@ -301,10 +301,6 @@ module LavinMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    def self.start(socket, conn_props, vhosts, users)
-      AMQPConnection.start(socket, conn_props, vhosts, users)
-    end
-
     private def with_channel(frame)
       if ch = @channels[frame.channel]?
         if ch.running?
