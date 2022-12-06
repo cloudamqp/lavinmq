@@ -1,3 +1,4 @@
+require "log"
 require "file"
 require "systemd"
 require "./reporter"
@@ -7,17 +8,16 @@ require "./log_formatter"
 
 module LavinMQ
   class Launcher
+    Log = ::Log.for "launcher"
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
-    @log : Log
     @lock_file : File?
 
     def initialize(@config : LavinMQ::Config)
-      @log = Log.for "launcher"
       reload_logger
 
       print_environment_info
-      maximize_fd_limit
+      Launcher.maximize_fd_limit
       Dir.mkdir_p @config.data_dir
       @lock_file = acquire_lock if @config.data_dir_lock
       @amqp_server = LavinMQ::Server.new(@config.data_dir)
@@ -40,32 +40,32 @@ module LavinMQ
 
     private def print_environment_info
       LavinMQ::BUILD_INFO.each_line do |line|
-        @log.info { line }
+        Log.info { line }
       end
       {% unless flag?(:release) %}
-        @log.warn { "Not built in release mode" }
+        Log.warn { "Not built in release mode" }
       {% end %}
       {% if flag?(:preview_mt) %}
-        @log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
+        Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
-      @log.info { "Pid: #{Process.pid}" }
-      @log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
-      @log.info { "Data directory: #{@config.data_dir}" }
+      Log.info { "Pid: #{Process.pid}" }
+      Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
+      Log.info { "Data directory: #{@config.data_dir}" }
     end
 
     private def reload_logger
       log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
       backend = if ENV.has_key?("JOURNAL_STREAM")
-                  Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
-                  Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
-      Log.setup(@config.log_level, backend)
-      # Log.setup do |c|
+      ::Log.setup(@config.log_level, backend)
+      # ::Log.setup do |c|
       #   c.bind "*", , backend
       # end
       target = (path = @config.log_file) ? path : "stdout"
-      @log.info &.emit("logger settings", level: @config.log_level.to_s, target: target)
+      Log.info &.emit("logger settings", level: @config.log_level.to_s, target: target)
     end
 
     private def listen
@@ -79,7 +79,7 @@ module LavinMQ
           spawn @amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx),
             name: "AMQPS listening on #{@config.amqps_port}"
         else
-          @log.warn { "Certificate for AMQPS not @configured" }
+          Log.warn { "Certificate for AMQPS not @configured" }
         end
       end
 
@@ -105,14 +105,14 @@ module LavinMQ
       end
     end
 
-    private def maximize_fd_limit
+    def self.maximize_fd_limit
       _, fd_limit_max = System.file_descriptor_limit
       System.file_descriptor_limit = fd_limit_max
       fd_limit_current, _ = System.file_descriptor_limit
-      @log.info { "FD limit: #{fd_limit_current}" }
+      Log.info { "FD limit: #{fd_limit_current}" }
       if fd_limit_current < 1025
-        @log.warn { "The file descriptor limit is very low, consider raising it." }
-        @log.warn { "You need one for each connection and two for each durable queue, and some more." }
+        Log.warn { "The file descriptor limit is very low, consider raising it." }
+        Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
     end
 
@@ -135,9 +135,9 @@ module LavinMQ
     private def reload_server
       SystemD.notify_reloading
       if @config.config_file.empty?
-        @log.info { "No configuration file to reload" }
+        Log.info { "No configuration file to reload" }
       else
-        @log.info { "Reloading configuration file '#{@config.config_file}'" }
+        Log.info { "Reloading configuration file '#{@config.config_file}'" }
         @config.parse(@config.config_file)
         reload_logger
         reload_tls_context
@@ -149,16 +149,16 @@ module LavinMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         SystemD.notify_stopping
-        @log.info { "Shutting down gracefully..." }
+        Log.info { "Shutting down gracefully..." }
+        @http_server.close
         @amqp_server.close
-        @http_server.try &.close
         @lock_file.try &.close
-        @log.info { "Fibers: " }
-        Fiber.list { |f| @log.info { f.inspect } }
+        Log.info { "Fibers: " }
+        Fiber.list { |f| Log.info { f.inspect } }
         exit 0
       else
-        @log.info { "Fibers: " }
-        Fiber.list { |f| @log.info { f.inspect } }
+        Log.info { "Fibers: " }
+        Fiber.list { |f| Log.info { f.inspect } }
         exit 1
       end
     end
@@ -181,10 +181,10 @@ module LavinMQ
       begin
         lock.flock_exclusive(blocking: false)
       rescue
-        @log.info { "Data directory locked by '#{lock.gets_to_end}'" }
-        @log.info { "Waiting for file lock to be released" }
+        Log.info { "Data directory locked by '#{lock.gets_to_end}'" }
+        Log.info { "Waiting for file lock to be released" }
         lock.flock_exclusive(blocking: true)
-        @log.info { "Lock acquired" }
+        Log.info { "Lock acquired" }
       end
       lock.truncate
       lock.print System.hostname
@@ -230,7 +230,7 @@ module LavinMQ
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
         tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
       else
-        @log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
+        Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
       end
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
