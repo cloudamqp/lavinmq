@@ -137,26 +137,21 @@ jobs:
       - name: Run LavinMQ in background
         run: |
           chmod +x bin/*
-          bin/lavinmq --data-dir=/tmp/amqp --bind=::1 &
+          bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
 
       - name: Clone java client
         uses: actions/checkout@v3
         with:
-          repository: rabbitmq/rabbitmq-java-client
+          repository: cloudamqp/rabbitmq-java-client
+          ref: lavinmq-compatible-tests
           path: rabbitmq-java-client
 
       - name: Run java tests (allowed to fail)
         id: test
-        continue-on-error: true
         run: |
           cd rabbitmq-java-client
           make deps
-          sed -i '/Recovery/d' src/test/java/com/rabbitmq/client/test/functional/FunctionalTests.java
           ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests -Drabbitmqctl.bin=../bin/lavinmqctl
-
-      - name: >-
-          Test outcome: ${{ steps.test.outcome }}
-        run: echo NOOP
 
   bunny-test:
     name: Bunny client test
