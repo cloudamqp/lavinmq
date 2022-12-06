@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/rpm.yml
+      - Makefile
       - Dockerfile.rpm
       - build/lavinmq.spec
       - shard.lock
@@ -17,6 +18,7 @@ on:
       - v*
     paths:
       - .github/workflows/rpm.yml
+      - Makefile
       - Dockerfile.rpm
       - build/lavinmq.spec
       - shard.lock

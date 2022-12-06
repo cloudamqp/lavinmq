@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/docker.yml
+      - Makefile
       - Dockerfile
       - shard.lock
       - src/**
@@ -16,6 +17,7 @@ on:
       - 'v*'
     paths:
       - .github/workflows/docker.yml
+      - Makefile
       - Dockerfile
       - shard.lock
       - src/**

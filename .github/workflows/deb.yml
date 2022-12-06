@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/deb.yml
+      - Makefile
       - Dockerfile.deb
       - build/deb
       - shard.lock
@@ -17,6 +18,7 @@ on:
     paths:
       - .github/workflows/deb.yml
       - Dockerfile.deb
+      - Makefile
       - build/deb
       - shard.lock
       - src/**
