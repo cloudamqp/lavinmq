@@ -1,5 +1,5 @@
 import * as helpers from './helpers.js'
-import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title } from './lib/chart.js'
+import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title, Filler } from './lib/chart.js'
 import './lib/chartjs-adapter-luxon.esm.js'
 Chart.register(TimeScale)
 Chart.register(LinearScale)
@@ -9,6 +9,7 @@ Chart.register(LineElement)
 Chart.register(Legend)
 Chart.register(Tooltip)
 Chart.register(Title)
+Chart.register(Filler)
 
 const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
   '#EE6868', '#2F6497', '#6C8893']
@@ -24,9 +25,6 @@ function render (id, unit, options = {}, stacked = false) {
   const ctx = document.createElement('canvas')
   graphContainer.append(ctx)
   el.append(graphContainer)
-  const legendEl = document.createElement('div')
-  legendEl.classList.add('legend')
-  el.append(legendEl)
 
   const chart = new Chart(ctx, {
     type: 'line',
@@ -37,7 +35,7 @@ function render (id, unit, options = {}, stacked = false) {
     options: Object.assign({
       responsive: true,
       maintainAspectRatio: false,
-      aspectRatio: 4,
+      aspectRatio: 1.3,
       tooltips: {
         mode: 'x',
         intersect: false,
@@ -86,7 +84,6 @@ function render (id, unit, options = {}, stacked = false) {
       }
     }, options)
   })
-  legendEl.classList.add(chart.id + '-legend')
   return chart
 }
 function formatLabel (key) {

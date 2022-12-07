@@ -82,9 +82,9 @@
       import * as Vhosts from './js/vhosts.js'
       import * as HTTP from './js/http.js'
 
-      const msgChart = Chart.render('msgChart', 'msgs', { aspectRatio: 2 }, true)
-      const dataChart = Chart.render('dataChart', 'bytes/s', { aspectRatio: 2 })
-      const rateChart = Chart.render('rateChart', 'msgs/s', { aspectRatio: 2 })
+      const msgChart = Chart.render('msgChart', 'msgs', true)
+      const dataChart = Chart.render('dataChart', 'bytes/s')
+      const rateChart = Chart.render('rateChart', 'msgs/s')
 
       function updateCharts (response) {
         let msgStats = {
