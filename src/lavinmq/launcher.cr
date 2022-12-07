@@ -17,6 +17,7 @@ module LavinMQ
       reload_logger
 
       print_environment_info
+      print_max_map_count
       Launcher.maximize_fd_limit
       Dir.mkdir_p @config.data_dir
       @lock_file = acquire_lock if @config.data_dir_lock
@@ -51,6 +52,18 @@ module LavinMQ
       Log.info { "Pid: #{Process.pid}" }
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
+    end
+
+    private def print_max_map_count
+      {% if flag?(:linux) %}
+        max_map_count = File.read("/proc/sys/vm/max_map_count").to_i
+        Log.info { "Max mmap count: #{max_map_count}" }
+        if max_map_count < 100_000
+          Log.warn { "The max mmap count limit is very low, consider raising it." }
+          Log.warn { "The limits should be higher than the maximum of # connections * 2 + # consumer * 2 + # queues * 4" }
+          Log.warn { "sysctl -w vm.max_map_count = 1000000" }
+        end
+      {% end %}
     end
 
     private def reload_logger
