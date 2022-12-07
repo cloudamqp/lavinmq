@@ -191,7 +191,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
   properties.headers = DOM.parseJSON(data.get('headers'))
   const body = {
     payload: data.get('payload'),
-    payload_encoding: 'string',
+    payload_encoding: data.get('payload_encoding'),
     routing_key: queue,
     properties
   }
