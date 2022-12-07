@@ -15,7 +15,7 @@ RUN tar -czf ../lavinmq_${version}.orig.tar.gz -C /usr/src lavinmq_${version}
 COPY debian/ debian/
 COPY extras/lavinmq.service debian/
 RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
-ARG DEB_BUILD_OPTIONS="parallel=2"
+ARG DEB_BUILD_OPTIONS="parallel=1"
 RUN debuild -us -uc
 
 FROM ubuntu:22.04 AS test
