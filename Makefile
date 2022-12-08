@@ -8,16 +8,16 @@ override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 .PHONY: all
 all: $(BINS)
 
-bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $@ $(CRYSTAL_FLAGS)
-
-bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
-
-bin/lavinmqperf: src/lavinmqperf.cr lib | bin
+bin/lavinmq: src/lavinmq.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
 
-bin/lavinmqctl: src/lavinmqctl.cr lib | bin
+bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $@ -Dpreview_mt --debug $(CRYSTAL_FLAGS)
+
+bin/lavinmqperf: src/lavinmqperf.cr src/lavinmq/version.cr src/stdlib/resource.cr lib | bin
+	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
+
+bin/lavinmqctl: src/lavinmqctl.cr src/lavinmq/version.cr src/lavinmq/config.cr src/lavinmq/http/constants.cr lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
