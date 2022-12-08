@@ -1,5 +1,5 @@
 require "./lavinmq/version"
-require "./stdlib/*"
+require "./stdlib/resource"
 require "option_parser"
 require "amqp-client"
 require "benchmark"
