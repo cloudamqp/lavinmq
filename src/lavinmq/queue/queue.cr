@@ -49,6 +49,7 @@ module LavinMQ
 
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
+    @unacked_lock = Mutex.new(:unchecked)
 
     getter? paused = false
     getter paused_change = Channel(Bool).new
@@ -699,8 +700,10 @@ module LavinMQ
           if env
             unless no_ack
               @log.debug { "Counting as unacked: #{sp}" }
-              @unacked_count += 1
-              @unacked_bytesize += sp.bytesize
+              @unacked_lock.synchronize do
+                @unacked_count += 1
+                @unacked_bytesize += sp.bytesize
+              end
             end
             yield env # deliver the message
             if no_ack
@@ -713,8 +716,10 @@ module LavinMQ
           @ready.insert(sp)
           unless no_ack
             @log.debug { "Not counting as unacked: #{sp}" }
-            @unacked_count -= 1
-            @unacked_bytesize -= sp.bytesize
+            @unacked_lock.synchronize do
+              @unacked_count -= 1
+              @unacked_bytesize -= sp.bytesize
+            end
           end
           if ex.is_a? ReadError
             close
@@ -761,9 +766,11 @@ module LavinMQ
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @ack_count += 1
-      @unacked_count -= 1
-      @unacked_bytesize -= sp.bytesize
+      @unacked_lock.synchronize do
+        @ack_count += 1
+        @unacked_count -= 1
+        @unacked_bytesize -= sp.bytesize
+      end
       delete_message(sp)
     end
 
@@ -786,8 +793,11 @@ module LavinMQ
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @unacked_count -= 1
-      @unacked_bytesize -= sp.bytesize
+      @unacked_lock.synchronize do
+        @reject_count += 1
+        @unacked_count -= 1
+        @unacked_bytesize -= sp.bytesize
+      end
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
@@ -799,7 +809,6 @@ module LavinMQ
       else
         expire_msg(sp, :rejected)
       end
-      @reject_count += 1
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
