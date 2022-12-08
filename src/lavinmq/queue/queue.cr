@@ -55,7 +55,7 @@ module LavinMQ
 
     @consumers_empty_change = Channel(Bool).new
 
-    def queue_expire_loop
+    private def queue_expire_loop
       loop do
         if @consumers.empty? && (ttl = queue_expiration_ttl)
           @log.debug { "Queue expires in #{ttl}" }
@@ -78,7 +78,7 @@ module LavinMQ
       end
     end
 
-    def message_expire_loop
+    private def message_expire_loop
       loop do
         if @ready.empty?
           @ready.empty_change.receive
