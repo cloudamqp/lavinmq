@@ -55,4 +55,43 @@ describe LavinMQ::PriorityQueue do
       end
     end
   end
+
+  context "after restart" do
+    after_each do
+      FileUtils.rm_rf("/tmp/lavinmq-spec-priority-queue")
+    end
+
+    it "can restore the priority queue" do
+      server = LavinMQ::Server.new("/tmp/lavinmq-spec-priority-queue")
+      begin
+        tcp_server = TCPServer.new("::1", 0)
+        port = tcp_server.local_address.port
+        spawn server.listen(tcp_server)
+        with_channel(port: port) do |ch|
+          q = ch.queue("pq", args: AMQP::Client::Arguments.new({"x-max-priority": 9}))
+          q.publish "m1"
+          q.publish "m2", props: AMQP::Client::Properties.new(priority: 9)
+          q.get(no_ack: false).try(&.body_io.to_s).should eq "m2"
+          q.get(no_ack: false).try(&.body_io.to_s).should eq "m1"
+        end
+      ensure
+        server.close
+      end
+      s2 = LavinMQ::Server.new("/tmp/lavinmq-spec-priority-queue")
+      begin
+        tcp_server = TCPServer.new("::1", 0)
+        port = tcp_server.local_address.port
+        spawn s2.listen(tcp_server)
+        with_channel(port: port) do |ch|
+          q = ch.queue("pq", args: AMQP::Client::Arguments.new({"x-max-priority": 9}))
+          q.publish "m3", props: AMQP::Client::Properties.new(priority: 8)
+          q.get(no_ack: false).try(&.body_io.to_s).should eq "m2"
+          q.get(no_ack: false).try(&.body_io.to_s).should eq "m3"
+          q.get(no_ack: false).try(&.body_io.to_s).should eq "m1"
+        end
+      ensure
+        s2.close
+      end
+    end
+  end
 end

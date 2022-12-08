@@ -70,7 +70,8 @@ module TestHelpers
     if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
       name = formatter.@last_description
     end
-    conn = AMQP::Client.new(**args.merge(port: LavinMQ::Config.instance.amqp_port, name: name)).connect
+    args = {port: LavinMQ::Config.instance.amqp_port, name: name}.merge(args)
+    conn = AMQP::Client.new(**args).connect
     ch = conn.channel
     yield ch
   ensure
