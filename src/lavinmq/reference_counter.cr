@@ -23,18 +23,15 @@ module LavinMQ
 
     def dec(k : T) : UInt32
       @lock.synchronize do
-        if v = @counter.fetch(k, nil)
-          cnt = v - 1
-          if cnt.zero?
-            @counter.delete k
-            @on_zero.call k
-          else
-            @counter[k] = cnt
-          end
-          cnt
+        v = @counter[k]
+        cnt = v - 1
+        if cnt.zero?
+          @counter.delete k
+          @on_zero.call k
         else
-          raise KeyError.new("Missing key #{k}")
+          @counter[k] = cnt
         end
+        cnt
       end
     end
 
