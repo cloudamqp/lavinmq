@@ -185,7 +185,7 @@ module LavinMQ
         # we redeclare the ready queue with a larger initial capacity
         enq_count = (enq.size.to_i64 - (sizeof(Int32))) // SP_SIZE - acked.size
         capacity = Math.max(enq_count, 1024)
-        @ready = ready = ReadyQueue.new Math.pw2ceil(capacity)
+        @ready = ready = @ready.class.new Math.pw2ceil(capacity)
 
         lost_msgs = 0
         loop do
