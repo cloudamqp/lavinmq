@@ -20,7 +20,7 @@ module LavinMQ
       print_max_map_count
       Launcher.maximize_fd_limit
       Dir.mkdir_p @config.data_dir
-      @lock_file = acquire_lock if @config.data_dir_lock
+      @lock_file = acquire_lock if @config.data_dir_lock?
       @amqp_server = LavinMQ::Server.new(@config.data_dir)
       @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?

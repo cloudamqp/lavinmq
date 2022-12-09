@@ -179,7 +179,7 @@ module LavinMQ
 
     private def self.guest_only_loopback?(remote_address, user) : Bool
       return true unless user.name == "guest"
-      return true unless Config.instance.guest_only_loopback
+      return true unless Config.instance.guest_only_loopback?
       remote_address.loopback?
     end
   end

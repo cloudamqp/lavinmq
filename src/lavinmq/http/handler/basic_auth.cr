@@ -61,7 +61,7 @@ module LavinMQ
 
       private def guest_only_loopback?(context, user) : Bool
         return true unless user.name == "guest"
-        return true unless Config.instance.guest_only_loopback
+        return true unless Config.instance.guest_only_loopback?
         case context.request.remote_address
         when Socket::IPAddress
           return context.request.remote_address.as(Socket::IPAddress).loopback?

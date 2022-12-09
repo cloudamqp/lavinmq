@@ -32,17 +32,17 @@ module LavinMQ
     property queue_max_acks = 2_000_000         # number of message
     property stats_interval = 5000              # millisecond
     property stats_log_size = 120               # 10 mins at 5s interval
-    property set_timestamp = false              # in message headers when receive
+    property? set_timestamp = false             # in message headers when receive
     property file_buffer_size = 16384           # bytes
     property socket_buffer_size = 16384         # bytes
-    property tcp_nodelay = false                # bool
+    property? tcp_nodelay = false               # bool
     property segment_size : Int32 = 8 * 1024**2 # bytes
-    property raise_gc_warn : Bool = false
-    property data_dir_lock : Bool = true
+    property? raise_gc_warn : Bool = false
+    property? data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
     property tcp_recv_buffer_size : Int32? = nil
     property tcp_send_buffer_size : Int32? = nil
-    property guest_only_loopback : Bool = true
+    property? guest_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
     @@instance : Config = self.new
 

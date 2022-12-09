@@ -218,7 +218,7 @@ module LavinMQ
           socket.tcp_keepalive_count = keepalive[2]
         end
       end
-      socket.tcp_nodelay = true if Config.instance.tcp_nodelay
+      socket.tcp_nodelay = true if Config.instance.tcp_nodelay?
       Config.instance.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       Config.instance.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
     end

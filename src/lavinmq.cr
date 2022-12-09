@@ -7,7 +7,7 @@ config = LavinMQ::Config.instance
 LavinMQ::ServerCLI.new(config).parse
 
 {% unless flag?(:gc_none) %}
-  if config.raise_gc_warn
+  if config.raise_gc_warn?
     LibGC.set_warn_proc ->(msg, _word) {
       raise String.new(msg)
     }
