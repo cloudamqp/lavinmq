@@ -12,15 +12,15 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter id, client, name
+      getter id, name
       property? running = true
       getter? flow = true
       getter log : Log
       getter consumers = Array(Consumer).new
-      getter confirm = false
       getter prefetch_count = 0_u16
       getter global_prefetch_count = 0_u16
       getter has_capacity = ::Channel(Bool).new
+      @confirm = false
       @confirm_total = 0_u64
       @next_publish_mandatory = false
       @next_publish_immediate = false
@@ -36,7 +36,6 @@ module LavinMQ
       @tx = false
 
       rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
-      property deliver_count, redeliver_count
 
       def initialize(@client : Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
