@@ -14,7 +14,6 @@ module LavinMQ
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
-    property unix_socket_tls_terminated = false
     property tls_cert_path = ""
     property tls_key_path = ""
     property tls_ciphers = ""
