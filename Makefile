@@ -9,10 +9,13 @@ override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 all: $(BINS)
 
 bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(basename $@) $(CRYSTAL_FLAGS)
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
-	crystal build $< -o $(basename $@) $(CRYSTAL_FLAGS) --debug
+	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
+
+bin/lavinmqperf: src/lavinmqperf.cr lib | bin
+	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
 	shards install --production
