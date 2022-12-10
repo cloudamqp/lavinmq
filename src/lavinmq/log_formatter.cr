@@ -1,3 +1,5 @@
+require "log"
+
 module LavinMQ
   struct JournalLogFormat < Log::StaticFormatter
     def run
