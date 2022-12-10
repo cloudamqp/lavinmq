@@ -49,20 +49,22 @@ module LavinMQ
       @log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
-        set_socket_options(client)
-        set_buffer_size(client)
-        case Config.instance.tcp_proxy_protocol
-        when 1
-          spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
-        when 2
-          spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
-        else
-          conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
-          spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
+        spawn(name: "Accept TCP socket") do
+          set_socket_options(client)
+          set_buffer_size(client)
+          case Config.instance.tcp_proxy_protocol
+          when 1
+            handle_proxied_v1_connection(client)
+          when 2
+            handle_proxied_v2_connection(client)
+          else
+            conn_info = ConnectionInfo.new(client.remote_address, client.local_address)
+            handle_connection(client, conn_info)
+          end
+        rescue ex : IO::Error
+          Log.warn(exception: ex) { "while accepting connection" }
+          client.try &.close rescue nil
         end
-      rescue ex : IO::Error
-        Log.warn(exception: ex) { "while accepting connection" }
-        client.try &.close rescue nil
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
@@ -74,17 +76,17 @@ module LavinMQ
       @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
       while client = s.accept?
-        begin
+        spawn(name: "Accept UNIX socket") do
           set_buffer_size(client)
           case Config.instance.unix_proxy_protocol
           when 1
-            spawn(handle_proxied_v1_connection(client), name: "Server#handle_proxied_v1_connection(tcp)")
+            handle_proxied_v1_connection(client)
           when 2
-            spawn(handle_proxied_v2_connection(client), name: "Server#handle_proxied_v2_connection(tcp)")
+            handle_proxied_v2_connection(client)
           else
             # TODO: use unix socket address, don't fake local
             conn_info = ConnectionInfo.local
-            spawn(handle_connection(client, conn_info), name: "Server#handle_connection(tcp)")
+            handle_connection(client, conn_info)
           end
         rescue ex : IO::Error
           @log.warn(exception: ex) { "IO::Error while accepting connection" }
@@ -107,8 +109,8 @@ module LavinMQ
       @listeners[s] = :amqps
       @log.info { "Listening on #{s.local_address} (TLS)" }
       while client = s.accept?
-        remote_addr = client.remote_address
-        begin
+        spawn(name: "Accept TLS socket") do
+          remote_addr = client.remote_address
           set_socket_options(client)
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
           @log.info { "Connected #{ssl_client.tls_version} #{ssl_client.cipher}" }
@@ -117,7 +119,7 @@ module LavinMQ
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
-          spawn handle_connection(ssl_client, conn_info), name: "Server#handle_connection(tls)"
+          handle_connection(ssl_client, conn_info)
         rescue ex
           @log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
           begin
