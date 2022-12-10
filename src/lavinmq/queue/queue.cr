@@ -334,7 +334,7 @@ module LavinMQ
       delete if @exclusive
       Fiber.yield
       notify_observers(:close)
-      @log.info { "Closed" }
+      @log.debug { "Closed" }
       true
     end
 
