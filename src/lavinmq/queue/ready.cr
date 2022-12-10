@@ -212,7 +212,7 @@ module LavinMQ
       def purge
         @lock.synchronize do
           count = @ready.size
-          if @ready.capacity == @initial_capacity
+          if capacity == @initial_capacity
             @ready.clear
           else
             @ready = Deque(SegmentPosition).new(@initial_capacity)
@@ -228,7 +228,7 @@ module LavinMQ
       end
 
       def capacity
-        @ready.capacity
+        @ready.@capacity
       end
 
       def compact
