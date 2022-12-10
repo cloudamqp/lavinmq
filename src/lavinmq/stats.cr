@@ -34,8 +34,8 @@ module LavinMQ
           until @{{name.id}}_log.size < log_size
             @{{name.id}}_log.shift
           end
-          @{{name.id}}_log.push @{{name.id}}_rate
           @{{name.id}}_rate = ((@{{name.id}}_count - @{{name.id}}_count_prev) / interval).round(1)
+          @{{name.id}}_log.push @{{name.id}}_rate
           @{{name.id}}_count_prev = @{{name.id}}_count
         {% end %}
         {% for name in log_keys %}
