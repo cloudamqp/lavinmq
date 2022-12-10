@@ -47,8 +47,7 @@ module LavinMQ
     def listen(s : TCPServer)
       @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
-      loop do
-        client = s.accept? || break
+      while client = s.accept?
         spawn(name: "Accept TCP socket") do
           set_socket_options(client)
           set_buffer_size(client)
