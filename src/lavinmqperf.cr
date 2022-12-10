@@ -421,6 +421,7 @@ class ConnectionCount < Perf
   @consumers = 0
   @queue = "connection-count"
   @random_localhost = false
+  @done = Channel(Int32).new(100)
 
   def initialize
     super
@@ -445,22 +446,28 @@ class ConnectionCount < Perf
     maximize_fd_limit
   end
 
+  private def connect(i)
+    c = client.connect
+    @channels.times do |j|
+      ch = c.channel
+      @consumers.times do |k|
+        ch.queue_declare @queue if i == j == k == 0
+        # Send raw frame, no wait, no fiber
+        c.write BasicConsumeFrame.new(ch.id, 0_u16, @queue, "", false, true, false, true, AMQP::Client::Arguments.new)
+      end
+    end
+    print '.'
+    @done.send i
+  end
+
   def run
     super
     count = 0
     loop do
       start = Time.monotonic
       @connections.times do |i|
-        c = client.connect
-        @channels.times do |j|
-          ch = c.channel
-          @consumers.times do |k|
-            ch.queue_declare @queue if i == j == k == 0
-            # Send raw frame, no wait, no fiber
-            c.write BasicConsumeFrame.new(ch.id, 0_u16, @queue, "", false, true, false, true, AMQP::Client::Arguments.new)
-          end
-        end
-        print '.'
+        spawn connect(i)
+        @done.receive
         if (i + 1) % 100 == 0
           print i + 1
           stop = Time.monotonic
