@@ -300,9 +300,7 @@ module LavinMQ
       if File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
-      loop do
-        break if closed?
-        sleep Config.instance.stats_interval.milliseconds
+      until closed?
         @stats_collection_duration_seconds_total = Time.measure do
           @stats_rates_collection_duration_seconds = Time.measure do
             update_stats_rates
@@ -311,6 +309,7 @@ module LavinMQ
             system_metrics(statm)
           end
         end
+        sleep Config.instance.stats_interval.milliseconds
       end
     ensure
       statm.try &.close
