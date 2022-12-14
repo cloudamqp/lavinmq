@@ -24,7 +24,7 @@ describe "Flow" do
   end
 
   it "should support server flow" do
-    s.flow(false)
+    Server.flow(false)
     expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
       with_channel do |ch|
         q = ch.queue
@@ -32,6 +32,6 @@ describe "Flow" do
       end
     end
   ensure
-    s.flow(true)
+    Server.flow(true)
   end
 end

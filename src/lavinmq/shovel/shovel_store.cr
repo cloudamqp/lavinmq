@@ -26,7 +26,8 @@ module LavinMQ
         config["src-exchange-key"]?.try &.as_s?,
         delete_after,
         prefetch,
-        ack_mode)
+        ack_mode,
+        direct_user: @vhost.users.direct_user)
       dest = destination(name, config, ack_mode, delete_after, prefetch)
       shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
       @shovels[name] = shovel
@@ -61,7 +62,8 @@ module LavinMQ
           config["dest-exchange"]?.try &.as_s?,
           config["dest-exchange-key"]?.try &.as_s?,
           delete_after: delete_after,
-          prefetch: prefetch)
+          prefetch: prefetch,
+          direct_user: @vhost.users.direct_user)
       end
     end
   end

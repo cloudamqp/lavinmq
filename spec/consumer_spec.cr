@@ -24,8 +24,6 @@ describe LavinMQ::Client::Channel::Consumer do
         msgs.receive.should eq 1
         msgs.receive.should eq 2
       end
-    ensure
-      s.vhosts["/"].delete_queue("consumer-priority")
     end
   end
 
@@ -53,8 +51,6 @@ describe LavinMQ::Client::Channel::Consumer do
           m.body_io.to_s.should eq "priority"
         end
       end
-    ensure
-      s.vhosts["/"].delete_queue("consumer-priority")
     end
 
     it "should send to prioritized consumer if ready" do
@@ -88,8 +84,6 @@ describe LavinMQ::Client::Channel::Consumer do
           m.body_io.to_s.should eq "priority"
         end
       end
-    ensure
-      s.vhosts["/"].delete_queue("consumer-priority")
     end
 
     it "should round-robin to high priority consumers" do
@@ -115,8 +109,6 @@ describe LavinMQ::Client::Channel::Consumer do
           msgs.receive.should eq 2
         end
       end
-    ensure
-      s.vhosts["/"].delete_queue("consumer-priority")
     end
 
     it "should accept any integer as x-priority" do

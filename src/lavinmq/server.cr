@@ -29,11 +29,29 @@ module LavinMQ
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
-      @users = UserStore.instance(@data_dir)
+      @users = UserStore.new(@data_dir)
       @vhosts = VHostStore.new(@data_dir, @users)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+    end
+
+    def stop
+      return if @closed
+      @closed = true
+      @vhosts.each_value &.close
+      Fiber.yield
+    end
+
+    def restart
+      stop
+      Dir.mkdir_p @data_dir
+      @users = UserStore.new(@data_dir)
+      @vhosts = VHostStore.new(@data_dir, @users)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      apply_parameter
+      @closed = false
+      Fiber.yield
     end
 
     def connections
@@ -173,11 +191,6 @@ module LavinMQ
         else raise "Unexpected listener '#{l.class}'"
         end
       end
-    end
-
-    def stop_shovels
-      @log.info { "Stopping shovels" }
-      @vhosts.each_value &.stop_shovels
     end
 
     private def apply_parameter(parameter : Parameter? = nil)

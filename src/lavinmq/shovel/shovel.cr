@@ -40,14 +40,18 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     direct_user : User? = nil)
         @tag = "Shovel[#{@name}]"
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
-          direct_user = UserStore.instance.direct_user
-          @uri.user = direct_user.name
-          @uri.password = direct_user.plain_text_password
+          if direct_user
+            @uri.user = direct_user.name
+            @uri.password = direct_user.plain_text_password
+          else
+            raise ArgumentError.new("direct_user required")
+          end
         end
         params = @uri.query_params
         params["name"] ||= "Shovel #{@name} source"
@@ -149,13 +153,17 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE)
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     direct_user : User? = nil)
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
-          direct_user = UserStore.instance.direct_user
-          @uri.user = direct_user.name
-          @uri.password = direct_user.plain_text_password
+          if direct_user
+            @uri.user = direct_user.name
+            @uri.password = direct_user.plain_text_password
+          else
+            raise ArgumentError.new("direct_user required")
+          end
         end
         params = @uri.query_params
         params["name"] ||= "Shovel #{@name} sink"

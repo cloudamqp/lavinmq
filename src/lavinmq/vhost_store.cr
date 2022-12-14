@@ -7,8 +7,7 @@ module LavinMQ
     include Enumerable({String, VHost})
     @log = Log.for "vhoststore"
 
-    def initialize(@data_dir : String,
-                   @users : UserStore)
+    def initialize(@data_dir : String, @users : UserStore)
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -21,11 +20,11 @@ module LavinMQ
       end
     end
 
-    def create(name, user = @users.default_user, save = true)
+    def create(name : String, user : User = @users.default_user, save : Bool = true)
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, user)
+      vhost = VHost.new(name, @data_dir, @users)
       @log.info { "vhost=#{name} created" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
@@ -57,14 +56,13 @@ module LavinMQ
 
     private def load!
       path = File.join(@data_dir, "vhosts.json")
-      default_user = @users.default_user
       if File.exists? path
         @log.debug { "Loading vhosts from file" }
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
-            @vhosts[name] = VHost.new(name, @data_dir, default_user)
+            @vhosts[name] = VHost.new(name, @data_dir, @users)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
         rescue JSON::ParseException

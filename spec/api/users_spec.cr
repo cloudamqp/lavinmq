@@ -16,8 +16,6 @@ describe LavinMQ::HTTP::UsersController do
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/users", headers: hdrs)
       response.status_code.should eq 401
-    ensure
-      delete("/api/users/arnold")
     end
   end
 
@@ -28,8 +26,6 @@ describe LavinMQ::HTTP::UsersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      delete("/api/users/alan")
     end
   end
 
@@ -42,9 +38,6 @@ describe LavinMQ::HTTP::UsersController do
       })
       response = post("/api/users/bulk-delete", body: body)
       response.status_code.should eq 204
-    ensure
-      delete("/api/users/alan1")
-      delete("/api/users/alan2")
     end
 
     it "should handle request with empty body" do
@@ -74,8 +67,6 @@ describe LavinMQ::HTTP::UsersController do
       s.users.create("alan", "alan")
       response = get("/api/users/alan")
       response.status_code.should eq 200
-    ensure
-      delete("/api/users/alan")
     end
   end
 
@@ -89,8 +80,6 @@ describe LavinMQ::HTTP::UsersController do
       u = s.users["alan"]
       ok = u.not_nil!.password.try &.verify("test")
       ok.should be_true
-    ensure
-      delete("/api/users/alan")
     end
 
     it "should create user with password_hash" do
@@ -101,8 +90,6 @@ describe LavinMQ::HTTP::UsersController do
       response.status_code.should eq 201
       u = s.users["alan"]
       u.not_nil!.password.not_nil!.verify("test12").should be_true
-    ensure
-      delete("/api/users/alan")
     end
 
     it "should create user with empty password_hash" do
@@ -114,8 +101,6 @@ describe LavinMQ::HTTP::UsersController do
       hrds = HTTP::Headers{"Authorization" => "Basic YWxhbjo="} # alan:
       response = get("/api/users/alan", headers: hrds)
       response.status_code.should eq 401
-    ensure
-      delete("/api/users/alan")
     end
 
     it "should create user with uniq tags" do
@@ -127,8 +112,6 @@ describe LavinMQ::HTTP::UsersController do
       response.status_code.should eq 201
       s.users["alan"].tags.size.should eq 1
       s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
-    ensure
-      delete("/api/users/alan")
     end
 
     it "should update user" do
@@ -140,8 +123,6 @@ describe LavinMQ::HTTP::UsersController do
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
       s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
-    ensure
-      delete("/api/users/alan")
     end
 
     it "should update user with uniq tags" do
@@ -154,8 +135,6 @@ describe LavinMQ::HTTP::UsersController do
       response.status_code.should eq 204
       s.users["alan"].tags.size.should eq 1
       s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
-    ensure
-      delete("/api/users/alan")
     end
 
     it "should handle request with empty body" do

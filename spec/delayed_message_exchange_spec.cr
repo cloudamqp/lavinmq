@@ -14,8 +14,6 @@ describe "Delayed Message Exchange" do
         dlx_exchange = q.not_nil!.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_exchange.should eq x_name
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
     end
   end
 
@@ -32,9 +30,6 @@ describe "Delayed Message Exchange" do
       wait_for { queue.message_count == 1 }
       queue.message_count.should eq 1
     end
-  ensure
-    s.vhosts["/"].delete_exchange(x_name)
-    s.vhosts["/"].delete_queue(q_name)
   end
 
   q_name = "delayed_q"
@@ -53,9 +48,6 @@ describe "Delayed Message Exchange" do
       q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
       q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
     end
-  ensure
-    s.vhosts["/"].delete_exchange(x_name)
-    s.vhosts["/"].delete_queue(q_name)
   end
 
   it "should deliver in correct order" do
@@ -74,9 +66,6 @@ describe "Delayed Message Exchange" do
       wait_for { queue.message_count == 1 }
       q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-long")
     end
-  ensure
-    s.vhosts["/"].delete_exchange(x_name)
-    s.vhosts["/"].delete_queue(q_name)
   end
 
   it "should support x-delayed-message as exchange type" do
@@ -92,8 +81,5 @@ describe "Delayed Message Exchange" do
       wait_for(200.milliseconds) { queue.message_count == 1 }
       queue.message_count.should eq 1
     end
-  ensure
-    s.vhosts["/"].delete_exchange(x_name)
-    s.vhosts["/"].delete_queue(q_name)
   end
 end

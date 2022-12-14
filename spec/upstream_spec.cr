@@ -56,8 +56,6 @@ describe LavinMQ::Federation::Upstream do
       msgs.size.should eq 1
       vhost.queues["federation_q1"].message_count.should eq 0
     end
-  ensure
-    UpstreamSpecHelpers.cleanup(upstream.not_nil!)
   end
 
   it "should not federate queue if no downstream consumer" do
@@ -72,8 +70,6 @@ describe LavinMQ::Federation::Upstream do
       vhost.queues["federation_q1"].message_count.should eq 1
       vhost.queues["federation_q2"].message_count.should eq 0
     end
-  ensure
-    UpstreamSpecHelpers.cleanup(upstream.not_nil!)
   end
 
   it "should federate queue with ack mode no-ack" do
@@ -91,8 +87,6 @@ describe LavinMQ::Federation::Upstream do
       msgs.size.should eq 1
       vhost.queues["federation_q1"].message_count.should eq 0
     end
-  ensure
-    UpstreamSpecHelpers.cleanup(upstream.not_nil!)
   end
 
   it "should federate queue with ack mode on-publish" do
@@ -110,8 +104,6 @@ describe LavinMQ::Federation::Upstream do
       msgs.size.should eq 1
       vhost.queues["federation_q1"].message_count.should eq 0
     end
-  ensure
-    UpstreamSpecHelpers.cleanup(upstream.not_nil!)
   end
 
   it "should resume federation after downstream reconnects" do
@@ -140,8 +132,6 @@ describe LavinMQ::Federation::Upstream do
       msgs.size.should eq 2
       vhost.queues["federation_q1"].message_count.should eq 0
     end
-  ensure
-    UpstreamSpecHelpers.cleanup(upstream.not_nil!)
   end
 
   it "should federate exchange" do
@@ -161,11 +151,6 @@ describe LavinMQ::Federation::Upstream do
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
     end
-  ensure
-    s.vhosts["/"].delete_queue("downstream_q")
-    s.vhosts["/"].delete_exchange("downstream_ex")
-    s.vhosts["/"].delete_exchange("upstream_ex")
-    wait_for { upstream.not_nil!.links.all?(&.state.terminated?) }
   end
 
   it "should keep message properties" do
@@ -181,8 +166,6 @@ describe LavinMQ::Federation::Upstream do
       wait_for { msgs.size == 1 }
       msgs.first.properties.content_type.should eq "application/json"
     end
-  ensure
-    UpstreamSpecHelpers.cleanup(upstream.not_nil!)
   end
 
   it "should federate exchange even with no downstream consumer" do
@@ -209,8 +192,6 @@ describe LavinMQ::Federation::Upstream do
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
-  ensure
-    UpstreamSpecHelpers.cleanup_ex_federation
   end
 
   it "should continue after upstream restart" do
@@ -249,8 +230,6 @@ describe LavinMQ::Federation::Upstream do
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
-  ensure
-    UpstreamSpecHelpers.cleanup_ex_federation
   end
 
   it "should reflect all bindings to upstream q" do
@@ -284,7 +263,5 @@ describe LavinMQ::Federation::Upstream do
       sleep 0.01
       upstream_q.bindings.size.should eq 0
     end
-  ensure
-    UpstreamSpecHelpers.cleanup_ex_federation
   end
 end

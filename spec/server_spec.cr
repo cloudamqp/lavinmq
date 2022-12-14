@@ -26,8 +26,6 @@ describe LavinMQ::Server do
       msg = q.get.not_nil!
       msg.body_io.to_s.should eq("m2")
     end
-  ensure
-    s.vhosts["/"].delete_queue("del_q")
   end
 
   it "can reject message" do
@@ -64,7 +62,9 @@ describe LavinMQ::Server do
         end
       end
     end
+    Fiber.yield
     with_channel do |ch|
+      ch.prefetch 10
       q = ch.queue("reject")
       q.subscribe(no_ack: false) do |msg|
         msg.reject(requeue: false)
@@ -79,10 +79,8 @@ describe LavinMQ::Server do
         end
       end
       timeout.should be_false
+      ch.queue_declare("reject", passive: true)[:message_count].should eq 0
     end
-    wait_for(10.seconds) { s.connections.empty? }
-  ensure
-    s.vhosts["/"].delete_queue("reject")
   end
 
   it "rejects all unacked msgs when disconnecting" do
@@ -97,8 +95,6 @@ describe LavinMQ::Server do
       m1 = q.get(no_ack: true)
       m1.not_nil!.body_io.to_s.should eq("m1")
     end
-  ensure
-    s.vhosts["/"].delete_queue("q5")
   end
 
   it "can delete exchange" do
@@ -109,8 +105,6 @@ describe LavinMQ::Server do
         ch.exchange("test_delete_exchange", "topic", durable: true, passive: true)
       end
     end
-  ensure
-    s.vhosts["/"].delete_exchange("test_delete_exchange")
   end
 
   it "can auto delete exchange" do
@@ -129,8 +123,6 @@ describe LavinMQ::Server do
       sleep 0.01
       ch.closed?.should be_true
     end
-  ensure
-    s.vhosts["/"].delete_exchange("test_ad_exchange")
   end
 
   it "can purge a queue" do
@@ -142,7 +134,7 @@ describe LavinMQ::Server do
   end
 
   it "should run GC on purge" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     data_dir = vhost.data_dir
     current = Dir.glob(File.join(data_dir, "msgs.*")).size
 
@@ -226,14 +218,11 @@ describe LavinMQ::Server do
       q.publish_confirm "queue dlx"
       msg = wait_for { dlq.get(no_ack: true) }
       msg.not_nil!.body_io.to_s.should eq("queue dlx")
-      s.vhosts["/"].queues["ttl"].empty?.should be_true
+      Server.vhosts["/"].queues["ttl"].empty?.should be_true
       q.publish_confirm "queue dlx"
       msg = wait_for { dlq.get(no_ack: true) }
       msg.not_nil!.body_io.to_s.should eq("queue dlx")
     end
-  ensure
-    s.vhosts["/"].delete_queue("dlq")
-    s.vhosts["/"].delete_queue("ttl")
   end
 
   it "dead-letter expired messages" do
@@ -249,8 +238,6 @@ describe LavinMQ::Server do
       msg = wait_for { dlq.get(no_ack: true) }
       msg.not_nil!.body_io.to_s.should eq("dead letter")
     end
-  ensure
-    s.vhosts["/"].delete_queue("exp")
   end
 
   it "dead-letter expired messages to non existing exchange" do
@@ -428,8 +415,7 @@ describe LavinMQ::Server do
       topic_x.bind(exchange: headers_x.name, routing_key: "", args: hdrs)
     end
 
-    close_servers
-    TestHelpers.setup
+    Server.restart
 
     with_channel do |ch|
       q = ch.queue
@@ -498,10 +484,6 @@ describe LavinMQ::Server do
       msg = q.get(no_ack: true)
       msg.not_nil!.body_io.to_s.should eq("test message")
     end
-  ensure
-    s.vhosts["/"].delete_exchange("x1")
-    s.vhosts["/"].delete_exchange("x2")
-    s.vhosts["/"].delete_queue("e2e")
   end
 
   it "supports x-max-length drop-head" do
@@ -537,8 +519,6 @@ describe LavinMQ::Server do
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
     end
-  ensure
-    s.vhosts["/"].delete_exchange("x345")
   end
 
   it "drop overflow when max-length is applied" do
@@ -549,13 +529,10 @@ describe LavinMQ::Server do
       definitions = {
         "max-length" => JSON::Any.new(1_i64),
       } of String => JSON::Any
-      s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
+      Server.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
       sleep 0.01
-      s.vhosts["/"].queues["mlq"].message_count.should eq 1
+      Server.vhosts["/"].queues["mlq"].message_count.should eq 1
     end
-  ensure
-    s.vhosts["/"].delete_queue("mlq")
-    s.vhosts["/"].delete_policy("test")
   end
 
   it "disallows creating queues starting with amq." do
@@ -601,8 +578,6 @@ describe LavinMQ::Server do
       q = ch.queue("exlusive_consumer", auto_delete: true)
       q.subscribe { }
     end
-  ensure
-    s.vhosts["/"].delete_queue("exlusive_consumer")
   end
 
   it "only allow one connection access an exlusive queues" do
@@ -614,8 +589,6 @@ describe LavinMQ::Server do
         end
       end
     end
-  ensure
-    s.vhosts["/"].delete_queue("exlusive_consumer")
   end
 
   it "it does persists transient msgs between restarts" do
@@ -629,20 +602,17 @@ describe LavinMQ::Server do
       end
       ch.wait_for_confirm(1000)
     end
-    close_servers
-    TestHelpers.setup
+    Server.restart
     with_channel do |ch|
       q = ch.queue("durable_queue", durable: true)
       deleted_msgs = q.delete
       deleted_msgs[:message_count].should eq 1000
     end
-  ensure
-    s.vhosts["/"].delete_queue("durable_queue")
   end
 
   it "supports max-length" do
     definitions = {"max-length" => JSON::Any.new(1_i64)}
-    s.vhosts["/"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
+    Server.vhosts["/"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
     with_channel do |ch|
       q = ch.queue
       q.publish_confirm("m1").should be_true
@@ -652,8 +622,6 @@ describe LavinMQ::Server do
       wait_for { msgs.size == 1 }
       msgs.size.should eq 1
     end
-  ensure
-    s.vhosts["/"].delete_policy("ml")
   end
 
   it "supports alternate-exchange" do
@@ -668,9 +636,6 @@ describe LavinMQ::Server do
       msg = q.get(no_ack: true)
       msg.not_nil!.body_io.to_s.should eq("m1")
     end
-  ensure
-    s.vhosts["/"].delete_exchange("x1")
-    s.vhosts["/"].delete_exchange("ae")
   end
 
   it "supports x-alternate-exchange" do
@@ -685,9 +650,6 @@ describe LavinMQ::Server do
       msg = q.get(no_ack: true)
       msg.not_nil!.body_io.to_s.should eq("m1")
     end
-  ensure
-    s.vhosts["/"].delete_exchange("x1")
-    s.vhosts["/"].delete_exchange("ae")
   end
 
   it "supports expires" do
@@ -697,10 +659,8 @@ describe LavinMQ::Server do
       ch.queue("test", args: args)
       sleep 5.milliseconds
       Fiber.yield
-      s.vhosts["/"].queues.has_key?("test").should be_false
+      Server.vhosts["/"].queues.has_key?("test").should be_false
     end
-  ensure
-    s.vhosts["/"].delete_queue("test")
   end
 
   it "does not expire queue when consumer are still there" do
@@ -711,10 +671,8 @@ describe LavinMQ::Server do
       q.subscribe(no_ack: true) { |_| }
       sleep 50.milliseconds
       Fiber.yield
-      s.vhosts["/"].queues.has_key?("test").should be_true
+      Server.vhosts["/"].queues.has_key?("test").should be_true
     end
-  ensure
-    s.vhosts["/"].delete_queue("test")
   end
 
   it "should deliver to all matching queues" do
@@ -731,8 +689,6 @@ describe LavinMQ::Server do
       msg_q1.not_nil!.body_io.to_s.should eq("m1")
       msg_q2.not_nil!.body_io.to_s.should eq("m1")
     end
-  ensure
-    s.vhosts["/"].delete_exchange("x122")
   end
 
   it "supports auto ack consumers" do
@@ -827,7 +783,7 @@ describe LavinMQ::Server do
       msg.reject(requeue: true)
       Fiber.yield
       q.get(no_ack: false).should be_nil
-      s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
+      Server.vhosts["/"].queues["delivery_limit"].empty?.should be_true
     end
   end
 
@@ -844,7 +800,7 @@ describe LavinMQ::Server do
   it "sends nack if queue is closed" do
     with_channel do |ch|
       q = ch.queue("to-be-closed")
-      s.vhosts["/"].queues["to-be-closed"].close
+      Server.vhosts["/"].queues["to-be-closed"].close
       q.publish_confirm("m1").should be_false
     end
   end
@@ -856,7 +812,7 @@ describe LavinMQ::Server do
       q2 = ch.queue("to-be-closed")
       ch.queue_bind(q1.name, "amq.direct", "rk")
       ch.queue_bind(q2.name, "amq.direct", "rk")
-      s.vhosts["/"].queues["to-be-closed"].close
+      Server.vhosts["/"].queues["to-be-closed"].close
       ch.basic_publish_confirm("msg", exchange: "amq.direct", routing_key: "rk").should be_false
     end
   end
@@ -868,7 +824,7 @@ describe LavinMQ::Server do
       q2 = ch.queue("to-be-closed")
       ch.queue_bind(q1.name, "amq.topic", "rk")
       ch.queue_bind(q2.name, "amq.topic", "rk")
-      s.vhosts["/"].queues["to-be-closed"].close
+      Server.vhosts["/"].queues["to-be-closed"].close
       ch.basic_publish_confirm("msg", exchange: "amq.topic", routing_key: "rk").should be_false
     end
   end
@@ -880,7 +836,7 @@ describe LavinMQ::Server do
       q2 = ch.queue("to-be-closed")
       ch.queue_bind(q1.name, "amq.fanout", "")
       ch.queue_bind(q2.name, "amq.fanout", "")
-      s.vhosts["/"].queues["to-be-closed"].close
+      Server.vhosts["/"].queues["to-be-closed"].close
       ch.basic_publish_confirm("msg", exchange: "amq.fanout", routing_key: "").should be_false
     end
   end
@@ -894,7 +850,7 @@ describe LavinMQ::Server do
       q2 = ch.queue("to-be-closed", args: args)
       ch.queue_bind(q1.name, "amq.headers", "rk")
       ch.queue_bind(q2.name, "amq.headers", "rk")
-      s.vhosts["/"].queues["to-be-closed"].close
+      Server.vhosts["/"].queues["to-be-closed"].close
       ch.basic_publish_confirm("msg", "amq.headers").should be_false
     end
   end
@@ -1003,11 +959,9 @@ describe LavinMQ::Server do
       count.should eq 0
 
       Fiber.yield
-      s.vhosts["/"].queues[qname].@ready.size.should eq 1
-      s.vhosts["/"].queues[qname].unacked_count.should eq 0
+      Server.vhosts["/"].queues[qname].@ready.size.should eq 1
+      Server.vhosts["/"].queues[qname].unacked_count.should eq 0
     end
-  ensure
-    s.vhosts["/"].delete_queue(qname) if qname
   end
 
   it "will limit message size" do
@@ -1053,7 +1007,5 @@ describe LavinMQ::Server do
       q = ch.queue(qname)
       q.message_count.should eq 9
     end
-  ensure
-    s.vhosts["/"].delete_queue(qname) if qname
   end
 end

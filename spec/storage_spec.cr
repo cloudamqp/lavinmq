@@ -57,9 +57,9 @@ describe LavinMQ::DurableQueue do
             q.publish_confirm "test message #{i}"
           end
         end
-        close_servers
+        s.stop
         File.open(enq_path, "r+") { |f| f.truncate(f.size - 3) }
-        TestHelpers.setup
+        s.restart
         with_channel(vhost: vhost.name) do |ch|
           q = ch.queue_declare("corrupt_q2", passive: true)
           q[:message_count].should eq 1
@@ -98,8 +98,6 @@ describe LavinMQ::DurableQueue do
           q.unsubscribe("tag")
         end
       end
-    ensure
-      ch.queue_delete "d"
     end
   end
 
@@ -138,10 +136,9 @@ describe LavinMQ::DurableQueue do
       queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
       enq_path = queue.@enq.path
     end
-    close_servers
     # emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    TestHelpers.setup
+    s.restart
     queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
     # make sure that the @ready capacity doesn't take into account the preallocated size
     queue.@ready.capacity.should eq Math.pw2ceil(msg_count)
@@ -158,17 +155,16 @@ describe LavinMQ::DurableQueue do
       queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
       enq_path = queue.@enq.path
     end
-    close_servers
+    s.stop
     # Emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    TestHelpers.setup
+    s.restart
     # Write another message after the prealloced space
     with_channel do |ch|
       q = ch.queue("corruption_test", durable: true)
       q.publish_confirm "Hello world"
     end
-    close_servers
-    TestHelpers.setup
+    s.restart
     queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
     queue.@ready.size.should eq 2
   end

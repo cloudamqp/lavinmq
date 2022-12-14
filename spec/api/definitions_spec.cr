@@ -77,8 +77,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("import_q1").should be_true
-    ensure
-      s.vhosts["/"].delete_queue("import_q1")
     end
 
     it "imports exchanges" do
@@ -86,8 +84,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
-    ensure
-      s.vhosts["/"].delete_exchange("import_x1")
     end
 
     it "imports bindings" do
@@ -121,10 +117,6 @@ describe LavinMQ::HTTP::Server do
       matches.clear
       ex.do_queue_matches("rk", nil) { |e| matches << e.name }
       matches.includes?("import_q1").should be_true
-    ensure
-      s.vhosts["/"].delete_queue("import_q1")
-      s.vhosts["/"].delete_exchange("import_x1")
-      s.vhosts["/"].delete_exchange("import_x2")
     end
 
     it "imports permissions" do
@@ -141,8 +133,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.users["u1"].permissions["/"][:write].should eq(/w/)
-    ensure
-      s.users.delete("u1")
     end
 
     it "imports policies" do
@@ -161,8 +151,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.has_key?("import_p1").should be_true
-    ensure
-      s.vhosts["/"].delete_policy("import_p1")
     end
 
     it "imports parameters" do
@@ -190,10 +178,6 @@ describe LavinMQ::HTTP::Server do
       end
       s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
         .should be_true
-    ensure
-      s.vhosts["/"].delete_parameter("shovel", "import_shovel_param")
-      s.vhosts["/"].delete_queue("shovel_will_declare_q1")
-      s.vhosts["/"].delete_queue("shovel_will_declare_q2")
     end
 
     it "imports global parameters" do
@@ -205,10 +189,7 @@ describe LavinMQ::HTTP::Server do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.stop_shovels
       s.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
-    ensure
-      s.delete_parameter(nil, "global_p1")
     end
 
     it "should handle request with empty body" do
@@ -258,8 +239,6 @@ describe LavinMQ::HTTP::Server do
       body["queues"].as_a.empty?.should be_false
       keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
       body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_queue("export_q1")
     end
 
     it "exports exchanges" do
@@ -270,8 +249,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
       body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_exchange("export_e1")
     end
 
     it "exports bindings" do
@@ -284,9 +261,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
       body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_queue("export_q1")
-      s.vhosts["/"].delete_exchange("export_x1")
     end
 
     it "exports permissions" do
@@ -307,8 +281,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
       body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_policy("export_p1")
     end
 
     it "exports global parameters" do
@@ -321,8 +293,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["name", "component", "value"]
       body["global_parameters"].as_a.empty?.should be_false
       body["global_parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.delete_parameter("c1", "p11")
     end
 
     it "exports vhost parameters" do
@@ -335,8 +305,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["name", "component", "value"]
       body["parameters"].as_a.empty?.should be_false
       body["parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_parameter("c1", "p11")
     end
   end
 
@@ -349,8 +317,6 @@ describe LavinMQ::HTTP::Server do
       body["queues"].as_a.empty?.should be_false
       keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
       body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_queue("export_q2")
     end
 
     it "exports exchanges" do
@@ -361,8 +327,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
       body["exchanges"].as_a.empty?.should be_false
       body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_exchange("export_e2")
     end
 
     it "exports bindings" do
@@ -375,9 +339,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
       body["bindings"].as_a.empty?.should be_false
       body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_queue("export_q1")
-      s.vhosts["/"].delete_exchange("export_x1")
     end
 
     it "exports policies" do
@@ -389,8 +350,6 @@ describe LavinMQ::HTTP::Server do
       keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
       body["policies"].as_a.empty?.should be_false
       body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_policy("export_p2")
     end
 
     describe "user tags and vhost access" do
@@ -402,11 +361,6 @@ describe LavinMQ::HTTP::Server do
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         response = get("/api/definitions/new", headers: headers)
         response.status_code.should eq 200
-      ensure
-        s.users.delete("other_name", save: false)
-        s.vhosts.delete("new")
-        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
       end
 
       it "should refuse vhost access" do
@@ -418,11 +372,6 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 401
         body = JSON.parse(response.body)
         body["reason"].should eq "Access refused"
-      ensure
-        s.users.delete("other_name", save: false)
-        s.vhosts.delete("new")
-        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
       end
     end
   end
@@ -433,8 +382,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].queues.has_key?("import_q1").should be_true
-    ensure
-      s.vhosts["/"].delete_queue("import_q1")
     end
 
     it "imports exchanges" do
@@ -442,8 +389,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
-    ensure
-      s.vhosts["/"].delete_exchange("import_x1")
     end
 
     it "imports bindings" do
@@ -477,10 +422,6 @@ describe LavinMQ::HTTP::Server do
       matches.clear
       ex.do_queue_matches("rk", nil) { |e| matches << e.name }
       matches.includes?("import_q1").should be_true
-    ensure
-      s.vhosts["/"].delete_queue("import_q1")
-      s.vhosts["/"].delete_exchange("import_x1")
-      s.vhosts["/"].delete_exchange("import_x2")
     end
 
     it "imports policies" do
@@ -499,8 +440,6 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       s.vhosts["/"].policies.has_key?("import_p1").should be_true
-    ensure
-      s.vhosts["/"].delete_policy("import_p1")
     end
 
     it "should handle request with empty body" do
@@ -533,12 +472,6 @@ describe LavinMQ::HTTP::Server do
         response = post("/api/definitions/new", headers: headers, body: body)
         response.status_code.should eq 200
         s.vhosts["new"].queues.has_key?("import_q1").should be_true
-      ensure
-        s.vhosts["new"].delete_queue("import_q1")
-        s.users.delete("other_name", save: false)
-        s.vhosts.delete("new")
-        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
       end
 
       it "should refuse vhost access" do
@@ -551,11 +484,6 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 401
         body = JSON.parse(response.body)
         body["reason"].should eq "Access refused"
-      ensure
-        s.users.delete("other_name", save: false)
-        s.vhosts.delete("new")
-        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
       end
 
       it "should refuse user tag access" do
@@ -569,11 +497,6 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 401
         body = JSON.parse(response.body)
         body["reason"].should eq "Access refused"
-      ensure
-        s.users.delete("other_name", save: false)
-        s.vhosts.delete("new")
-        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
       end
     end
   end
@@ -593,8 +516,6 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 200
       s.vhosts["uploaded_vhost"]?.should_not be_nil
       s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
-    ensure
-      s.vhosts.delete("uploaded_vhost")
     end
 
     it "imports definitions from uploaded file" do
@@ -612,8 +533,6 @@ describe LavinMQ::HTTP::Server do
       response.headers["Location"].should eq "/foo"
       s.vhosts["uploaded_vhost"]?.should_not be_nil
       s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
-    ensure
-      s.vhosts.delete("uploaded_vhost")
     end
   end
 

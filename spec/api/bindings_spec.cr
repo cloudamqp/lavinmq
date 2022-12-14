@@ -13,9 +13,6 @@ describe LavinMQ::HTTP::BindingsController do
       keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments",
               "properties_key"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
   end
 
@@ -28,9 +25,6 @@ describe LavinMQ::HTTP::BindingsController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
   end
 
@@ -43,9 +37,6 @@ describe LavinMQ::HTTP::BindingsController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
 
     it "should return 404 if exchange does not exist" do
@@ -66,9 +57,6 @@ describe LavinMQ::HTTP::BindingsController do
       response.status_code.should eq 201
       response.headers["Location"].should eq "bindings_q1/rk"
       s.vhosts["/"].exchanges["be1"].queue_bindings.last_key.first.should eq "rk"
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
 
     it "should inform about required fields" do
@@ -79,9 +67,6 @@ describe LavinMQ::HTTP::BindingsController do
       response.status_code.should eq 400
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Field .+ is required/)
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
 
     it "should return 404 if exchange does not exist" do
@@ -97,8 +82,6 @@ describe LavinMQ::HTTP::BindingsController do
       })
       response = post("/api/bindings/%2f/e/amq.default/q/bindings_q2", body: body)
       response.status_code.should eq 401
-    ensure
-      s.vhosts["/"].delete_queue("bindings_q2")
     end
   end
 
@@ -112,9 +95,6 @@ describe LavinMQ::HTTP::BindingsController do
       props = binding[0]["properties_key"].as_s
       response = get("/api/bindings/%2f/e/be1/q/bindings_q1/#{props}")
       response.status_code.should eq 200
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
   end
 
@@ -129,9 +109,6 @@ describe LavinMQ::HTTP::BindingsController do
       response = delete("/api/bindings/%2f/e/be1/q/bindings_q1/#{props}")
       response.status_code.should eq 204
       s.vhosts["/"].exchanges["be1"].queue_bindings.empty?.should be_true
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
   end
 
@@ -144,10 +121,6 @@ describe LavinMQ::HTTP::BindingsController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_exchange("be2")
-      s.vhosts["/"].delete_queue("bindings_q1")
     end
   end
 
@@ -161,9 +134,6 @@ describe LavinMQ::HTTP::BindingsController do
       })
       response = post("/api/bindings/%2f/e/be1/e/be2", body: body)
       response.status_code.should eq 201
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_exchange("be2")
     end
 
     it "should return forbidden for the default exchange" do
@@ -186,9 +156,6 @@ describe LavinMQ::HTTP::BindingsController do
       props = binding[0]["properties_key"].as_s
       response = get("/api/bindings/%2f/e/be1/e/be2/#{props}")
       response.status_code.should eq 200
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_exchange("be2")
     end
   end
 
@@ -202,9 +169,6 @@ describe LavinMQ::HTTP::BindingsController do
       props = binding[0]["properties_key"].as_s
       response = delete("/api/bindings/%2f/e/be1/e/be2/#{props}")
       response.status_code.should eq 204
-    ensure
-      s.vhosts["/"].delete_exchange("be1")
-      s.vhosts["/"].delete_exchange("be2")
     end
   end
 end

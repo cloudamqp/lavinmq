@@ -14,9 +14,6 @@ describe LavinMQ::HTTP::ParametersController do
       body.as_a.empty?.should be_false
       keys = ["name", "component", "vhost", "value"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
-      s.users.delete("arnold")
     end
 
     it "should refuse monitoring and management" do
@@ -25,8 +22,6 @@ describe LavinMQ::HTTP::ParametersController do
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/parameters", headers: hdrs)
       response.status_code.should eq 401
-    ensure
-      s.users.delete("arnold")
     end
   end
 
@@ -38,8 +33,6 @@ describe LavinMQ::HTTP::ParametersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -51,8 +44,6 @@ describe LavinMQ::HTTP::ParametersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -62,8 +53,6 @@ describe LavinMQ::HTTP::ParametersController do
       s.vhosts["/"].add_parameter(p)
       response = get("/api/parameters/test/%2f/name")
       response.status_code.should eq 200
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -75,8 +64,6 @@ describe LavinMQ::HTTP::ParametersController do
       response = put("/api/parameters/test/%2f/name", body: body)
       response.status_code.should eq 201
       s.vhosts["/"].parameters[{"test", "name"}].value.should eq({"key" => "value"})
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
     end
 
     it "should update parameters for a component on vhost" do
@@ -88,8 +75,6 @@ describe LavinMQ::HTTP::ParametersController do
       response = put("/api/parameters/test/%2f/name", body: body)
       response.status_code.should eq 204
       s.vhosts["/"].parameters[{"test", "name"}].value.should eq({"key" => "new value"})
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
     end
 
     it "should handle request with empty body" do
@@ -120,8 +105,6 @@ describe LavinMQ::HTTP::ParametersController do
       s.vhosts["/"].add_parameter(p)
       response = delete("/api/parameters/test/%2f/name")
       response.status_code.should eq 204
-    ensure
-      s.vhosts["/"].delete_parameter("test", "name")
     end
   end
 
@@ -135,8 +118,6 @@ describe LavinMQ::HTTP::ParametersController do
       body.as_a.empty?.should be_false
       keys = ["name", "value"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.delete_parameter(nil, "name")
     end
   end
 
@@ -146,8 +127,6 @@ describe LavinMQ::HTTP::ParametersController do
       s.add_parameter(p)
       response = get("/api/global-parameters/name")
       response.status_code.should eq 200
-    ensure
-      s.delete_parameter(nil, "name")
     end
   end
 
@@ -159,8 +138,6 @@ describe LavinMQ::HTTP::ParametersController do
       })
       response = put("/api/global-parameters/name", body: body)
       response.status_code.should eq 201
-    ensure
-      s.delete_parameter(nil, "name")
     end
 
     it "should update global parameter" do
@@ -172,8 +149,6 @@ describe LavinMQ::HTTP::ParametersController do
       response = put("/api/global-parameters/name", body: body)
       response.status_code.should eq 204
       s.parameters[{nil, "name"}].value.should eq({"key" => "new value"})
-    ensure
-      s.delete_parameter(nil, "name")
     end
 
     it "should handle request with empty body" do
@@ -204,8 +179,6 @@ describe LavinMQ::HTTP::ParametersController do
       s.add_parameter(p)
       response = delete("/api/global-parameters/name")
       response.status_code.should eq 204
-    ensure
-      s.delete_parameter(nil, "name")
     end
   end
 
@@ -222,8 +195,6 @@ describe LavinMQ::HTTP::ParametersController do
       body.as_a.empty?.should be_false
       keys = ["name", "vhost", "definition", "priority", "apply-to"]
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-    ensure
-      s.vhosts["/"].delete_policy("test")
     end
   end
 
@@ -238,8 +209,6 @@ describe LavinMQ::HTTP::ParametersController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_false
-    ensure
-      s.vhosts["/"].delete_policy("test")
     end
   end
 
@@ -252,8 +221,6 @@ describe LavinMQ::HTTP::ParametersController do
       s.vhosts["/"].add_policy("test", "^.*$", "all", definitions, -10_i8)
       response = get("/api/policies/%2f/test")
       response.status_code.should eq 200
-    ensure
-      s.vhosts["/"].delete_policy("test")
     end
   end
 
@@ -268,8 +235,6 @@ describe LavinMQ::HTTP::ParametersController do
       response = put("/api/policies/%2f/name", body: body)
       response.status_code.should eq 201
       s.vhosts["/"].policies["name"].definition["max-length"].as_i.should eq 10
-    ensure
-      s.vhosts["/"].delete_policy("name")
     end
 
     it "should update policy" do
@@ -284,8 +249,6 @@ describe LavinMQ::HTTP::ParametersController do
       response = put("/api/policies/%2f/#{policy_name}", body: body)
       response.status_code.should eq 204
       s.vhosts["/"].policies[policy_name].definition["max-length"].as_i.should eq 20
-    ensure
-      s.vhosts["/"].delete_policy(policy_name)
     end
 
     it "should handle request with empty body" do
@@ -319,8 +282,6 @@ describe LavinMQ::HTTP::ParametersController do
       s.vhosts["/"].add_policy("test", "^.*$", "all", definitions, -10_i8)
       response = delete("/api/policies/%2f/test")
       response.status_code.should eq 204
-    ensure
-      s.vhosts["/"].delete_policy("test")
     end
   end
 end

@@ -34,8 +34,6 @@ describe LavinMQ::HTTP::ChannelsController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.empty?.should be_true
-    ensure
-      s.vhosts.delete("no-conns")
     end
   end
 

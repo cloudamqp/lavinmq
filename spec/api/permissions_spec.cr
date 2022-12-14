@@ -16,8 +16,6 @@ describe LavinMQ::HTTP::PermissionsController do
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/permissions", headers: hdrs)
       response.status_code.should eq 401
-    ensure
-      s.users.delete("arnold")
     end
   end
 
@@ -42,9 +40,6 @@ describe LavinMQ::HTTP::PermissionsController do
       response = put("/api/permissions/test_vhost/test_user", body: body)
       response.status_code.should eq 201
       s.users["test_user"].permissions["test_vhost"].should eq({config: /.*/, read: /.*/, write: /.*/})
-    ensure
-      s.users.rm_permission("test_user", "test_vhost")
-      s.vhosts.delete("test_vhost")
     end
 
     it "should update permission for a user and vhost" do
@@ -59,9 +54,6 @@ describe LavinMQ::HTTP::PermissionsController do
       response = put("/api/permissions/test_vhost/guest", body: body)
       response.status_code.should eq 204
       s.users["guest"].permissions["test_vhost"]["write"].should eq(/^tut/)
-    ensure
-      s.users.rm_permission("guest", "test_vhost")
-      s.vhosts.delete("test_vhost")
     end
 
     it "should handle request with empty body" do
@@ -92,8 +84,6 @@ describe LavinMQ::HTTP::PermissionsController do
       s.users.add_permission("guest", "test", /.*/, /.*/, /.*/)
       response = delete("/api/permissions/test/guest")
       response.status_code.should eq 204
-    ensure
-      s.vhosts.delete("test")
     end
   end
 end
