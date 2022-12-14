@@ -4,13 +4,15 @@ require "./connection_info"
 module LavinMQ
   # https://raw.githubusercontent.com/haproxy/haproxy/master/doc/proxy-protocol.txt
   module ProxyProtocol
-    class InvalidSignature < Exception; end
+    class Error < Exception; end
 
-    class InvalidVersionCmd < Exception; end
+    class InvalidSignature < Error; end
 
-    class InvalidFamily < Exception; end
+    class InvalidVersionCmd < Error; end
 
-    class UnsupportedTLVType < Exception; end
+    class InvalidFamily < Error; end
+
+    class UnsupportedTLVType < Error; end
 
     module V1
       # Examples:
