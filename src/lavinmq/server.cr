@@ -291,8 +291,6 @@ module LavinMQ
       disk_total = fs_stats.total.to_i64
       @disk_total_log.push disk_total
       @disk_total = disk_total
-
-      control_flow!
     end
 
     private def stats_loop
@@ -309,6 +307,8 @@ module LavinMQ
             system_metrics(statm)
           end
         end
+
+        control_flow!
         sleep Config.instance.stats_interval.milliseconds
       end
     ensure
