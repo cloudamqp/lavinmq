@@ -1,11 +1,15 @@
 require "./spec_helper"
 
 describe LavinMQ::VHost do
-  vhost = s.vhosts.create("add_policy")
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
   }
+  vhost = s.vhosts.create("add_policy")
+
+  before_each do
+    vhost = s.vhosts.create("add_policy")
+  end
 
   it "should be able to add policy" do
     vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
@@ -45,8 +49,6 @@ describe LavinMQ::VHost do
     vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
     sleep 0.01
     vhost.queues["test"].policy.not_nil!.name.should eq "ml"
-  ensure
-    vhost.delete_policy("ml")
   end
 
   it "should respect priority" do
@@ -56,9 +58,6 @@ describe LavinMQ::VHost do
     vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
     sleep 0.01
     vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
-  ensure
-    vhost.delete_policy("ml2")
-    vhost.delete_policy("ml1")
   end
 
   it "should remove effect of deleted policy" do
@@ -74,9 +73,6 @@ describe LavinMQ::VHost do
       q.publish_confirm "body"
       ch.queue_declare("mld", passive: true)[:message_count].should eq 11
     end
-  ensure
-    s.vhosts["/"].delete_policy("mld")
-    vhost.delete_queue("mld")
   end
 
   it "should apply message TTL policy on existing queue" do
@@ -92,9 +88,6 @@ describe LavinMQ::VHost do
       ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 0
       s.vhosts["/"].delete_policy("ttl")
     end
-  ensure
-    s.vhosts["/"].delete_policy("ttl")
-    vhost.delete_queue("policy-ttl")
   end
 
   it "should apply queue TTL policy on existing queue" do
@@ -108,9 +101,6 @@ describe LavinMQ::VHost do
         ch.queue_declare("qttl", passive: true)
       end
     end
-  ensure
-    s.vhosts["/"].delete_policy("qttl")
-    vhost.delete_queue("qttl")
   end
 
   it "should refresh queue last_get_time when expire policy applied" do
@@ -119,13 +109,11 @@ describe LavinMQ::VHost do
       ch.queue("qttl")
       queue = s.vhosts["/"].queues["qttl"]
       first = queue.last_get_time
+      sleep 0.1
       s.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
-      sleep 0.01
+      sleep 0.1
       last = queue.last_get_time
-      (last > first).should be_true
-    ensure
-      s.vhosts["/"].delete_policy("qttl")
-      vhost.delete_queue("qttl")
+      last.should be > first
     end
   end
 
@@ -145,9 +133,6 @@ describe LavinMQ::VHost do
       q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
       s.vhosts["/"].delete_policy("max-length-bytes")
     end
-  ensure
-    s.vhosts["/"].delete_policy("max-length-bytes")
-    vhost.delete_queue("max-length-bytes")
   end
 
   it "should remove head if queue to large" do
@@ -164,9 +149,6 @@ describe LavinMQ::VHost do
       q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
       s.vhosts["/"].delete_policy("max-length-bytes")
     end
-  ensure
-    s.vhosts["/"].delete_policy("max-length-bytes")
-    vhost.delete_queue("max-length-bytes")
   end
 
   it "should not enqueue messages that make the queue to large" do
@@ -184,9 +166,6 @@ describe LavinMQ::VHost do
       q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
       s.vhosts["/"].delete_policy("max-length-bytes")
     end
-  ensure
-    s.vhosts["/"].delete_policy("max-length-bytes")
-    vhost.delete_queue("max-length-bytes")
   end
 
   describe "with max-length-bytes policy applied" do
@@ -208,9 +187,6 @@ describe LavinMQ::VHost do
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 10
         s.vhosts["/"].delete_policy("max-length-bytes")
       end
-    ensure
-      s.vhosts["/"].delete_policy("max-length-bytes")
-      vhost.delete_queue("max-length-bytes")
     end
   end
 
@@ -235,9 +211,6 @@ describe LavinMQ::VHost do
         end
         ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
       end
-    ensure
-      s.vhosts["/"].delete_policy("ml")
-      s.vhosts["/"].delete_operator_policy("ml1")
     end
   end
 
@@ -254,10 +227,6 @@ describe LavinMQ::VHost do
       sleep 0.01
       vhost.exchanges["no-ae"].@alternate_exchange.should be_nil
       vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
-    ensure
-      vhost.delete_policy("test")
-      vhost.delete_exchange("no-ae")
-      vhost.delete_exchange("x-with-ae")
     end
 
     it "should use the lowest value" do
@@ -271,10 +240,6 @@ describe LavinMQ::VHost do
       sleep 0.01
       vhost.queues["test1"].@max_length.should eq 1
       vhost.queues["test2"].@max_length.should eq 11
-    ensure
-      vhost.delete_policy("test")
-      vhost.delete_queue("test1")
-      vhost.delete_queue("test2")
     end
   end
 end

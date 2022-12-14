@@ -10,19 +10,6 @@ module LavinMQ
       DIRECT_USER == name
     end
 
-    def self.instance(data_dir : String) : self
-      if instance = @@instance
-        if instance.@data_dir == data_dir
-          return instance
-        end
-      end
-      @@instance = UserStore.new(data_dir)
-    end
-
-    def self.instance
-      @@instance.not_nil!
-    end
-
     def initialize(@data_dir : String)
       @log = Log.for("userstore")
       @users = Hash(String, User).new

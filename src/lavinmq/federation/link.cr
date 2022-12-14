@@ -19,7 +19,7 @@ module LavinMQ
         @downstream_connection : ::AMQP::Client::Connection?
 
         def initialize(@upstream : Upstream, @log : Log)
-          user = UserStore.instance.direct_user
+          user = @upstream.vhost.users.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
           port = Config.instance.amqp_port
           host = Config.instance.amqp_bind

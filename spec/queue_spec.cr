@@ -14,9 +14,6 @@ describe LavinMQ::Queue do
       msg.not_nil!.body_io.to_s.should eq "ttl"
       q.get.should eq nil
     end
-  ensure
-    s.vhosts["/"].delete_queue("dlq")
-    s.vhosts["/"].delete_queue("ttl")
   end
 
   it "Should not dead letter messages to it self due to queue length" do
@@ -42,9 +39,6 @@ describe LavinMQ::Queue do
       msg.reject(requeue: false)
       q1.get(no_ack: false).should_not be_nil
     end
-  ensure
-    s.vhosts["/"].delete_queue("dlq")
-    s.vhosts["/"].delete_queue(queue_name.as(String))
   end
 
   describe "Paused" do
@@ -64,9 +58,6 @@ describe LavinMQ::Queue do
         x.publish_confirm "test message 2", q.name
         q.get(no_ack: true).should be_nil
       end
-    ensure
-      s.vhosts["/"].delete_queue(q_name)
-      s.vhosts["/"].delete_exchange(x_name)
     end
 
     it "should paused the queue by setting it in flow (consume)" do
@@ -99,9 +90,6 @@ describe LavinMQ::Queue do
         end
         channel.receive.should eq "test message 2"
       end
-    ensure
-      s.vhosts["/"].delete_queue(q_name)
-      s.vhosts["/"].delete_exchange(x_name)
     end
 
     it "should be able to get messages from paused queue with force flag" do
@@ -133,9 +121,6 @@ describe LavinMQ::Queue do
         iq.resume!
         q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 3")
       end
-    ensure
-      s.vhosts["/"].delete_queue(q_name)
-      s.vhosts["/"].delete_exchange(x_name)
     end
   end
 
@@ -180,9 +165,6 @@ describe LavinMQ::Queue do
 
         internal_queue.message_count.should eq 0
       end
-    ensure
-      s.vhosts["/"].delete_queue(q_name)
-      s.vhosts["/"].delete_exchange(x_name)
     end
 
     it "should purge only X messages from queue" do
@@ -220,9 +202,6 @@ describe LavinMQ::Queue do
 
         internal_queue.message_count.should eq 5
       end
-    ensure
-      s.vhosts["/"].delete_queue(q_name)
-      s.vhosts["/"].delete_exchange(x_name)
     end
   end
 
@@ -265,9 +244,6 @@ describe LavinMQ::Queue do
         # No consumers lest on the queue and therefore no unacked
         internal_queue.consumers.empty?.should be_true
       end
-    ensure
-      s.vhosts["/"].delete_queue(q_name)
-      s.vhosts["/"].delete_exchange(x_name)
     end
   end
 

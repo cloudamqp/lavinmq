@@ -48,8 +48,6 @@ describe LavinMQ::HTTP::ExchangesController do
       response.status_code.should eq 201
       response = get("/api/exchanges/%2f/spechange")
       response.status_code.should eq 200
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
     end
 
     it "should require type" do
@@ -108,8 +106,6 @@ describe LavinMQ::HTTP::ExchangesController do
       })
       response = put("/api/exchanges/%2f/spechange", body: body)
       response.status_code.should eq 400
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
     end
 
     it "should not be possible to declare amq. prefixed exchanges" do
@@ -135,8 +131,6 @@ describe LavinMQ::HTTP::ExchangesController do
       s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       response = delete("/api/exchanges/%2f/spechange")
       response.status_code.should eq 204
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
     end
 
     it "should not delete exchange if in use as source when query param if-unused is set" do
@@ -145,9 +139,6 @@ describe LavinMQ::HTTP::ExchangesController do
       s.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
       response = delete("/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
-      s.vhosts["/"].delete_queue("ex_q1")
     end
 
     it "should not delete exchange if in use as destination when query param if-unused is set" do
@@ -156,9 +147,6 @@ describe LavinMQ::HTTP::ExchangesController do
       s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
       response = delete("/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
-      s.vhosts["/"].delete_exchange("spechange2")
     end
   end
 
@@ -171,9 +159,6 @@ describe LavinMQ::HTTP::ExchangesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.size.should eq 1
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
-      s.vhosts["/"].delete_queue("ex_q1")
     end
   end
 
@@ -186,9 +171,6 @@ describe LavinMQ::HTTP::ExchangesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body.as_a.size.should eq 1
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
-      s.vhosts["/"].delete_exchange("spechange2")
     end
   end
 
@@ -208,9 +190,6 @@ describe LavinMQ::HTTP::ExchangesController do
       body = JSON.parse(response.body)
       body["routed"].as_bool.should be_true
       s.vhosts["/"].queues["q1p"].message_count.should eq 1
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
-      s.vhosts["/"].delete_queue("q1p")
     end
 
     it "should require all args" do
@@ -219,8 +198,6 @@ describe LavinMQ::HTTP::ExchangesController do
       response.status_code.should eq 400
       body = JSON.parse(response.body)
       body["reason"].as_s.should match(/Fields .+ are required/)
-    ensure
-      s.vhosts["/"].delete_exchange("spechange")
     end
 
     it "should handle string encoding" do
@@ -241,9 +218,6 @@ describe LavinMQ::HTTP::ExchangesController do
         wait_for { msgs.size == 1 }
         msgs.first.not_nil!.body_io.to_s.should eq("test")
       end
-    ensure
-      s.vhosts["/"].delete_queue("q2")
-      s.vhosts["/"].delete_exchange("str_enc")
     end
 
     it "should handle base64 encoding" do
@@ -265,9 +239,6 @@ describe LavinMQ::HTTP::ExchangesController do
         wait_for { msgs.size == 1 }
         msgs.first.not_nil!.body_io.to_s.should eq("test")
       end
-    ensure
-      s.vhosts["/"].delete_queue("q2")
-      s.vhosts["/"].delete_exchange("str_enc")
     end
   end
 end

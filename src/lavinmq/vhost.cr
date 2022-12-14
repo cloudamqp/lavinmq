@@ -16,6 +16,7 @@ require "./mfile"
 require "./schema"
 require "./event_type"
 require "./stats"
+require "./user"
 
 module LavinMQ
   class VHost
@@ -26,7 +27,7 @@ module LavinMQ
       queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, default_user, connections, dir, gc_runs, gc_timing, log
+      direct_reply_consumers, connections, dir, gc_runs, gc_timing, log, users
     property? flow = true
     property? dirty = false
     getter? closed = false
@@ -50,8 +51,7 @@ module LavinMQ
     @log : Log
     @segment_id : UInt32
 
-    def initialize(@name : String, @server_data_dir : String,
-                   @default_user : User)
+    def initialize(@name : String, @server_data_dir : String, @users : UserStore)
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -611,11 +611,12 @@ module LavinMQ
     private def load!
       load_definitions!
       spawn(name: "Load parameters") do
-        sleep 0.05
+        sleep 0.01
         next if @closed
         apply_parameters
         apply_policies
       end
+      Fiber.yield
     end
 
     # ameba:disable Metrics/CyclomaticComplexity

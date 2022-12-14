@@ -186,9 +186,6 @@ describe LavinMQ::HeadersExchange do
       q6 = LavinMQ::Queue.new(vhost, "q6")
       x.bind(q6, "", hdrs_all)
       x.matches("", hdrs_all).should eq(Set{q6})
-    ensure
-      vhost.delete_queue("q6")
-      vhost.delete_exchange("h")
     end
 
     it "should not match if not all args are the same" do
@@ -199,9 +196,6 @@ describe LavinMQ::HeadersExchange do
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
       x.matches("", msg_hdrs).size.should eq 0
-    ensure
-      vhost.delete_queue("q7")
-      vhost.delete_exchange("h")
     end
   end
 
@@ -214,9 +208,6 @@ describe LavinMQ::HeadersExchange do
       msg_hdrs.delete "x-match"
       msg_hdrs["org"] = "google"
       x.matches("", msg_hdrs).should eq(Set{q8})
-    ensure
-      vhost.delete_queue("q8")
-      vhost.delete_exchange("h")
     end
 
     it "should not match if no args are the same" do
@@ -228,9 +219,6 @@ describe LavinMQ::HeadersExchange do
       msg_hdrs["org"] = "google"
       msg_hdrs["user"] = "hest"
       x.matches("", msg_hdrs).size.should eq 0
-    ensure
-      vhost.delete_queue("q9")
-      vhost.delete_exchange("h")
     end
   end
 
@@ -248,9 +236,6 @@ describe LavinMQ::HeadersExchange do
     hdrs2.delete "x-match"
     x.matches("", hdrs1).should eq Set{q10}
     x.matches("", hdrs2).should eq Set{q10}
-  ensure
-    vhost.delete_queue("q10")
-    vhost.delete_exchange("h")
   end
 
   it "should handle all Field types" do
@@ -267,9 +252,6 @@ describe LavinMQ::HeadersExchange do
     } of String => LavinMQ::AMQP::Field
     x.bind(q11, "", hdrs)
     x.matches("", hdrs).should eq Set{q11}
-  ensure
-    vhost.delete_queue("q11")
-    vhost.delete_exchange("h")
   end
 
   it "should handle unbind" do
@@ -280,9 +262,6 @@ describe LavinMQ::HeadersExchange do
     x.bind(q12, "", hdrs1)
     x.unbind(q12, "", hdrs1)
     x.matches("", hdrs1).size.should eq 0
-  ensure
-    vhost.delete_queue("q12")
-    vhost.delete_exchange("h")
   end
 
   describe "match empty" do
@@ -291,9 +270,6 @@ describe LavinMQ::HeadersExchange do
       q13 = LavinMQ::Queue.new(vhost, "q13")
       x.bind(q13, "", nil)
       x.matches("", nil).size.should eq 1
-    ensure
-      vhost.delete_queue("q13")
-      vhost.delete_exchange("h")
     end
   end
 end

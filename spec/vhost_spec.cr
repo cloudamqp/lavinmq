@@ -4,47 +4,34 @@ describe LavinMQ::VHost do
   it "should be able to create vhosts" do
     s.vhosts.create("test")
     s.vhosts["test"]?.should_not be_nil
-  ensure
-    s.vhosts.delete("test")
   end
 
   it "should be able to delete vhosts" do
     s.vhosts.create("test")
     s.vhosts.delete("test")
     s.vhosts["test"]?.should be_nil
-  ensure
-    s.vhosts.delete("test")
   end
 
   it "should be able to persist vhosts" do
     s.vhosts.create("test")
-    close_servers
-    TestHelpers.setup
+    s.restart
     s.vhosts["test"]?.should_not be_nil
-  ensure
-    s.vhosts.delete("test")
   end
 
   it "should be able to persist durable exchanges" do
     s.vhosts.create("test")
     v = s.vhosts["test"].not_nil!
     v.declare_exchange("e", "direct", true, false)
-    close_servers
-    TestHelpers.setup
+    s.restart
     s.vhosts["test"].exchanges["e"].should_not be_nil
-  ensure
-    s.vhosts.delete("test")
   end
 
   it "should be able to persist durable queues" do
     s.vhosts.create("test")
     v = s.vhosts["test"].not_nil!
     v.declare_queue("q", true, false)
-    close_servers
-    TestHelpers.setup
+    s.restart
     s.vhosts["test"].queues["q"].should_not be_nil
-  ensure
-    s.vhosts.delete("test")
   end
 
   it "should be able to persist bindings" do
@@ -53,12 +40,8 @@ describe LavinMQ::VHost do
     v.declare_exchange("e", "direct", true, false)
     v.declare_queue("q", true, false)
     s.vhosts["test"].bind_queue("q", "e", "q")
-
-    close_servers
-    TestHelpers.setup
+    s.restart
     s.vhosts["test"].exchanges["e"].queue_bindings[{"q", nil}].size.should eq 1
-  ensure
-    s.vhosts.delete("test")
   end
 
   describe "auto add permissions" do
@@ -71,9 +54,6 @@ describe LavinMQ::VHost do
       p[:config].should eq /.*/
       p[:read].should eq /.*/
       p[:write].should eq /.*/
-    ensure
-      s.vhosts.delete(vhost)
-      s.users.delete(username)
     end
 
     it "should auto add permission to the default user" do
@@ -84,8 +64,6 @@ describe LavinMQ::VHost do
       p[:config].should eq /.*/
       p[:read].should eq /.*/
       p[:write].should eq /.*/
-    ensure
-      s.vhosts.delete(vhost)
     end
   end
 
@@ -109,10 +87,6 @@ describe LavinMQ::VHost do
         vhost.purge_queues_and_close_consumers(false, "")
         vhost.message_details[:messages].should eq 0
       end
-    ensure
-      s.vhosts["/"].delete_queue("purge_1")
-      s.vhosts["/"].delete_queue("purge_2")
-      s.vhosts["/"].delete_exchange("purge")
     end
 
     it "should backup the folder on reset" do
@@ -134,10 +108,6 @@ describe LavinMQ::VHost do
         backup_dir = Path.new(vhost.data_dir, "..", "#{vhost.dir}_reset_spec").normalize
         Dir.exists?(backup_dir).should be_true
       end
-    ensure
-      s.vhosts["/"].delete_queue("purge_1")
-      s.vhosts["/"].delete_queue("purge_2")
-      s.vhosts["/"].delete_exchange("purge")
     end
   end
 

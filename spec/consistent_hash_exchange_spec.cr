@@ -79,25 +79,20 @@ describe "Consistent Hash Exchange" do
   describe "exchange => queue bindings" do
     x_name = "con-hash"
     # List of queues to keep track of so we can clean up
-    q_names = [] of String
     it "should route all messages to queue if only one queue" do
       with_channel do |ch|
         x = ch.exchange(x_name, "x-consistent-hash")
-        q_names << "my-queue-0"
-        q = ch.queue(q_names[0])
+        q = ch.queue("my-queue-0")
         q.bind(x.name, "1")
         x.publish("test message", "rk")
         q.get(no_ack: true)
           .try(&.body_io.to_s)
           .should eq("test message")
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
 
     it "should route on routing key" do
+      q_names = Array(String).new
       with_channel do |ch|
         x = ch.exchange(x_name, "x-consistent-hash")
 
@@ -130,18 +125,13 @@ describe "Consistent Hash Exchange" do
           .try(&.body_io.to_s)
           .should eq("test message 2")
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
 
     it "should fail if header value isn't a string" do
       with_channel do |ch|
         x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
         x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
-        q_names << "1"
-        q0 = ch.queue(q_names[0])
+        q0 = ch.queue("1")
         q0.bind(x.name, "3")
 
         hdrs1 = AMQP::Client::Arguments.new({"cluster" => 123})
@@ -150,13 +140,10 @@ describe "Consistent Hash Exchange" do
           x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
         end
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
 
     it "should route on empty string is header isn't set" do
+      q_names = Array(String).new
       with_channel do |ch|
         x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
         x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
@@ -186,13 +173,10 @@ describe "Consistent Hash Exchange" do
           .try(&.body_io.to_s)
           .should eq("test message 1")
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
 
     it "should route on header key" do
+      q_names = Array(String).new
       with_channel do |ch|
         x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
         x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
@@ -231,25 +215,19 @@ describe "Consistent Hash Exchange" do
           .try(&.body_io.to_s)
           .should eq("test message 2")
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
+
     it "should route on to same queue even after delete" do
       with_channel do |ch|
         x = ch.exchange(x_name, "x-consistent-hash")
-        q_names = [] of String
 
-        q_names << "1"
-        q0 = ch.queue(q_names[0])
+        q0 = ch.queue("1")
         q0.bind(x.name, "3")
 
         q1 = ch.queue("2")
         q1.bind(x.name, "3")
 
-        q_names << "3"
-        q2 = ch.queue(q_names[1])
+        q2 = ch.queue("3")
         q2.bind(x.name, "3")
 
         x.publish "test message 0", "r1"
@@ -282,27 +260,20 @@ describe "Consistent Hash Exchange" do
           .try(&.body_io.to_s)
           .should eq("test message 2")
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
   end
 
   describe "exchange => exchange bindings" do
-    x_name = "con-hash"
-    x2_name = "next-exchange"
-    # List of queues to keep track of so we can clean up
-    q_names = [] of String
-
     it "should route all messages to exchange if only one exchange" do
+      x_name = "con-hash"
+      x2_name = "next-exchange"
+
       with_channel do |ch|
         x = ch.exchange(x_name, "x-consistent-hash")
 
         x2 = ch.exchange(x2_name, "direct")
         x2.bind(x_name, "1")
 
-        q_names << "my-queue"
         q = ch.queue("my-queue")
         q.bind(x2_name, "rk")
 
@@ -311,11 +282,6 @@ describe "Consistent Hash Exchange" do
           .try(&.body_io.to_s)
           .should eq("test message")
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
-      s.vhosts["/"].delete_exchange(x2_name)
-      q_names.each { |qn| s.vhosts["/"].delete_queue(qn) }
-      q_names = [] of String
     end
   end
 end

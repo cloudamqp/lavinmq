@@ -16,8 +16,6 @@ describe LavinMQ::HTTP::VHostsController do
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
       response.status_code.should eq 401
-    ensure
-      s.users.delete("arnold")
     end
 
     it "should list vhosts for monitoring users" do
@@ -30,9 +28,6 @@ describe LavinMQ::HTTP::VHostsController do
       body = JSON.parse(response.body)
       body.as_a.any? { |v| v["name"].as_s == "/" }.should be_true
       body.as_a.any? { |v| v["name"].as_s == "test" }.should be_true
-    ensure
-      s.vhosts.delete("test")
-      s.users.delete("arnold")
     end
   end
 
@@ -58,8 +53,6 @@ describe LavinMQ::HTTP::VHostsController do
       s.vhosts.create("test")
       response = put("/api/vhosts/test")
       response.status_code.should eq 204
-    ensure
-      s.vhosts.delete("test")
     end
 
     it "should only allow administrators to create vhost" do
@@ -67,8 +60,6 @@ describe LavinMQ::HTTP::VHostsController do
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
-    ensure
-      s.users.delete("arnold")
     end
 
     it "should create a vhost with full permissions to user" do
@@ -83,9 +74,6 @@ describe LavinMQ::HTTP::VHostsController do
       p[:config].should eq /.*/
       p[:read].should eq /.*/
       p[:write].should eq /.*/
-    ensure
-      s.vhosts.delete(vhost)
-      s.users.delete(username)
     end
   end
 
@@ -101,8 +89,6 @@ describe LavinMQ::HTTP::VHostsController do
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = delete("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
-    ensure
-      s.users.delete("arnold")
     end
   end
 

@@ -7,8 +7,6 @@ describe LavinMQ::Server do
         q = ch.queue("amq.direct.reply-to")
         q.name.should eq "amq.direct.reply-to"
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.direct.reply-to")
     end
 
     it "should allow amq.rabbitmq.reply-to to be declared" do
@@ -16,8 +14,6 @@ describe LavinMQ::Server do
         q = ch.queue("amq.rabbitmq.reply-to")
         q.name.should eq "amq.rabbitmq.reply-to"
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.rabbitmq.reply-to")
     end
 
     it "should be able to consume amq.direct.reply-to" do
@@ -25,8 +21,6 @@ describe LavinMQ::Server do
         consumer_tag = ch.queue("amq.direct.reply-to").subscribe("tag", no_ack: true) { }
         consumer_tag.should eq "tag"
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.direct.reply-to")
     end
 
     it "should be able to consume amq.rabbitmq.reply-to" do
@@ -34,8 +28,6 @@ describe LavinMQ::Server do
         consumer_tag = ch.queue("amq.rabbitmq.reply-to").subscribe("tag", no_ack: true) { }
         consumer_tag.should eq "tag"
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.rabbitmq.reply-to")
     end
 
     it "should require consumer to be in no-ack mode" do
@@ -44,8 +36,6 @@ describe LavinMQ::Server do
           ch.queue("amq.direct.reply-to").subscribe(no_ack: false) { }
         end
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.direct.reply-to")
     end
 
     it "should set reply-to" do
@@ -57,9 +47,6 @@ describe LavinMQ::Server do
         reply_to = q.get.not_nil!.properties.reply_to
         reply_to.should match /^amq\.direct\.reply-to\..+$/
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.direct.reply-to")
-      s.vhosts["/"].delete_queue("test")
     end
 
     it "should reject publish if no amq.direct.reply-to consumer" do
@@ -71,9 +58,6 @@ describe LavinMQ::Server do
           e.publish_confirm("test", "test", props: props)
         end
       end
-    ensure
-      s.vhosts["/"].delete_queue("amq.direct.reply-to")
-      s.vhosts["/"].delete_queue("test")
     end
 
     it "should be ok to declare reply-to queue to check if consumer is connected" do

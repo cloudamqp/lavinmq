@@ -20,8 +20,6 @@ describe LavinMQ::HTTP::ConnectionsController do
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_true
       end
-    ensure
-      s.users.delete("arnold")
     end
 
     it "should only show all connections for monitoring" do
@@ -33,8 +31,6 @@ describe LavinMQ::HTTP::ConnectionsController do
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
       end
-    ensure
-      s.users.delete("arnold")
     end
   end
 
@@ -86,8 +82,6 @@ describe LavinMQ::HTTP::ConnectionsController do
       ensure
         response.try &.status_code.should eq 401
       end
-    ensure
-      s.users.delete("arnold")
     end
   end
 

@@ -1,5 +1,4 @@
 require "http/server/handler"
-require "../../user_store"
 require "base64"
 
 module LavinMQ
@@ -7,7 +6,7 @@ module LavinMQ
     class BasicAuthHandler
       include ::HTTP::Handler
 
-      def initialize(@user_store : UserStore, @log : Log)
+      def initialize(@server : LavinMQ::Server, @log : Log)
       end
 
       def call(context)
@@ -25,7 +24,7 @@ module LavinMQ
             base64 = auth[6..-1]
             begin
               username, password = Base64.decode_string(base64).split(":")
-              if user = @user_store[username]?
+              if user = @server.users[username]?
                 if valid_auth?(user, password) && guest_only_loopback?(context, user)
                   context.authenticated_username = username
                   return call_next(context)

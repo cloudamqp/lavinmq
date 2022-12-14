@@ -10,8 +10,6 @@ describe "Internal Queue" do
         q.subscribe(no_ack: false) { true }
       end
     end
-  ensure
-    s.vhosts["/"].delete_queue(q_name)
   end
 
   it "should not be possible to publish" do
@@ -27,8 +25,6 @@ describe "Internal Queue" do
       reply_code.should eq 312
       reply_text.should eq "NO_ROUTE"
     end
-  ensure
-    s.vhosts["/"].delete_queue(q_name)
   end
 
   it "should not be possible to bind" do
@@ -39,8 +35,6 @@ describe "Internal Queue" do
         q.bind("amq.topic", "foo")
       end
     end
-  ensure
-    s.vhosts["/"].delete_queue(q_name)
   end
 
   it "should not be possible to delete" do
@@ -51,7 +45,5 @@ describe "Internal Queue" do
         q.delete
       end
     end
-  ensure
-    s.vhosts["/"].delete_queue(q_name)
   end
 end

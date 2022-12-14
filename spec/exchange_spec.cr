@@ -42,8 +42,6 @@ describe LavinMQ::Exchange do
         x.publish_confirm "test message 1", "none"
         s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
     end
 
     it "should count unroutable metrics" do
@@ -56,8 +54,6 @@ describe LavinMQ::Exchange do
         x.publish_confirm "test message 2", q.name
         s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
       end
-    ensure
-      s.vhosts["/"].delete_exchange(x_name)
     end
   end
 

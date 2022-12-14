@@ -20,8 +20,6 @@ describe LavinMQ::Server do
     expect_raises(AMQP::Client::Connection::ClosedException) do
       with_channel(vhost: "v1", user: "guest", password: "guest") { }
     end
-  ensure
-    s.vhosts.delete("v1")
   end
 
   it "allows users with access to vhost" do
@@ -29,9 +27,6 @@ describe LavinMQ::Server do
     s.users.create("u1", "p1")
     s.users.add_permission("u1", "v1", /.*/, /.*/, /.*/)
     with_channel(vhost: "v1", user: "u1", password: "p1") { }
-  ensure
-    s.vhosts.delete("v1")
-    s.users.delete("u1")
   end
 
   it "prohibits declaring exchanges if don't have access" do
@@ -42,9 +37,6 @@ describe LavinMQ::Server do
         ch.exchange("x1", "direct")
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "prohibits declaring queues if don't have access" do
@@ -56,9 +48,6 @@ describe LavinMQ::Server do
         ch.queue("q1")
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "prohibits publish if user doesn't have access" do
@@ -71,9 +60,6 @@ describe LavinMQ::Server do
         q.get
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "prohibits consuming if user doesn't have access" do
@@ -85,9 +71,6 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { }
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "prohibits getting from queue if user doesn't have access" do
@@ -99,9 +82,6 @@ describe LavinMQ::Server do
         q.get(no_ack: true)
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "prohibits purging queue if user doesn't have write access" do
@@ -113,9 +93,6 @@ describe LavinMQ::Server do
         q.purge
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "allows declaring exchanges passivly even without config perms" do
@@ -125,9 +102,6 @@ describe LavinMQ::Server do
       x = ch.exchange("amq.topic", "topic", passive: true)
       x.is_a?(AMQP::Client::Exchange).should be_true
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "allows declaring queues passivly even without config perms" do
@@ -141,9 +115,6 @@ describe LavinMQ::Server do
       q1 = ch.queue("q1cp", passive: true)
       q1.is_a?(AMQP::Client::Queue).should be_true
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "disallows deleting queues without config perms" do
@@ -160,9 +131,6 @@ describe LavinMQ::Server do
         q1.delete
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "disallows deleting exchanges without config perms" do
@@ -178,9 +146,6 @@ describe LavinMQ::Server do
         x1.delete
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "binding queue required write perm on queue" do
@@ -199,9 +164,6 @@ describe LavinMQ::Server do
         q1.bind("x1", "")
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "binding queue required read perm on exchange" do
@@ -219,9 +181,6 @@ describe LavinMQ::Server do
         q1.bind(x1.name, "")
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "unbinding queue required write perm on queue" do
@@ -241,9 +200,6 @@ describe LavinMQ::Server do
         q1.unbind(x1.name, "")
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 
   it "unbinding queue required read perm on exchange" do
@@ -262,9 +218,6 @@ describe LavinMQ::Server do
         q1.unbind(x1.name, "")
       end
     end
-  ensure
-    s.users.rm_permission("guest", "v1")
-    s.vhosts.delete("v1")
   end
 end
 

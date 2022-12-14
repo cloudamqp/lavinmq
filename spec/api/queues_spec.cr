@@ -31,8 +31,6 @@ describe LavinMQ::HTTP::QueuesController do
       s.vhosts["/"].declare_queue("q0", false, false)
       response = get("/api/queues/%2f/q0")
       response.status_code.should eq 200
-    ensure
-      s.vhosts["/"].delete_queue("q0")
     end
 
     it "should return 404 if queue does not exist" do
@@ -49,8 +47,6 @@ describe LavinMQ::HTTP::QueuesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["message_stats"]["publish_details"]["rate"].nil?.should be_false
-    ensure
-      s.vhosts["/"].delete_queue("stats_q")
     end
 
     it "should return no persistent message count" do
@@ -63,8 +59,6 @@ describe LavinMQ::HTTP::QueuesController do
       body = JSON.parse(response.body)
       body["messages"].should eq 1
       body["messages_persistent"].should eq 0
-    ensure
-      s.vhosts["/"].delete_queue("stats_q")
     end
 
     it "should return persistent message count" do
@@ -77,8 +71,6 @@ describe LavinMQ::HTTP::QueuesController do
       body = JSON.parse(response.body)
       body["messages"].should eq 1
       body["messages_persistent"].should eq 1
-    ensure
-      s.vhosts["/"].delete_queue("stats_q")
     end
   end
 
@@ -95,8 +87,6 @@ describe LavinMQ::HTTP::QueuesController do
       body["ready_min_bytes"].nil?.should be_false
       body["unacked_max_bytes"].nil?.should be_false
       body["unacked_min_bytes"].nil?.should be_false
-    ensure
-      s.vhosts["/"].delete_queue("stats_q")
     end
   end
 
@@ -108,8 +98,6 @@ describe LavinMQ::HTTP::QueuesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["items"].as_a.size.should eq 2
-    ensure
-      s.vhosts["/"].delete_queue("q0")
     end
   end
 
@@ -131,15 +119,11 @@ describe LavinMQ::HTTP::QueuesController do
       body.each do |key, value|
         json[key].should eq value
       end
-    ensure
-      s.vhosts["/"].delete_queue("putqueue")
     end
 
     it "should not require any body" do
       response = put("/api/queues/%2f/okq")
       response.status_code.should eq 201
-    ensure
-      s.vhosts["/"].delete_queue("okq")
     end
 
     it "should require durable to be the same when overwriting" do
@@ -153,8 +137,6 @@ describe LavinMQ::HTTP::QueuesController do
       })
       response = put("/api/queues/%2f/q1d", body: body)
       response.status_code.should eq 400
-    ensure
-      s.vhosts["/"].delete_queue("q1d")
     end
 
     it "should not be possible to declare amq. prefixed queues" do
@@ -174,8 +156,6 @@ describe LavinMQ::HTTP::QueuesController do
       s.vhosts["/"].declare_queue("delq", false, false)
       response = delete("/api/queues/%2f/delq")
       response.status_code.should eq 204
-    ensure
-      s.vhosts["/"].declare_queue("delq", false, false)
     end
 
     it "should not delete queue if it has messasge when query param if-unused is set" do
@@ -197,8 +177,6 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
         s.vhosts["/"].queues["q3"].message_count.should be > 0
       end
-    ensure
-      s.vhosts["/"].delete_queue("q3")
     end
   end
 
@@ -216,8 +194,6 @@ describe LavinMQ::HTTP::QueuesController do
         body[0]["payload"].should eq "m1"
         q4.empty?.should be_true
       end
-    ensure
-      s.vhosts["/"].delete_queue("q4")
     end
 
     it "should get encoded messages" do
@@ -237,8 +213,6 @@ describe LavinMQ::HTTP::QueuesController do
         body[0]["payload_encoding"].should eq "base64"
         q4.empty?.should be_true
       end
-    ensure
-      s.vhosts["/"].delete_queue("q4")
     end
 
     it "should handle count > message_count" do
@@ -254,8 +228,6 @@ describe LavinMQ::HTTP::QueuesController do
         response = post("/api/queues/%2f/q5/get", body: body)
         response.status_code.should eq 200
       end
-    ensure
-      s.vhosts["/"].delete_queue("q5")
     end
 
     it "should handle empty q" do
@@ -271,8 +243,6 @@ describe LavinMQ::HTTP::QueuesController do
         body = JSON.parse(response.body)
         body.as_a.should be_empty
       end
-    ensure
-      s.vhosts["/"].delete_queue("q6")
     end
 
     it "should handle base64 encoding" do
@@ -290,8 +260,6 @@ describe LavinMQ::HTTP::QueuesController do
         body = JSON.parse(response.body)
         Base64.decode_string(body[0]["payload"].as_s).should eq "m1"
       end
-    ensure
-      s.vhosts["/"].delete_queue("q7")
     end
 
     it "should not allow get and requeue" do
@@ -310,8 +278,6 @@ describe LavinMQ::HTTP::QueuesController do
         body = JSON.parse(response.body)
         body["reason"].should eq "Cannot requeue message on get"
       end
-    ensure
-      s.vhosts["/"].delete_queue("q8")
     end
   end
 
@@ -325,8 +291,6 @@ describe LavinMQ::HTTP::QueuesController do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body["state"].should eq "paused"
-      ensure
-        s.vhosts["/"].delete_queue("confqueue")
       end
     end
   end
@@ -351,8 +315,6 @@ describe LavinMQ::HTTP::QueuesController do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body["state"].should eq "running"
-      ensure
-        s.vhosts["/"].delete_queue("confqueue")
       end
     end
   end
