@@ -118,7 +118,7 @@ jobs:
           path: bin/
 
   java-client-test:
-    name: RabbitMQ java client test (allowed to fail)
+    name: RabbitMQ java client test
     runs-on: ubuntu-20.04
     needs: compile
     continue-on-error: true
