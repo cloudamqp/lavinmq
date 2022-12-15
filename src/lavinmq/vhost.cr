@@ -464,7 +464,6 @@ module LavinMQ
                             definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
-      @operator_policies.delete(name)
       @operator_policies.create(op)
       spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
       @log.info { "OperatorPolicy=#{name} Created" }
@@ -475,7 +474,6 @@ module LavinMQ
                    definition : Hash(String, JSON::Any), priority : Int8) : Policy
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
-      @policies.delete(name)
       @policies.create(p)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
       @log.info { "Policy=#{name} Created" }
@@ -508,7 +506,6 @@ module LavinMQ
 
     def add_parameter(p : Parameter)
       @log.debug { "Add parameter #{p.name}" }
-      @parameters.delete(p.name)
       @parameters.create(p)
       apply_parameters(p)
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"

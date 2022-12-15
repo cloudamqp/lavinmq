@@ -22,9 +22,9 @@ module LavinMQ
       save! if save
     end
 
-    def delete(id) : T?
+    def delete(id, save = true) : T?
       if parameter = @parameters.delete id
-        save!
+        save! if save
         parameter
       end
     end
