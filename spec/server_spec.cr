@@ -62,7 +62,6 @@ describe LavinMQ::Server do
         end
       end
     end
-    Fiber.yield
     with_channel do |ch|
       ch.prefetch 10
       q = ch.queue("reject")
