@@ -12,7 +12,7 @@ describe LavinMQ::HTTP::ConnectionsController do
     end
 
     it "should only show own connections for policymaker" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/connections", headers: hdrs)
@@ -23,7 +23,7 @@ describe LavinMQ::HTTP::ConnectionsController do
     end
 
     it "should only show all connections for monitoring" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/connections", headers: hdrs)
@@ -72,7 +72,7 @@ describe LavinMQ::HTTP::ConnectionsController do
     end
 
     it "should return 401 if user doesn't have access" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
         response = get("/api/vhosts/%2f/connections")

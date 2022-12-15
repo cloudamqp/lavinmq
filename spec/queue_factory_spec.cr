@@ -7,7 +7,7 @@ describe LavinMQ::QueueFactory do
     queue_args = AMQ::Protocol::Table.new({"t" => 1})
     frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
       false, false, queue_args)
-    q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
+    q = LavinMQ::QueueFactory.make(Server.vhosts["/"], frame)
     q.is_a?(LavinMQ::Queue).should be_true
   end
 
@@ -16,7 +16,7 @@ describe LavinMQ::QueueFactory do
     queue_args = AMQ::Protocol::Table.new({"t" => 1})
     frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
       false, false, queue_args)
-    q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
+    q = LavinMQ::QueueFactory.make(Server.vhosts["/"], frame)
     q.is_a?(LavinMQ::DurableQueue).should be_true
   end
 
@@ -26,7 +26,7 @@ describe LavinMQ::QueueFactory do
       queue_args = AMQ::Protocol::Table.new({"x-max-priority" => 1})
       frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
         false, false, queue_args)
-      q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
+      q = LavinMQ::QueueFactory.make(Server.vhosts["/"], frame)
       q.is_a?(LavinMQ::PriorityQueue).should be_true
     end
 
@@ -35,7 +35,7 @@ describe LavinMQ::QueueFactory do
       queue_args = AMQ::Protocol::Table.new({"x-max-priority" => 1})
       frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
         false, false, queue_args)
-      q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
+      q = LavinMQ::QueueFactory.make(Server.vhosts["/"], frame)
       q.is_a?(LavinMQ::DurablePriorityQueue).should be_true
     end
   end

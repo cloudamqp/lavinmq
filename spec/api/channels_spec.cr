@@ -18,8 +18,8 @@ describe LavinMQ::HTTP::ChannelsController do
 
   describe "GET /api/vhosts/vhost/channels" do
     it "should return all channels for a vhost" do
-      s.vhosts.create("my-connection")
-      s.users.add_permission("guest", "my-connection", /.*/, /.*/, /.*/)
+      Server.vhosts.create("my-connection")
+      Server.users.add_permission("guest", "my-connection", /.*/, /.*/, /.*/)
       with_channel(vhost: "my-connection") do
         response = get("/api/vhosts/my-connection/channels")
         response.status_code.should eq 200
@@ -29,7 +29,7 @@ describe LavinMQ::HTTP::ChannelsController do
     end
 
     it "should return empty array if no connections" do
-      s.vhosts.create("no-conns")
+      Server.vhosts.create("no-conns")
       response = get("/api/vhosts/no-conns/channels")
       response.status_code.should eq 200
       body = JSON.parse(response.body)

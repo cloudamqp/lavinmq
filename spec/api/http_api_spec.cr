@@ -8,7 +8,7 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "should refuse access if user does not exist" do
-      s.users.delete("arnold")
+      Server.users.delete("arnold")
       # arnold:pw
       response = get("/api/overview",
         headers: ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"})
@@ -162,8 +162,8 @@ describe LavinMQ::HTTP::Server do
 
   describe "Sorting" do
     it "should sort results" do
-      s.vhosts.create("x-vhost")
-      s.vhosts.create("a-vhost")
+      Server.vhosts.create("x-vhost")
+      Server.vhosts.create("a-vhost")
       response = get("/api/vhosts?page=1&sort=name")
       response.status_code.should eq 200
       items = JSON.parse(response.body).as_h["items"].as_a
@@ -172,8 +172,8 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "should sort reverse results" do
-      s.vhosts.create("a-vhost")
-      s.vhosts.create("x-vhost")
+      Server.vhosts.create("a-vhost")
+      Server.vhosts.create("x-vhost")
       response = get("/api/vhosts?page=1&sort=name&sort_reverse=true")
       response.status_code.should eq 200
       items = JSON.parse(response.body).as_h["items"].as_a

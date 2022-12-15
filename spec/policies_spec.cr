@@ -5,10 +5,10 @@ describe LavinMQ::VHost do
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
   }
-  vhost = s.vhosts.create("add_policy")
+  vhost = Server.vhosts.create("add_policy")
 
   before_each do
-    vhost = s.vhosts.create("add_policy")
+    vhost = Server.vhosts.create("add_policy")
   end
 
   it "should be able to add policy" do
@@ -28,11 +28,11 @@ describe LavinMQ::VHost do
   end
 
   it "should be able to list policies" do
-    vhost2 = s.vhosts.create("add_remove_policy")
+    vhost2 = Server.vhosts.create("add_remove_policy")
     vhost2.add_policy("test", "^.*$", "all", definitions, -10_i8)
     vhost2.delete_policy("test")
     vhost2.policies.size.should eq 0
-    s.vhosts.delete("add_remove_policy")
+    Server.vhosts.delete("add_remove_policy")
   end
 
   it "should overwrite policy with same name" do
@@ -62,14 +62,14 @@ describe LavinMQ::VHost do
 
   it "should remove effect of deleted policy" do
     defs = {"max-length" => JSON::Any.new(10_i64)} of String => JSON::Any
-    s.vhosts["/"].add_policy("mld", "^.*$", "all", defs, 12_i8)
+    Server.vhosts["/"].add_policy("mld", "^.*$", "all", defs, 12_i8)
     with_channel do |ch|
       q = ch.queue("mld")
       11.times do
         q.publish_confirm "body"
       end
       ch.queue_declare("mld", passive: true)[:message_count].should eq 10
-      s.vhosts["/"].delete_policy("mld")
+      Server.vhosts["/"].delete_policy("mld")
       q.publish_confirm "body"
       ch.queue_declare("mld", passive: true)[:message_count].should eq 11
     end
@@ -83,10 +83,10 @@ describe LavinMQ::VHost do
         q.publish_confirm "body"
       end
       ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 10
-      s.vhosts["/"].add_policy("ttl", "^.*$", "all", defs, 12_i8)
+      Server.vhosts["/"].add_policy("ttl", "^.*$", "all", defs, 12_i8)
       sleep 0.01
       ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 0
-      s.vhosts["/"].delete_policy("ttl")
+      Server.vhosts["/"].delete_policy("ttl")
     end
   end
 
@@ -95,7 +95,7 @@ describe LavinMQ::VHost do
     with_channel do |ch|
       q = ch.queue("qttl")
       q.publish_confirm ""
-      s.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
+      Server.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
       sleep 0.01
       expect_raises(AMQP::Client::Channel::ClosedException) do
         ch.queue_declare("qttl", passive: true)
@@ -107,10 +107,10 @@ describe LavinMQ::VHost do
     defs = {"expires" => JSON::Any.new(50_i64)} of String => JSON::Any
     with_channel do |ch|
       ch.queue("qttl")
-      queue = s.vhosts["/"].queues["qttl"]
+      queue = Server.vhosts["/"].queues["qttl"]
       first = queue.last_get_time
       sleep 0.1
-      s.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
+      Server.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
       sleep 0.1
       last = queue.last_get_time
       last.should be > first
@@ -126,12 +126,12 @@ describe LavinMQ::VHost do
       q.publish_confirm "long"
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 3
       sleep 0.02
-      s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
+      Server.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
       sleep 0.01
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
       q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
       q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
-      s.vhosts["/"].delete_policy("max-length-bytes")
+      Server.vhosts["/"].delete_policy("max-length-bytes")
     end
   end
 
@@ -139,7 +139,7 @@ describe LavinMQ::VHost do
     defs = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
     with_channel do |ch|
       q = ch.queue("max-length-bytes", exclusive: true)
-      s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
+      Server.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
       sleep 0.01
       q.publish_confirm "short1"
       q.publish_confirm "short2"
@@ -147,7 +147,7 @@ describe LavinMQ::VHost do
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
       q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
       q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
-      s.vhosts["/"].delete_policy("max-length-bytes")
+      Server.vhosts["/"].delete_policy("max-length-bytes")
     end
   end
 
@@ -156,7 +156,7 @@ describe LavinMQ::VHost do
             "overflow"         => JSON::Any.new("reject-publish")} of String => JSON::Any
     with_channel do |ch|
       q = ch.queue("max-length-bytes", exclusive: true)
-      s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
+      Server.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
       sleep 0.01
       q.publish_confirm "short1"
       q.publish_confirm "short2"
@@ -164,7 +164,7 @@ describe LavinMQ::VHost do
       ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
       q.get(no_ack: true).try(&.body_io.to_s).should eq("short1")
       q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
-      s.vhosts["/"].delete_policy("max-length-bytes")
+      Server.vhosts["/"].delete_policy("max-length-bytes")
     end
   end
 
@@ -173,19 +173,19 @@ describe LavinMQ::VHost do
       defs = {"max-length-bytes" => JSON::Any.new(100_i64)} of String => JSON::Any
       with_channel do |ch|
         q = ch.queue("max-length-bytes", exclusive: true)
-        s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "queues", defs, 12_i8)
+        Server.vhosts["/"].add_policy("max-length-bytes", "^.*$", "queues", defs, 12_i8)
         q.publish_confirm "short1"
         q.publish_confirm "short2"
         q.publish_confirm "long"
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
 
         defs = {"max-length" => JSON::Any.new(10_i64)} of String => JSON::Any
-        s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "queues", defs, 12_i8)
+        Server.vhosts["/"].add_policy("max-length-bytes", "^.*$", "queues", defs, 12_i8)
         10.times do
           q.publish_confirm "msg"
         end
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 10
-        s.vhosts["/"].delete_policy("max-length-bytes")
+        Server.vhosts["/"].delete_policy("max-length-bytes")
       end
     end
   end
@@ -194,18 +194,18 @@ describe LavinMQ::VHost do
     it "merges with normal polices" do
       ml_2 = {"max-length" => JSON::Any.new(2_i64)} of String => JSON::Any
       ml_1 = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      s.vhosts["/"].add_policy("ml", ".*", "all", ml_2, 0_i8)
+      Server.vhosts["/"].add_policy("ml", ".*", "all", ml_2, 0_i8)
       with_channel do |ch|
         q = ch.queue
         3.times do
           q.publish_confirm "body"
         end
         ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
-        s.vhosts["/"].add_operator_policy("ml1", ".*", "all", ml_1, 0_i8)
+        Server.vhosts["/"].add_operator_policy("ml1", ".*", "all", ml_1, 0_i8)
         ch.queue_declare(q.name, passive: true)[:message_count].should eq 1
 
         # deleting operator policy should make normal policy active again
-        s.vhosts["/"].delete_operator_policy("ml1")
+        Server.vhosts["/"].delete_operator_policy("ml1")
         3.times do
           q.publish_confirm "body"
         end

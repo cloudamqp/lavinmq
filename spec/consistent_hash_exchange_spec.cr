@@ -244,7 +244,7 @@ describe "Consistent Hash Exchange" do
           .try(&.body_io.to_s)
           .should eq("test message 2")
 
-        s.vhosts["/"].delete_queue("2")
+        Server.vhosts["/"].delete_queue("2")
 
         x.publish "test message 0", "r1"
         x.publish "test message 1", "r2"

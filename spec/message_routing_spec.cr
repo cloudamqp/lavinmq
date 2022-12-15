@@ -14,7 +14,7 @@ end
 
 describe LavinMQ::DirectExchange do
   it "matches exact rk" do
-    vhost = s.vhosts.create("x")
+    vhost = Server.vhosts.create("x")
     q1 = LavinMQ::Queue.new(vhost, "q1")
     x = LavinMQ::DirectExchange.new(vhost, "")
     x.bind(q1, "q1", Hash(String, LavinMQ::AMQP::Field).new)
@@ -22,7 +22,7 @@ describe LavinMQ::DirectExchange do
   end
 
   it "matches no rk" do
-    vhost = s.vhosts.create("x")
+    vhost = Server.vhosts.create("x")
     x = LavinMQ::DirectExchange.new(vhost, "")
     x.matches("q1").should be_empty
   end
@@ -30,7 +30,7 @@ end
 
 describe LavinMQ::FanoutExchange do
   it "matches any rk" do
-    vhost = s.vhosts.create("x")
+    vhost = Server.vhosts.create("x")
     q1 = LavinMQ::Queue.new(vhost, "q1")
     x = LavinMQ::FanoutExchange.new(vhost, "")
     x.bind(q1, "")
@@ -38,14 +38,14 @@ describe LavinMQ::FanoutExchange do
   end
 
   it "matches no rk" do
-    vhost = s.vhosts.create("x")
+    vhost = Server.vhosts.create("x")
     x = LavinMQ::FanoutExchange.new(vhost, "")
     x.matches("q1").should be_empty
   end
 end
 
 describe LavinMQ::TopicExchange do
-  vhost = s.vhosts.create("x")
+  vhost = Server.vhosts.create("x")
   x = LavinMQ::TopicExchange.new(vhost, "t", false, false, true)
 
   it "matches prefixed star-wildcard" do
@@ -167,8 +167,13 @@ describe LavinMQ::TopicExchange do
 end
 
 describe LavinMQ::HeadersExchange do
-  vhost = s.vhosts.create("x")
+  vhost = Server.vhosts.create("x")
   x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+  before_each do
+    vhost = Server.vhosts.create("x")
+    x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+  end
+
   hdrs_all = {
     "x-match" => "all",
     "org"     => "84codes",

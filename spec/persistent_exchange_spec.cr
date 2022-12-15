@@ -102,7 +102,7 @@ describe "Persistent Exchange" do
         id = x.publish "test message", q_name
         ch.wait_for_confirm(id)
       end
-      s.restart
+      Server.restart
       with_channel do |ch|
         q = ch.queue q_name
         bind_args = AMQP::Client::Arguments.new({"x-head" => 1})

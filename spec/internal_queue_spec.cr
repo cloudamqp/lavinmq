@@ -6,7 +6,7 @@ describe "Internal Queue" do
     expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
       with_channel do |ch|
         q = ch.queue q_name
-        s.vhosts["/"].queues[q_name].internal = true
+        Server.vhosts["/"].queues[q_name].internal = true
         q.subscribe(no_ack: false) { true }
       end
     end
@@ -15,7 +15,7 @@ describe "Internal Queue" do
   it "should not be possible to publish" do
     with_channel do |ch|
       q = ch.queue q_name
-      s.vhosts["/"].queues[q_name].internal = true
+      Server.vhosts["/"].queues[q_name].internal = true
       ch1 = Channel(Tuple(UInt16, String)).new
       ch.on_return do |msg|
         ch1.send({msg.reply_code, msg.reply_text})
@@ -30,7 +30,7 @@ describe "Internal Queue" do
   it "should not be possible to bind" do
     with_channel do |ch|
       q = ch.queue q_name
-      s.vhosts["/"].queues[q_name].internal = true
+      Server.vhosts["/"].queues[q_name].internal = true
       expect_raises(AMQP::Client::Channel::ClosedException, "ACCESS_REFUSED") do
         q.bind("amq.topic", "foo")
       end
@@ -40,7 +40,7 @@ describe "Internal Queue" do
   it "should not be possible to delete" do
     with_channel do |ch|
       q = ch.queue q_name
-      s.vhosts["/"].queues[q_name].internal = true
+      Server.vhosts["/"].queues[q_name].internal = true
       expect_raises(AMQP::Client::Channel::ClosedException, "ACCESS_REFUSED") do
         q.delete
       end
