@@ -62,22 +62,26 @@ describe LavinMQ::Server do
         end
       end
     end
-    with_channel do |ch|
-      ch.prefetch 10
-      q = ch.queue("reject")
-      q.subscribe(no_ack: false) do |msg|
-        msg.reject(requeue: false)
-        done.send nil
-      end
-      timeout = false
-      200.times do
-        select
-        when done.receive
-        when timeout 1.seconds
-          timeout = true
+    spawn do
+      with_channel do |ch|
+        ch.prefetch 10
+        q = ch.queue("reject")
+        q.subscribe(no_ack: false, block: true) do |msg|
+          msg.reject(requeue: false)
+          done.send nil
         end
       end
-      timeout.should be_false
+    end
+    timeout = false
+    200.times do
+      select
+      when done.receive
+      when timeout 1.seconds
+        timeout = true
+      end
+    end
+    timeout.should be_false
+    with_channel do |ch|
       ch.queue_declare("reject", passive: true)[:message_count].should eq 0
     end
   end
