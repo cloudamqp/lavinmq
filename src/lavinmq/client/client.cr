@@ -435,9 +435,7 @@ module LavinMQ
     def close(reason = nil)
       reason ||= "Connection closed"
       @log.info { "Closing, #{reason}" }
-      @vhost.fsync
-      close_frame = AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
-      send(close_frame)
+      send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
       @running = false
     end
 
