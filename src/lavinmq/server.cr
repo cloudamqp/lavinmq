@@ -65,7 +65,8 @@ module LavinMQ
     def listen(s : TCPServer)
       @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
-      while client = s.accept?
+      loop do
+        client = s.accept? || break
         next client.close if @closed
         spawn(name: "Accept TCP socket") do
           remote_address = client.remote_address
@@ -74,7 +75,7 @@ module LavinMQ
           conn_info =
             case Config.instance.tcp_proxy_protocol
             when 1 then ProxyProtocol::V1.parse(client)
-            when 2 then ProxyProtocol::V1.parse(client)
+            when 2 then ProxyProtocol::V2.parse(client)
             else        ConnectionInfo.new(remote_address, client.local_address)
             end
           handle_connection(client, conn_info)
@@ -92,7 +93,8 @@ module LavinMQ
     def listen(s : UNIXServer)
       @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
-      while client = s.accept?
+      loop do # do not try to use while
+        client = s.accept? || break
         next client.close if @closed
         spawn(name: "Accept UNIX socket") do
           remote_address = client.remote_address
@@ -100,7 +102,7 @@ module LavinMQ
           conn_info =
             case Config.instance.unix_proxy_protocol
             when 1 then ProxyProtocol::V1.parse(client)
-            when 2 then ProxyProtocol::V1.parse(client)
+            when 2 then ProxyProtocol::V2.parse(client)
             else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
             end
           handle_connection(client, conn_info)
@@ -124,14 +126,15 @@ module LavinMQ
       s = TCPServer.new(bind, port)
       @listeners[s] = :amqps
       @log.info { "Listening on #{s.local_address} (TLS)" }
-      while client = s.accept?
+      loop do # do not try to use while
+        client = s.accept? || break
         next client.close if @closed
         spawn(name: "Accept TLS socket") do
           remote_addr = client.remote_address
           set_socket_options(client)
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          @log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
           set_buffer_size(ssl_client)
+          @log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
           conn_info = ConnectionInfo.new(remote_addr, client.local_address)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
