@@ -27,7 +27,7 @@ describe LavinMQ::HTTP::Server do
       })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
+      Server.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
         u.should be_a(LavinMQ::User)
         ok = u.not_nil!.password.not_nil!.verify "hej"
         {u.name, ok}.should(eq({u.name, true}))
@@ -35,39 +35,35 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "imports vhosts" do
-      s.vhosts.delete("def")
+      Server.vhosts.delete("def")
       body = %({ "vhosts":[{ "name":"def" }] })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      vhost = s.vhosts["def"]? || nil
+      vhost = Server.vhosts["def"]? || nil
       vhost.should be_a(LavinMQ::VHost)
     end
 
     # https://github.com/cloudamqp/lavinmq/issues/276
     context "if default user has been replaced" do
       before_each do
-        s.users.delete("guest")
-        s.users.create("other_name", "guest", [LavinMQ::Tag::Administrator], save: false) # Will be the new default_user
+        Server.users.delete("guest")
+        Server.users.create("other_name", "guest", [LavinMQ::Tag::Administrator], save: false) # Will be the new default_user
       end
 
       after_each do
-        # pp [:debug, :before_users_default_user, s.users.default_user.name]
-        s.users.delete("other_name", save: false)
-        s.vhosts.delete("new")
-        s.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        # pp [:debug, :after_users_default_user, s.users.default_user.name]
-        s.vhosts.each_key { |name| s.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
-        # s.vhosts.each_value { |vhost| pp [:debug, :vhost_default_user, vhost.default_user.name] }
+        Server.users.delete("other_name", save: false)
+        Server.vhosts.delete("new")
+        Server.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
+        Server.vhosts.each_key { |name| Server.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
       end
 
-      # TODO: This has side-effects causing default_user to be __direct instead of guest in other specs
-      pending "imports with new default user" do
+      it "imports with new default user" do
         headers = HTTP::Headers{"Content-Type"  => "application/json",
                                 "Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="} # other_name:guest
         body = %({ "vhosts":[{ "name":"new" }] })
         response = post("/api/definitions", body: body, headers: headers)
         response.status_code.should eq 200
-        vhost = s.vhosts["new"]? || nil
+        vhost = Server.vhosts["new"]? || nil
         vhost.should be_a(LavinMQ::VHost)
       end
     end
@@ -76,20 +72,20 @@ describe LavinMQ::HTTP::Server do
       body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].queues.has_key?("import_q1").should be_true
+      Server.vhosts["/"].queues.has_key?("import_q1").should be_true
     end
 
     it "imports exchanges" do
       body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+      Server.vhosts["/"].exchanges.has_key?("import_x1").should be_true
     end
 
     it "imports bindings" do
-      s.vhosts["/"].declare_exchange("import_x1", "topic", false, true)
-      s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
-      s.vhosts["/"].declare_queue("import_q1", false, true)
+      Server.vhosts["/"].declare_exchange("import_x1", "topic", false, true)
+      Server.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
+      Server.vhosts["/"].declare_queue("import_q1", false, true)
       body = %({ "bindings": [
         {
           "source": "import_x1",
@@ -111,7 +107,7 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
       matches = [] of String
-      ex = s.vhosts["/"].exchanges["import_x1"]
+      ex = Server.vhosts["/"].exchanges["import_x1"]
       ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
       matches.includes?("import_x2").should be_true
       matches.clear
@@ -120,7 +116,7 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "imports permissions" do
-      s.users.create("u1", "")
+      Server.users.create("u1", "")
       body = %({ "permissions": [
         {
           "user": "u1",
@@ -132,7 +128,7 @@ describe LavinMQ::HTTP::Server do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.users["u1"].permissions["/"][:write].should eq(/w/)
+      Server.users["u1"].permissions["/"][:write].should eq(/w/)
     end
 
     it "imports policies" do
@@ -150,7 +146,7 @@ describe LavinMQ::HTTP::Server do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].policies.has_key?("import_p1").should be_true
+      Server.vhosts["/"].policies.has_key?("import_p1").should be_true
     end
 
     it "imports parameters" do
@@ -173,10 +169,10 @@ describe LavinMQ::HTTP::Server do
       # after this spec has finished
       sleep 0.1 # Start the shovel
       wait_for do
-        shovels = s.vhosts["/"].shovels.not_nil!
+        shovels = Server.vhosts["/"].shovels.not_nil!
         shovels.each_value.all? &.running?
       end
-      s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
+      Server.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
         .should be_true
     end
 
@@ -189,7 +185,7 @@ describe LavinMQ::HTTP::Server do
       ]})
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      s.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
+      Server.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
     end
 
     it "should handle request with empty body" do
@@ -232,7 +228,7 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "exports queues" do
-      s.vhosts["/"].declare_queue("export_q1", false, false)
+      Server.vhosts["/"].declare_queue("export_q1", false, false)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -242,7 +238,7 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "exports exchanges" do
-      s.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
+      Server.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -252,9 +248,9 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "exports bindings" do
-      s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
-      s.vhosts["/"].declare_queue("export_q1", false, true)
-      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
+      Server.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
+      Server.vhosts["/"].declare_queue("export_q1", false, true)
+      Server.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -274,7 +270,7 @@ describe LavinMQ::HTTP::Server do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("export_p1", "^.*", "queues", d, -1_i8)
+      Server.vhosts["/"].add_policy("export_p1", "^.*", "queues", d, -1_i8)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -286,7 +282,7 @@ describe LavinMQ::HTTP::Server do
     it "exports global parameters" do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
       p = LavinMQ::Parameter.new("c1", "p11", d)
-      s.add_parameter(p)
+      Server.add_parameter(p)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -298,7 +294,7 @@ describe LavinMQ::HTTP::Server do
     it "exports vhost parameters" do
       d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
       p = LavinMQ::Parameter.new("c1", "p11", d)
-      s.vhosts["/"].add_parameter(p)
+      Server.vhosts["/"].add_parameter(p)
       response = get("/api/definitions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -310,7 +306,7 @@ describe LavinMQ::HTTP::Server do
 
   describe "GET /api/definitions/vhost" do
     it "exports queues" do
-      s.vhosts["/"].declare_queue("export_q2", false, false)
+      Server.vhosts["/"].declare_queue("export_q2", false, false)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -320,7 +316,7 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "exports exchanges" do
-      s.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
+      Server.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -330,9 +326,9 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "exports bindings" do
-      s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
-      s.vhosts["/"].declare_queue("export_q1", false, true)
-      s.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
+      Server.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
+      Server.vhosts["/"].declare_queue("export_q1", false, true)
+      Server.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -343,7 +339,7 @@ describe LavinMQ::HTTP::Server do
 
     it "exports policies" do
       d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      s.vhosts["/"].add_policy("export_p2", "^.*", "queues", d, -1_i8)
+      Server.vhosts["/"].add_policy("export_p2", "^.*", "queues", d, -1_i8)
       response = get("/api/definitions/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -354,19 +350,19 @@ describe LavinMQ::HTTP::Server do
 
     describe "user tags and vhost access" do
       it "export vhost definitions as management user" do
-        s.users.delete("guest")
-        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        s.vhosts.create("new")
-        s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+        Server.users.delete("guest")
+        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        Server.vhosts.create("new")
+        Server.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         response = get("/api/definitions/new", headers: headers)
         response.status_code.should eq 200
       end
 
       it "should refuse vhost access" do
-        s.users.delete("guest")
-        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        s.vhosts.create("new")
+        Server.users.delete("guest")
+        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        Server.vhosts.create("new")
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         response = get("/api/definitions/new", headers: headers)
         response.status_code.should eq 401
@@ -381,20 +377,20 @@ describe LavinMQ::HTTP::Server do
       body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].queues.has_key?("import_q1").should be_true
+      Server.vhosts["/"].queues.has_key?("import_q1").should be_true
     end
 
     it "imports exchanges" do
       body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+      Server.vhosts["/"].exchanges.has_key?("import_x1").should be_true
     end
 
     it "imports bindings" do
-      s.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
-      s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
-      s.vhosts["/"].declare_queue("import_q1", false, true)
+      Server.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
+      Server.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
+      Server.vhosts["/"].declare_queue("import_q1", false, true)
       body = %({ "bindings": [
         {
           "source": "import_x1",
@@ -416,7 +412,7 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
       matches = [] of String
-      ex = s.vhosts["/"].exchanges["import_x1"]
+      ex = Server.vhosts["/"].exchanges["import_x1"]
       ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
       matches.includes?("import_x2").should be_true
       matches.clear
@@ -439,7 +435,7 @@ describe LavinMQ::HTTP::Server do
       ]})
       response = post("/api/definitions/%2f", body: body)
       response.status_code.should eq 200
-      s.vhosts["/"].policies.has_key?("import_p1").should be_true
+      Server.vhosts["/"].policies.has_key?("import_p1").should be_true
     end
 
     it "should handle request with empty body" do
@@ -463,21 +459,21 @@ describe LavinMQ::HTTP::Server do
 
     describe "user tags and vhost access" do
       it "import vhost definitions as policymaker user" do
-        s.users.delete("guest")
-        s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
-        s.vhosts.create("new")
-        s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+        Server.users.delete("guest")
+        Server.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
+        Server.vhosts.create("new")
+        Server.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = post("/api/definitions/new", headers: headers, body: body)
         response.status_code.should eq 200
-        s.vhosts["new"].queues.has_key?("import_q1").should be_true
+        Server.vhosts["new"].queues.has_key?("import_q1").should be_true
       end
 
       it "should refuse vhost access" do
-        s.users.delete("guest")
-        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        s.vhosts.create("new")
+        Server.users.delete("guest")
+        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        Server.vhosts.create("new")
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = post("/api/definitions/new", headers: headers, body: body)
@@ -487,10 +483,10 @@ describe LavinMQ::HTTP::Server do
       end
 
       it "should refuse user tag access" do
-        s.users.delete("guest")
-        s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        s.vhosts.create("new")
-        s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+        Server.users.delete("guest")
+        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+        Server.vhosts.create("new")
+        Server.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = post("/api/definitions/new", headers: headers, body: body)
@@ -514,8 +510,8 @@ describe LavinMQ::HTTP::Server do
 
       response = post("/api/definitions/upload", headers: headers, body: body)
       response.status_code.should eq 200
-      s.vhosts["uploaded_vhost"]?.should_not be_nil
-      s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+      Server.vhosts["uploaded_vhost"]?.should_not be_nil
+      Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
     end
 
     it "imports definitions from uploaded file" do
@@ -531,8 +527,8 @@ describe LavinMQ::HTTP::Server do
       response = post("/api/definitions/upload", headers: headers, body: body)
       response.status_code.should eq 302
       response.headers["Location"].should eq "/foo"
-      s.vhosts["uploaded_vhost"]?.should_not be_nil
-      s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+      Server.vhosts["uploaded_vhost"]?.should_not be_nil
+      Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
     end
   end
 
@@ -549,7 +545,7 @@ describe LavinMQ::HTTP::Server do
     response = post("/api/definitions", body: body)
     response.status_code.should eq 200
 
-    u = s.users[name]
+    u = Server.users[name]
     u.should be_a(LavinMQ::User)
     ok = u.not_nil!.password.not_nil!.verify "hej"
     {u.name, ok}.should eq({name, true})
@@ -564,7 +560,7 @@ describe LavinMQ::HTTP::Server do
     response = post("/api/definitions", body: update_body)
     response.status_code.should eq 200
 
-    u = s.users[name]
+    u = Server.users[name]
     u.should be_a(LavinMQ::User)
     ok = u.not_nil!.password.not_nil!.verify "test"
     {u.name, ok}.should eq({name, true})

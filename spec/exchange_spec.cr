@@ -40,7 +40,7 @@ describe LavinMQ::Exchange do
         x_args = AMQP::Client::Arguments.new
         x = ch.exchange(x_name, "topic", args: x_args)
         x.publish_confirm "test message 1", "none"
-        s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
+        Server.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
       end
     end
 
@@ -52,7 +52,7 @@ describe LavinMQ::Exchange do
         q.bind(x.name, q.name)
         x.publish_confirm "test message 1", "none"
         x.publish_confirm "test message 2", q.name
-        s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
+        Server.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
       end
     end
   end

@@ -128,23 +128,23 @@ describe LavinMQ::HTTP::ExchangesController do
 
   describe "DELETE /api/exchanges/vhost/name" do
     it "should delete exchange" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       response = delete("/api/exchanges/%2f/spechange")
       response.status_code.should eq 204
     end
 
     it "should not delete exchange if in use as source when query param if-unused is set" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts["/"].declare_queue("ex_q1", false, false)
-      s.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_queue("ex_q1", false, false)
+      Server.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
       response = delete("/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
     end
 
     it "should not delete exchange if in use as destination when query param if-unused is set" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
-      s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
+      Server.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
       response = delete("/api/exchanges/%2f/spechange?if-unused=true")
       response.status_code.should eq 400
     end
@@ -152,9 +152,9 @@ describe LavinMQ::HTTP::ExchangesController do
 
   describe "GET /api/exchanges/vhost/name/bindings/source" do
     it "should list bindings" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts["/"].declare_queue("ex_q1", false, false)
-      s.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_queue("ex_q1", false, false)
+      Server.vhosts["/"].bind_queue("ex_q1", "spechange", ".*")
       response = get("/api/exchanges/%2f/spechange/bindings/source")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -164,9 +164,9 @@ describe LavinMQ::HTTP::ExchangesController do
 
   describe "GET /api/exchanges/vhost/name/bindings/destination" do
     it "should list bindings" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
-      s.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_exchange("spechange2", "topic", false, false)
+      Server.vhosts["/"].bind_exchange("spechange", "spechange2", ".*")
       response = get("/api/exchanges/%2f/spechange/bindings/destination")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -176,9 +176,9 @@ describe LavinMQ::HTTP::ExchangesController do
 
   describe "POST /api/exchanges/vhost/name/publish" do
     it "should publish" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
-      s.vhosts["/"].declare_queue("q1p", false, false)
-      s.vhosts["/"].bind_queue("q1p", "spechange", "*")
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_queue("q1p", false, false)
+      Server.vhosts["/"].bind_queue("q1p", "spechange", "*")
       body = %({
         "properties": {},
         "routing_key": "rk",
@@ -189,11 +189,11 @@ describe LavinMQ::HTTP::ExchangesController do
       response.status_code.should eq 200
       body = JSON.parse(response.body)
       body["routed"].as_bool.should be_true
-      s.vhosts["/"].queues["q1p"].message_count.should eq 1
+      Server.vhosts["/"].queues["q1p"].message_count.should eq 1
     end
 
     it "should require all args" do
-      s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
+      Server.vhosts["/"].declare_exchange("spechange", "topic", false, false)
       response = post("/api/exchanges/%2f/spechange/publish", body: "")
       response.status_code.should eq 400
       body = JSON.parse(response.body)

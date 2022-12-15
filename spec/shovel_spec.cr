@@ -13,7 +13,7 @@ end
 
 describe LavinMQ::Shovel do
   describe "AMQP" do
-    vhost = s.vhosts.create("x")
+    vhost = Server.vhosts.create("x")
 
     it "should shovel and stop when queue length is met" do
       source = LavinMQ::Shovel::AMQPSource.new(
@@ -40,7 +40,7 @@ describe LavinMQ::Shovel do
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
         q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
         q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
-        s.vhosts["/"].shovels.empty?.should be_true
+        Server.vhosts["/"].shovels.empty?.should be_true
       end
     end
 
@@ -106,7 +106,7 @@ describe LavinMQ::Shovel do
         spawn shovel.run
         wait_for { shovel.running? }
         sleep 0.1 # Give time for message to be shoveled
-        s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
+        Server.vhosts["/"].queues["ap_q1"].message_count.should eq 0
         q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
       end
     end
@@ -134,7 +134,7 @@ describe LavinMQ::Shovel do
         spawn { shovel.run }
         wait_for { shovel.running? }
         sleep 0.1 # Give time for message to be shoveled
-        s.vhosts["/"].queues["na_q1"].message_count.should eq 0
+        Server.vhosts["/"].queues["na_q1"].message_count.should eq 0
         q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
       end
     end
@@ -162,11 +162,11 @@ describe LavinMQ::Shovel do
         100.times do
           x.publish_confirm "shovel me", "prefetch_q1"
         end
-        wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
+        wait_for { Server.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
         shovel.run
         wait_for { shovel.terminated? }
-        s.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
-        s.vhosts["/"].queues["prefetch_q2"].message_count.should eq 100
+        Server.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
+        Server.vhosts["/"].queues["prefetch_q2"].message_count.should eq 100
       end
     end
 
@@ -277,11 +277,11 @@ describe LavinMQ::Shovel do
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
-        wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
+        wait_for { Server.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
         sleep 10.milliseconds
         shovel.terminate
-        s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
-        s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
+        Server.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
+        Server.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
       end
     end
 
@@ -331,7 +331,7 @@ describe LavinMQ::Shovel do
         10.times do
           x.publish_confirm "shovel me", "c_q1"
         end
-        wait_for { s.vhosts["/"].queues["c_q2"].message_count == 10 }
+        wait_for { Server.vhosts["/"].queues["c_q2"].message_count == 10 }
         shovel.details_tuple[:message_count].should eq 10
       end
       shovel.state.should eq "Running"
@@ -357,7 +357,7 @@ describe LavinMQ::Shovel do
       addr = server.bind_unused_port
       spawn server.listen
 
-      vhost = s.vhosts.create("x")
+      vhost = Server.vhosts.create("x")
       # # Setup shovel source and destination
       source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
@@ -389,7 +389,7 @@ describe LavinMQ::Shovel do
         h["X-a"].should eq "b"
         body.should eq "shovel me"
 
-        s.vhosts["/"].shovels.empty?.should be_true
+        Server.vhosts["/"].shovels.empty?.should be_true
       end
     end
 
@@ -405,7 +405,7 @@ describe LavinMQ::Shovel do
       addr = server.bind_unused_port
       spawn server.listen
 
-      vhost = s.vhosts.create("x")
+      vhost = Server.vhosts.create("x")
       # # Setup shovel source and destination
       source = LavinMQ::Shovel::AMQPSource.new(
         "spec",

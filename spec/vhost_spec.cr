@@ -2,54 +2,54 @@ require "./spec_helper"
 
 describe LavinMQ::VHost do
   it "should be able to create vhosts" do
-    s.vhosts.create("test")
-    s.vhosts["test"]?.should_not be_nil
+    Server.vhosts.create("test")
+    Server.vhosts["test"]?.should_not be_nil
   end
 
   it "should be able to delete vhosts" do
-    s.vhosts.create("test")
-    s.vhosts.delete("test")
-    s.vhosts["test"]?.should be_nil
+    Server.vhosts.create("test")
+    Server.vhosts.delete("test")
+    Server.vhosts["test"]?.should be_nil
   end
 
   it "should be able to persist vhosts" do
-    s.vhosts.create("test")
-    s.restart
-    s.vhosts["test"]?.should_not be_nil
+    Server.vhosts.create("test")
+    Server.restart
+    Server.vhosts["test"]?.should_not be_nil
   end
 
   it "should be able to persist durable exchanges" do
-    s.vhosts.create("test")
-    v = s.vhosts["test"].not_nil!
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
     v.declare_exchange("e", "direct", true, false)
-    s.restart
-    s.vhosts["test"].exchanges["e"].should_not be_nil
+    Server.restart
+    Server.vhosts["test"].exchanges["e"].should_not be_nil
   end
 
   it "should be able to persist durable queues" do
-    s.vhosts.create("test")
-    v = s.vhosts["test"].not_nil!
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
     v.declare_queue("q", true, false)
-    s.restart
-    s.vhosts["test"].queues["q"].should_not be_nil
+    Server.restart
+    Server.vhosts["test"].queues["q"].should_not be_nil
   end
 
   it "should be able to persist bindings" do
-    s.vhosts.create("test")
-    v = s.vhosts["test"].not_nil!
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
     v.declare_exchange("e", "direct", true, false)
     v.declare_queue("q", true, false)
-    s.vhosts["test"].bind_queue("q", "e", "q")
-    s.restart
-    s.vhosts["test"].exchanges["e"].queue_bindings[{"q", nil}].size.should eq 1
+    Server.vhosts["test"].bind_queue("q", "e", "q")
+    Server.restart
+    Server.vhosts["test"].exchanges["e"].queue_bindings[{"q", nil}].size.should eq 1
   end
 
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       username = "test-user"
-      user = s.users.create(username, "password", [LavinMQ::Tag::Administrator])
+      user = Server.users.create(username, "password", [LavinMQ::Tag::Administrator])
       vhost = "test-vhost"
-      s.vhosts.create(vhost, user)
+      Server.vhosts.create(vhost, user)
       p = user.permissions[vhost]
       p[:config].should eq /.*/
       p[:read].should eq /.*/
@@ -58,8 +58,8 @@ describe LavinMQ::VHost do
 
     it "should auto add permission to the default user" do
       vhost = "test-vhost"
-      s.vhosts.create(vhost)
-      user = s.users.default_user
+      Server.vhosts.create(vhost)
+      user = Server.users.default_user
       p = user.permissions[vhost]
       p[:config].should eq /.*/
       p[:read].should eq /.*/
@@ -81,7 +81,7 @@ describe LavinMQ::VHost do
         x.publish_confirm "test message 2.1", q2.name
         x.publish_confirm "test message 2.2", q2.name
 
-        vhost = s.vhosts["/"]
+        vhost = Server.vhosts["/"]
         vhost.message_details[:messages].should eq 4
 
         vhost.purge_queues_and_close_consumers(false, "")
@@ -102,7 +102,7 @@ describe LavinMQ::VHost do
         x.publish_confirm "test message 2.1", q2.name
         x.publish_confirm "test message 2.2", q2.name
 
-        vhost = s.vhosts["/"]
+        vhost = Server.vhosts["/"]
         vhost.purge_queues_and_close_consumers(true, "reset_spec")
 
         backup_dir = Path.new(vhost.data_dir, "..", "#{vhost.dir}_reset_spec").normalize
@@ -112,7 +112,7 @@ describe LavinMQ::VHost do
   end
 
   it "can limit queues" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     vhost.max_queues = 1
     with_channel do |ch|
       ch.queue
@@ -127,7 +127,7 @@ describe LavinMQ::VHost do
   end
 
   it "can limit connections" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     vhost.max_connections = 1
     with_channel do |_ch|
       expect_raises(AMQP::Client::Connection::ClosedException, /connection limit/) do

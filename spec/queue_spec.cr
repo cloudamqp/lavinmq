@@ -52,7 +52,7 @@ describe LavinMQ::Queue do
         x.publish_confirm "test message", q.name
         q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-        iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        iq = Server.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
         iq.pause!
 
         x.publish_confirm "test message 2", q.name
@@ -69,7 +69,7 @@ describe LavinMQ::Queue do
         x.publish_confirm "test message", q.name
         q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-        iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        iq = Server.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
         iq.pause!
 
         x.publish_confirm "test message 2", q.name
@@ -100,7 +100,7 @@ describe LavinMQ::Queue do
         x.publish_confirm "test message", q.name
         q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-        iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        iq = Server.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
         iq.pause!
 
         x.publish_confirm "test message 2", q.name
@@ -130,7 +130,7 @@ describe LavinMQ::Queue do
       tag = "consumer-to-be-canceled"
       with_channel do |ch|
         q = ch.queue(q_name)
-        queue = s.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
+        queue = Server.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
         q.publish_confirm "m1"
 
         # Should get canceled
@@ -157,7 +157,7 @@ describe LavinMQ::Queue do
         x.publish_confirm "test message 3", q.name
         x.publish_confirm "test message 4", q.name
 
-        internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        internal_queue = Server.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
         internal_queue.message_count.should eq 4
 
         response = delete("/api/queues/%2f/#{q_name}/contents")
@@ -176,7 +176,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message #{i}", q.name
         end
 
-        vhost = s.vhosts["/"]
+        vhost = Server.vhosts["/"]
         internal_queue = vhost.exchanges[x_name].queue_bindings[{q.name, nil}].first
         internal_queue.message_count.should eq 10
         index = File.join(vhost.data_dir, Digest::SHA1.hexdigest(internal_queue.name), "enq")
@@ -218,7 +218,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message #{i}", q.name
         end
 
-        internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+        internal_queue = Server.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
 
         internal_queue.message_count.should eq 10
 
@@ -254,7 +254,7 @@ describe LavinMQ::Queue do
 
       msg = q.get(no_ack: false)
       msg.should_not be_nil
-      sq = s.vhosts["/"].queues[q.name]
+      sq = Server.vhosts["/"].queues[q.name]
       sq.unacked_count.should eq 1
       msg.not_nil!.ack
       sleep 0.01
@@ -272,7 +272,7 @@ describe LavinMQ::Queue do
         done.send msg
       end
       msg = done.receive
-      sq = s.vhosts["/"].queues[q.name]
+      sq = Server.vhosts["/"].queues[q.name]
       sq.unacked_count.should eq 1
       msg.ack
       sleep 0.01

@@ -51,10 +51,10 @@ ensure
 end
 
 def with_vhost(name)
-  vhost = s.vhosts.create(name)
+  vhost = Server.vhosts.create(name)
   yield vhost
 ensure
-  s.vhosts.delete(name)
+  Server.vhosts.delete(name)
 end
 
 def with_ssl_channel(**args)
@@ -156,9 +156,4 @@ Spec.after_each do
   Server.stop
   FileUtils.rm_rf("/tmp/lavinmq-spec")
   Server.restart
-end
-
-@[Deprecated("Use `Server` instead")]
-def s
-  Server
 end

@@ -4,7 +4,7 @@ require "compress/deflate"
 describe LavinMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
-      s.vhosts["/"].declare_queue("q0", false, false)
+      Server.vhosts["/"].declare_queue("q0", false, false)
       response = get("/api/queues")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -18,7 +18,7 @@ describe LavinMQ::HTTP::QueuesController do
 
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
-      s.vhosts["/"].declare_queue("q0", false, false)
+      Server.vhosts["/"].declare_queue("q0", false, false)
       response = get("/api/queues/%2f")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -28,7 +28,7 @@ describe LavinMQ::HTTP::QueuesController do
 
   describe "GET /api/queues/vhost/name" do
     it "should return queue" do
-      s.vhosts["/"].declare_queue("q0", false, false)
+      Server.vhosts["/"].declare_queue("q0", false, false)
       response = get("/api/queues/%2f/q0")
       response.status_code.should eq 200
     end
@@ -92,8 +92,8 @@ describe LavinMQ::HTTP::QueuesController do
 
   describe "GET /api/queues/vhost/name/bindings" do
     it "should return queue bindings" do
-      s.vhosts["/"].declare_queue("q0", false, false)
-      s.vhosts["/"].bind_queue("q0", "amq.direct", "foo")
+      Server.vhosts["/"].declare_queue("q0", false, false)
+      Server.vhosts["/"].bind_queue("q0", "amq.direct", "foo")
       response = get("/api/queues/%2f/q0/bindings?page=1&page_size=100")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -153,7 +153,7 @@ describe LavinMQ::HTTP::QueuesController do
 
   describe "DELETE /api/queues/vhost/name" do
     it "should delete queue" do
-      s.vhosts["/"].declare_queue("delq", false, false)
+      Server.vhosts["/"].declare_queue("delq", false, false)
       response = delete("/api/queues/%2f/delq")
       response.status_code.should eq 204
     end
@@ -175,7 +175,7 @@ describe LavinMQ::HTTP::QueuesController do
         keys = ["payload_bytes", "redelivered", "exchange", "routing_key", "message_count",
                 "properties", "payload", "payload_encoding"]
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-        s.vhosts["/"].queues["q3"].message_count.should be > 0
+        Server.vhosts["/"].queues["q3"].message_count.should be > 0
       end
     end
   end
@@ -184,7 +184,7 @@ describe LavinMQ::HTTP::QueuesController do
     it "should get plain text messages" do
       with_channel do |ch|
         q = ch.queue("q4")
-        q4 = s.vhosts["/"].queues["q4"]
+        q4 = Server.vhosts["/"].queues["q4"]
         q.publish "m1"
         wait_for { q4.message_count == 1 }
         body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
@@ -199,7 +199,7 @@ describe LavinMQ::HTTP::QueuesController do
     it "should get encoded messages" do
       with_channel do |ch|
         q = ch.queue("q4")
-        q4 = s.vhosts["/"].queues["q4"]
+        q4 = Server.vhosts["/"].queues["q4"]
         mem_io = IO::Memory.new
         Compress::Deflate::Writer.open(mem_io, Compress::Deflate::BEST_SPEED) { |deflate| deflate.print("m1") }
         encoded_msg = mem_io.to_s
@@ -300,7 +300,7 @@ describe LavinMQ::HTTP::QueuesController do
       with_channel do |ch|
         ch.queue("confqueue")
 
-        q = s.vhosts["/"].queues["confqueue"]
+        q = Server.vhosts["/"].queues["confqueue"]
         q.pause!
 
         response = get("/api/queues/%2f/confqueue")

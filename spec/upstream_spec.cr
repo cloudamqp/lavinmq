@@ -11,14 +11,14 @@ module UpstreamSpecHelpers
 
   def self.cleanup(upstream)
     links = upstream.links
-    s.vhosts["/"].delete_queue("federation_q1")
-    s.vhosts["/"].delete_queue("federation_q2")
+    Server.vhosts["/"].delete_queue("federation_q1")
+    Server.vhosts["/"].delete_queue("federation_q2")
     wait_for { links.all?(&.state.terminated?) }
   end
 
   def self.setup_ex_federation(upstream_name)
-    upstream_vhost = s.vhosts.create("upstream")
-    downstream_vhost = s.vhosts.create("downstream")
+    upstream_vhost = Server.vhosts.create("upstream")
+    downstream_vhost = Server.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
       "#{AMQP_BASE_URL}/upstream", "upstream_ex")
     downstream_vhost.upstreams.not_nil!.add(upstream)
@@ -32,10 +32,10 @@ module UpstreamSpecHelpers
   end
 
   def self.cleanup_ex_federation
-    v1 = s.vhosts["downstream"]
-    v2 = s.vhosts["upstream"]
-    s.vhosts.delete("downstream")
-    s.vhosts.delete("upstream")
+    v1 = Server.vhosts["downstream"]
+    v2 = Server.vhosts["upstream"]
+    Server.vhosts.delete("downstream")
+    Server.vhosts.delete("upstream")
 
     wait_for { !(Dir.exists?(v1.data_dir) || Dir.exists?(v2.data_dir)) }
   end
@@ -43,7 +43,7 @@ end
 
 describe LavinMQ::Federation::Upstream do
   it "should federate queue" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", AMQP_BASE_URL, nil, "federation_q1")
 
     with_channel do |ch|
@@ -59,7 +59,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should not federate queue if no downstream consumer" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", AMQP_BASE_URL, nil, "federation_q1")
 
     with_channel do |ch|
@@ -73,7 +73,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should federate queue with ack mode no-ack" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", AMQP_BASE_URL, nil, "federation_q1",
       ack_mode: LavinMQ::Federation::AckMode::NoAck)
 
@@ -90,7 +90,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should federate queue with ack mode on-publish" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", AMQP_BASE_URL, nil, "federation_q1",
       ack_mode: LavinMQ::Federation::AckMode::OnPublish)
 
@@ -107,7 +107,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should resume federation after downstream reconnects" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", AMQP_BASE_URL, nil, "federation_q1")
     msgs = [] of AMQP::Client::DeliverMessage
 
@@ -135,7 +135,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should federate exchange" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", AMQP_BASE_URL, "upstream_ex")
 
     with_channel do |ch|
@@ -154,7 +154,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should keep message properties" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", AMQP_BASE_URL, nil, "federation_q1")
 
     with_channel do |ch|
@@ -171,8 +171,8 @@ describe LavinMQ::Federation::Upstream do
   it "should federate exchange even with no downstream consumer" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream wo downstream")
     UpstreamSpecHelpers.start_link(upstream)
-    s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
-    s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
         upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
@@ -197,8 +197,8 @@ describe LavinMQ::Federation::Upstream do
   it "should continue after upstream restart" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream restart")
     UpstreamSpecHelpers.start_link(upstream)
-    s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
-    s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
     with_channel(vhost: "upstream") do |upstream_ch|
       with_channel(vhost: "downstream") do |downstream_ch|
@@ -234,8 +234,8 @@ describe LavinMQ::Federation::Upstream do
 
   it "should reflect all bindings to upstream q" do
     upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_ex_federation("ef test bindings")
-    s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
-    s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
     with_channel(vhost: "downstream") do |downstream_ch|
       downstream_ch.exchange("downstream_ex", "topic")

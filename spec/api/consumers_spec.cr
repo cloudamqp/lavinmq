@@ -51,7 +51,7 @@ describe LavinMQ::HTTP::ConsumersController do
         q = ch.queue("")
         consumer = q.subscribe { }
         sleep 0.01
-        conn = s.connections.to_a.last.name
+        conn = Server.connections.to_a.last.name
         response = delete("/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/#{consumer}")
         response.status_code.should eq 204
         wait_for { ch.has_subscriber?(consumer) == false }
@@ -71,7 +71,7 @@ describe LavinMQ::HTTP::ConsumersController do
 
     it "should return 404 if channel does not exist" do
       with_channel do |ch|
-        conn = s.connections.first.name
+        conn = Server.connections.first.name
         q = ch.queue("")
         consumer = q.subscribe { }
         sleep 0.01
@@ -82,7 +82,7 @@ describe LavinMQ::HTTP::ConsumersController do
 
     it "should return 404 if consumer does not exist" do
       with_channel do |ch|
-        conn = s.connections.first.name
+        conn = Server.connections.first.name
         q = ch.queue("")
         q.subscribe { }
         sleep 0.01

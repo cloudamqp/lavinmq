@@ -11,14 +11,14 @@ describe LavinMQ::DurableQueue do
     end
 
     it "should succefully convert queue index" do
-      s = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
+      server = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
       begin
-        q = s.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
+        q = server.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
         q.basic_get(true) do |env|
           String.new(env.message.body).to_s.should eq "message"
         end.should be_true
       ensure
-        s.close
+        server.close
       end
     end
   end
@@ -57,9 +57,9 @@ describe LavinMQ::DurableQueue do
             q.publish_confirm "test message #{i}"
           end
         end
-        s.stop
+        Server.stop
         File.open(enq_path, "r+") { |f| f.truncate(f.size - 3) }
-        s.restart
+        Server.restart
         with_channel(vhost: vhost.name) do |ch|
           q = ch.queue_declare("corrupt_q2", passive: true)
           q[:message_count].should eq 1
@@ -74,7 +74,7 @@ describe LavinMQ::DurableQueue do
     with_channel do |ch|
       ch.prefetch(1)
       q = ch.queue("d", durable: true)
-      queue = s.vhosts["/"].queues["d"].as(LavinMQ::DurableQueue)
+      queue = Server.vhosts["/"].queues["d"].as(LavinMQ::DurableQueue)
       queue.enq_file_size.should eq sizeof(Int32)
       max_acks.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
@@ -108,7 +108,7 @@ describe LavinMQ::DurableQueue do
       args = AMQP::Client::Arguments.new
       args["x-max-length"] = 1_i64
       q = ch.queue("ml", durable: true, args: args)
-      queue = s.vhosts["/"].queues["ml"].as(LavinMQ::DurableQueue)
+      queue = Server.vhosts["/"].queues["ml"].as(LavinMQ::DurableQueue)
       queue.enq_file_size.should eq sizeof(Int32)
       max_acks.times do
         q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
@@ -133,13 +133,13 @@ describe LavinMQ::DurableQueue do
     with_channel do |ch|
       q = ch.queue("pre", durable: true)
       msg_count.times { q.publish "" }
-      queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
+      queue = Server.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
       enq_path = queue.@enq.path
     end
     # emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    s.restart
-    queue = s.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
+    Server.restart
+    queue = Server.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
     # make sure that the @ready capacity doesn't take into account the preallocated size
     queue.@ready.capacity.should eq Math.pw2ceil(msg_count)
     queue.@ready.size.should eq msg_count
@@ -152,27 +152,27 @@ describe LavinMQ::DurableQueue do
     with_channel do |ch|
       q = ch.queue("corruption_test", durable: true)
       q.publish_confirm "Hello world"
-      queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+      queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
       enq_path = queue.@enq.path
     end
-    s.stop
+    Server.stop
     # Emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    s.restart
+    Server.restart
     # Write another message after the prealloced space
     with_channel do |ch|
       q = ch.queue("corruption_test", durable: true)
       q.publish_confirm "Hello world"
     end
-    s.restart
-    queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+    Server.restart
+    queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
     queue.@ready.size.should eq 2
   end
 end
 
 describe LavinMQ::VHost do
   it "should not be dirty if nothing happend" do
-    s.vhosts.create("not_dirty").dirty?.should be_false
+    Server.vhosts.create("not_dirty").dirty?.should be_false
   end
 
   it "should be dirty after ack" do
@@ -181,7 +181,7 @@ describe LavinMQ::VHost do
       q.publish "msg"
       q.subscribe(no_ack: true) do |_msg|
       end
-      should_eventually(be_true) { s.vhosts["/"].dirty? }
+      should_eventually(be_true) { Server.vhosts["/"].dirty? }
     end
   end
 
@@ -192,7 +192,7 @@ describe LavinMQ::VHost do
       q.subscribe(no_ack: false) do |msg|
         msg.reject
       end
-      should_eventually(be_true) { s.vhosts["/"].dirty? }
+      should_eventually(be_true) { Server.vhosts["/"].dirty? }
     end
   end
 
@@ -200,12 +200,12 @@ describe LavinMQ::VHost do
     with_channel do |ch|
       q = ch.queue
       q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "0")
-      s.vhosts["/"].dirty?.should be_true
+      Server.vhosts["/"].dirty?.should be_true
     end
   end
 
   pending "GC segments" do
-    vhost = s.vhosts["/"]
+    vhost = Server.vhosts["/"]
     vhost.queues.each_value &.delete
     vhost.queues.clear
 

@@ -12,7 +12,7 @@ describe LavinMQ::HTTP::UsersController do
     end
 
     it "should refuse non administrators" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/users", headers: hdrs)
       response.status_code.should eq 401
@@ -21,7 +21,7 @@ describe LavinMQ::HTTP::UsersController do
 
   describe "GET /api/users/without-permissions" do
     it "should return users without access to any vhost" do
-      s.users.create("alan", "alan")
+      Server.users.create("alan", "alan")
       response = get("/api/users/without-permissions")
       response.status_code.should eq 200
       body = JSON.parse(response.body)
@@ -31,8 +31,8 @@ describe LavinMQ::HTTP::UsersController do
 
   describe "POST /api/users/bulk-delete" do
     it "should delete users in bulk" do
-      s.users.create("alan1", "alan")
-      s.users.create("alan2", "alan")
+      Server.users.create("alan1", "alan")
+      Server.users.create("alan2", "alan")
       body = %({
         "users": ["alan1", "alan2"]
       })
@@ -64,7 +64,7 @@ describe LavinMQ::HTTP::UsersController do
 
   describe "GET /api/users/name" do
     it "should return user" do
-      s.users.create("alan", "alan")
+      Server.users.create("alan", "alan")
       response = get("/api/users/alan")
       response.status_code.should eq 200
     end
@@ -77,7 +77,7 @@ describe LavinMQ::HTTP::UsersController do
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 201
-      u = s.users["alan"]
+      u = Server.users["alan"]
       ok = u.not_nil!.password.try &.verify("test")
       ok.should be_true
     end
@@ -88,7 +88,7 @@ describe LavinMQ::HTTP::UsersController do
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 201
-      u = s.users["alan"]
+      u = Server.users["alan"]
       u.not_nil!.password.not_nil!.verify("test12").should be_true
     end
 
@@ -110,31 +110,31 @@ describe LavinMQ::HTTP::UsersController do
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 201
-      s.users["alan"].tags.size.should eq 1
-      s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
+      Server.users["alan"].tags.size.should eq 1
+      Server.users["alan"].tags.should eq([LavinMQ::Tag::Management])
     end
 
     it "should update user" do
-      s.users.create("alan", "pw")
+      Server.users.create("alan", "pw")
       body = %({
         "password": "test",
         "tags": "management"
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
-      s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
+      Server.users["alan"].tags.should eq([LavinMQ::Tag::Management])
     end
 
     it "should update user with uniq tags" do
-      s.users.create("alan", "pw")
+      Server.users.create("alan", "pw")
       body = %({
         "password": "test",
         "tags": "management,management"
       })
       response = put("/api/users/alan", body: body)
       response.status_code.should eq 204
-      s.users["alan"].tags.size.should eq 1
-      s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
+      Server.users["alan"].tags.size.should eq 1
+      Server.users["alan"].tags.should eq([LavinMQ::Tag::Management])
     end
 
     it "should handle request with empty body" do

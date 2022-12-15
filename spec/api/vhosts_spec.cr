@@ -12,16 +12,16 @@ describe LavinMQ::HTTP::VHostsController do
     end
 
     it "should require management access" do
-      s.users.create("arnold", "pw", [] of LavinMQ::Tag)
+      Server.users.create("arnold", "pw", [] of LavinMQ::Tag)
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
       response.status_code.should eq 401
     end
 
     it "should list vhosts for monitoring users" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
-      s.vhosts.create("test")
-      s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+      Server.vhosts.create("test")
+      Server.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
       response.status_code.should eq 200
@@ -50,13 +50,13 @@ describe LavinMQ::HTTP::VHostsController do
     end
 
     it "should update vhost" do
-      s.vhosts.create("test")
+      Server.vhosts.create("test")
       response = put("/api/vhosts/test")
       response.status_code.should eq 204
     end
 
     it "should only allow administrators to create vhost" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
@@ -66,7 +66,7 @@ describe LavinMQ::HTTP::VHostsController do
       vhost = "test-vhost"
       username = "arnold"
 
-      user = s.users.create(username, "pw", [LavinMQ::Tag::Administrator])
+      user = Server.users.create(username, "pw", [LavinMQ::Tag::Administrator])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/#{vhost}", headers: hdrs)
       response.status_code.should eq 201
@@ -79,13 +79,13 @@ describe LavinMQ::HTTP::VHostsController do
 
   describe "DELETE /api/vhosts/vhost" do
     it "should delete vhost" do
-      s.vhosts.create("test")
+      Server.vhosts.create("test")
       response = delete("/api/vhosts/test")
       response.status_code.should eq 204
     end
 
     it "should only allow administrators to delete vhost" do
-      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = delete("/api/vhosts/test", headers: hdrs)
       response.status_code.should eq 401
