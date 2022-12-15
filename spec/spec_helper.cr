@@ -9,16 +9,9 @@ require "http/client"
 require "socket"
 require "uri"
 
-Spec.override_default_formatter(Spec::VerboseFormatter.new)
+Log.setup_from_env
 
-{% if flag?(:verbose) %}
-  LOG_LEVEL = Log::Severity::Debug
-{% elsif flag?(:warn) %}
-  LOG_LEVEL = Log::Severity::Warn
-{% else %}
-  LOG_LEVEL = Log::Severity::Error
-{% end %}
-Log.setup(LOG_LEVEL)
+Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
 AMQP_PORT      = ENV.fetch("AMQP_PORT", "5672").to_i
 AMQPS_PORT     = ENV.fetch("AMQPS_PORT", "5671").to_i
