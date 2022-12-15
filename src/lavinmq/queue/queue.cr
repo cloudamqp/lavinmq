@@ -660,7 +660,7 @@ module LavinMQ
       true
     end
 
-    def basic_get(no_ack, force = false, &blk : Envelope -> Nil) : Bool
+    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
@@ -680,7 +680,7 @@ module LavinMQ
 
     # return the next message in the ready queue
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack : Bool, &blk : Envelope -> Nil) : Bool
+    private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       while sp = @ready.shift? # retry if msg expired or deliver limit hit
         begin

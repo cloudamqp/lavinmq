@@ -14,7 +14,7 @@ module LavinMQ
 
     forward_missing_to @vhosts
 
-    def each(&blk)
+    def each(&)
       @vhosts.each do |kv|
         yield kv
       end

@@ -40,7 +40,7 @@ module LavinMQ
       after_unbind(destination, routing_key, headers)
     end
 
-    def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+    def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
       matches(@queue_binding_keys, routing_key, headers) do |destination|
         q = destination.as(Queue)
         next if q.internal?
@@ -48,12 +48,12 @@ module LavinMQ
       end
     end
 
-    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key, headers = nil, & : Exchange -> _)
       matches(@exchange_binding_keys, routing_key, headers) { |e| yield e.as(Exchange) }
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def matches(binding_keys, routing_key, headers = nil, &blk : Queue | Exchange -> _)
+    private def matches(binding_keys, routing_key, headers = nil, & : Queue | Exchange -> _)
       return if binding_keys.empty?
 
       # optimize the case where the only binding key is '#'

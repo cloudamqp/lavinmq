@@ -48,7 +48,7 @@ module LavinMQ
 
       # Shift until block breaks or it returns false
       # If broken with false yield, return the message to the queue
-      def shift(&blk : SegmentPosition -> Bool)
+      def shift(& : SegmentPosition -> Bool)
         @lock.synchronize do
           loop do
             sp = @ready.shift? || return notify_empty(true)
@@ -64,32 +64,32 @@ module LavinMQ
 
       # Yields an iterator over all SPs, the deque is locked
       # while it's being read from
-      def with_all(&blk : Iterator(SegmentPosition) -> Nil)
+      def with_all(& : Iterator(SegmentPosition) -> Nil)
         @lock.synchronize do
           yield @ready.each
         end
       end
 
       # Iterate over all SPs in the deque, locking while reading
-      def each(&blk)
+      def each(&)
         @lock.synchronize do
           @ready.each { |sp| yield sp }
         end
       end
 
-      def each(start : Int, count : Int, &blk)
+      def each(start : Int, count : Int, &)
         @lock.synchronize do
           @ready.each(start: start, count: count) { |sp| yield sp }
         end
       end
 
-      def locked_each(&blk)
+      def locked_each(&)
         @lock.synchronize do
           yield @ready.each
         end
       end
 
-      def bsearch_index(&blk)
+      def bsearch_index(&)
         @lock.synchronize do
           @ready.bsearch_index { |sp, i| yield sp, i }
         end
@@ -152,7 +152,7 @@ module LavinMQ
         false
       end
 
-      def limit_size(size, &blk : SegmentPosition -> Nil)
+      def limit_size(size, & : SegmentPosition -> Nil)
         @lock.synchronize do
           while @ready.size > size
             sp = @ready.shift? || break
@@ -163,7 +163,7 @@ module LavinMQ
         end
       end
 
-      def limit_byte_size(bytesize, &blk : SegmentPosition -> Nil)
+      def limit_byte_size(bytesize, & : SegmentPosition -> Nil)
         @lock.synchronize do
           while @bytesize > bytesize
             sp = @ready.shift? || break

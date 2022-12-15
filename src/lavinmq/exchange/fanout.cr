@@ -26,11 +26,11 @@ module LavinMQ
       after_unbind(destination, routing_key, headers)
     end
 
-    def do_queue_matches(routing_key, headers = nil, &blk : Queue -> _)
+    def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
       @queue_bindings.each_value { |s| s.each { |q| yield q unless q.internal? } }
     end
 
-    def do_exchange_matches(routing_key, headers = nil, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key, headers = nil, & : Exchange -> _)
       @exchange_bindings.each_value { |s| s.each { |q| yield q } }
     end
   end

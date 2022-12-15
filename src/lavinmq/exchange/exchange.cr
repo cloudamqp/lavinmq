@@ -263,8 +263,8 @@ module LavinMQ
     abstract def unbind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
     abstract def bind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
     abstract def unbind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def do_queue_matches(routing_key : String, headers : AMQP::Table?, &blk : Queue -> _)
-    abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, &blk : Exchange -> _)
+    abstract def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)
+    abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, & : Exchange -> _)
 
     def queue_matches(routing_key : String, headers = nil, &blk : Queue -> _)
       if should_delay_message?(headers)

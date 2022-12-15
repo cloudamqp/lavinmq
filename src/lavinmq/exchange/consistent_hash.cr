@@ -47,7 +47,7 @@ module LavinMQ
       @hasher.remove(destination.name, w)
     end
 
-    def do_queue_matches(routing_key : String, headers : AMQP::Table?, &blk : Queue -> _)
+    def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)
       key = hash_key(routing_key, headers)
       case dest = @hasher.get(key)
       when Queue
@@ -55,7 +55,7 @@ module LavinMQ
       end
     end
 
-    def do_exchange_matches(routing_key : String, headers : AMQP::Table?, &blk : Exchange -> _)
+    def do_exchange_matches(routing_key : String, headers : AMQP::Table?, & : Exchange -> _)
       key = hash_key(routing_key, headers)
       case dest = @hasher.get(key)
       when Exchange
