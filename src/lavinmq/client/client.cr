@@ -417,10 +417,10 @@ module LavinMQ
 
     private def cleanup
       @running = false
-      @exclusive_queues.each(&.close)
-      @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
+      @exclusive_queues.each(&.close)
+      @exclusive_queues.clear
       @vhost.rm_connection(self)
     end
 
