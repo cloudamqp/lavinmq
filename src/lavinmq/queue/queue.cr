@@ -149,7 +149,7 @@ module LavinMQ
 
     def redeclare
       @last_get_time = RoughTime.monotonic
-      @queue_expiration_ttl_change.try_send nil
+      @queue_expiration_ttl_change.try_send? nil
     end
 
     def has_exclusive_consumer?
@@ -174,13 +174,13 @@ module LavinMQ
         when "message-ttl"
           unless @message_ttl.try &.< v.as_i64
             @message_ttl = v.as_i64
-            @message_ttl_change.try_send?(nil)
+            @message_ttl_change.try_send? nil
           end
         when "expires"
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
             @last_get_time = RoughTime.monotonic
-            @queue_expiration_ttl_change.try_send nil
+            @queue_expiration_ttl_change.try_send? nil
           end
         when "overflow"
           @reject_on_overflow ||= v.as_s == "reject-publish"
@@ -217,14 +217,14 @@ module LavinMQ
       end
       @expires = parse_header("x-expires", Int).try &.to_i64
       validate_gt_zero("x-expires", @expires)
-      @queue_expiration_ttl_change.try_send nil
+      @queue_expiration_ttl_change.try_send? nil
       @max_length = parse_header("x-max-length", Int).try &.to_i64
       validate_positive("x-max-length", @max_length)
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
       validate_positive("x-max-length-bytes", @max_length_bytes)
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
       validate_positive("x-message-ttl", @message_ttl)
-      @message_ttl_change.try_send?(nil)
+      @message_ttl_change.try_send? nil
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
@@ -292,7 +292,7 @@ module LavinMQ
       @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused = true
-      while @paused_change.try_send true
+      while @paused_change.try_send? true
       end
     end
 
@@ -301,7 +301,7 @@ module LavinMQ
       @state = QueueState::Running
       @log.debug { "Resuming" }
       @paused = false
-      while @paused_change.try_send false
+      while @paused_change.try_send? false
       end
     end
 
@@ -663,7 +663,7 @@ module LavinMQ
     def basic_get(no_ack, force = false, &blk : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @last_get_time = RoughTime.monotonic
-      @queue_expiration_ttl_change.try_send nil
+      @queue_expiration_ttl_change.try_send? nil
       @get_count += 1
       get(no_ack) do |env|
         yield env
