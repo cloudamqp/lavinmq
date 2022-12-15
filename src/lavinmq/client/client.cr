@@ -421,9 +421,7 @@ module LavinMQ
       @exclusive_queues.clear
       @channels.each_value &.close
       @channels.clear
-      @vhost.event_tick(EventType::ConnectionClosed)
-      @on_close_callback.try &.call(self)
-      @on_close_callback = nil
+      @vhost.rm_connection(self)
     end
 
     private def close_socket
@@ -473,10 +471,6 @@ module LavinMQ
       @log.info { "Connection=#{@name} disconnected" }
     ensure
       @running = false
-    end
-
-    def on_close(&blk : Client -> Nil)
-      @on_close_callback = blk
     end
 
     def send_access_refused(frame, text)

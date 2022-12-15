@@ -495,9 +495,11 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections << client
-      client.on_close do |c|
-        @connections.delete c
-      end
+    end
+
+    def rm_connection(client : Client)
+      event_tick(EventType::ConnectionClosed)
+      @connections.delete client
     end
 
     SHOVEL                  = "shovel"
