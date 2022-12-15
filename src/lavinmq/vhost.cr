@@ -539,8 +539,8 @@ module LavinMQ
     def close(reason = "Broker shutdown")
       @closed = true
       stop_shovels
-      Fiber.yield
       stop_upstream_links
+      fsync
       Fiber.yield
       @log.debug { "Closing connections" }
       @connections.each &.close(reason)
