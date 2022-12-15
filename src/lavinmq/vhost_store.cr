@@ -77,10 +77,9 @@ module LavinMQ
 
     private def save!
       @log.debug { "Saving vhosts to file" }
-      tmpfile = File.join(@data_dir, "vhosts.json.tmp")
       file = File.join(@data_dir, "vhosts.json")
-      File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename tmpfile, file
+      File.open("#{file}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
+      File.rename "#{file}.tmp", file
     end
   end
 end
