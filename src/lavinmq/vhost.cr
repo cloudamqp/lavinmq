@@ -739,7 +739,6 @@ module LavinMQ
           f.fsync
         end
       end
-      @policies.save!
     rescue ex
       abort "ERROR: Writing definitions. #{ex.inspect}"
     end

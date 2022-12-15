@@ -62,7 +62,7 @@ module LavinMQ
       end
     end
 
-    def save!
+    private def save!
       @log.debug { "Saving #{@file_name}" }
       tmpfile = File.join(@data_dir, "#{@file_name}.tmp")
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
