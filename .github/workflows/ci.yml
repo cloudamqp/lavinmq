@@ -80,7 +80,7 @@ jobs:
 
   spec_osx:
     name: Spec OS X
-    runs-on: macos-latest
+    runs-on: macos-12
     steps:
       - run: brew install crystal
 
