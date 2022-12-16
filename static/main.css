@@ -357,12 +357,13 @@ footer .logo {
 
 #small-menu ul a:hover {
   background-color: var(--highlight-color);
-  border-radius: 0px 4px 4px 0px;
+  border-radius: 0px 4px 4px 4px;
 }
 
 #small-menu li.active a {
   background-color: var(--highlight-color);
   border-left: 4px solid #3C9368;
+  border-radius: 0px 4px 4px 0px;
 }
 
 .table-wrapper {
