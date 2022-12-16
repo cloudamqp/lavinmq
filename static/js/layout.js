@@ -21,8 +21,8 @@ const menuLinks = `
 document.getElementById('menu').innerHTML = `
   <h1 id="menu-header">
     <a href="/"><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
-    <small id="version"></small>
-    <small id="cluster_name"></small>
+      <div id="version"></div>
+      <div id="cluster_name"></div>
   </h1>
   <ul id="menu-content">${menuLinks}</ul>
 `

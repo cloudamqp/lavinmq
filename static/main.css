@@ -272,17 +272,24 @@ footer .logo {
   border-bottom: 1px solid rgb(126, 126, 126);
 }
 
-#menu h1 small {
-  font-size: 0.7em;
-  font-weight: 100;
-  opacity: 0.6;
-  margin-left: 10px;
-  text-align: center;
-  display: block;
+#version:before {
+  content: "Version: ";
 }
 
-#version:before {
-  content: "v";
+#cluster_name:before {
+  content: "Cluster name: ";
+}
+
+#cluster_name, #version {
+  background-color: rgba(0, 0, 0, 0.6);
+  opacity: 0.6;
+  padding: 5px;
+  margin: 2px;
+  display: inline-block;
+  border-radius: 4px 4px 4px 4px;
+  font-size: 10px;
+  font-weight: lighter;
+  width: auto;
 }
 
 #user-menu {
