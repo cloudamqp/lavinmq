@@ -810,6 +810,7 @@ module LavinMQ
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
+      return if @closed
       deleted = @consumers.delete consumer
       @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
       if deleted
