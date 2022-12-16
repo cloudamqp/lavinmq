@@ -697,20 +697,20 @@ module LavinMQ
       File.open(tmp_path, "w") do |io|
         io.buffer_size = Config.instance.file_buffer_size
         SchemaVersion.prefix(io, :definition)
-        @exchanges.each do |_name, e|
+        @exchanges.each_value do |e|
           next if !include_transient && !e.durable
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
           io.write_bytes f
         end
-        @queues.each do |_name, q|
+        @queues.each_value do |q|
           next if !include_transient && !q.durable
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
           io.write_bytes f
         end
-        @exchanges.each do |_name, e|
+        @exchanges.each_value do |e|
           next if !include_transient && !e.durable
           e.queue_bindings.each do |bt, queues|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
