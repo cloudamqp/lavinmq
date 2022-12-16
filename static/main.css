@@ -101,6 +101,49 @@ main {
 .cols-11 { grid-column: auto / span 11 }
 .cols-12 { grid-column: auto / span 12 }
 
+#small-menu {
+  display: none;
+  position: relative;
+  transition: all 0.3s;
+  z-index: 1001;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px 4px 0px 0px;
+}
+
+#menu-button{
+  transition: all 0.3s;
+  width: 40px;
+  height: 40px;
+  border: none;
+  box-shadow: none;
+  color: white;
+  margin-bottom: -20px;
+  background-color: transparent;
+}
+
+#small-menu-content {
+  opacity: 0;
+  pointer-events: none;
+  width: 250px;
+  height: auto;
+  z-index: 1001;
+  font-size: 20px;
+  border-radius: 0px 4px 4px 4px;
+  transition: all 0.3s;
+  background-color: rgb(0, 0, 0);
+  --font-color: #FFF;
+  --highlight-color: rgba(0, 0, 0, 0.4);
+  color: var(--font-color);
+  position: relative;
+}
+
+.show-menu {
+  background-color: #2c2c2c;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
 #menu {
   grid-column: 1 / span 1;
   grid-row: 1 / span 4;
@@ -111,17 +154,20 @@ main {
   position: relative;
 }
 
-#menu::after {
+#menu::after, #small-menu-content::after{
   background-image: url(img/bg-mountain.jpg);
-  background-attachment: fixed;
   content: "";
-  opacity: 0.9;
   position: absolute;
   top: 0;
   bottom: 0;
   right: 0;
   left: 0;
   z-index: -1;
+}
+
+#small-menu-content::after {
+  border-radius: 0px 4px 4px 0px;
+  opacity: 0.2;
 }
 
 #amq-logo {
@@ -168,9 +214,21 @@ footer .logo {
     background-size: cover;
   }
 
+  #small-menu, #menu-button {
+    display: block;
+  }
+
+  #small-menu-content {
+    position: absolute;
+  }
+
+  #menu-content, #menu-header {
+    display: none;
+  }
+
   body {
     grid-template-columns: auto;
-    grid-template-rows: auto 60px 80px auto 60px;
+    grid-template-rows: 0px 60px 80px auto 60px;
   }
 
   main, #menu, header, footer {
@@ -178,6 +236,8 @@ footer .logo {
   }
 
   header {
+    align-items: center;
+    grid-template-columns: 50px 250px auto;
     grid-row: 2 / span 2;
   }
 
@@ -276,6 +336,34 @@ footer .logo {
 #menu li.active a {
   background-color: var(--highlight-color);
   border-left: 6px solid #3C9368;
+}
+
+#small-menu ul {
+  list-style: none;
+  padding: 0;
+}
+
+#small-menu ul li a {
+  display: block;
+  padding: 0 1em;
+  font-size: 0.8em;
+  line-height: 3em;
+}
+
+#small-menu ul ul li a {
+  padding: 4px 20px 4px 40px;
+  font-size: small;
+}
+
+#small-menu ul a:hover {
+  background-color: var(--highlight-color);
+  border-radius: 0px 4px 4px 4px;
+}
+
+#small-menu li.active a {
+  background-color: var(--highlight-color);
+  border-left: 4px solid #3C9368;
+  border-radius: 0px 4px 4px 0px;
 }
 
 .table-wrapper {
