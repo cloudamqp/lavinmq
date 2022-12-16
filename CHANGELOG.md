@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed 
 
 - Updated Chart.js version form v2.9.4 to v4.0.1 [#426](https://github.com/cloudamqp/lavinmq/pull/426)
+- Build lavinmqperf with multi threading
+- `lavinmqperf connection-count` now uses multiple fibers to take use of multi threading
+- Charts are updated faster with recent information
+
+### Fixed
+
+- Warn if vm.max_map_count is low on boot
+- Restore priority queues correctly [#436](https://github.com/cloudamqp/lavinmq/pull/436)
+- Increased multi threading compability
 
 ## [1.0.0-beta.8] - 2022-11-29
 
