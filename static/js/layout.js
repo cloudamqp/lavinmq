@@ -47,8 +47,7 @@ document.getElementById('user-menu').innerHTML = `
 `
 
 document.getElementById('small-menu').innerHTML = `
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-  <button id="menu-button" onclick=toggleSmallMenu()><i class="fa fa-lg fa-bars"></i></button>
+  <button id="menu-button" class="closed-menu" onclick=toggleSmallMenu()></button>
   <ul id="small-menu-content">${menuLinks}</ul>
 `
 
@@ -72,15 +71,15 @@ function toggleSmallMenu () {
 function showSmallMenu () {
   smallMenu.classList.add('show-menu')
   smallMenuContent.classList.add('show-menu')
-  menuButton.firstChild.classList.remove('fa-bars')
-  menuButton.firstChild.classList.add('fa-close')
+  menuButton.classList.add('open-menu')
+  menuButton.classList.remove('closed-menu')
 }
 
 function hideSmallMenu () {
   smallMenu.classList.remove('show-menu')
   smallMenuContent.classList.remove('show-menu')
-  menuButton.firstChild.classList.remove('fa-close')
-  menuButton.firstChild.classList.add('fa-bars')
+  menuButton.classList.add('closed-menu')
+  menuButton.classList.remove('open-menu')
 }
 
 const path = window.location.pathname

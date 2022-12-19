@@ -101,6 +101,18 @@ main {
 .cols-11 { grid-column: auto / span 11 }
 .cols-12 { grid-column: auto / span 12 }
 
+#menu-button {
+  width: 40px;
+  height: 40px;
+  border: none;
+  box-shadow: none;
+  color: white;
+  margin-bottom: -20px;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 #small-menu {
   display: none;
   position: relative;
@@ -109,17 +121,6 @@ main {
   width: 40px;
   height: 40px;
   border-radius: 4px 4px 0px 0px;
-}
-
-#menu-button{
-  transition: all 0.3s;
-  width: 40px;
-  height: 40px;
-  border: none;
-  box-shadow: none;
-  color: white;
-  margin-bottom: -20px;
-  background-color: transparent;
 }
 
 #small-menu-content {
@@ -142,6 +143,16 @@ main {
   background-color: #2c2c2c;
   opacity: 1 !important;
   pointer-events: auto !important;
+}
+
+.open-menu {
+  background-image: url(img/close_icon.png);
+  background-size: 15px;
+}
+
+.closed-menu {
+  background-image: url(img/menu-icon.png);
+  background-size: 20px;
 }
 
 #menu {
