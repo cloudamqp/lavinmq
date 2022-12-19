@@ -225,10 +225,10 @@ class LavinMQCtl
     @parser.on("-n node", "--node=node", "Specify node") do |v|
       @options["node"] = v
     end
-    @parser.on("-q", "--quiet", "suppress informational messages") do |_|
+    @parser.on("-q", "--quiet", "suppress informational messages") do
       @options["quiet"] = "yes"
     end
-    @parser.on("-s", "--silent", "suppress informational messages and table formatting") do |_|
+    @parser.on("-s", "--silent", "suppress informational messages and table formatting") do
       @options["silent"] = "yes"
     end
   end
