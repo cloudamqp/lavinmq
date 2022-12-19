@@ -58,10 +58,6 @@ module LavinMQ
       Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
-    def vhost_connections(vhost_name)
-      @vhosts[vhost_name].connections
-    end
-
     def listen(s : TCPServer)
       @listeners[s] = :amqp
       @log.info { "Listening on #{s.local_address}" }
