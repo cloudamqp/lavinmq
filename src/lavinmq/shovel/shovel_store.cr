@@ -2,7 +2,6 @@ require "./shovel"
 
 module LavinMQ
   class ShovelStore
-    include Enumerable({String, Shovel})
     @log : Log
 
     def initialize(@vhost : VHost)

@@ -212,7 +212,7 @@ describe LavinMQ::Shovel do
       p = LavinMQ::Parameter.new("shovel", "rc_shovel", JSON.parse(config))
       Server.vhosts["/"].add_parameter(p)
       Server.restart
-      sleep 0.01
+      wait_for { Server.vhosts["/"].shovels.size > 0 }
       shovel = Server.vhosts["/"].shovels["rc_shovel"]
       wait_for { shovel.running? }
       with_channel do |ch|
