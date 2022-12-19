@@ -624,14 +624,15 @@ module LavinMQ
             @unacked.clear
             notify_has_capacity(true) if was_full
           else # redeliver to the original recipient
-            @unacked.each do |unack|
+            @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
-              if consumer = unack.consumer
-                # FIXME: not if the consumer is cancelled
+              if (consumer = unack.consumer) && !consumer.closed?
                 env = unack.queue.read(unack.sp)
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
+                false
               else
                 unack.queue.reject(unack.sp, requeue: true)
+                true
               end
             end
           end

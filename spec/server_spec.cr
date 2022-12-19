@@ -738,37 +738,51 @@ describe LavinMQ::Server do
     with_channel do |ch|
       q = ch.queue
       q.publish "m1"
-      msg = nil
-      q.subscribe(no_ack: false) { |m| msg = m }
-      wait_for { msg }
-      msg = nil
+      msgs = Channel(AMQP::Client::DeliverMessage).new
+      q.subscribe(no_ack: false) { |m| msgs.send m }
+      msgs.receive
       ch.basic_recover(requeue: true)
-      wait_for { msg }
-      msg.not_nil!.redelivered.should be_true
+      msgs.receive.redelivered.should be_true
+    end
+  end
+
+  it "basic_recover requeues messages for cancelled consumers" do
+    with_channel do |ch|
+      q = ch.queue("q")
+      q.publish "m1"
+      msgs = Channel(AMQP::Client::DeliverMessage).new
+      tag = q.subscribe(no_ack: false) { |m| msgs.send m }
+      msgs.receive.body_io.to_s.should eq "m1"
+      q.unsubscribe(tag)
+      ch.basic_recover(requeue: true)
+      select
+      when m = msgs.receive
+        m.should be_nil
+      when timeout 100.milliseconds
+      end
+      ch.queue_declare(q.name, passive: true)[:message_count].should eq 1
     end
   end
 
   it "supports recover for basic get" do
     with_channel do |ch|
       q = ch.queue
-      q.publish "m1"
-      q.publish "m2"
-      ch.basic_get(q.name, no_ack: false)
+      q.publish_confirm "m1"
+      q.publish_confirm "m2"
+      q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
       ch.basic_recover(requeue: true)
-      msg = ch.basic_get(q.name, no_ack: false)
-      msg.not_nil!.body_io.to_s.should eq("m1")
+      q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
     end
   end
 
-  it "recover(requeue=false) for basic get actually reueues" do
+  it "recover(requeue=false) for basic get actually requeues" do
     with_channel do |ch|
       q = ch.queue
-      q.publish "m1"
-      q.publish "m2"
-      ch.basic_get(q.name, no_ack: false)
+      q.publish_confirm "m1"
+      q.publish_confirm "m2"
+      q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
       ch.basic_recover(requeue: false)
-      msg = ch.basic_get(q.name, no_ack: false)
-      msg.not_nil!.body_io.to_s.should eq("m1")
+      q.get(no_ack: false).not_nil!.body_io.to_s.should eq "m1"
     end
   end
 
