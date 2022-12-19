@@ -66,17 +66,14 @@ jobs:
     runs-on: ubuntu-latest
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
       - name: Print Crystal version
         run: crystal -v
 
-      - name: Shards install
-        run: shards install --without-development --frozen
+      - name: Checkout
+        uses: actions/checkout@v3
 
       - name: Spec
-        run: crystal spec --order random
+        run: make test
 
   spec_osx:
     name: Spec OS X
@@ -90,11 +87,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Shards install
-        run: shards install --without-development --frozen
-
       - name: Spec
-        run: crystal spec --order random
+        run: make test
 
   compile:
     name: Compile LavinMQ
