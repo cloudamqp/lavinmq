@@ -161,13 +161,13 @@ module LavinMQ
       end
 
       private def fetch_vhost?(vhosts, name)
-        vhost = vhosts[name]? || nil
+        vhost = vhosts[name]?
         @log.warn { "No vhost named #{name}, can't import #{name}" } unless vhost
         vhost
       end
 
       private def import_vhosts(body)
-        return unless vhosts = body["vhosts"]? || nil
+        return unless vhosts = body["vhosts"]?
         vhosts.as_a.each do |v|
           name = v["name"].as_s
           @amqp_server.vhosts.create name
@@ -175,7 +175,7 @@ module LavinMQ
       end
 
       private def import_queues(body, vhosts)
-        return unless queues = body["queues"]? || nil
+        return unless queues = body["queues"]?
         queues.as_a.each do |q|
           name = q["name"].as_s
           vhost = q["vhost"].as_s
@@ -188,7 +188,7 @@ module LavinMQ
       end
 
       private def import_exchanges(body, vhosts)
-        return unless exchanges = body["exchanges"]? || nil
+        return unless exchanges = body["exchanges"]?
         exchanges.as_a.each do |e|
           name = e["name"].as_s
           vhost = e["vhost"].as_s
@@ -203,7 +203,7 @@ module LavinMQ
       end
 
       private def import_bindings(body, vhosts)
-        return unless bindings = body["bindings"]? || nil
+        return unless bindings = body["bindings"]?
         bindings.as_a.each do |b|
           source = b["source"].as_s
           vhost = b["vhost"].as_s
@@ -223,7 +223,7 @@ module LavinMQ
       end
 
       private def import_permissions(body)
-        return unless permissions = body["permissions"]? || nil
+        return unless permissions = body["permissions"]?
         permissions.as_a.each do |p|
           user = p["user"].as_s
           vhost = p["vhost"].as_s
@@ -240,7 +240,7 @@ module LavinMQ
       end
 
       private def import_users(body)
-        return unless users = body["users"]? || nil
+        return unless users = body["users"]?
         users.as_a.each do |u|
           name = u["name"].as_s
           pass_hash = u["password_hash"].as_s
@@ -252,7 +252,7 @@ module LavinMQ
       end
 
       private def import_parameters(body, vhosts)
-        return unless parameters = body["parameters"]? || nil
+        return unless parameters = body["parameters"]?
         parameters.as_a.each do |p|
           vhost = p["vhost"].as_s
           next unless v = fetch_vhost?(vhosts, vhost)
@@ -280,7 +280,7 @@ module LavinMQ
       end
 
       private def import_global_parameters(body)
-        return unless parameters = body["global_parameters"]? || nil
+        return unless parameters = body["global_parameters"]?
         parameters.as_a.each do |p|
           param = Parameter.new(nil, p["name"].as_s, p["value"])
           @amqp_server.add_parameter(param)
@@ -288,7 +288,7 @@ module LavinMQ
       end
 
       private def import_policies(body, vhosts)
-        return unless policies = body["policies"]? || nil
+        return unless policies = body["policies"]?
         policies.as_a.each do |p|
           name = p["name"].as_s
           vhost = p["vhost"].as_s

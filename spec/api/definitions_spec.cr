@@ -39,7 +39,7 @@ describe LavinMQ::HTTP::Server do
       body = %({ "vhosts":[{ "name":"def" }] })
       response = post("/api/definitions", body: body)
       response.status_code.should eq 200
-      vhost = Server.vhosts["def"]? || nil
+      vhost = Server.vhosts["def"]?
       vhost.should be_a(LavinMQ::VHost)
     end
 
@@ -63,8 +63,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "vhosts":[{ "name":"new" }] })
         response = post("/api/definitions", body: body, headers: headers)
         response.status_code.should eq 200
-        vhost = Server.vhosts["new"]? || nil
-        vhost.should be_a(LavinMQ::VHost)
+        Server.vhosts["new"]?.should be_a(LavinMQ::VHost)
       end
     end
 

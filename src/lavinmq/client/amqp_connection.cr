@@ -148,8 +148,8 @@ module LavinMQ
     def self.open(socket, vhosts, user)
       open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
       vhost_name = open.vhost.empty? ? "/" : open.vhost
-      if vhost = vhosts[vhost_name]? || nil
-        if user.permissions[vhost_name]? || nil
+      if vhost = vhosts[vhost_name]?
+        if user.permissions[vhost_name]?
           if vhost.max_connections.try { |max| vhost.connections.size >= max }
             Log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
             reply_text = "NOT_ALLOWED - access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"

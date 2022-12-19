@@ -124,7 +124,7 @@ module LavinMQ
 
       private def parse_body(context)
         raise Server::ExpectedBodyError.new if context.request.body.nil?
-        ct = context.request.headers["Content-Type"]? || nil
+        ct = context.request.headers["Content-Type"]?
         if ct.nil? || ct.empty? || ct == "application/json"
           body = if context.request.content_length == 0
                    JSON::Any.new({} of String => JSON::Any)
