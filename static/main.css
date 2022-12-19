@@ -30,6 +30,7 @@ textarea {
 
 a:hover {
   cursor: pointer;
+  color:#6a5855;
 }
 
 header,
@@ -925,9 +926,15 @@ pre.arguments > div {
   padding-left: 1em;
   text-indent: -1em;
 }
+
 #dataTags {
   margin-left :150px;
   padding: 7px;
+  max-width: 400px;
+}
+
+#property{
+  margin: 2px;
 }
 
 .popup-card {
