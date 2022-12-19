@@ -698,29 +698,19 @@ module LavinMQ
             env = with_delivery_count_header(env)
           end
           if env
-            unless no_ack
-              @log.debug { "Counting as unacked: #{sp}" }
-              @unacked_lock.synchronize do
-                @unacked_count += 1
-                @unacked_bytesize += sp.bytesize
-              end
-            end
-            yield env # deliver the message
             if no_ack
+              yield env # deliver the message
               @log.debug { "Deleting: #{sp}" }
               delete_message(sp)
+            else
+              mark_unacked(sp) do
+                yield env # deliver the message
+              end
             end
             return true
           end
         rescue ex
           @ready.insert(sp)
-          unless no_ack
-            @log.debug { "Not counting as unacked: #{sp}" }
-            @unacked_lock.synchronize do
-              @unacked_count -= 1
-              @unacked_bytesize -= sp.bytesize
-            end
-          end
           if ex.is_a? ReadError
             close
             return false
@@ -729,6 +719,24 @@ module LavinMQ
         end
       end
       false
+    end
+
+    private def mark_unacked(sp, &)
+      @log.debug { "Counting as unacked: #{sp}" }
+      @unacked_lock.synchronize do
+        @unacked_count += 1
+        @unacked_bytesize += sp.bytesize
+      end
+      begin
+        yield
+      rescue ex
+        @log.debug { "Not counting as unacked: #{sp}" }
+        @unacked_lock.synchronize do
+          @unacked_count -= 1
+          @unacked_bytesize -= sp.bytesize
+        end
+        raise ex
+      end
     end
 
     private def with_delivery_count_header(env) : Envelope?
