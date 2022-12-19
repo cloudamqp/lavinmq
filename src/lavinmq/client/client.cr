@@ -332,6 +332,7 @@ module LavinMQ
 
     private def open_channel(frame)
       @channels[frame.channel] = Client::Channel.new(self, frame.channel)
+      @vhost.event_tick(EventType::ChannelCreated)
       send AMQP::Frame::Channel::OpenOk.new(frame.channel)
     end
 

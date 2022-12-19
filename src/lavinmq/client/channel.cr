@@ -40,7 +40,6 @@ module LavinMQ
       def initialize(@client : Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @client.vhost.event_tick(EventType::ChannelCreated)
         @next_msg_body_tmp = IO::Memory.new
       end
 
