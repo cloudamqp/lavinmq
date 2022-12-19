@@ -635,9 +635,10 @@ describe LavinMQ::Server do
       args = AMQP::Client::Arguments.new
       args["x-expires"] = 1
       ch.queue("test", args: args)
-      sleep 5.milliseconds
-      Fiber.yield
-      Server.vhosts["/"].queues.has_key?("test").should be_false
+      sleep 100.milliseconds
+      expect_raises(AMQP::Client::Channel::ClosedException, "NOT_FOUND") do
+        ch.queue_declare("test", passive: true)
+      end
     end
   end
 
@@ -646,10 +647,12 @@ describe LavinMQ::Server do
       args = AMQP::Client::Arguments.new
       args["x-expires"] = 50
       q = ch.queue("test", args: args)
-      q.subscribe(no_ack: true) { |_| }
-      sleep 50.milliseconds
-      Fiber.yield
+      tag = q.subscribe(no_ack: true) { |_| }
+      sleep 100.milliseconds
       Server.vhosts["/"].queues.has_key?("test").should be_true
+      q.unsubscribe(tag)
+      sleep 100.milliseconds
+      Server.vhosts["/"].queues.has_key?("test").should be_false
     end
   end
 
