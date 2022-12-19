@@ -72,12 +72,15 @@ describe LavinMQ::Shovel do
         x.publish_confirm "shovel me 1", "sf_q1"
         x.publish_confirm "shovel me 2", "sf_q1"
         spawn shovel.run
+        msgs = Channel(String).new
+        q2.subscribe(no_ack: true) do |msg|
+          msgs.send(msg.body_io.to_s)
+        end
         wait_for { shovel.running? }
         x.publish_confirm "shovel me 3", "sf_q1"
-        sleep 0.1
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
+        3.times do |i|
+          msgs.receive.should eq "shovel me #{i + 1}"
+        end
         shovel.running?.should be_true
       end
     end
@@ -215,16 +218,18 @@ describe LavinMQ::Shovel do
       with_channel do |ch|
         q1 = ch.queue("rc_q1", durable: true)
         q2 = ch.queue("rc_q2", durable: true)
+        msgs = Channel(String).new
+        q2.subscribe(no_ack: true) do |msg|
+          msgs.send(msg.body_io.to_s)
+        end
         props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
         q1.publish_confirm "shovel me 2", props: props
         q1.publish_confirm "shovel me 3", props: props
         q1.publish_confirm "shovel me 4", props: props
-        sleep 0.1
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
-        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 4"
-        Server.vhosts["/"].queues["rc_q1"].message_count.should eq 0
+        4.times do |i|
+          msgs.receive.should eq "shovel me #{i + 1}"
+        end
+        ch.queue_declare("rc_q1", passive: true)[:message_count].should eq 0
       end
     end
 
