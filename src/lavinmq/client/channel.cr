@@ -35,7 +35,7 @@ module LavinMQ
       @direct_reply_consumer : String?
       @tx = false
 
-      rate_stats(%w(ack get publish deliver redeliver reject confirm return_unroutable))
+      rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
 
       def initialize(@client : Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"

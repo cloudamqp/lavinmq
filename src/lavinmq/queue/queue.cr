@@ -111,8 +111,8 @@ module LavinMQ
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      %w(ack deliver confirm get get_no_ack publish redeliver reject return_unroutable),
-      %w(message_count unacked_count))
+      {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
+      {"message_count", "unacked_count"})
 
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready,
       last_get_time

@@ -26,7 +26,7 @@ module LavinMQ
     @log : Log
     @deleted = false
 
-    rate_stats(%w(publish_in publish_out unroutable))
+    rate_stats({"publish_in", "publish_out", "unroutable"})
     property publish_in_count, publish_out_count, unroutable_count
 
     def initialize(@vhost : VHost, @name : String, @durable = false,

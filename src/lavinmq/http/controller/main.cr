@@ -24,8 +24,8 @@ module LavinMQ
 
     class MainController < Controller
       include StatsHelpers
-      OVERVIEW_STATS = %w(ack deliver get publish confirm redeliver reject)
-      EXCHANGE_TYPES = %w(direct fanout topic headers x-federation-upstream x-consistent-hash)
+      OVERVIEW_STATS = {"ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"}
+      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -61,10 +61,11 @@ module LavinMQ
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
             end
+            vhost_stats_details = vhost.stats_details
             {% for sm in OVERVIEW_STATS %}
-              {{sm.id}}_count += vhost.stats_details[:{{sm.id}}]
-              {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
-              add_logs!({{sm.id}}_log, vhost.stats_details[:{{sm.id}}_details][:log])
+              {{sm.id}}_count += vhost_stats_details[:{{sm.id}}]
+              {{sm.id}}_rate += vhost_stats_details[:{{sm.id}}_details][:rate]
+              add_logs!({{sm.id}}_log, vhost_stats_details[:{{sm.id}}_details][:log])
             {% end %}
           end
           {

@@ -23,8 +23,8 @@ module LavinMQ
     include SortableJSON
     include Stats
 
-    rate_stats(%w(channel_closed channel_created connection_closed connection_created
-      queue_declared queue_deleted ack deliver get publish confirm redeliver reject))
+    rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
+                "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, gc_runs, gc_timing, log, users
