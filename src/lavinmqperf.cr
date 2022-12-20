@@ -28,6 +28,23 @@ class Perf
   def run(args = ARGV)
     @parser.parse(args)
   end
+
+  protected def rss
+    if File.exists?("/proc/self/statm")
+      File.read("/proc/self/statm").split[1].to_i64 * 4096
+    elsif ps_rss = `ps -o rss= -p $PPID`.to_i64?
+      ps_rss * 1024
+    else
+      0
+    end
+  end
+
+  protected def maximize_fd_limit
+    _, fd_limit_max = System.file_descriptor_limit
+    System.file_descriptor_limit = fd_limit_max
+    fd_limit_current, _ = System.file_descriptor_limit
+    puts "FD limit: #{fd_limit_current}"
+  end
 end
 
 class Throughput < Perf
@@ -492,22 +509,94 @@ class ConnectionCount < Perf
     client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
     client
   end
+end
 
-  private def rss
-    if File.exists?("/proc/self/statm")
-      File.read("/proc/self/statm").split[1].to_i64 * 4096
-    elsif ps_rss = `ps -o rss= -p $PPID`.to_i64?
-      ps_rss * 1024
-    else
-      0
+class Chaos < Perf
+  def initialize
+    super
+  end
+
+  def run
+    super
+    spawn churn_connections_and_pubs
+    spawn churn_connections_and_acks
+    sleep
+    # churn_queues
+    # churn_exchanges
+    # churn_vhosts
+    # churn_bindings
+    # random_ack_rejects
+  end
+
+  private def churn_connections_and_pubs
+    done = Channel(Nil).new
+    loop do
+      100.times do
+        spawn do
+          body = Bytes.new(8)
+          AMQP::Client.start(@uri) do |conn|
+            ch = conn.channel
+            rand(10_000).times do
+              IO::ByteFormat::SystemEndian.encode(Time.monotonic.total_nanoseconds.to_i64, body)
+              ch.basic_publish(body, exchange, routing_key)
+            end
+            done.send nil
+          end
+        end
+      end
+      100.times do
+        done.receive
+      end
     end
   end
 
-  private def maximize_fd_limit
-    _, fd_limit_max = System.file_descriptor_limit
-    System.file_descriptor_limit = fd_limit_max
-    fd_limit_current, _ = System.file_descriptor_limit
-    puts "FD limit: #{fd_limit_current}"
+  private def routing_key : String
+    Random::DEFAULT.hex(1)
+  end
+
+  private def queue : String
+    Random::DEFAULT.hex(1)
+  end
+
+  private def exchange : String
+    case rand(5)
+    when 1 then "amq.direct"
+    when 2 then "amq.topic"
+    when 3 then "amq.fanout"
+    when 4 then "amq.headers"
+    else        ""
+    end
+  end
+
+  private def churn_connections_and_acks
+    done = Channel(Nil).new
+    loop do
+      100.times do
+        spawn do
+          AMQP::Client.start(@uri) do |conn|
+            ch = conn.channel
+            prefetch = rand(100)
+            ch.prefetch(prefetch)
+            q = ch.queue(queue)
+            q.bind(exchange, routing_key)
+            q.subscribe(no_ack: false, work_pool: prefetch) do |m|
+              sleep rand(1.0)
+              case rand(3)
+              when 0 then m.ack
+              when 1 then m.reject(requeue: true)
+              when 2 then m.reject(requeue: false)
+              end
+            end
+            sleep rand(30.0)
+          end
+        ensure
+          done.send nil
+        end
+      end
+      100.times do
+        done.receive
+      end
+    end
   end
 end
 
@@ -524,6 +613,7 @@ when "connection-churn" then ConnectionChurn.new.run
 when "channel-churn"    then ChannelChurn.new.run
 when "consumer-churn"   then ConsumerChurn.new.run
 when "connection-count" then ConnectionCount.new.run
+when "chaos"            then Chaos.new.run
 when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
 end
