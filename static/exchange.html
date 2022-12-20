@@ -109,11 +109,53 @@
         <label>
           <span>Properties</span>
           <textarea name="properties" placeholder='{ "key": value }' style="height: 65px;"></textarea>
-          <a onclick="addProperty('content_type', 'application/json')">JSON</a>
+          <div id="dataTags" class="label">
+            <a id="property-tag" class="arg-tooltip" data-tag="content_type" value='"application/json"'>Content Type
+              <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="content_encoding">Content Encoding
+              <span class="tooltiptext">Encoding of the content used by application.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="expiration">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="priority">Priority
+              <span class="tooltiptext">Priority of the message in the queue.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="message_id">Message ID
+              <span class="tooltiptext">Message identifier of the message used by application.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="timestamp">Timestamp
+              <span class="tooltiptext">Timestamp of the message used by application.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="type">Type
+              <span class="tooltiptext">Type of the message used by application.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="user_id">User ID
+              <span class="tooltiptext">User identifier when impersonating another user.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="app_id">App ID
+              <span class="tooltiptext">Application identifier.</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="correlation_id">Correlation ID
+              <span class="tooltiptext">Correlation identifier for RPC</span>
+            </a> |
+            <a id="property-tag" class="arg-tooltip" data-tag="reply_to">Reply To
+              <span class="tooltiptext">Reply to queue for RPC</span>
+            </a>
+          </div>
         </label>
         <label>
           <span>Payload</span>
           <textarea name="payload"></textarea>
+        </label>
+        <label>
+          <span>Payload encoding</span>
+          <select name="payload_encoding">
+            <option value="string">String</option>
+            <option value="base64">Base64</option>
+          </select>
         </label>
         <button type="submit" class="btn-primary">Publish message</button>
       </form>

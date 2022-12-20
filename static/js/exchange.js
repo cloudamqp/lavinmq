@@ -104,7 +104,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
   properties.headers = DOM.parseJSON(data.get('headers'))
   const body = {
     payload: data.get('payload'),
-    payload_encoding: 'string',
+    payload_encoding: data.get('payload_encoding'),
     routing_key: data.get('routing_key').trim(),
     properties
   }
@@ -114,13 +114,6 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     })
     .catch(HTTP.alertErrorHandler)
 })
-
-function addProperty (key, value) { // eslint-disable-line no-unused-vars
-  const el = document.querySelector('#publishMessage textarea[name=properties]')
-  const properties = DOM.parseJSON(el.value || '{}')
-  properties[key] = value
-  el.value = JSON.stringify(properties)
-}
 
 document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
   evt.preventDefault()
@@ -137,3 +130,7 @@ function updateAutocomplete(e) {
   Helpers.autoCompleteDatalist("exchange-dest-list", type)
 }
 updateAutocomplete('q')
+
+document.querySelector('#dataTags').onclick = e => {
+  Helpers.argumentHelperJSON("properties", e)
+}

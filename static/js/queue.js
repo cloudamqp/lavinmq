@@ -174,13 +174,6 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     }).catch(HTTP.alertErrorHandler)
 })
 
-function addProperty (key, value) { // eslint-disable-line no-unused-vars
-  const el = document.querySelector('#publishMessage textarea[name=properties]')
-  const properties = DOM.parseJSON(el.value || '{}')
-  properties[key] = value
-  el.value = JSON.stringify(properties)
-}
-
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
@@ -190,7 +183,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
   properties.headers = DOM.parseJSON(data.get('headers'))
   const body = {
     payload: data.get('payload'),
-    payload_encoding: 'string',
+    payload_encoding: data.get('payload_encoding'),
     routing_key: queue,
     properties
   }
@@ -370,3 +363,7 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges')
 Helpers.autoCompleteDatalist('queue-list', 'queues')
+
+document.querySelector('#dataTags').onclick = e => {
+  Helpers.argumentHelperJSON("properties", e)
+}
