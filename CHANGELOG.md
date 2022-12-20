@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed 
 
+- Side menu in manager is now more responsive to smaller browser windows [#437](https://github.com/cloudamqp/lavinmq/pull/437)
 - Updated Chart.js version form v2.9.4 to v4.0.1 [#426](https://github.com/cloudamqp/lavinmq/pull/426)
 - Build lavinmqperf with multi threading
 - `lavinmqperf connection-count` now uses multiple fibers to take use of multi threading
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Property tag shortcuts for JSON Payload fixed [#441](https://github.com/cloudamqp/lavinmq/pull/441)
 - Warn if vm.max_map_count is low on boot
 - Restore priority queues correctly [#436](https://github.com/cloudamqp/lavinmq/pull/436)
 - Increased multi threading compability
