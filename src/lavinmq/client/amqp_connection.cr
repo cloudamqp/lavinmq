@@ -50,7 +50,7 @@ module LavinMQ
       end
     end
 
-    SERVER_PROPERTIES = AMQP::Table.new({
+    START_FRAME = AMQP::Frame::Connection::Start.new(server_properties: AMQP::Table.new({
       "product":      "LavinMQ",
       "platform":     "Crystal #{Crystal::VERSION}",
       "version":      LavinMQ::VERSION,
@@ -65,11 +65,10 @@ module LavinMQ
         "per_consumer_qos":             true,
         "direct_reply_to":              true,
       }),
-    })
+    }))
 
     def self.start(socket)
-      start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
-      socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
+      socket.write_bytes START_FRAME, ::IO::ByteFormat::NetworkEndian
       socket.flush
       start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
       if start_ok.bytesize > 4096
