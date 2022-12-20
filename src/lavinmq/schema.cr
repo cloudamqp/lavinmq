@@ -102,6 +102,9 @@ module LavinMQ
                 f.write_bytes new_sp
               rescue IO::EOFError
                 next # if the message has been truncated by GC already
+              rescue ex
+                Log.error { "sp_seg=#{sp.segment} sp_pos=#{sp.position} current_pos=#{segment.pos}" }
+                raise ex
               end
             else
               next # if the file has been deleted by GC already
