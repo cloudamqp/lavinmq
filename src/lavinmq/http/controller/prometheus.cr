@@ -155,7 +155,7 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open file descriptors"})
         writer.write({name:  "process_open_tcp_sockets",
-                      value: @amqp_server.vhosts.sum { |_, v| v.connections.size },
+                      value: @amqp_server.vhosts.sum { |_, v| v.connection_count },
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
@@ -180,8 +180,8 @@ module LavinMQ
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
-          connections += vhost.connections.size
-          vhost.connections.each do |conn|
+          connections += vhost.connection_count
+          vhost.each_connection do |conn|
             channels += conn.channels.size
             conn.channels.each_value do |ch|
               consumers += ch.consumers.size
@@ -358,7 +358,7 @@ module LavinMQ
 
       private def detailed_connection_coarse_metrics(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
+          vhost.each_connection do |conn|
             labels = {channel: conn.name}
             writer.write({name:   "detailed_connection_incoming_bytes_total",
                           value:  conn.recv_oct_count,
@@ -381,7 +381,7 @@ module LavinMQ
 
       private def detailed_channel_metrics(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
+          vhost.each_connection do |conn|
             conn.channels.each_value do |ch|
               labels = {channel: ch.name}
               d = ch.details_tuple

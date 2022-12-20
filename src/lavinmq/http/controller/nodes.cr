@@ -75,7 +75,7 @@ module LavinMQ
           partitions:         Tuple.new,
           proc_used:          Fiber.count,
           run_queue:          0,
-          sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections.size },
+          sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connection_count },
           followers:          @amqp_server.followers,
         }
       end

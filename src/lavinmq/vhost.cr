@@ -24,7 +24,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, gc_runs, gc_timing, log, users
+      direct_reply_consumers, dir, gc_runs, gc_timing, log, users
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -37,6 +37,7 @@ module LavinMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
+    @connections_lock = Mutex.new
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
@@ -60,6 +61,34 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
+    end
+
+    def update_stats_rates
+      @queues.each_value(&.update_rates)
+      @exchanges.each_value(&.update_rates)
+      @connections_lock.synchronize do
+        @connections.each do |connection|
+          connection.update_rates
+          connection.channels.each_value(&.update_rates)
+        end
+      end
+      update_rates
+    end
+
+    def connection_count
+      @connections.size
+    end
+
+    def each_connection(&) : Nil
+      @connections_lock.synchronize do
+        @connections.each do |c|
+          yield c
+        end
+      end
+    end
+
+    def each_connection : Iterator(Client)
+      @connections.each
     end
 
     def max_connections=(value : Int32) : Nil
@@ -389,12 +418,16 @@ module LavinMQ
 
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
-      @connections << client
+      @connections_lock.synchronize do
+        @connections << client
+      end
     end
 
     def rm_connection(client : Client)
       event_tick(EventType::ConnectionClosed)
-      @connections.delete client
+      @connections_lock.synchronize do
+        @connections.delete client
+      end
     end
 
     SHOVEL                  = "shovel"
@@ -436,15 +469,20 @@ module LavinMQ
       stop_shovels
       stop_upstream_links
       Fiber.yield
-      @log.debug { "Closing connections" }
-      @connections.each &.close(reason)
+
+      @connections_lock.synchronize do
+        @log.debug { "Closing connections" }
+        @connections.each &.close(reason)
+      end
       # wait up to 10s for clients to gracefully close
       100.times do
         break if @connections.empty?
         sleep 0.1
       end
       # then force close the remaining (close tcp socket)
-      @connections.each &.force_close
+      @connections_lock.synchronize do
+        @connections.each &.force_close
+      end
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield

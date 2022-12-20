@@ -149,7 +149,7 @@ module LavinMQ
       vhost_name = open.vhost.empty? ? "/" : open.vhost
       if vhost = vhosts[vhost_name]?
         if user.permissions[vhost_name]?
-          if vhost.max_connections.try { |max| vhost.connections.size >= max }
+          if vhost.max_connections.try { |max| vhost.connection_count >= max }
             Log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
             reply_text = "NOT_ALLOWED - access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
             socket.write_bytes AMQP::Frame::Connection::Close.new(530_u16, reply_text,
