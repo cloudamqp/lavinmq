@@ -738,7 +738,8 @@ module LavinMQ
         send_precondition_failed(frame, "Exchange name isn't valid")
         return false
       elsif frame.exchange_name.empty? || frame.exchange_name == DEFAULT_EX
-        send_access_refused(frame, "Not allowed to unbind from the default exchange")
+        target = frame.is_a?(AMQP::Frame::Queue::Bind) ? "bind to" : "unbind from"
+        send_access_refused(frame, "Not allowed to #{target} the default exchange")
         return false
       end
       true
