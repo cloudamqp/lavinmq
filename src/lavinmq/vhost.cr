@@ -429,7 +429,7 @@ module LavinMQ
             end
           end
           @save.send f if !loading && q.durable && !q.exclusive
-          event_tick(EventType::QueueDeleted)
+          event_tick(EventType::QueueDeleted) unless loading
           q.delete
         else
           return false
