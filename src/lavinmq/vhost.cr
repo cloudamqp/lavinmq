@@ -191,7 +191,7 @@ module LavinMQ
                                 visited : Set(Exchange),
                                 queues : Set(Queue)) : Nil
       ex.queue_matches(routing_key, headers) do |q|
-        raise Queue::Closed.new if q.closed?
+        next if q.closed?
         queues.add? q
       end
 

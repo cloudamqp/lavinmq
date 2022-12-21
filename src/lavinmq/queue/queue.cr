@@ -400,8 +400,6 @@ module LavinMQ
 
     class RejectOverFlow < Exception; end
 
-    class Closed < Exception; end
-
     def publish(sp : SegmentPosition, persistent = false) : Bool
       return false if @state.closed?
       # @log.debug { "Enqueuing message sp=#{sp}" }

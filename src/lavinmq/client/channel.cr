@@ -263,8 +263,6 @@ module LavinMQ
         send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
       rescue Queue::RejectOverFlow
         confirm_nack
-      rescue Queue::Closed
-        confirm_nack
       end
 
       def confirm_nack(multiple = false)
