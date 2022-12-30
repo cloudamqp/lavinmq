@@ -30,7 +30,7 @@ textarea {
 
 a:hover {
   cursor: pointer;
-  color:#6a5855;
+  color: #6a5855;
 }
 
 header,
@@ -931,10 +931,6 @@ pre.arguments > div {
   margin-left :150px;
   padding: 7px;
   max-width: 400px;
-}
-
-#property{
-  margin: 2px;
 }
 
 .popup-card {
