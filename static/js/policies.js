@@ -66,7 +66,7 @@ function apply(base_url = '/api/policies') {
       }).catch(HTTP.standardErrorHandler)
   })
   document.querySelector('#dataTags').onclick = e => {
-    Helpers.argumentHelperJSON("definition", e)
+    Helpers.argumentHelperJSON('createPolicy', 'definition', e)
   }
 
   function autofill_editpolicy(policies, otherOrigin = true) {

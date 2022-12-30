@@ -134,5 +134,5 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
 })
 
 document.querySelector('#dataTags').onclick = e => {
-  Helpers.argumentHelperJSON("arguments", e)
+  Helpers.argumentHelperJSON('declare', 'arguments', e)
 }
