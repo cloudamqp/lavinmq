@@ -51,30 +51,27 @@ function duration (seconds) {
   return res
 }
 
-function argumentHelper (className, e) {
-  const val = e.target.getAttribute('data-tag')
-  if (val) {
-    const currentVal = document.querySelector(`[name=${className}]`).value
-    if (currentVal.includes(val)) { return }
-    document.querySelector(`[name=${className}]`).value = currentVal ? currentVal + ', ' + val : val
-  } else if (val === "") {
-    document.querySelector(`[name=${className}]`).value = ""
+function argumentHelper (formID, name, e) {
+  const key = e.target.getAttribute('data-tag')
+  const form = document.getElementById(formID)
+  const currentValue = form.elements[name].value
+  if (key && !currentValue.includes(key)) {
+    form.elements[name].value = currentValue ? currentValue + ', ' + key : key
+  } else if (key === '') {
+    form.elements[name].value = ''
   }
 }
 
-function argumentHelperJSON (className, e) {
-  const val = e.target.getAttribute('data-tag')
-  let value = e.target.getAttribute('value')
-  if (value === null) {
-    value = 'value'
-  }
-  const currentVal = document.querySelector(`[name=${className}]`).value
-  if (currentVal.includes(val)) {
-    return
-  } else if (currentVal === "" && val) {
-    document.querySelector(`[name=${className}]`).value = `{"${val}": ${value}}`
-  } else if (currentVal[currentVal.length - 1] === "}" && val) {
-    document.querySelector(`[name=${className}]`).value = currentVal.substr(0, currentVal.length - 1) + `,\n"${val}": ${value}}`
+function argumentHelperJSON (formID, name, e) {
+  const key = e.target.getAttribute('data-tag')
+  const value = e.target.getAttribute('value') || 'value'
+  const form = document.getElementById(formID)
+  const currentValue = form.elements[name].value
+  if (currentValue.includes(key) || !key) { return }
+  if (currentValue === '') {
+    form.elements[name].value = `{"${key}": ${value}}`
+  } else if (currentValue.slice(-1) === '}') {
+    form.elements[name].value = currentValue.substr(0, currentValue.length - 1) + `,\n"${key}": ${value}}`
   }
 }
 

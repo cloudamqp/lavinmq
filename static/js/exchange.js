@@ -132,5 +132,5 @@ function updateAutocomplete(e) {
 updateAutocomplete('q')
 
 document.querySelector('#dataTags').onclick = e => {
-  Helpers.argumentHelperJSON("properties", e)
+  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
 }

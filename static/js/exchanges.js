@@ -82,5 +82,5 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
 })
 
 document.querySelector('#dataTags').onclick = e => {
-  Helpers.argumentHelperJSON("arguments", e)
+  Helpers.argumentHelperJSON('addExchange', 'arguments', e)
 }
