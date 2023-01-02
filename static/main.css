@@ -480,17 +480,13 @@ footer .logo {
   background-color: #fff;
 }
 
-#table-error {
+[id$='-error'] {
   display: none;
   margin: 10px 0;
   padding: 10px;
   border-radius: 3px 3px 3px 3px;
   color: #D8000C;
   background-color: #FFBABA;
-}
-
-#upstreamTable-error {
-  color: red;
 }
 
 .table-multihead {
