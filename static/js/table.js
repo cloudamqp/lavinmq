@@ -129,7 +129,7 @@ function renderTable (id, options = {}, renderRow) {
   function fetchAndUpdate () {
     const fullUrl = `${url}?${buildQuery(currentPage)}`
     return HTTP.request('GET', fullUrl).then(function (response) {
-      toggleDisplayError(false)
+      toggleDisplayError(id, false)
       try {
         window.sessionStorage.setItem(fullUrl, JSON.stringify(response))
       } catch (e) {
@@ -138,9 +138,9 @@ function renderTable (id, options = {}, renderRow) {
       updateTable(response)
     }).catch(function (e) {
       if (e.body) {
-        toggleDisplayError('Error fetching data: ' + e.body)
+        toggleDisplayError(id, 'Error fetching data: ' + e.body)
       } else {
-        toggleDisplayError("Error fetching data: Can't reach server, please try to refresh the page.")
+        toggleDisplayError(id, "Error fetching data: Can't reach server, please try to refresh the page.")
         console.error(e)
       }
       if (timer) {
@@ -166,7 +166,7 @@ function renderTable (id, options = {}, renderRow) {
     }
 
     let start = 0
-    toggleDisplayError(false)
+    toggleDisplayError(id, false)
     for (let i = 0; i < data.length; i++) {
       const item = data[i]
       try {
@@ -191,7 +191,7 @@ function renderTable (id, options = {}, renderRow) {
           start = i + 1
         }
       } catch (e) {
-        toggleDisplayError(item.error || e.message)
+        toggleDisplayError(id, item.error || e.message)
       }
     }
 
@@ -442,8 +442,8 @@ function updateQueryState (params) {
   window.history.replaceState(null, '', newurl)
 }
 
-function toggleDisplayError (message = null) {
-  const tableError = document.getElementById('table-error')
+function toggleDisplayError (tableID, message = null) {
+  const tableError = document.getElementById(`${tableID}-error`)
   if (message) {
     tableError.style.display = 'block'
     tableError.textContent = 'Something went wrong: ' + message
