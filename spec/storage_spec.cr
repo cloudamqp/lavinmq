@@ -1,6 +1,28 @@
 require "./spec_helper"
 
 describe LavinMQ::DurableQueue do
+  context "with message segment with hole punched" do
+    before_each do
+      FileUtils.cp_r("./spec/resources/data_dir_index_v2_holes", "/tmp/lavinmq-spec-index-v2")
+    end
+
+    after_each do
+      FileUtils.rm_rf("/tmp/lavinmq-spec-index-v2")
+    end
+
+    it "should succefully convert queue index" do
+      server = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
+      begin
+        q = server.vhosts["/"].queues["queue_name"].as(LavinMQ::DurableQueue)
+        q.basic_get(true) do |env|
+          String.new(env.message.body).to_s.should eq "bar"
+        end.should be_true
+      ensure
+        server.close
+      end
+    end
+  end
+
   context "after migration between index version 2 to 3" do
     before_each do
       FileUtils.cp_r("./spec/resources/data_dir_index_v2", "/tmp/lavinmq-spec-index-v2")
