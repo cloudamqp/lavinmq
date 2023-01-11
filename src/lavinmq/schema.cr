@@ -45,34 +45,54 @@ module LavinMQ
       prefix(file, type)
     end
 
-    def self.migrate(path : String, type)
+    def self.migrate_index_enq(path : String, acked = Array(SegmentPosition).new)
       File.open(path) do |file|
         begin
-          self.verify(file, type)
+          self.verify(file, :index)
         rescue ex : OutdatedSchemaVersion
-          self.migrate(file, type, ex.version)
+          self.migrate_index_enq(file, ex.version, acked)
         end
       end
     end
 
-    def self.migrate(file, type, current_version)
-      Log.info { "Migrating #{file.path} from version #{current_version} to #{VERSIONS[type]}" }
-      case type
-      when :index
-        case current_version
-        when 1
-          MigrateIndex(SegmentPositionV1).run(file)
-          return
-        when 2
-          MigrateIndex(SegmentPositionV2).run(file)
-          return
+    def self.migrate_index_ack(path : String)
+      File.open(path) do |file|
+        begin
+          self.verify(file, :index)
+        rescue ex : OutdatedSchemaVersion
+          self.migrate_index_ack(file, ex.version)
         end
+      end
+    end
+
+    def self.migrate_index_enq(file, current_version, acked : Array(SegmentPosition))
+      Log.info { "Migrating #{file.path} from version #{current_version} to #{VERSIONS[:index]}" }
+      case current_version
+      when 1
+        MigrateIndex(SegmentPositionV1).run(file, acked)
+        return
+      when 2
+        MigrateIndex(SegmentPositionV2).run(file, acked)
+        return
+      end
+      raise UnsupportedSchemaVersion.new current_version, file.path
+    end
+
+    def self.migrate_index_ack(file, current_version)
+      Log.info { "Migrating #{file.path} from version #{current_version} to #{VERSIONS[:index]}" }
+      case current_version
+      when 1
+        MigrateIndexAck(SegmentPositionV1).run(file)
+        return
+      when 2
+        MigrateIndexAck(SegmentPositionV2).run(file)
+        return
       end
       raise UnsupportedSchemaVersion.new current_version, file.path
     end
 
     class MigrateIndex(T)
-      def self.run(file)
+      def self.run(file, acked : Array(SegmentPosition))
         # data dir is one level up from index files
         data_dir = File.join(File.dirname(file.path), "..")
         File.open("#{file.path}.tmp", "w") do |f|
@@ -90,6 +110,11 @@ module LavinMQ
               goto_next_block(file)
               next
             end
+
+            if acked.bsearch { |asp| sp.ref_same_msg?(asp) }
+              next
+            end
+
             if prev_segment != sp.segment
               seg.try &.close
               seg = open_segment data_dir, sp.segment
@@ -132,6 +157,55 @@ module LavinMQ
       end
     end
 
+    class MigrateIndexAck(T)
+      def self.run(file, only_read = false)
+        # data dir is one level up from index files
+        dummy_message = MessageMetadata.new(0, "", "", AMQP::Properties.new, 0)
+        File.open("#{file.path}.tmp", "w") do |f|
+          SchemaVersion.prefix(f, :index)
+          seg = nil
+          loop do
+            sp =
+              begin
+                T.from_io file
+              rescue IO::EOFError
+                break
+              end
+            if sp.zero?
+              goto_next_block(file)
+              next
+            end
+
+            begin
+              new_sp = SegmentPosition.make(sp.segment, sp.position, dummy_message)
+              f.write_bytes new_sp
+            rescue ex
+              Log.error { "sp_seg=#{sp.segment} sp_pos=#{sp.position}" }
+              raise ex
+            end
+          end
+          seg.try &.close
+          File.rename f.path, file.path
+          f.fsync
+        end
+      end
+
+      private def self.open_segment(data_dir, seg)
+        filename = "msgs.#{seg.to_s.rjust(10, '0')}"
+        file = File.new(File.join(data_dir, filename))
+        file.buffer_size = Config.instance.file_buffer_size
+        file
+      rescue File::NotFoundError
+        nil
+      end
+
+      # Jump to the next block in a file
+      private def self.goto_next_block(f)
+        new_pos = ((f.pos // 4096) + 1) * 4096
+        f.pos = new_pos
+      end
+    end
+
     abstract struct SegmentPositionBase
       getter segment : UInt32
       getter position : UInt32
@@ -141,6 +215,10 @@ module LavinMQ
 
       def zero?
         segment == position == 0u32
+      end
+
+      def ref_same_msg?(other : SegmentPosition)
+        segment == other.segment && position == other.position
       end
     end
 

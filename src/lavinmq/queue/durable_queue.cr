@@ -30,6 +30,7 @@ module LavinMQ
       @ack = MFile.new(File.join(@index_dir, "ack"), ack_max_file_size)
       @ack.advise(MFile::Advice::DontNeed)
       @ack.seek 0, IO::Seek::End
+
       compact_index! if index_corrupted
     end
 
@@ -174,7 +175,7 @@ module LavinMQ
 
     private def restore_enq(acked) : Bool
       enq_path = File.join(@index_dir, "enq")
-      SchemaVersion.migrate(enq_path, :index)
+      SchemaVersion.migrate_index_enq(enq_path, acked: acked)
       File.open(enq_path, "r+") do |enq|
         enq.buffer_size = Config.instance.file_buffer_size
         enq.advise(File::Advice::Sequential)
@@ -201,6 +202,7 @@ module LavinMQ
             lost_msgs += 1
             next
           end
+
           ready << sp
         rescue IO::EOFError
           break
@@ -216,7 +218,7 @@ module LavinMQ
 
     private def restore_acks
       ack_path = File.join(@index_dir, "ack")
-      SchemaVersion.migrate(ack_path, :index)
+      SchemaVersion.migrate_index_ack(ack_path)
       File.open(ack_path, "r+") do |ack|
         ack.buffer_size = Config.instance.file_buffer_size
         ack.advise(File::Advice::Sequential)

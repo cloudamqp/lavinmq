@@ -15,7 +15,7 @@ describe LavinMQ::DurableQueue do
       begin
         q = server.vhosts["/"].queues["queue_name"].as(LavinMQ::DurableQueue)
         q.basic_get(true) do |env|
-          String.new(env.message.body).to_s.should eq "bar"
+          String.new(env.message.body).to_s.should eq "foo"
         end.should be_true
       ensure
         server.close
