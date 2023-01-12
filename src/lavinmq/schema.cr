@@ -111,7 +111,7 @@ module LavinMQ
               next
             end
 
-            if acked.bsearch { |asp| sp.bsearch_cmp(asp) }
+            if acked.bsearch { |asp| sp < asp }
               Log.debug { "sp=#{sp} already acked, index" }
               next
             end
@@ -161,7 +161,6 @@ module LavinMQ
     class MigrateIndexAck(T)
       def self.run(file, only_read = false)
         # data dir is one level up from index files
-        dummy_message = MessageMetadata.new(0, "", "", AMQP::Properties.new, 0)
         File.open("#{file.path}.tmp", "w") do |f|
           SchemaVersion.prefix(f, :index)
           seg = nil
@@ -178,7 +177,7 @@ module LavinMQ
             end
 
             begin
-              new_sp = SegmentPosition.make(sp.segment, sp.position, dummy_message)
+              new_sp = SegmentPosition.new(sp.segment, sp.position)
               f.write_bytes new_sp
             rescue ex
               Log.error { "sp_seg=#{sp.segment} sp_pos=#{sp.position}" }
@@ -208,6 +207,9 @@ module LavinMQ
     end
 
     abstract struct SegmentPositionBase
+      include Comparable(self)
+      include Comparable(SegmentPosition) # This is for the bsearch in MigrateIndex
+
       getter segment : UInt32
       getter position : UInt32
 
@@ -218,11 +220,16 @@ module LavinMQ
         segment == position == 0u32
       end
 
-      def bsearch_cmp(other : SegmentPosition)
-        if segment != other.segment
-          return other.segment >= segment
-        end
-        other.position >= position
+      def <=>(other : self)
+        r = segment <=> other.segment
+        return r unless r.zero?
+        position <=> other.position
+      end
+
+      def <=>(other : SegmentPosition)
+        r = segment <=> other.segment
+        return r unless r.zero?
+        position <=> other.position
       end
     end
 
