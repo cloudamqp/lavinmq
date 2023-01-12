@@ -3,6 +3,11 @@ require "./spec_helper"
 describe LavinMQ::DurableQueue do
   context "with message segment with hole punched" do
     before_each do
+      # The message file contains 20 messages, where a "hole punching" has occurred in the middle
+      # of a message. The ack file references the 10 first message, and the enq file references all
+      # messages.
+      # We'll verify that migration of both ack and enq works even though we have "broken" messages.
+      # The message body of the 10 first messages is "foo", the message body of the next 10 is "bar"
       FileUtils.cp_r("./spec/resources/data_dir_index_v2_holes", "/tmp/lavinmq-spec-index-v2")
     end
 
@@ -13,10 +18,14 @@ describe LavinMQ::DurableQueue do
     it "should succefully convert queue index" do
       server = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
       begin
-        q = server.vhosts["/"].queues["queue_name"].as(LavinMQ::DurableQueue)
-        q.basic_get(true) do |env|
-          String.new(env.message.body).to_s.should eq "foo"
-        end.should be_true
+        q = server.vhosts["/"].queues["queue"].as(LavinMQ::DurableQueue)
+        server.vhosts["/"].queues["queue"].message_count.should eq 10
+        10.times do
+          q.basic_get(true) do |env|
+            String.new(env.message.body).to_s.should eq "bar"
+          end.should be_true
+        end
+        server.vhosts["/"].queues["queue"].message_count.should eq 0
       ensure
         server.close
       end
