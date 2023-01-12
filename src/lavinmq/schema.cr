@@ -111,7 +111,8 @@ module LavinMQ
               next
             end
 
-            if acked.bsearch { |asp| sp.ref_same_msg?(asp) }
+            if acked.bsearch { |asp| sp.bsearch_cmp(asp) }
+              Log.debug { "sp=#{sp} already acked, index" }
               next
             end
 
@@ -217,8 +218,11 @@ module LavinMQ
         segment == position == 0u32
       end
 
-      def ref_same_msg?(other : SegmentPosition)
-        segment == other.segment && position == other.position
+      def bsearch_cmp(other : SegmentPosition)
+        if segment != other.segment
+          return other.segment >= segment
+        end
+        other.position >= position
       end
     end
 
