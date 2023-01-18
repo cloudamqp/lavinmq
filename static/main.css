@@ -1023,3 +1023,44 @@ pre.arguments > div {
   text-decoration: none;
   color: #000;
 }
+
+#livelog {
+  max-height: 85vh;
+  overflow-y: scroll;
+}
+
+#livelog td {
+  white-space: normal;
+}
+
+.btn-primary a, .btn-primary a:visited {
+  color: #fff;
+}
+
+#download-logs {
+  margin: 5px 0 5px 0;
+}
+
+#livelog table td, #livelog table th {
+  padding:0;
+}
+
+#livelog table thead .livelog-timestamp {
+  width:185px;
+}
+
+#livelog table thead .livelog-severity {
+  width:75px;
+}
+
+#livelog table thead .livelog-source {
+  width:150px;
+}
+
+#livelog table thead .livelog-message {
+  width:auto;
+}
+
+#livelog table th {
+  text-align: left;
+}

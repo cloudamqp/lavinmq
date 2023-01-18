@@ -15,6 +15,7 @@ const menuLinks = `
         <li><a id="menu-item" href="vhosts">Virtual hosts</a></li>
         <li><a id="menu-item" href="users">Users</a></li>
         <li><a id="menu-item" href="nodes">Nodes</a></li>
+        <li><a id="menu-item" href="logs">Log</a></li>
         <li><a id="menu-item" href="docs" target="_blank">HTTP API</a></li>
     `
 
