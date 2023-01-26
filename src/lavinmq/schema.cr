@@ -100,8 +100,8 @@ module LavinMQ
                 msg = MessageMetadata.from_io segment
                 new_sp = SegmentPosition.make(sp.segment, sp.position, msg)
                 f.write_bytes new_sp
-              rescue IO::EOFError
-                next # if the message has been truncated by GC already
+              rescue IO::EOFError | AMQ::Protocol::Error
+                next # if the message has been truncated or hole punched by GC already
               rescue ex
                 Log.error { "sp_seg=#{sp.segment} sp_pos=#{sp.position} current_pos=#{segment.pos}" }
                 raise ex
