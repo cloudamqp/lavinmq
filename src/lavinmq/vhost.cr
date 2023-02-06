@@ -1,8 +1,6 @@
 require "benchmark"
 require "json"
 require "../stdlib/*"
-require "./segment_position"
-require "./vhost/*"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
@@ -12,11 +10,9 @@ require "./sortable_json"
 require "./exchange"
 require "digest/sha1"
 require "./queue"
-require "./mfile"
 require "./schema"
 require "./event_type"
 require "./stats"
-require "./reference_counter"
 
 module LavinMQ
   class VHost
@@ -37,18 +33,14 @@ module LavinMQ
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @save = Channel(AMQP::Frame).new(128)
-    @write_lock = Mutex.new(:checked)
-    @wfile : MFile
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @fsync = false
     @connections = Array(Client).new(512)
-    @segments : Hash(UInt32, MFile)
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
-    @segment_id : UInt32
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore)
       @log = Log.for "vhost[name=#{@name}]"
@@ -57,19 +49,6 @@ module LavinMQ
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
-      @segments = load_segments_on_disk
-      @wfile = @segments.last_value
-      @segment_id = @segments.last_key
-      @segment_references = ZeroReferenceCounter(UInt32).new do |segment|
-        next if segment == @segment_id
-        if mfile = @segments.delete(segment)
-          elapsed = Time.measure do
-            mfile.delete
-            mfile.close
-          end
-          @log.info { "Deleting segment #{segment} took #{elapsed.total_milliseconds} ms" }
-        end
-      end
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
@@ -77,7 +56,6 @@ module LavinMQ
       @upstreams = Federation::UpstreamStore.new(self)
       load!
       spawn save!, name: "VHost/#{@name}#save!"
-      delete_unused_segments
     end
 
     def max_connections=(value : Int32) : Nil
@@ -135,7 +113,6 @@ module LavinMQ
     def fsync
       unless @queues_to_fsync.empty?
         @log.debug { "fsync segment file" }
-        @wfile.fsync
         @queues_to_fsync_lock.synchronize do
           @log.debug { "fsyncing #{@queues_to_fsync.size} queues" }
           @queues_to_fsync.each &.fsync_enq
@@ -169,17 +146,16 @@ module LavinMQ
       headers = properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
       headers.try(&.delete("BCC"))
-      @log.debug { "publish queues#found=#{found_queues.size}" }
+      # @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
       end
       return false if immediate && !found_queues.any? &.immediate_delivery?
-      sp = write_to_disk(msg, ex.persistent?)
       flush = properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
-        if q.publish(sp, flush)
+        if q.publish(msg, ex.persistent?)
           ex.publish_out_count += 1
           if confirm && q.is_a?(DurableQueue) && flush
             @queues_to_fsync_lock.synchronize do
@@ -193,16 +169,6 @@ module LavinMQ
     ensure
       visited.clear
       found_queues.clear
-    end
-
-    def increase_segment_references(segment : UInt32)
-      @segment_references.inc(segment)
-    end
-
-    def decrease_segment_references(segment : UInt32)
-      @segment_references.dec(segment)
-    rescue KeyError
-      @log.warn { "Segment #{segment} missing from segment_references" }
     end
 
     private def find_all_queues(ex : Exchange, routing_key : String,
@@ -266,56 +232,6 @@ module LavinMQ
           raise Error::PreconditionFailed.new("BCC header not a string array")
         end
       end
-    end
-
-    private def write_to_disk(msg, store_offset = false) : SegmentPosition
-      @write_lock.synchronize do
-        wfile = @wfile
-        # Set x-offset before we have a SP so that the Message#bytesize is correct
-        if store_offset
-          headers = msg.properties.headers || AMQP::Table.new
-          headers["x-offset"] = 0_i64
-          msg.properties.headers = headers
-        end
-        if wfile.capacity < wfile.size + msg.bytesize
-          wfile = open_new_segment(msg.bytesize)
-        end
-        pos = wfile.seek(0, IO::Seek::End)
-        sp = SegmentPosition.make(@segment_id, pos.to_u32, msg)
-        if store_offset
-          msg.properties.headers.not_nil!["x-offset"] = sp.to_i64
-        end
-        @log.debug { "Writing message: exchange=#{msg.exchange_name} routing_key=#{msg.routing_key} \
-                      size=#{msg.bytesize} sp=#{sp}" }
-        wfile.write_bytes msg.timestamp
-        wfile.write_bytes AMQP::ShortString.new(msg.exchange_name)
-        wfile.write_bytes AMQP::ShortString.new(msg.routing_key)
-        wfile.write_bytes msg.properties
-        wfile.write_bytes msg.size # bodysize
-        copied = IO.copy(msg.body_io, wfile, msg.size)
-        if copied != msg.size
-          raise IO::Error.new("Could only write #{copied} of #{msg.size} bytes to message store")
-        end
-        sp
-      end
-    end
-
-    private def open_new_segment(next_msg_size = 0) : MFile
-      fsync
-      segments = @segments
-      next_id = segments.empty? ? 1_u32 : @segment_id + 1
-      @log.debug { "Opening message store segment #{next_id}" }
-      filename = "msgs.#{next_id.to_s.rjust(10, '0')}"
-      path = File.join(@data_dir, filename)
-      capacity = Config.instance.segment_size + next_msg_size
-      wfile = MFile.new(path, capacity)
-      SchemaVersion.prefix(wfile, :message)
-      @segment_id = next_id
-      @wfile = segments[next_id] = wfile
-    end
-
-    def segment_file(id : UInt32) : MFile
-      @segments[id]
     end
 
     def details_tuple
@@ -571,10 +487,7 @@ module LavinMQ
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      @write_lock.synchronize do
-        @queues.each_value &.close
-        @segments.each_value &.close
-      end
+      @queues.each_value &.close
       @save.close
       Fiber.yield
       compact!
@@ -754,37 +667,6 @@ module LavinMQ
       abort "ERROR: Writing definitions. #{ex.inspect}"
     end
 
-    private def load_segments_on_disk
-      ids = Array(UInt32).new
-      Dir.each_child(@data_dir) do |f|
-        if f.starts_with? "msgs."
-          ids << f[5, 10].to_u32
-        end
-      end
-      ids.sort!
-      was_empty = ids.empty?
-      ids << 1_u32 if was_empty
-      segments = Hash(UInt32, MFile).new(initial_capacity: Math.pw2ceil(Math.max(ids.size, 16)))
-      last_idx = ids.size - 1
-      ids.each_with_index do |seg, idx|
-        filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-        path = File.join(@data_dir, filename)
-        file = if idx == last_idx
-                 # expand the last segment
-                 MFile.new(path, Config.instance.segment_size)
-               else
-                 MFile.new(path)
-               end
-        if was_empty
-          SchemaVersion.prefix(file, :message)
-        else
-          SchemaVersion.verify(file, :message)
-        end
-        segments[seg] = file
-      end
-      segments
-    end
-
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"
@@ -830,19 +712,6 @@ module LavinMQ
         purged_msgs = queue.purge_and_close_consumers
         @log.info { "vhost=#{@name} queue=#{queue.name} action=purge_and_close_consumers " \
                     "purged_messages=#{purged_msgs}" }
-      end
-    end
-
-    private def delete_unused_segments
-      current_segment = @segments.last_key
-      @segments.reject! do |segment, mfile|
-        next if current_segment == segment
-        if !@segment_references.has_key?(segment)
-          @log.info { "Deleting unused segment #{segment}" }
-          mfile.delete
-          mfile.close
-          next true
-        end
       end
     end
 

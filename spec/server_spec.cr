@@ -893,7 +893,7 @@ describe LavinMQ::Server do
       count.should eq 0
 
       Fiber.yield
-      Server.vhosts["/"].queues[qname].@ready.size.should eq 1
+      Server.vhosts["/"].queues[qname].message_count.should eq 1
       Server.vhosts["/"].queues[qname].unacked_count.should eq 0
     end
   end
