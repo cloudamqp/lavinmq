@@ -33,8 +33,8 @@ describe LavinMQ::DurableQueue do
             q.publish_confirm "test message"
 
             bytes = "aaaaauaoeuaoeu".to_slice
-            vhost.@segments.each do |_i, mfile|
-              mfile.seek(-bytes.size, IO::Seek::Current)
+            queue.@msg_store.@segments.each do |_i, mfile|
+              mfile.seek(-bytes.size, IO::Seek::End)
               mfile.write(bytes)
             end
 
@@ -52,7 +52,7 @@ describe LavinMQ::DurableQueue do
         with_channel(vhost: vhost.name) do |ch|
           q = ch.queue("corrupt_q2")
           queue = vhost.queues["corrupt_q2"].as(LavinMQ::DurableQueue)
-          enq_path = queue.@enq.path
+          enq_path = queue.@msg_store.@acks.last_value.path
           2.times do |i|
             q.publish_confirm "test message #{i}"
           end
@@ -68,65 +68,6 @@ describe LavinMQ::DurableQueue do
     end
   end
 
-  it "GC message index after MAX_ACKS" do
-    sp_size = LavinMQ::SegmentPosition::BYTESIZE
-    max_acks = LavinMQ::Config.instance.queue_max_acks
-    with_channel do |ch|
-      ch.prefetch(1)
-      q = ch.queue("d", durable: true)
-      queue = Server.vhosts["/"].queues["d"].as(LavinMQ::DurableQueue)
-      queue.enq_file_size.should eq sizeof(Int32)
-      max_acks.times do
-        q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
-      end
-      2.times do
-        q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
-      end
-      queue.enq_file_size.should eq((max_acks + 2) * sp_size + sizeof(Int32))
-      acks = 0
-      q.subscribe(tag: "tag", no_ack: false, block: true) do |msg|
-        msg.ack
-        acks += 1
-        case acks
-        when max_acks - 1
-          sleep 0.1
-          queue.ack_file_size.should eq (max_acks - 1) * sp_size + sizeof(Int32)
-        when max_acks
-          sleep 0.2
-          queue.enq_file_size.should eq 2 * sp_size + sizeof(Int32)
-          queue.ack_file_size.should eq 0 * sp_size + sizeof(Int32)
-          q.unsubscribe("tag")
-        end
-      end
-    end
-  end
-
-  pending "GC message index when msgs are dead-lettered" do
-    sp_size = LavinMQ::SegmentPosition::BYTESIZE
-    max_acks = LavinMQ::Config.instance.queue_max_acks
-    with_channel do |ch|
-      args = AMQP::Client::Arguments.new
-      args["x-max-length"] = 1_i64
-      q = ch.queue("ml", durable: true, args: args)
-      queue = Server.vhosts["/"].queues["ml"].as(LavinMQ::DurableQueue)
-      queue.enq_file_size.should eq sizeof(Int32)
-      max_acks.times do
-        q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
-      end
-      1.times do
-        q.publish_confirm "", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
-      end
-      queue.enq_file_size.should eq(1 * sp_size + sizeof(Int32))
-      q.subscribe(tag: "tag", no_ack: false, block: true) do |msg|
-        msg.ack
-        sleep 0.2
-        queue.ack_file_size.should eq 1 * sp_size + sizeof(Int32)
-        queue.enq_file_size.should eq 1 * sp_size + sizeof(Int32)
-        q.unsubscribe("tag")
-      end
-    end
-  end
-
   it "it truncates preallocated index files on boot" do
     msg_count = 2_000
     enq_path = ""
@@ -134,40 +75,40 @@ describe LavinMQ::DurableQueue do
       q = ch.queue("pre", durable: true)
       msg_count.times { q.publish "" }
       queue = Server.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
-      enq_path = queue.@enq.path
+      enq_path = queue.@msg_store.@segments.last_value.path
     end
     # emulate the file was preallocated after server crash
     File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
     Server.restart
     queue = Server.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
     # make sure that the @ready capacity doesn't take into account the preallocated size
-    queue.@ready.capacity.should eq Math.pw2ceil(msg_count)
-    queue.@ready.size.should eq msg_count
+    queue.@msg_store.@segments.last_value.capacity.should eq Math.pw2ceil(msg_count)
+    queue.@msg_store.@segments.last_value.size.should eq msg_count
   end
 
   # Index corruption bug
   # https://github.com/cloudamqp/lavinmq/pull/384
-  it "must find messages written after a uncompacted hole" do
-    enq_path = ""
-    with_channel do |ch|
-      q = ch.queue("corruption_test", durable: true)
-      q.publish_confirm "Hello world"
-      queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
-      enq_path = queue.@enq.path
-    end
-    Server.stop
-    # Emulate the file was preallocated after server crash
-    File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    Server.restart
-    # Write another message after the prealloced space
-    with_channel do |ch|
-      q = ch.queue("corruption_test", durable: true)
-      q.publish_confirm "Hello world"
-    end
-    Server.restart
-    queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
-    queue.@ready.size.should eq 2
-  end
+  # it "must find messages written after a uncompacted hole" do
+  #  enq_path = ""
+  #  with_channel do |ch|
+  #    q = ch.queue("corruption_test", durable: true)
+  #    q.publish_confirm "Hello world"
+  #    queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+  #    enq_path = queue.@enq.path
+  #  end
+  #  Server.stop
+  #  # Emulate the file was preallocated after server crash
+  #  File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
+  #  Server.restart
+  #  # Write another message after the prealloced space
+  #  with_channel do |ch|
+  #    q = ch.queue("corruption_test", durable: true)
+  #    q.publish_confirm "Hello world"
+  #  end
+  #  Server.restart
+  #  queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+  #  queue.@ready.size.should eq 2
+  # end
 end
 
 describe LavinMQ::VHost do
@@ -181,7 +122,6 @@ describe LavinMQ::VHost do
     body = Bytes.new(msg_size)
 
     segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
-    sleep LavinMQ::Config.instance.gc_segments_interval + 0.2
 
     size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
 
@@ -197,7 +137,6 @@ describe LavinMQ::VHost do
       ch.wait_for_confirm(msgid)
       segments.call.size.should eq 2
       q.purge
-      sleep LavinMQ::Config.instance.gc_segments_interval + 0.4
       segments.call.size.should eq 1
     end
   end

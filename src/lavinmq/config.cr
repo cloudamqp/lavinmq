@@ -27,8 +27,6 @@ module LavinMQ
     property heartbeat = 300_u16                # second
     property frame_max = 131_072_u32            # bytes
     property channel_max = 2048_u16             # number
-    property gc_segments_interval = 60          # second
-    property queue_max_acks = 500_000           # number of message
     property stats_interval = 5000              # millisecond
     property stats_log_size = 120               # 10 mins at 5s interval
     property? set_timestamp = false             # in message headers when receive
@@ -80,9 +78,7 @@ module LavinMQ
         when "log_file"             then @log_file = v
         when "stats_interval"       then @stats_interval = v.to_i32
         when "stats_log_size"       then @stats_log_size = v.to_i32
-        when "gc_segments_interval" then @gc_segments_interval = v.to_i32
         when "segment_size"         then @segment_size = v.to_i32
-        when "queue_max_acks"       then @queue_max_acks = v.to_i32
         when "set_timestamp"        then @set_timestamp = true?(v)
         when "socket_buffer_size"   then @socket_buffer_size = v.to_i32
         when "tcp_nodelay"          then @tcp_nodelay = true?(v)

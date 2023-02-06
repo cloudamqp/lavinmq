@@ -143,7 +143,6 @@ module LavinMQ
       STDOUT.puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
       LavinMQ::Reporter.report(@amqp_server)
-      LavinMQ::Reporter.print_queue_segments(@amqp_server, STDOUT)
       STDOUT.flush
     end
 

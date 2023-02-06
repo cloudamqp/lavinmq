@@ -22,8 +22,6 @@ BASE_URL       = "http://localhost:#{HTTP_PORT}"
 DATA_DIR       = "/tmp/lavinmq-spec"
 
 LavinMQ::Config.instance.tap do |cfg|
-  cfg.gc_segments_interval = 1
-  cfg.queue_max_acks = 10
   cfg.segment_size = 512 * 1024
   cfg.amqp_port = AMQP_PORT
   cfg.amqps_port = AMQPS_PORT

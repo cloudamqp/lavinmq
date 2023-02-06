@@ -62,7 +62,7 @@ module LavinMQ
 
         private def get_and_deliver_message
           @log.debug { "Getting a new message" }
-          @queue.get_msg(self) do |env|
+          @queue.consume_get(@no_ack) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
           end
         end
@@ -93,9 +93,9 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if @queue.ready.empty?
+          if @queue.empty?
             @log.debug { "Waiting for queue not to be empty" }
-            is_empty = @queue.ready.empty_change.receive
+            is_empty = @queue.empty_change.receive
             @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
             return true
           end

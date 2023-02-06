@@ -50,9 +50,9 @@ module LavinMQ
         case k
         when "alternate-exchange"
           @alternate_exchange ||= v.as_s?
-        when "delayed-message"
-          @delayed ||= v.as?(Bool) == true
-          init_delayed_queue if @delayed
+          # when "delayed-message"
+          #  @delayed ||= v.as?(Bool) == true
+          #  init_delayed_queue if @delayed
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
@@ -72,9 +72,9 @@ module LavinMQ
 
     def handle_arguments
       @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
-      init_persistent_queue
-      @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
-      init_delayed_queue if @delayed
+      # init_persistent_queue
+      # @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
+      # init_delayed_queue if @delayed
     end
 
     def details_tuple
@@ -142,7 +142,7 @@ module LavinMQ
       return unless persist_messages || persist_ms
       raise "Exchange can't be persistent and delayed" if delayed?
       q_name = "amq.persistent.#{@name}"
-      raise "Exchange name too long" if q_name.size > MAX_NAME_LENGTH
+      raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
       args = Hash(String, AMQP::Field).new
       persist_messages.try do |n|
         next if n <= 0
@@ -161,7 +161,7 @@ module LavinMQ
       return unless @delayed
       raise "Exchange can't be persistent and delayed" if persistent?
       q_name = "amq.delayed.#{@name}"
-      raise "Exchange name too long" if q_name.size > MAX_NAME_LENGTH
+      raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
       @log.debug { "Declaring delayed queue: #{name}" }
       arguments = Hash(String, AMQP::Field){
         "x-dead-letter-exchange" => @name,
@@ -173,15 +173,6 @@ module LavinMQ
                          DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        end
       @vhost.queues[q_name] = @delayed_queue.as(Queue)
-    end
-
-    def referenced_sps(referenced_sps) : Nil
-      if pq = @persistent_queue
-        referenced_sps << VHost::SPQueue.new(pq.ready)
-      end
-      if dq = @delayed_queue
-        referenced_sps << VHost::SPQueue.new(dq.ready)
-      end
     end
 
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
@@ -205,34 +196,38 @@ module LavinMQ
       true
     end
 
+    # Republish the messages in the internal queue to the queue
+    # the user has bounded the exchange to
     private def republish(queue : Queue, method : String, arg : Int)
-      return unless pq = @persistent_queue
-      republish = ->(sp : SegmentPosition) do
-        case type
-        when "topic", "headers"
-          if msg_metadata = queue.metadata(sp)
-            properties = msg_metadata.properties
-            rk = msg_metadata.routing_key
-            headers = properties.headers
-            queue_matches(rk, headers) do |mq|
-              next unless mq == queue
-              next unless queue.publish(sp)
-              @publish_out_count += 1
-            end
-          end
-        else
-          return unless queue.publish(sp)
-          @publish_out_count += 1
-        end
-      end
-      case method
-      when "x-head"
-        pq.head(arg, &republish)
-      when "x-tail"
-        pq.tail(arg, &republish)
-      when "x-from"
-        pq.from(arg.to_i64, &republish)
-      end
+      return
+      # FIXME
+      # return unless pq = @persistent_queue
+      # republish = ->(sp : SegmentPosition) do
+      #  case type
+      #  when "topic", "headers"
+      #    if msg = queue[sp]
+      #      properties = msg.properties
+      #      rk = msg.routing_key
+      #      headers = properties.headers
+      #      queue_matches(rk, headers) do |mq|
+      #        next unless mq == queue
+      #        next unless queue.publish(msg)
+      #        @publish_out_count += 1
+      #      end
+      #    end
+      #  else
+      #    return unless queue.publish(msg)
+      #    @publish_out_count += 1
+      #  end
+      # end
+      # case method
+      # when "x-head"
+      #  pq.head(arg, &republish)
+      # when "x-tail"
+      #  pq.tail(arg, &republish)
+      # when "x-from"
+      #  pq.from(arg.to_i64, &republish)
+      # end
     end
 
     private def after_unbind(destination, routing_key, headers)

@@ -179,26 +179,9 @@ describe LavinMQ::Queue do
         vhost = Server.vhosts["/"]
         internal_queue = vhost.exchanges[x_name].queue_bindings[{q.name, nil}].first
         internal_queue.message_count.should eq 10
-        index = File.join(vhost.data_dir, Digest::SHA1.hexdigest(internal_queue.name), "enq")
-        sps = Array(LavinMQ::SegmentPosition).new
-        File.open(index) do |f|
-          10.times do
-            sp = LavinMQ::SegmentPosition.from_io f
-            sp.should_not eq 0
-            sps << sp
-          end
-        end
 
         response = delete("/api/queues/%2f/#{q_name}/contents?count=5")
         response.status_code.should eq 204
-        File.open(index) do |f|
-          5.times do |i|
-            sp = LavinMQ::SegmentPosition.from_io f
-            sp.should_not eq 0
-            sp.should eq sps[i]
-          end
-          LavinMQ::SegmentPosition.from_io(f).zero?.should be_true
-        end
 
         internal_queue.message_count.should eq 5
       end

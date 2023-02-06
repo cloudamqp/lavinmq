@@ -1,14 +1,13 @@
 require "digest/sha1"
-require "../mfile"
 require "../segment_position"
 require "../policy"
 require "../observable"
 require "../stats"
 require "../sortable_json"
-require "./ready"
-require "../client/channel"
+require "../client/channel/consumer"
 require "../message"
 require "../error"
+require "./message_store"
 
 module LavinMQ
   enum QueueState
@@ -29,7 +28,6 @@ module LavinMQ
     include Stats
     include SortableJSON
 
-    getter to_deliver = ::Channel(SegmentPosition).new
     @durable = false
     @log : Log
     @message_ttl : Int64?
@@ -41,15 +39,16 @@ module LavinMQ
     @dlrk : String?
     @reject_on_overflow = false
     @exclusive_consumer = false
-    @requeued = Set(SegmentPosition).new
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
     @message_ttl_change = Channel(Nil).new
-    @ready = ReadyQueue.new
 
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
     @unacked_lock = Mutex.new(:unchecked)
+
+    @msg_store_lock = Mutex.new(:reentrant)
+    @msg_store : MessageStore
 
     getter? paused = false
     getter paused_change = Channel(Bool).new
@@ -81,14 +80,14 @@ module LavinMQ
 
     private def message_expire_loop
       loop do
-        if @ready.empty?
-          @ready.empty_change.receive
+        if @msg_store.empty?
+          @msg_store.empty_change.receive
         else
           if @consumers.empty?
             if ttl = time_to_message_expiration
               select
               when @message_ttl_change.receive
-              when @ready.empty_change.receive # might be empty now (from basic get)
+              when @msg_store.empty_change.receive # might be empty now (from basic get)
               when @consumers_empty_change.receive
               when timeout ttl
                 expire_messages
@@ -98,7 +97,7 @@ module LavinMQ
               # wait for empty queue or TTL change
               select
               when @message_ttl_change.receive
-              when @ready.empty_change.receive
+              when @msg_store.empty_change.receive
               end
             end
           else
@@ -115,24 +114,33 @@ module LavinMQ
       {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
       {"message_count", "unacked_count"})
 
-    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, ready, last_get_time
+    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, last_get_time
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? closed
     property? internal = false
     getter state = QueueState::Running
+    getter empty_change : Channel(Bool)
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
+      @data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      @msg_store = init_msg_store
+      @empty_change = @msg_store.empty_change
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       if @internal
         spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
       end
+    end
+
+    # own method so that it can be overriden in other queue implementations
+    private def init_msg_store
+      MessageStore.new(@data_dir)
     end
 
     def inspect(io : IO)
@@ -253,11 +261,11 @@ module LavinMQ
     end
 
     def message_count
-      @ready.size.to_u32
+      @msg_store.size.to_u32
     end
 
     def empty? : Bool
-      @ready.size.zero?
+      @msg_store.empty?
     end
 
     def any? : Bool
@@ -278,7 +286,7 @@ module LavinMQ
             expire_messages
           end
         else
-          @ready.empty_change.receive
+          @msg_store.empty_change.receive
         end
       rescue ::Channel::ClosedError
         break
@@ -327,9 +335,10 @@ module LavinMQ
       @consumers_empty_change.close
       @consumers.each &.cancel
       @consumers.clear
-      @to_deliver.close
       @paused_change.close
-      @ready.close
+      @msg_store_lock.synchronize do
+        @msg_store.close
+      end
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if @exclusive
       Fiber.yield
@@ -343,11 +352,10 @@ module LavinMQ
       @deleted = true
       close
       @state = QueueState::Deleted
-      vhost = @vhost
-      vhost.delete_queue(@name)
-      @ready.each do |sp|
-        vhost.decrease_segment_references(sp.segment)
+      @msg_store_lock.synchronize do
+        @msg_store.delete
       end
+      @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
       true
@@ -362,11 +370,11 @@ module LavinMQ
         arguments:                   @arguments,
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
-        messages:                    @ready.size + @unacked_count,
-        messages_persistent:         @durable ? @ready.size + @unacked_count : 0,
-        ready:                       @ready.size,
-        ready_bytes:                 @ready.bytesize,
-        ready_avg_bytes:             @ready.avg_bytesize,
+        messages:                    @msg_store.size + @unacked_count,
+        messages_persistent:         @durable ? @msg_store.size + @unacked_count : 0,
+        ready:                       @msg_store.size,
+        ready_bytes:                 @msg_store.bytesize,
+        ready_avg_bytes:             @msg_store.avg_bytesize,
         unacked:                     @unacked_count,
         unacked_bytes:               @unacked_bytesize,
         unacked_avg_bytes:           unacked_avg_bytes,
@@ -382,12 +390,12 @@ module LavinMQ
 
     def size_details_tuple
       {
-        messages:          @ready.size + @unacked_count,
-        ready:             @ready.size,
-        ready_bytes:       @ready.bytesize,
-        ready_avg_bytes:   @ready.avg_bytesize,
-        ready_max_bytes:   @ready.max_bytesize &.bytesize,
-        ready_min_bytes:   @ready.min_bytesize &.bytesize,
+        messages:          @msg_store.size + @unacked_count,
+        ready:             @msg_store.size,
+        ready_bytes:       @msg_store.bytesize,
+        ready_avg_bytes:   @msg_store.avg_bytesize,
+        ready_max_bytes:   0,
+        ready_min_bytes:   0,
         unacked:           @unacked_count,
         unacked_bytes:     @unacked_bytesize,
         unacked_avg_bytes: unacked_avg_bytes,
@@ -403,33 +411,31 @@ module LavinMQ
 
     class RejectOverFlow < Exception; end
 
-    def publish(sp : SegmentPosition, persistent = false) : Bool
+    class Closed < Exception; end
+
+    def publish(msg : Message, store_offset = false) : Bool
       return false if @state.closed?
-      # @log.debug { "Enqueuing message sp=#{sp}" }
-      reject_on_overflow(sp)
-      @ready.push(sp)
-      drop_overflow unless immediate_delivery?
+      reject_on_overflow(msg)
+      @msg_store_lock.synchronize do
+        @msg_store.push(msg)
+      end
       @publish_count += 1
-      @vhost.increase_segment_references(sp.segment)
-      # @log.debug { "Enqueued successfully #{sp} ready=#{@ready.size} unacked=#{unacked_count} consumers=#{@consumers.size}" }
+      drop_overflow unless immediate_delivery?
       true
-    rescue ::Channel::ClosedError
-      # if message_availabe channel is closed then abort
-      false
     end
 
-    private def reject_on_overflow(sp : SegmentPosition) : Nil
+    private def reject_on_overflow(msg) : Nil
       return unless @reject_on_overflow
       if ml = @max_length
-        if @ready.size >= ml
-          @log.debug { "Overflow reject message sp=#{sp}" }
+        if @msg_store.size >= ml
+          @log.debug { "Overflow reject message msg=#{msg}" }
           raise RejectOverFlow.new
         end
       end
 
       if mlb = @max_length_bytes
-        if @ready.bytesize + sp.bytesize >= mlb
-          @log.debug { "Overflow reject message sp=#{sp}" }
+        if @msg_store.bytesize + msg.bytesize >= mlb
+          @log.debug { "Overflow reject message msg=#{msg}" }
           raise RejectOverFlow.new
         end
       end
@@ -437,45 +443,30 @@ module LavinMQ
 
     private def drop_overflow : Nil
       if ml = @max_length
-        @ready.limit_size(ml) do |sp|
-          @log.debug { "Overflow drop head sp=#{sp}" }
-          expire_msg(sp, :maxlen)
+        @msg_store_lock.synchronize do
+          while @msg_store.size > ml
+            env = @msg_store.shift? || break
+            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
+            expire_msg(env, :maxlen)
+          end
         end
       end
 
       if mlb = @max_length_bytes
-        @ready.limit_byte_size(mlb) do |sp|
-          @log.debug { "Overflow drop head sp=#{sp}" }
-          expire_msg(sp, :maxlenbytes)
+        @msg_store_lock.synchronize do
+          while @msg_store.bytesize > mlb
+            env = @msg_store.shift? || break
+            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
+            expire_msg(env, :maxlenbytes)
+          end
         end
       end
     end
 
-    @segment_id = 0_u32
-    @segment_file : MFile?
-
-    private def segment_file(id : UInt32) : MFile
-      return @segment_file.not_nil! if @segment_id == id
-      mfile = @vhost.segment_file(id)
-      @segment_id = id
-      @segment_file = mfile
-    end
-
-    def metadata(sp) : MessageMetadata?
-      seg = segment_file(sp.segment)
-      bytes = seg.to_slice(sp.position.to_i32, sp.bytesize)
-      MessageMetadata.from_bytes(bytes)
-    rescue e : KeyError
-      @log.error { "Segment file not found for #{sp}, removing segment position" }
-      @ready.delete(sp)
-      delete_message sp
-      nil
-    end
-
     private def time_to_message_expiration : Time::Span?
-      sp = @ready.first? || return
-      @log.debug { "Checking if message #{sp} has to be expired" }
-      if expire_at = expire_at(sp)
+      env = @msg_store_lock.synchronize { @msg_store.first? } || return
+      @log.debug { "Checking if message #{env.message} has to be expired" }
+      if expire_at = expire_at(env.message)
         expire_in = expire_at - RoughTime.unix_ms
         if expire_in > 0
           expire_in.milliseconds
@@ -485,25 +476,26 @@ module LavinMQ
       end
     end
 
-    private def has_expired?(sp, requeue = false) : Bool
-      if ttl = @message_ttl
-        ttl = Math.min(ttl, sp.ttl) if sp.flags.has_ttl?
-        return false if ttl.zero? && !requeue && !@consumers.empty?
-        sp.timestamp + ttl <= RoughTime.unix_ms
-      elsif sp.flags.has_ttl?
-        return false if sp.ttl.zero? && !requeue && !@consumers.empty?
-        sp.timestamp + sp.ttl <= RoughTime.unix_ms
+    private def has_expired?(sp : SegmentPosition, requeue = false) : Bool
+      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      has_expired?(msg, requeue)
+    end
+
+    private def has_expired?(msg : BytesMessage, requeue = false) : Bool
+      return false if msg.ttl.try(&.zero?) && !requeue && !@consumers.empty?
+      if expire_at = expire_at(msg)
+        expire_at <= RoughTime.unix_ms
       else
         false
       end
     end
 
-    private def expire_at(sp : SegmentPosition) : Int64?
+    private def expire_at(msg : BytesMessage) : Int64?
       if ttl = @message_ttl
-        ttl = Math.min(ttl, sp.ttl) if sp.flags.has_ttl?
-        sp.timestamp + ttl
-      elsif sp.flags.has_ttl?
-        sp.timestamp + sp.ttl
+        ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
+        (msg.timestamp + ttl) // 100 * 100 + 100
+      elsif ttl = msg.ttl
+        (msg.timestamp + ttl) // 100 * 100 + 100
       else
         nil
       end
@@ -511,31 +503,29 @@ module LavinMQ
 
     private def expire_messages : Nil
       i = 0
-      @ready.shift do |sp|
-        @log.debug { "Checking if next message #{sp} has to be expired" }
-        if expire_at = expire_at(sp)
-          expire_in = expire_at - RoughTime.unix_ms
-          @log.debug { "expire sp=#{sp} expire_in=#{expire_in}" }
-          if expire_in <= 0
-            expire_msg(sp, :expired)
+      @msg_store_lock.synchronize do
+        loop do
+          env = @msg_store.first? || break
+          msg = env.message
+          @log.debug { "Checking if next message #{msg} has expired" }
+          if has_expired?(msg)
+            expire_msg(env, :expired)
             if (i += 1) == 8192
               Fiber.yield
               i = 0
             end
-            true
           else
-            false
+            break
           end
-        else
-          false
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
-      if sp.flags.has_dlx? || @dlx
-        env = read(sp)
+      if sp.has_dlx? || @dlx
+        msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
       else
         delete_message sp
@@ -545,16 +535,14 @@ module LavinMQ
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Expiring #{sp} (#{sp.flags}) now due to #{reason}, headers=#{msg.properties.headers}" }
-      if sp.flags.has_dlx? || @dlx
-        if dlx = msg.properties.headers.try(&.fetch("x-dead-letter-exchange", nil)) || @dlx
-          if dead_letter_loop?(msg.properties.headers, reason)
-            @log.debug { "#{sp} in a dead letter loop, dropping it" }
-          else
-            dlrk = msg.properties.headers.try(&.fetch("x-dead-letter-routing-key", nil)) || @dlrk || msg.routing_key
-            props = handle_dlx_header(msg, reason)
-            dead_letter_msg(msg, sp, props, dlx, dlrk)
-          end
+      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      if dlx = msg.dlx || @dlx
+        if dead_letter_loop?(msg.properties.headers, reason)
+          @log.debug { "#{msg} in a dead letter loop, dropping it" }
+        else
+          dlrk = msg.dlrk || @dlrk || msg.routing_key
+          props = handle_dlx_header(msg, reason)
+          dead_letter_msg(msg, props, dlx, dlrk)
         end
       end
       delete_message sp
@@ -601,7 +589,7 @@ module LavinMQ
 
       handle_xdeath_header(headers, meta, routing_keys, reason)
 
-      props.expiration = nil if props.expiration
+      props.expiration = nil
       props
     end
 
@@ -648,8 +636,8 @@ module LavinMQ
       nil
     end
 
-    private def dead_letter_msg(msg : BytesMessage, sp, props, dlx, dlrk)
-      @log.debug { "Dead lettering #{sp}, ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+    private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
+      @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
       @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
         props, msg.size, IO::Memory.new(msg.body))
     end
@@ -673,8 +661,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def get_msg(consumer : Client::Channel::Consumer, &) : Bool
-      get(consumer.no_ack) do |env|
+    def consume_get(no_ack, &) : Bool
+      get(no_ack) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -685,36 +673,26 @@ module LavinMQ
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
-      while sp = @ready.shift? # retry if msg expired or deliver limit hit
-        begin
-          if has_expired?(sp) # guarantee to not deliver expired messages
-            expire_msg(sp, :expired)
-            next
-          end
-          env = read(sp)
-          if @delivery_limit && !no_ack
-            env = with_delivery_count_header(env)
-          end
-          if env
-            if no_ack
-              yield env # deliver the message
-              @log.debug { "Deleting: #{sp}" }
-              delete_message(sp)
-            else
-              mark_unacked(sp) do
-                yield env # deliver the message
-              end
-            end
-            return true
-          end
-        rescue ex
-          @ready.insert(sp)
-          if ex.is_a? ReadError
-            close
-            return false
-          end
-          raise ex
+      loop do # retry if msg expired or deliver limit hit
+        env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+        if has_expired?(env.message) # guarantee to not deliver expired messages
+          expire_msg(env, :expired)
+          next
         end
+        if @delivery_limit && !no_ack
+          env = with_delivery_count_header(env) || next
+        end
+        sp = env.segment_position
+        if no_ack
+          yield env # deliver the message
+          @log.debug { "Deleting: #{sp}" }
+          delete_message(sp)
+        else
+          mark_unacked(sp) do
+            yield env # deliver the message
+          end
+        end
+        return true
       end
       false
     end
@@ -729,6 +707,9 @@ module LavinMQ
         yield
       rescue ex
         @log.debug { "Not counting as unacked: #{sp}" }
+        @msg_store_lock.synchronize do
+          @msg_store.requeue(sp)
+        end
         @unacked_lock.synchronize do
           @unacked_count -= 1
           @unacked_bytesize -= sp.bytesize
@@ -753,22 +734,6 @@ module LavinMQ
       env
     end
 
-    def read(sp : SegmentPosition) : Envelope
-      seg = segment_file(sp.segment)
-      bytes = seg.to_slice(sp.position.to_i32, sp.bytesize)
-      msg = BytesMessage.from_bytes(bytes)
-      redelivered = @requeued.includes?(sp)
-      Envelope.new(sp, msg, redelivered)
-    rescue ex : KeyError
-      @log.error { "Segment file not found for #{sp}, removing segment position" }
-      @ready.delete(sp)
-      delete_message sp
-      raise ex
-    rescue ex
-      @log.error(exception: ex) { "Error reading message #{sp.inspect}, possible message loss." }
-      raise ReadError.new(cause: ex)
-    end
-
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
@@ -782,17 +747,8 @@ module LavinMQ
 
     protected def delete_message(sp : SegmentPosition) : Nil
       @deliveries.delete(sp) if @delivery_limit
-      @requeued.delete(sp)
-      @vhost.decrease_segment_references(sp.segment)
-    end
-
-    def compact
-      ready = @ready
-      if ready.capacity > 1024 && ready.capacity > ready.size * 2
-        elapsed = Time.measure do
-          ready.compact
-        end
-        @log.info { "Compacting ready queue took #{elapsed.total_milliseconds} ms" }
+      @msg_store_lock.synchronize do
+        @msg_store.delete(sp)
       end
     end
 
@@ -808,8 +764,9 @@ module LavinMQ
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
-          @ready.insert(sp)
-          @requeued << sp
+          @msg_store_lock.synchronize do
+            @msg_store.requeue(sp)
+          end
           drop_overflow if @consumers.empty?
         end
       else
@@ -859,21 +816,20 @@ module LavinMQ
       # closing all channels will move all unacked back into ready queue
       # so we are purging all messages from the queue, not only ready
       @consumers.each(&.channel.close)
-      count = purge(nil, trigger_gc: false)
+      count = purge
       notify_consumers_empty(true)
       count.to_u32
     end
 
-    def purge(max_count : Int? = nil, trigger_gc = true) : UInt32
+    def purge(max_count : Int? = nil) : UInt32
       @log.info { "Purging at most #{max_count || "all"} messages" }
       delete_count = 0_u32
-      if max_count.nil? || max_count >= @ready.size
-        @ready.each do |sp|
-          vhost.decrease_segment_references(sp.segment)
+      @msg_store_lock.synchronize do
+        if max_count.nil? || max_count >= @msg_store.size
+          delete_count = @msg_store.purge
+        else
+          max_count.times { @msg_store.shift? && (delete_count += 1) }
         end
-        delete_count = @ready.purge
-      else
-        max_count.times { (sp = @ready.shift?) && (delete_count += 1) && vhost.decrease_segment_references(sp.segment) }
       end
       @log.info { "Purged #{delete_count} messages" }
       delete_count.to_u32
@@ -926,6 +882,14 @@ module LavinMQ
           builder.field(k, v) unless v.nil?
         end
       end
+    end
+
+    # Used for when channel recovers without requeue
+    # eg. redelivers messages it already has unacked
+    def read(sp : SegmentPosition) : Envelope
+      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
+      Envelope.new(msg_sp, msg, redelivered: true)
     end
 
     class Error < Exception; end

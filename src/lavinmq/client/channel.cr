@@ -34,13 +34,13 @@ module LavinMQ
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
       @tx = false
+      @next_msg_body_tmp = IO::Memory.new
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
 
       def initialize(@client : Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @next_msg_body_tmp = IO::Memory.new
       end
 
       record Unack,
@@ -420,11 +420,11 @@ module LavinMQ
           # @unacked is always sorted so can do a binary search
           # optimization for acking first unacked
           if @unacked[0]?.try(&.tag) == delivery_tag
-            @log.debug { "Unacked found tag:#{delivery_tag} at front" }
+            # @log.debug { "Unacked found tag:#{delivery_tag} at front" }
             found = @unacked.shift
           elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
             return nil unless @unacked[idx].tag == delivery_tag
-            @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
+            # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             found = @unacked.delete_at(idx)
           end
           has_capacity = @unacked.size < @global_prefetch_count
@@ -433,7 +433,7 @@ module LavinMQ
         found
       end
 
-      private def delete_multiple_unacked(delivery_tag, &)
+      private def delete_multiple_unacked(delivery_tag, & : Unack -> Nil)
         was_full = false
         @unack_lock.synchronize do
           was_full = !has_capacity?
@@ -445,7 +445,7 @@ module LavinMQ
             idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
             return nil unless idx
             return nil unless @unacked[idx].tag == delivery_tag
-            @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
+            # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             (idx + 1).times do
               yield @unacked.shift
             end
@@ -462,7 +462,7 @@ module LavinMQ
         @unacked.size
       end
 
-      def each_unacked(&)
+      def each_unacked(& : Unack -> Nil)
         @unack_lock.synchronize do
           @unacked.each do |unack|
             yield unack
@@ -528,13 +528,12 @@ module LavinMQ
           return
         end
 
-        @log.debug { "rejecting #{frame.inspect}" }
+        @log.debug { "Rejecting #{frame.inspect}" }
         if unack = delete_unacked(frame.delivery_tag)
           do_reject(frame.requeue, unack)
         else
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-        @log.debug { "done rejecting" }
       rescue DoubleAck
         @client.send_precondition_failed(frame, "Delivery tag already acked")
       end

@@ -3,6 +3,8 @@ module LavinMQ
     property timestamp, exchange_name, routing_key, properties
     getter size, body
 
+    MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8
+
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQP::Properties,
                    @size : UInt64, @body : Bytes)
@@ -17,7 +19,19 @@ module LavinMQ
       @properties.delivery_mode == 2_u8
     end
 
-    def self.skip(io, format) : UInt64
+    def ttl
+      @properties.expiration.try(&.to_i64?)
+    end
+
+    def dlx : String?
+      @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
+    end
+
+    def dlrk : String?
+      @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
+    end
+
+    def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt64
       skipped = 0_u64
       skipped += io.skip(sizeof(UInt64))                             # ts
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
@@ -44,6 +58,7 @@ module LavinMQ
       pr = AMQP::Properties.from_io io, format
       sz = UInt64.from_io io, format
       body = io.to_slice(io.pos, sz)
+      io.seek(sz, IO::Seek::Current)
       BytesMessage.new(ts, ex, rk, pr, sz, body)
     end
   end
@@ -73,51 +88,20 @@ module LavinMQ
       @properties.delivery_mode == 2_u8
     end
 
-    def self.skip(io, format) : UInt64
-      skipped = 0_u64
-      skipped += io.skip(sizeof(UInt64))                             # ts
-      skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
-      skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
-      skipped += AMQP::Properties.skip(io, format)
-      skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
-      skipped
-    end
-  end
-
-  struct MessageMetadata
-    getter timestamp, exchange_name, routing_key, properties, size
-
-    def initialize(@timestamp : Int64, @exchange_name : String,
-                   @routing_key : String, @properties : AMQP::Properties,
-                   @size : UInt64)
+    def dlx : String?
+      @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
     end
 
-    def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
-        @properties.bytesize + sizeof(UInt64) + @size
-    end
-
-    def persistent?
-      @properties.delivery_mode == 2_u8
-    end
-
-    def self.from_bytes(bytes, format = IO::ByteFormat::SystemEndian) : self
-      pos = 0
-      ts = format.decode(Int64, bytes[0, 8]); pos += 8
-      ex = AMQP::ShortString.from_bytes bytes + pos; pos += 1 + ex.bytesize
-      rk = AMQP::ShortString.from_bytes bytes + pos; pos += 1 + rk.bytesize
-      pr = AMQP::Properties.from_bytes bytes + pos, format; pos += pr.bytesize
-      sz = format.decode(UInt64, bytes[pos, 8])
-      MessageMetadata.new(ts, ex, rk, pr, sz)
-    end
-
-    def self.from_io(io, format = IO::ByteFormat::SystemEndian)
-      ts = Int64.from_io io, format
-      ex = AMQP::ShortString.from_io io, format
-      rk = AMQP::ShortString.from_io io, format
-      pr = AMQP::Properties.from_io io, format
-      sz = UInt64.from_io io, format
-      MessageMetadata.new(ts, ex, rk, pr, sz)
+    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
+      io.write_bytes @timestamp, format
+      io.write_bytes AMQP::ShortString.new(@exchange_name), format
+      io.write_bytes AMQP::ShortString.new(@routing_key), format
+      io.write_bytes @properties, format
+      io.write_bytes @size, format # bodysize
+      copied = IO.copy(@body_io, io, @size)
+      if copied != @size
+        raise IO::Error.new("Could only write #{copied} of #{@size} bytes to message store")
+      end
     end
   end
 
