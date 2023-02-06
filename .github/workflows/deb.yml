@@ -59,7 +59,7 @@ jobs:
           file: Dockerfile.deb
           platforms: linux/amd64,linux/arm64
           build-args: |
-            build_image=84codes/crystal:1.6.2-${{ matrix.os }}
+            build_image=84codes/crystal:1.7.2-${{ matrix.os }}
             version=${{ env.version }}
             DEB_BUILD_OPTIONS="parallel=4"
           outputs: builds
