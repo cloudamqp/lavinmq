@@ -210,7 +210,7 @@ module LavinMQ
           destination = b["destination"].as_s
           destination_type = b["destination_type"].as_s
           routing_key = b["routing_key"].as_s
-          arguments = AMQP::Table.new(b["arguments"].as_h)
+          arguments = AMQP::Table.new(b["arguments"].as_h?)
           next unless v = fetch_vhost?(vhosts, vhost)
           case destination_type
           when "queue"
