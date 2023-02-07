@@ -73,4 +73,14 @@ describe LavinMQ::Exchange do
       end
     end
   end
+
+  describe "delayed message exchange declaration" do
+    it "should redeclare same delayed message exchange" do
+      with_channel do |ch|
+        xdm_args = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello"})
+        x = ch.exchange("test", "x-delayed-message", args: xdm_args)
+        x = ch.exchange("test", "x-delayed-message", args: xdm_args)
+      end
+    end
+  end
 end

@@ -116,6 +116,23 @@ describe LavinMQ::HTTP::ExchangesController do
       response.status_code.should eq 400
     end
 
+    it "should redeclare identical delayed_message_exchange" do
+      body = %({
+        "type": "x-delayed-message",
+        "durable": true,
+        "internal": false,
+        "auto_delete": false,
+        "arguments": {
+          "x-delayed-type": "fanout",
+          "test": "hello"
+        }
+      })
+      response = put("/api/exchanges/%2f/spechange", body: body)
+      response.status_code.should eq 201
+      response = put("/api/exchanges/%2f/spechange", body: body)
+      response.status_code.should eq 204
+    end
+
     it "should require config access to declare" do
       body = %({
         "type": "topic"
