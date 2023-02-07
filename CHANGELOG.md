@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Warn if vm.max_map_count is low on boot
 - Restore priority queues correctly [#436](https://github.com/cloudamqp/lavinmq/pull/436)
 - Increased multi threading compability
+- Can re-decalre a delayed-message exchange without failing [#450](https://github.com/cloudamqp/lavinmq/pull/450)
 
 ## [1.0.0-beta.8] - 2022-11-29
 
