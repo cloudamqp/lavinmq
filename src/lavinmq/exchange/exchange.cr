@@ -89,19 +89,17 @@ module LavinMQ
     end
 
     def match?(frame : AMQP::Frame)
-      type == frame.exchange_type &&
-        @durable == frame.durable &&
-        @auto_delete == frame.auto_delete &&
-        @internal == frame.internal &&
-        @arguments == frame.arguments.to_h
+      match?(frame.exchange_type, frame.durable, frame.auto_delete, frame.internal, frame.arguments)
     end
 
     def match?(type, durable, auto_delete, internal, arguments)
-      self.type == type &&
+      delayed = type == "x-delayed-message"
+      frame_args = arguments.to_h.dup.reject("x-delayed-type").merge({"x-delayed-exchange" => true})
+      self.type == (delayed ? arguments["x-delayed-type"] : type) &&
         @durable == durable &&
         @auto_delete == auto_delete &&
         @internal == internal &&
-        @arguments == arguments.to_h
+        @arguments == (delayed ? frame_args : arguments.to_h)
     end
 
     def in_use?
