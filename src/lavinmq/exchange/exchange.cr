@@ -314,7 +314,7 @@ module LavinMQ
         destination:      @destination.name,
         destination_type: @destination.is_a?(Queue) ? "queue" : "exchange",
         routing_key:      routing_key,
-        arguments:        arguments,
+        arguments:        arguments || NamedTuple.new,
         properties_key:   BindingDetails.hash_key(@key),
       }
     end
