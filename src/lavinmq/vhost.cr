@@ -637,7 +637,6 @@ module LavinMQ
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
       should_compact = false
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
-        io.buffer_size = Config.instance.file_buffer_size
         io.advise(File::Advice::Sequential)
         SchemaVersion.verify(io, :definition)
         loop do
@@ -706,7 +705,6 @@ module LavinMQ
       @log.info { "Compacting definitions" }
       tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
       File.open(tmp_path, "w") do |io|
-        io.buffer_size = Config.instance.file_buffer_size
         SchemaVersion.prefix(io, :definition)
         @exchanges.each_value do |e|
           next if !include_transient && !e.durable
