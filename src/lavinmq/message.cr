@@ -98,9 +98,13 @@ module LavinMQ
       io.write_bytes AMQP::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
       io.write_bytes @size, format # bodysize
-      copied = IO.copy(@body_io, io, @size)
-      if copied != @size
-        raise IO::Error.new("Could only write #{copied} of #{@size} bytes to message store")
+      if io_mem = @body_io.as?(IO::Memory)
+        io.write(io_mem.to_slice)
+      else
+        copied = IO.copy(@body_io, io, @size)
+        if copied != @size
+          raise IO::Error.new("Could only write #{copied} of #{@size} bytes to message store")
+        end
       end
     end
   end
