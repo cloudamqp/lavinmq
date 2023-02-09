@@ -119,7 +119,6 @@ module LavinMQ
       private def self.open_segment(data_dir, seg)
         filename = "msgs.#{seg.to_s.rjust(10, '0')}"
         file = File.new(File.join(data_dir, filename))
-        file.buffer_size = Config.instance.file_buffer_size
         file
       rescue File::NotFoundError
         nil

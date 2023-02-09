@@ -32,7 +32,6 @@ module LavinMQ
     property stats_interval = 5000              # millisecond
     property stats_log_size = 120               # 10 mins at 5s interval
     property? set_timestamp = false             # in message headers when receive
-    property file_buffer_size = 16384           # bytes
     property socket_buffer_size = 16384         # bytes
     property? tcp_nodelay = false               # bool
     property segment_size : Int32 = 8 * 1024**2 # bytes
@@ -85,7 +84,6 @@ module LavinMQ
         when "segment_size"         then @segment_size = v.to_i32
         when "queue_max_acks"       then @queue_max_acks = v.to_i32
         when "set_timestamp"        then @set_timestamp = true?(v)
-        when "file_buffer_size"     then @file_buffer_size = v.to_i32
         when "socket_buffer_size"   then @socket_buffer_size = v.to_i32
         when "tcp_nodelay"          then @tcp_nodelay = true?(v)
         when "tcp_keepalive"        then @tcp_keepalive = tcp_keepalive?(v)
