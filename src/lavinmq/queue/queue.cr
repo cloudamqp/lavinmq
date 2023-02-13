@@ -514,11 +514,9 @@ module LavinMQ
           msg = env.message
           @log.debug { "Checking if next message #{msg} has expired" }
           if has_expired?(msg)
+            env = @msg_store.shift? || raise "BUG: this should not be able to happen"
             expire_msg(env, :expired)
-            if (i += 1) == 8192
-              Fiber.yield
-              i = 0
-            end
+            i += 1
           else
             break
           end
