@@ -27,7 +27,7 @@ module LavinMQ
         }
       end
 
-      def update_rates
+      def update_rates : Nil
         interval = Config.instance.stats_interval // 1000
         log_size = Config.instance.stats_log_size
         {% for name in stats_keys %}
