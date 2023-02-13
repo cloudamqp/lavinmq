@@ -770,7 +770,7 @@ module LavinMQ
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          drop_overflow if @consumers.empty?
+          drop_overflow unless immediate_delivery?
         end
       else
         expire_msg(sp, :rejected)
