@@ -147,7 +147,7 @@ module LavinMQ
             else
               bad_request(context, "Unknown payload_encoding #{payload_encoding}")
             end
-            size = content.bytesize.to_u64
+            size = content.bytesize.to_u32
             msg = Message.new(Time.utc.to_unix_ms,
               e.name,
               routing_key,
