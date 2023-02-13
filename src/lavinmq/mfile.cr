@@ -161,12 +161,15 @@ class MFile < IO
   def seek(offset : Int, whence : IO::Seek = IO::Seek::Set)
     case whence
     in IO::Seek::Set
-      @pos = offset.to_i64
+      pos = offset.to_i64
     in IO::Seek::Current
-      @pos += offset.to_i64
+      pos = @pos + offset.to_i64
     in IO::Seek::End
-      @pos = @size + offset.to_i64
+      pos = @size + offset.to_i64
     end
+    raise ArgumentError.new("Can't seek before start of file") if pos.negative?
+    raise ArgumentError.new("Can't seek behind end of file") if pos > @size
+    @pos = pos
   end
 
   def seek(offset : Int, whence : IO::Seek = IO::Seek::Set, &)
