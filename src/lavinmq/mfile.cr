@@ -167,8 +167,8 @@ class MFile < IO
     in IO::Seek::End
       pos = @size + offset.to_i64
     end
-    raise ArgumentError.new("Can't seek before start of file") if pos.negative?
-    raise ArgumentError.new("Can't seek behind end of file") if pos > @size
+    raise ArgumentError.new("Can't seek ahead start of file") if pos.negative?
+    raise ArgumentError.new("Can't seek beyond end of file") if pos > @size
     @pos = pos
   end
 
