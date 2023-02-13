@@ -251,7 +251,7 @@ module LavinMQ
         socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         socket.flush if websocket
         @send_oct_count += 8_u64 + frame.bytesize
-        header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.size, msg.properties)
+        header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
         {% unless flag?(:release) %}
           @log.debug { "Send #{header.inspect}" }
         {% end %}
@@ -259,8 +259,8 @@ module LavinMQ
         socket.flush if websocket
         @send_oct_count += 8_u64 + header.bytesize
         pos = 0
-        while pos < msg.size
-          length = Math.min(msg.size - pos, @max_frame_size - 8).to_u32
+        while pos < msg.bodysize
+          length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
           {% unless flag?(:release) %}
             @log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
           {% end %}

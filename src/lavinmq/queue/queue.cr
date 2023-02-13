@@ -641,9 +641,9 @@ module LavinMQ
     end
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
-      @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.size} props=#{props}" }
+      @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
       @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
-        props, msg.size, IO::Memory.new(msg.body))
+        props, msg.bodysize, IO::Memory.new(msg.body))
     end
 
     private def expire_queue : Bool

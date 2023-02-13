@@ -56,23 +56,23 @@ module LavinMQ
 
   struct Message
     property timestamp, exchange_name, routing_key, properties
-    getter size, body_io
+    getter bodysize, body_io
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQP::Properties,
-                   @size : UInt32, @body_io : IO)
+                   @bodysize : UInt32, @body_io : IO)
     end
 
     def initialize(@exchange_name : String, @routing_key : String,
                    body : String, @properties = AMQP::Properties.new)
       @timestamp = RoughTime.unix_ms
-      @size = body.bytesize.to_u32
+      @bodysize = body.bytesize.to_u32
       @body_io = IO::Memory.new(body)
     end
 
     def bytesize
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
-        @properties.bytesize + sizeof(UInt32) + @size
+        @properties.bytesize + sizeof(UInt32) + @bodysize
     end
 
     def persistent?
@@ -83,18 +83,24 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
     end
 
+    def delay : UInt32?
+      @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
+    rescue OverflowError
+      nil
+    end
+
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
       io.write_bytes AMQP::ShortString.new(@exchange_name), format
       io.write_bytes AMQP::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
-      io.write_bytes @size, format # bodysize
+      io.write_bytes @bodysize, format
       if io_mem = @body_io.as?(IO::Memory)
         io.write(io_mem.to_slice)
       else
-        copied = IO.copy(@body_io, io, @size)
-        if copied != @size
-          raise IO::Error.new("Could only write #{copied} of #{@size} bytes to message store")
+        copied = IO.copy(@body_io, io, @bodysize)
+        if copied != @bodysize
+          raise IO::Error.new("Could only write #{copied} of #{@bodysize} bytes to message store")
         end
       end
     end
