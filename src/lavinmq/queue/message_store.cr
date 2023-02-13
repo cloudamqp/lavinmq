@@ -36,11 +36,11 @@ module LavinMQ
         @rfile = @segments.first_value
       end
 
-      def push(msg) : SegmentPosition
+      def push(msg, store_offset = false) : SegmentPosition
         raise ClosedError.new if @closed
-        sp = write_to_disk(msg)
+        sp = write_to_disk(msg, store_offset)
         was_empty = @size.zero?
-        @bytesize += msg.bytesize
+        @bytesize += sp.bytesize
         @size += 1
         notify_empty(false) if was_empty
         sp
@@ -82,6 +82,9 @@ module LavinMQ
           sp = SegmentPosition.make(seg, pos, msg)
           return Envelope.new(sp, msg, redelivered: false)
         end
+      rescue ex
+        Log.error(exception: ex) { "rfile=#{@rfile.path} pos=#{@rfile.pos} size=#{@rfile.size}" }
+        raise ex
       end
 
       def shift? : Envelope?
@@ -89,7 +92,7 @@ module LavinMQ
         if sp = @requeued.shift?
           segment = @segments[sp.segment]
           msg = BytesMessage.from_bytes(segment.to_slice(sp.position, sp.bytesize))
-          @bytesize -= msg.bytesize
+          @bytesize -= sp.bytesize
           @size -= 1
           notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: true)
@@ -107,9 +110,9 @@ module LavinMQ
             next
           end
           msg = BytesMessage.from_bytes(rfile.to_slice(pos, rfile.size - pos))
-          rfile.seek(msg.bytesize, IO::Seek::Current)
           sp = SegmentPosition.make(seg, pos, msg)
-          @bytesize -= msg.bytesize
+          rfile.seek(sp.bytesize, IO::Seek::Current)
+          @bytesize -= sp.bytesize
           @size -= 1
           notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
@@ -143,6 +146,7 @@ module LavinMQ
           end
         rescue ex
           Log.error(exception: ex) { "#{ex} seg=#{sp.segment} pos=#{afile.pos} size=#{afile.size}" }
+          raise ex
         end
       end
 
