@@ -41,6 +41,7 @@ module LavinMQ
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
+    @consumers_lock = Mutex.new
     @message_ttl_change = Channel(Nil).new
 
     getter unacked_count = 0u32
@@ -257,7 +258,9 @@ module LavinMQ
     end
 
     def immediate_delivery?
-      @consumers.any? &.accepts?
+      @consumers_lock.synchronize do
+        @consumers.any? &.accepts?
+      end
     end
 
     def message_count
@@ -333,8 +336,10 @@ module LavinMQ
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
       @consumers_empty_change.close
-      @consumers.each &.cancel
-      @consumers.clear
+      @consumers_lock.synchronize do
+        @consumers.each &.cancel
+        @consumers.clear
+      end
       @paused_change.close
       @msg_store_lock.synchronize do
         @msg_store.close
@@ -380,7 +385,7 @@ module LavinMQ
         unacked_avg_bytes:           unacked_avg_bytes,
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
-        exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
+        exclusive_consumer_tag:      @exclusive ? @consumers_lock.synchronize { @consumers.first?.try(&.tag) } : nil,
         state:                       @state.to_s,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               stats_details,
@@ -777,32 +782,34 @@ module LavinMQ
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = RoughTime.monotonic
-      was_empty = @consumers.empty?
-      @consumers << consumer
-      notify_consumers_empty(false) if was_empty
+      @consumers_lock.synchronize do
+        was_empty = @consumers.empty?
+        @consumers << consumer
+        notify_consumers_empty(false) if was_empty
+      end
       @exclusive_consumer = true if consumer.exclusive
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
-      spawn(name: "Notify observer vhost=#{@vhost.name} queue=#{@name}") do
-        notify_observers(:add_consumer, consumer)
-      end
+      notify_observers(:add_consumer, consumer)
     end
 
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
       return if @closed
-      deleted = @consumers.delete consumer
-      @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
-      if deleted
-        @exclusive_consumer = false if consumer.exclusive
-        @log.debug { "Removing consumer with #{consumer.unacked} \
+      @consumers_lock.synchronize do
+        deleted = @consumers.delete consumer
+        @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
+        if deleted
+          @exclusive_consumer = false if consumer.exclusive
+          @log.debug { "Removing consumer with #{consumer.unacked} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
-        notify_observers(:rm_consumer, consumer)
-        if @consumers.empty?
-          notify_consumers_empty(true)
-          delete if @auto_delete
+          notify_observers(:rm_consumer, consumer)
+          if @consumers.empty?
+            notify_consumers_empty(true)
+            delete if @auto_delete
+          end
         end
       end
     end
@@ -815,7 +822,9 @@ module LavinMQ
     def purge_and_close_consumers : UInt32
       # closing all channels will move all unacked back into ready queue
       # so we are purging all messages from the queue, not only ready
-      @consumers.each(&.channel.close)
+      @consumers_lock.synchronize do
+        @consumers.each(&.channel.close)
+      end
       count = purge
       notify_consumers_empty(true)
       count.to_u32
@@ -866,10 +875,12 @@ module LavinMQ
         end
         builder.field("consumer_details") do
           builder.array do
-            @consumers.each do |c|
-              c.to_json(builder)
-              limit -= 1
-              break if limit.zero?
+            @consumers_lock.synchronize do
+              @consumers.each do |c|
+                c.to_json(builder)
+                limit -= 1
+                break if limit.zero?
+              end
             end
           end
         end
