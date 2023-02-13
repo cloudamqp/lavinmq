@@ -34,6 +34,7 @@ class Throughput < Perf
   @publishers = 1
   @consumers = 1
   @size = 16
+  @verify = false
   @exchange = ""
   @queue = "perf-test"
   @routing_key = "perf-test"
@@ -64,6 +65,9 @@ class Throughput < Perf
     end
     @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
       @size = v.to_i
+    end
+    @parser.on("-V", "--verify", "Verify the message body") do
+      @verify = true
     end
     @parser.on("-a MESSAGES", "--ack MESSAGES", "Ack after X consumed messages (default 0)") do |v|
       @ack = v.to_i
@@ -211,7 +215,7 @@ class Throughput < Perf
   end
 
   private def pub(done)
-    data = IO::Memory.new(Bytes.new(@size))
+    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     props = AMQ::Protocol::Properties.new(delivery_mode: @persistent ? 2u8 : nil)
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
@@ -221,7 +225,6 @@ class Throughput < Perf
       start = Time.monotonic
       pubs_this_second = 0
       until @stopped
-        data.rewind
         msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
         ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
         ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
@@ -245,6 +248,7 @@ class Throughput < Perf
   end
 
   private def consume(done)
+    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
@@ -261,6 +265,7 @@ class Throughput < Perf
       start = Time.monotonic
       q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
         @consumes += 1
+        raise "Invalid data" if @verify && m.body_io.to_slice != data
         m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
         ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
         if @stopped || @consumes == @cmessages
