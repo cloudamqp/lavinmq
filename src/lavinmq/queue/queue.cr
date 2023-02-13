@@ -514,7 +514,8 @@ module LavinMQ
           msg = env.message
           @log.debug { "Checking if next message #{msg} has expired" }
           if has_expired?(msg)
-            env = @msg_store.shift? || raise "BUG: this should not be able to happen"
+            # shift it out from the msgs store, first time was just a peek
+            env = @msg_store.shift? || break
             expire_msg(env, :expired)
             i += 1
           else
