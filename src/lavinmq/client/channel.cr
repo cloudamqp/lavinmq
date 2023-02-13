@@ -262,7 +262,7 @@ module LavinMQ
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate)
         end
       rescue e : Error::PreconditionFailed
-        msg.body_io.skip(msg.size)
+        msg.body_io.skip(msg.bodysize)
         send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
       rescue Queue::RejectOverFlow
         confirm_nack
@@ -310,7 +310,7 @@ module LavinMQ
         else
           @log.debug { "Skipping body of non read message #{msg.body_io.class}" }
           unless msg.body_io.is_a?(File)
-            msg.body_io.skip(msg.size)
+            msg.body_io.skip(msg.bodysize)
           end
         end
         # basic.nack will only be delivered if an internal error occurs...

@@ -182,7 +182,7 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
-                    size = truncate.nil? ? env.message.size : Math.min(truncate, env.message.size)
+                    size = truncate ? Math.min(truncate, env.message.bodysize) : env.message.bodysize
                     payload = String.new(env.message.body[0, size])
                     case encoding
                     when "base64"
@@ -198,7 +198,7 @@ module LavinMQ
                       end
                     end
                     j.object do
-                      j.field("payload_bytes", env.message.size)
+                      j.field("payload_bytes", env.message.bodysize)
                       j.field("redelivered", env.redelivered)
                       j.field("exchange", env.message.exchange_name)
                       j.field("routing_key", env.message.routing_key)
