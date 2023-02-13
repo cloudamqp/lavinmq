@@ -422,7 +422,7 @@ module LavinMQ
       return false if @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
-        @msg_store.push(msg)
+        @msg_store.push(msg, store_offset)
       end
       @publish_count += 1
       drop_overflow unless immediate_delivery?
