@@ -239,6 +239,7 @@ module LavinMQ
           connection.channels.each_value(&.update_rates)
         end
         vhost.update_rates
+        vhost.update_last_activity
       end
     end
 
