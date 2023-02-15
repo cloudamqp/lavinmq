@@ -783,11 +783,11 @@ module LavinMQ
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
           notify_observers(:rm_consumer, consumer)
-          if @consumers.empty?
-            notify_consumers_empty(true)
-            delete if @auto_delete
-          end
         end
+      end
+      if @consumers.empty?
+        notify_consumers_empty(true)
+        delete if @auto_delete
       end
     end
 
@@ -799,9 +799,8 @@ module LavinMQ
     def purge_and_close_consumers : UInt32
       # closing all channels will move all unacked back into ready queue
       # so we are purging all messages from the queue, not only ready
-      @consumers_lock.synchronize do
-        @consumers.each(&.channel.close)
-      end
+      consumers = @consumers_lock.synchronize { @consumers.dup }
+      consumers.each(&.channel.close)
       count = purge
       notify_consumers_empty(true)
       count.to_u32
