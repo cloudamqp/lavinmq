@@ -418,13 +418,13 @@ module LavinMQ
 
     class Closed < Exception; end
 
-    def publish(msg : Message, store_offset = false) : Bool
+    def publish(msg : Message) : Bool
       return false if @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
-        @msg_store.push(msg, store_offset)
+        @msg_store.push(msg)
+        @publish_count += 1
       end
-      @publish_count += 1
       drop_overflow unless immediate_delivery?
       true
     end

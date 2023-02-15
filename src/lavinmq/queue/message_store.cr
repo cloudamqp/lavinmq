@@ -36,9 +36,9 @@ module LavinMQ
         @rfile = @segments.first_value
       end
 
-      def push(msg, store_offset = false) : SegmentPosition
+      def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
-        sp = write_to_disk(msg, store_offset)
+        sp = write_to_disk(msg)
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
@@ -201,25 +201,16 @@ module LavinMQ
         end
       end
 
-      private def write_to_disk(msg, store_offset = false) : SegmentPosition
+      private def write_to_disk(msg) : SegmentPosition
         wfile = @wfile
-        # Set x-offset before we have a SP so that the Message#bytesize is correct
-        if store_offset
-          headers = msg.properties.headers || AMQP::Table.new
-          headers["x-offset"] = 0_i64
-          msg.properties.headers = headers
-        end
         if wfile.capacity < wfile.size + msg.bytesize
           wfile = open_new_segment(msg.bytesize)
         end
         wfile.seek(0, IO::Seek::End) do |pos|
           sp = SegmentPosition.make(@wfile_id, pos.to_u32, msg)
-          if store_offset
-            msg.properties.headers.not_nil!["x-offset"] = sp.to_i64
-          end
           wfile.write_bytes msg
           @segment_msg_count[@wfile_id] += 1
-          return sp
+          sp
         end
       end
 
