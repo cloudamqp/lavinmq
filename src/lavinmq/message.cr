@@ -1,18 +1,18 @@
 module LavinMQ
+  # Messages read from message store (mmap filed) and being delivered to consumers
   struct BytesMessage
-    property timestamp, exchange_name, routing_key, properties
-    getter size, body
+    getter timestamp, exchange_name, routing_key, properties, bodysize, body
 
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 4
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQP::Properties,
-                   @size : UInt32, @body : Bytes)
+                   @bodysize : UInt32, @body : Bytes)
     end
 
     def bytesize
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
-        @properties.bytesize + sizeof(UInt32) + @size
+        @properties.bytesize + sizeof(UInt32) + @bodysize
     end
 
     def persistent?
@@ -60,9 +60,10 @@ module LavinMQ
     end
   end
 
+  # Messages from publishers, read from socket and then written to mmap files
   struct Message
-    property timestamp, exchange_name, routing_key, properties
-    getter bodysize, body_io
+    property timestamp
+    getter exchange_name, routing_key, properties, bodysize, body_io
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQP::Properties,
