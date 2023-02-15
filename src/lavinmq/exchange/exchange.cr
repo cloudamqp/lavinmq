@@ -49,9 +49,9 @@ module LavinMQ
         case k
         when "alternate-exchange"
           @alternate_exchange ||= v.as_s?
-          # when "delayed-message"
-          #  @delayed ||= v.as?(Bool) == true
-          #  init_delayed_queue if @delayed
+        when "delayed-message"
+          @delayed ||= v.as?(Bool) == true
+          init_delayed_queue if @delayed
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
@@ -71,9 +71,10 @@ module LavinMQ
 
     def handle_arguments
       @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
-      # init_persistent_queue
-      # @delayed = @arguments["x-delayed-exchange"]?.try &.as?(Bool) == true
-      # init_delayed_queue if @delayed
+      if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
+        @delayed = true
+        init_delayed_queue
+      end
     end
 
     def details_tuple
