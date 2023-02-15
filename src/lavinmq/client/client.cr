@@ -758,8 +758,6 @@ module LavinMQ
         send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
       elsif frame.source.empty? || frame.destination.empty?
         send_access_refused(frame, "Not allowed to bind to the default exchange")
-      elsif source.try(&.persistent?)
-        send_access_refused(frame, "Not allowed to bind persistent exchange to exchange")
       else
         @vhost.apply(frame)
         send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait

@@ -155,7 +155,7 @@ module LavinMQ
       flush = properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
-        if q.publish(msg, ex.persistent?)
+        if q.publish(msg)
           ex.publish_out_count += 1
           if confirm && q.is_a?(DurableQueue) && flush
             @queues_to_fsync_lock.synchronize do

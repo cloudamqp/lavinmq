@@ -21,7 +21,6 @@ module LavinMQ
     getter? delayed = false
 
     @alternate_exchange : String?
-    @persistent_queue : PersistentExchangeQueue?
     @delayed_queue : Queue?
     @log : Log
     @deleted = false
@@ -129,37 +128,11 @@ module LavinMQ
       BindingDetails.new(name, vhost.name, key, destination)
     end
 
-    def persistent?
-      !@persistent_queue.nil?
-    end
-
     MAX_NAME_LENGTH = 256
-
-    private def init_persistent_queue
-      return if @persistent_queue
-      persist_messages = @arguments["x-persist-messages"]?.try &.as?(Int)
-      persist_ms = @arguments["x-persist-ms"]?.try &.as?(Int)
-      return unless persist_messages || persist_ms
-      raise "Exchange can't be persistent and delayed" if delayed?
-      q_name = "amq.persistent.#{@name}"
-      raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-      args = Hash(String, AMQP::Field).new
-      persist_messages.try do |n|
-        next if n <= 0
-        args["x-max-length"] = n
-      end
-      persist_ms.try do |ms|
-        next if ms <= 0
-        args["x-message-ttl"] = ms
-      end
-      @persistent_queue = PersistentExchangeQueue.new(@vhost, q_name, args)
-      @vhost.queues[q_name] = @persistent_queue.not_nil!
-    end
 
     private def init_delayed_queue
       return if @delayed_queue
       return unless @delayed
-      raise "Exchange can't be persistent and delayed" if persistent?
       q_name = "amq.delayed.#{@name}"
       raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
       @log.debug { "Declaring delayed queue: #{name}" }
@@ -177,60 +150,12 @@ module LavinMQ
 
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
-    private def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    protected def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
       notify_observers(:bind, binding_details({routing_key, headers}, destination))
-      if (pq = @persistent_queue) && headers && !headers.empty?
-        method = headers.select(REPUBLISH_HEADERS).first_key?
-        return unless method
-        arg = headers[method].try &.as?(Int)
-        return true if arg.nil? || pq.empty?
-        persisted = pq.message_count
-        @log.debug { "after_bind replaying persited message from #{method}-#{arg}, total_peristed: #{persisted}" }
-        case destination
-        when Queue
-          republish(destination.as(Queue), method, arg)
-        when Exchange
-          raise "Not Implemented"
-        end
-      end
       true
     end
 
-    # Republish the messages in the internal queue to the queue
-    # the user has bounded the exchange to
-    private def republish(queue : Queue, method : String, arg : Int)
-      return
-      # FIXME
-      # return unless pq = @persistent_queue
-      # republish = ->(sp : SegmentPosition) do
-      #  case type
-      #  when "topic", "headers"
-      #    if msg = queue[sp]
-      #      properties = msg.properties
-      #      rk = msg.routing_key
-      #      headers = properties.headers
-      #      queue_matches(rk, headers) do |mq|
-      #        next unless mq == queue
-      #        next unless queue.publish(msg)
-      #        @publish_out_count += 1
-      #      end
-      #    end
-      #  else
-      #    return unless queue.publish(msg)
-      #    @publish_out_count += 1
-      #  end
-      # end
-      # case method
-      # when "x-head"
-      #  pq.head(arg, &republish)
-      # when "x-tail"
-      #  pq.tail(arg, &republish)
-      # when "x-from"
-      #  pq.from(arg.to_i64, &republish)
-      # end
-    end
-
-    private def after_unbind(destination, routing_key, headers)
+    protected def after_unbind(destination, routing_key, headers)
       @queue_bindings.reject! { |_k, v| v.empty? }
       @exchange_bindings.reject! { |_k, v| v.empty? }
       if @auto_delete &&
@@ -245,7 +170,6 @@ module LavinMQ
       return if @deleted
       @deleted = true
       @delayed_queue.try &.delete
-      @persistent_queue.try &.delete
       @vhost.delete_exchange(@name)
       @log.info { "Deleted" }
       notify_observers(:delete)
@@ -264,7 +188,6 @@ module LavinMQ
         @delayed_queue.try { |q| yield q }
       else
         do_queue_matches(routing_key, headers, &blk)
-        @persistent_queue.try { |q| yield q } if persistent?
       end
     end
 
