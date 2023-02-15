@@ -476,9 +476,9 @@ module LavinMQ
     private def expire_at(msg : BytesMessage) : Int64?
       if ttl = @message_ttl
         ttl = (mttl = msg.ttl) ? Math.min(ttl, mttl) : ttl
-        (msg.timestamp + ttl) // 100 * 100 + 100
+        (msg.timestamp + ttl) // 100 * 100
       elsif ttl = msg.ttl
-        (msg.timestamp + ttl) // 100 * 100 + 100
+        (msg.timestamp + ttl) // 100 * 100
       else
         nil
       end
