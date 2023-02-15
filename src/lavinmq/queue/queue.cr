@@ -134,9 +134,6 @@ module LavinMQ
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
-      if @internal
-        spawn expire_loop, name: "Queue#expire_loop #{@vhost.name}/#{@name}"
-      end
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -277,25 +274,6 @@ module LavinMQ
 
     def consumer_count
       @consumers.size.to_u32
-    end
-
-    private def expire_loop
-      loop do
-        if ttl = time_to_message_expiration
-          select
-          when @message_ttl_change.receive
-            @log.debug { "Queue#expire_loop Message TTL changed" }
-          when timeout ttl
-            expire_messages
-          end
-        else
-          @msg_store.empty_change.receive
-        end
-      rescue ::Channel::ClosedError
-        break
-      rescue ex
-        @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
-      end
     end
 
     def pause!

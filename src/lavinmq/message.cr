@@ -31,6 +31,12 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
     end
 
+    def delay : UInt32?
+      @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
+    rescue OverflowError
+      nil
+    end
+
     def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt32
       skipped = 0_u32
       skipped += io.skip(sizeof(Int64))                              # ts

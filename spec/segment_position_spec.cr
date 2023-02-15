@@ -4,13 +4,13 @@ require "../src/lavinmq/segment_position.cr"
 describe LavinMQ::SegmentPosition do
   subject = LavinMQ::SegmentPosition
   it "should do bitwise concat of segment and position" do
-    sp = subject.new(0_u32, 0_u32, 0_u32, false, 0u8)
+    sp = subject.new(0_u32, 0_u32, 0_u32, false, 0u8, 0)
     sp.to_i64.should eq 0
-    sp = subject.new(1_u32, 0_u32, 0_u32, false, 0u8)
+    sp = subject.new(1_u32, 0_u32, 0_u32, false, 0u8, 0)
     sp.to_i64.should eq 2_i64 ** 32
-    sp = subject.new(1_u32, 4_u32, 0_u32, false, 0u8)
+    sp = subject.new(1_u32, 4_u32, 0_u32, false, 0u8, 0)
     sp.to_i64.should eq 2_i64 ** 32 + 2 ** 2
-    sp = subject.new(0_u32, 8_u32, 0_u32, false, 0u8)
+    sp = subject.new(0_u32, 8_u32, 0_u32, false, 0u8, 0)
     sp.to_i64.should eq 8
   end
 
@@ -32,14 +32,14 @@ describe LavinMQ::SegmentPosition do
   #  segment = 0_u32
   #  position = 0_u32
 
-  #  it "should create a SP with x-delay" do
-  #    headers = LavinMQ::AMQP::Table.new({"x-delay" => 15})
-  #    props = LavinMQ::AMQP::Properties.new(headers: headers)
-  #    msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
-  #    sp = subject.make(segment, position, msg)
-  #    sp.expiration_ts.should eq 115
-  #    sp.priority.should eq 0
-  #  end
+  it "should create a SP with x-delay" do
+    headers = LavinMQ::AMQP::Table.new({"x-delay" => 15})
+    props = LavinMQ::AMQP::Properties.new(headers: headers)
+    msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+    sp = subject.make(1u32, 1u32, msg)
+    sp.delay.should eq 15
+    sp.priority.should eq 0
+  end
 
   #  it "should create a SP with expiration properties" do
   #    props = LavinMQ::AMQP::Properties.new(expiration: "10")
