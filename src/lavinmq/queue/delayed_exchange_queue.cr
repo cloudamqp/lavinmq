@@ -57,7 +57,14 @@ module LavinMQ
         @rfile = @wfile
         @rfile.seek(0, IO::Seek::End)
         # order messages by priority in the requeue dequeue
-        if idx = @requeued.bsearch_index { |rsp| rsp.delay >= sp.delay }
+        idx = @requeued.bsearch_index do |rsp|
+          if rsp.delay == sp.delay
+            rsp > sp
+          else
+            rsp.delay > sp.delay
+          end
+        end
+        if idx
           @requeued.insert(idx, sp)
           if idx.zero?
             notify_empty(false)
@@ -69,7 +76,14 @@ module LavinMQ
       end
 
       def requeue(sp : SegmentPosition)
-        if idx = @requeued.bsearch_index { |rsp| rsp.delay >= sp.delay }
+        idx = @requeued.bsearch_index do |rsp|
+          if rsp.delay == sp.delay
+            rsp > sp
+          else
+            rsp.delay > sp.delay
+          end
+        end
+        if idx
           @requeued.insert(idx, sp)
         else
           @requeued.push(sp)
