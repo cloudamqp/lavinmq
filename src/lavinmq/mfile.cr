@@ -228,6 +228,11 @@ class MFile < IO
     munmap(@buffer + offset, length) if length > 0
   end
 
+  def resize(new_size : Int) : Nil
+    raise ArgumentError.new("Can't expand file larger than capacity, use trunacte") if new_size > @capacity
+    @size = new_size.to_i64
+  end
+
   def rename(new_path)
     File.rename @path, new_path
     @path = new_path

@@ -298,7 +298,7 @@ module LavinMQ
               @bytesize += mfile.pos - pos
               count += 1
             rescue IO::EOFError
-              mfile.truncate(mfile.pos)
+              mfile.resize(mfile.pos)
               break
             end
           end

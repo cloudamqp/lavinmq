@@ -52,7 +52,7 @@ describe LavinMQ::DurableQueue do
         with_channel(vhost: vhost.name) do |ch|
           q = ch.queue("corrupt_q2")
           queue = vhost.queues["corrupt_q2"].as(LavinMQ::DurableQueue)
-          enq_path = queue.@msg_store.@acks.last_value.path
+          enq_path = queue.@msg_store.@segments.last_value.path
           2.times do |i|
             q.publish_confirm "test message #{i}"
           end
