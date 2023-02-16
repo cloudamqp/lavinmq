@@ -285,7 +285,7 @@ describe LavinMQ::Shovel do
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         x.publish_confirm "shovel me 2", "prefetch2_q1"
         wait_for { Server.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
-        sleep 10.milliseconds
+        sleep 0.1
         shovel.terminate
         Server.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
         Server.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
