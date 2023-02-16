@@ -313,12 +313,13 @@ module LavinMQ
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
+      @paused_change.close
       @consumers_empty_change.close
       @consumers_lock.synchronize do
         @consumers.each &.cancel
         @consumers.clear
       end
-      @paused_change.close
+      Fiber.yield # Allow all consumers to cancel before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
       end
