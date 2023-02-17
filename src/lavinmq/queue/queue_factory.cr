@@ -28,13 +28,12 @@ module LavinMQ
       end
     end
 
-    private def self.prio_queue?(frame)
+    private def self.prio_queue?(frame) : Bool
       if value = frame.arguments["x-max-priority"]?
         p_value = value.as?(Int) || raise Error::PreconditionFailed.new("x-max-priority must be an int")
-        unless p_value >= 0 && p_value <= 255
-          raise Error::PreconditionFailed.new("x-max-priority must be between 0 and 255")
-        end
-        true
+        0 <= p_value <= 255 || raise Error::PreconditionFailed.new("x-max-priority must be between 0 and 255")
+      else
+        false
       end
     end
   end
