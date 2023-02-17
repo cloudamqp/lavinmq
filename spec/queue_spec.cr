@@ -262,4 +262,13 @@ describe LavinMQ::Queue do
       sq.unacked_count.should eq 0
     end
   end
+
+  it "should delete transient queues on Server stop" do
+    with_channel do |ch|
+      ch.queue "transient", durable: false
+    end
+    q = Server.vhosts["/"].queues["transient"]
+    Server.stop
+    Dir.exists?(q.@data_dir).should be_false
+  end
 end
