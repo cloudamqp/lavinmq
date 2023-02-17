@@ -673,8 +673,12 @@ module LavinMQ
         end
         sp = env.segment_position
         if no_ack
-          yield env # deliver the message
-          @log.debug { "Deleting: #{sp}" }
+          begin
+            yield env # deliver the message
+          rescue ex   # requeue failed delivery
+            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            raise ex
+          end
           delete_message(sp)
         else
           mark_unacked(sp) do
@@ -738,6 +742,9 @@ module LavinMQ
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
+      {% unless flag?(:release) %}
+        @log.debug { "Deleting: #{sp}" }
+      {% end %}
       @deliveries.delete(sp) if @delivery_limit
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
