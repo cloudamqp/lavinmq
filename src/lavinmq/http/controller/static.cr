@@ -1,17 +1,25 @@
 require "http/server/handler"
 require "baked_file_system"
+require "./templates"
 require "digest/md5"
 
 module LavinMQ
   module HTTP
     class StaticController
       include ::HTTP::Handler
-
       PUBLIC_DIR = "#{__DIR__}/../../../../static"
+
+      class HtmlTemplates < Templates::Registry
+        add_dir PUBLIC_DIR, extension: ".html"
+      end
 
       class Release
         extend BakedFileSystem
         bake_folder "../../../../static"
+      end
+
+      def initialize
+        @templates = HtmlTemplates.new
       end
 
       def call(context)
@@ -54,6 +62,7 @@ module LavinMQ
             context.response.headers.add("ETag", etag)
           end
           context.response.content_length = file.size
+
           IO.copy(file, context.response)
         end
         context
