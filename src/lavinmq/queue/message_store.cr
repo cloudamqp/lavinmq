@@ -63,8 +63,12 @@ module LavinMQ
         raise ClosedError.new if @closed
         if sp = @requeued.first?
           seg = @segments[sp.segment]
-          msg = BytesMessage.from_bytes(seg.to_slice(sp.position, sp.bytesize))
-          return Envelope.new(sp, msg, redelivered: true)
+          begin
+            msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
+            return Envelope.new(sp, msg, redelivered: true)
+          rescue ex
+            raise Error.new(seg, cause: ex)
+          end
         end
 
         loop do
@@ -72,30 +76,35 @@ module LavinMQ
           rfile = @rfile
           pos = rfile.pos.to_u32
           if pos == rfile.size # EOF?
-            select_next_read_segment ? next : return
+            select_next_read_segment && next
+            return if @size.zero?
+            raise IO::EOFError.new
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
             next
           end
-          msg = BytesMessage.from_bytes(rfile.to_slice(pos, rfile.size - pos))
+          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
           sp = SegmentPosition.make(seg, pos, msg)
           return Envelope.new(sp, msg, redelivered: false)
+        rescue ex
+          raise Error.new(@rfile, cause: ex)
         end
-      rescue ex
-        Log.error(exception: ex) { "rfile=#{@rfile.path} pos=#{@rfile.pos} size=#{@rfile.size}" }
-        raise ex
       end
 
       def shift? : Envelope?
         raise ClosedError.new if @closed
         if sp = @requeued.shift?
           segment = @segments[sp.segment]
-          msg = BytesMessage.from_bytes(segment.to_slice(sp.position, sp.bytesize))
-          @bytesize -= sp.bytesize
-          @size -= 1
-          notify_empty(true) if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true)
+          begin
+            msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+            @bytesize -= sp.bytesize
+            @size -= 1
+            notify_empty(true) if @size.zero?
+            return Envelope.new(sp, msg, redelivered: true)
+          rescue ex
+            raise Error.new(segment, cause: ex)
+          end
         end
 
         loop do
@@ -103,29 +112,34 @@ module LavinMQ
           seg = @rfile_id
           pos = rfile.pos.to_u32
           if pos == rfile.size # EOF?
-            select_next_read_segment ? next : return
+            select_next_read_segment && next
+            return if @size.zero?
+            raise IO::EOFError.new
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
             next
           end
-          msg = BytesMessage.from_bytes(rfile.to_slice(pos, rfile.size - pos))
+          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
           sp = SegmentPosition.make(seg, pos, msg)
           rfile.seek(sp.bytesize, IO::Seek::Current)
           @bytesize -= sp.bytesize
           @size -= 1
           notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
+        rescue ex
+          raise Error.new(@rfile, cause: ex)
         end
-      rescue ex
-        Log.error(exception: ex) { "rfile=#{@rfile.path} pos=#{@rfile.pos} size=#{@rfile.size}" }
-        raise ex
       end
 
       def [](sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
         segment = @segments[sp.segment]
-        BytesMessage.from_bytes(segment.to_slice(sp.position, sp.bytesize))
+        begin
+          BytesMessage.from_bytes(segment.to_slice + sp.position)
+        rescue ex
+          raise Error.new(segment, cause: ex)
+        end
       end
 
       def delete(sp) : Nil
@@ -145,8 +159,7 @@ module LavinMQ
             @segment_msg_count.delete(sp.segment)
           end
         rescue ex
-          Log.error(exception: ex) { "#{ex} seg=#{sp.segment} pos=#{afile.pos} size=#{afile.size}" }
-          raise ex
+          raise Error.new(afile, cause: ex)
         end
       end
 
@@ -181,7 +194,7 @@ module LavinMQ
         @size.zero?
       end
 
-      def close
+      def close : Nil
         @closed = true
         @empty_change.close
         @segments.each_value &.close
@@ -321,6 +334,12 @@ module LavinMQ
       end
 
       class ClosedError < ::Channel::ClosedError; end
+
+      class Error < Exception
+        def initialize(mfile : MFile, cause = nil)
+          super("path=#{mfile.path} pos=#{mfile.pos} size=#{mfile.size}", cause: cause)
+        end
+      end
     end
   end
 end
