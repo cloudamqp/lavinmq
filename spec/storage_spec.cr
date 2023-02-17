@@ -32,10 +32,12 @@ describe LavinMQ::DurableQueue do
             queue = vhost.queues["corrupt_q"].as(LavinMQ::DurableQueue)
             q.publish_confirm "test message"
 
-            bytes = "aaaaauaoeuaoeu".to_slice
-            queue.@msg_store.@segments.each do |_i, mfile|
-              mfile.seek(-bytes.size, IO::Seek::End)
-              mfile.write(bytes)
+            sleep 0.01
+            bytes = "111111111aaaaauaoeuaoeu".to_slice
+            queue.@msg_store.@segments.each_value do |mfile|
+              mfile.seek(-bytes.size, IO::Seek::End) do
+                mfile.write(bytes)
+              end
             end
 
             q.subscribe(tag: "tag", no_ack: false, &.ack)
