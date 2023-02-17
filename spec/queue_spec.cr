@@ -267,8 +267,27 @@ describe LavinMQ::Queue do
     with_channel do |ch|
       ch.queue "transient", durable: false
     end
-    q = Server.vhosts["/"].queues["transient"]
+    data_dir = Server.vhosts["/"].queues["transient"].@msg_store.@data_dir
     Server.stop
-    Dir.exists?(q.@data_dir).should be_false
+    Dir.exists?(data_dir).should be_false
+  end
+
+  it "should delete left over transient queue data on Server start" do
+    data_dir = ""
+    with_channel do |ch|
+      q = ch.queue "transient", durable: false
+      q.publish_confirm "foobar"
+      data_dir = Server.vhosts["/"].queues["transient"].@msg_store.@data_dir
+      FileUtils.cp_r data_dir, "#{data_dir}.copy"
+    end
+    Server.stop
+    FileUtils.cp_r "#{data_dir}.copy", data_dir
+    Server.restart
+    with_channel do |ch|
+      q = ch.queue_declare "transient", durable: false
+      q[:message_count].should eq 0
+      q = ch.queue_declare "transient", passive: true
+      q[:message_count].should eq 0
+    end
   end
 end

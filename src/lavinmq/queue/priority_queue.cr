@@ -2,8 +2,8 @@ require "./durable_queue"
 
 module LavinMQ
   class PriorityQueue < Queue
-    private def init_msg_store
-      PriorityMessageStore.new(@data_dir)
+    private def init_msg_store(data_dir)
+      PriorityMessageStore.new(data_dir)
     end
 
     class PriorityMessageStore < MessageStore

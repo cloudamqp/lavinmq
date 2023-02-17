@@ -5,8 +5,8 @@ module LavinMQ
   class DelayedExchangeQueue < Queue
     @internal = true
 
-    private def init_msg_store
-      DelayedMessageStore.new(@data_dir)
+    private def init_msg_store(data_dir)
+      DelayedMessageStore.new(data_dir)
     end
 
     private def expire_at(msg : BytesMessage) : Int64?

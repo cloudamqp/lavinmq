@@ -26,7 +26,6 @@ module LavinMQ
       getter empty_change = Channel(Bool).new
 
       def initialize(@data_dir : String)
-        Dir.mkdir_p @data_dir
         load_segments_from_disk
         load_deleted_from_disk
         load_stats_from_segments

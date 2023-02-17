@@ -131,8 +131,8 @@ module LavinMQ
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
-      @data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
-      @msg_store = init_msg_store
+      data_dir = make_data_dir
+      @msg_store = init_msg_store(data_dir)
       @empty_change = @msg_store.empty_change
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
@@ -140,8 +140,22 @@ module LavinMQ
     end
 
     # own method so that it can be overriden in other queue implementations
-    private def init_msg_store
-      MessageStore.new(@data_dir)
+    private def init_msg_store(data_dir)
+      MessageStore.new(data_dir)
+    end
+
+    private def make_data_dir : String
+      data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      if Dir.exists? data_dir
+        # delete left over files from transient queues
+        unless @durable
+          FileUtils.rm_r data_dir
+          Dir.mkdir_p data_dir
+        end
+      else
+        Dir.mkdir_p data_dir
+      end
+      data_dir
     end
 
     def inspect(io : IO)
