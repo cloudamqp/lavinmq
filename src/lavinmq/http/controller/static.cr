@@ -11,8 +11,11 @@ module LavinMQ
 
       module ViewHelpers
         def url(path)
-          # Prefix with base path here
-          path
+          base_href = Config.instance.mgmt_base_href.rstrip('/')
+          if base_href.empty?
+            return path
+          end
+          "#{base_href}#{path}"
         end
       end
 
@@ -55,7 +58,7 @@ module LavinMQ
 
         if (file = @templates[file_path]?) ||
            (file = @templates["#{file_path}.html"]?)
-          etag = Digest::MD5.hexdigest(file.filename + BUILD_TIME)
+          etag = Digest::MD5.hexdigest(file.filename + BUILD_TIME + Config.instance.mgmt_base_href)
         else
           {% if flag?(:release) || flag?(:bake_static) %}
             file = Release.get?(file_path)

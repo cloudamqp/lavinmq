@@ -43,6 +43,7 @@ module LavinMQ
     property tcp_send_buffer_size : Int32? = nil
     property? guest_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
+    property mgmt_base_href = "/"
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -135,6 +136,7 @@ module LavinMQ
         when "tls_key"             then @tls_key_path = v  # backward compatibility
         when "unix_path"           then @http_unix_path = v
         when "systemd_socket_name" then @http_systemd_socket_name = v
+        when "base_href"           then @mgmt_base_href = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
         end

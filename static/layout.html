@@ -6,30 +6,30 @@
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="<%= url("/img/favicon.png") %>"/>
+    <link rel="apple-touch-icon" href="<%= url("/img/apple-touch-icon-iphone.png") %>" />
+    <link rel="apple-touch-icon" sizes="72x72" href="<%= url("/img/apple-touch-icon-ipad.png") %>" />
+    <link rel="apple-touch-icon" sizes="114x114" href="<%= url("/img/apple-touch-icon-iphone4.png") %>" />
+    <script type="module" src="<%= url("/js/layout.js") %>"></script>
   </head>
   <body>
     <header>
       <nav id="small-menu">
         <button id="menu-button" class="closed-menu" onclick=toggleSmallMenu()></button>
         <ul id="small-menu-content">
-          <li><a id="menu-item" href="/">Overview</a></li>
-          <li><a id="menu-item" href="/connections">Connections</a></li>
-          <li><a id="menu-item" href="/channels">Channels</a></li>
-          <li><a id="menu-item" href="/exchanges">Exchanges</a></li>
-          <li><a id="menu-item" href="/queues">Queues</a></li>
-          <li><a id="menu-item" href="/policies">Policies</a></li>
-          <li><a id="menu-item" href="/operator-policies">Operator policies</a></li>
-          <li><a id="menu-item" href="/shovels">Shovels</a></li>
-          <li><a id="menu-item" href="/federation">Federation</a></li>
-          <li><a id="menu-item" href="/vhosts">Virtual hosts</a></li>
-          <li><a id="menu-item" href="/users">Users</a></li>
-          <li><a id="menu-item" href="/nodes">Nodes</a></li>
-          <li><a id="menu-item" href="/docs/" target="_blank">HTTP API</a></li>
+          <li><a id="menu-item" href="<%= url("/") %>">Overview</a></li>
+          <li><a id="menu-item" href="<%= url("/connections") %>">Connections</a></li>
+          <li><a id="menu-item" href="<%= url("/channels") %>">Channels</a></li>
+          <li><a id="menu-item" href="<%= url("/exchanges") %>">Exchanges</a></li>
+          <li><a id="menu-item" href="<%= url("/queues") %>">Queues</a></li>
+          <li><a id="menu-item" href="<%= url("/policies") %>">Policies</a></li>
+          <li><a id="menu-item" href="<%= url("/operator-policies") %>">Operator policies</a></li>
+          <li><a id="menu-item" href="<%= url("/shovels") %>">Shovels</a></li>
+          <li><a id="menu-item" href="<%= url("/federation") %>">Federation</a></li>
+          <li><a id="menu-item" href="<%= url("/vhosts") %>">Virtual hosts</a></li>
+          <li><a id="menu-item" href="<%= url("/users") %>">Users</a></li>
+          <li><a id="menu-item" href="<%= url("/nodes") %>">Nodes</a></li>
+          <li><a id="menu-item" href="<%= url("/docs/") %>" target="_blank">HTTP API</a></li>
         </ul>
       </nav>
       <h2><%= vars[:title]? %></h2>
@@ -39,7 +39,7 @@
     <main>
       <%- yield -%>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="<%= url("/img/logo-84codes.svg") %>"></a></footer>
 
   </body>
 </html>
