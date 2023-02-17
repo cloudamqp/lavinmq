@@ -327,7 +327,7 @@ module LavinMQ
         @msg_store.close
       end
       # TODO: When closing due to ReadError, queue is deleted if exclusive
-      delete if @exclusive
+      delete if !@durable || @exclusive
       Fiber.yield
       notify_observers(:close)
       @log.debug { "Closed" }
