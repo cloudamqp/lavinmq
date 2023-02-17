@@ -300,21 +300,23 @@ module LavinMQ
       private def load_stats_from_segments : Nil
         @segments.each do |seg, mfile|
           count = 0u32
-          mfile.seek(4) do
+          mfile.seek(4) do |pos|
             loop do
               pos = mfile.pos
-              ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-              if ts.zero? # This means that the rest of the file is zero, so truncate it
-                raise IO::EOFError.new
+              raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
+              ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
+              raise IO::EOFError.new if ts.zero? # This means that the rest of the file is zero, so truncate it
+
+              bytesize = BytesMessage.skip mfile
+              unless deleted?(seg, pos)
+                @bytesize += bytesize
+                count += 1
               end
-
-              BytesMessage.skip mfile
-              next if deleted?(seg, pos)
-
-              @bytesize += mfile.pos - pos
-              count += 1
             rescue IO::EOFError
-              mfile.resize(mfile.pos)
+              if pos < mfile.size
+                Log.warn { "Resizing #{mfile.path} from #{mfile.size} to #{pos}" }
+                mfile.resize(pos)
+              end
               break
             end
           end
