@@ -108,6 +108,9 @@ module LavinMQ
       rescue ::Channel::ClosedError
         break
       end
+    rescue ex : MessageStore::Error
+      close
+      raise ex
     end
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
@@ -406,6 +409,9 @@ module LavinMQ
       end
       drop_overflow unless immediate_delivery?
       true
+    rescue ex : MessageStore::Error
+      close
+      raise ex
     end
 
     private def reject_on_overflow(msg) : Nil
@@ -678,6 +684,9 @@ module LavinMQ
         return true
       end
       false
+    rescue ex : MessageStore::Error
+      close
+      raise ex
     end
 
     private def mark_unacked(sp, &)
@@ -755,6 +764,9 @@ module LavinMQ
       else
         expire_msg(sp, :rejected)
       end
+    rescue ex : MessageStore::Error
+      close
+      raise ex
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
@@ -819,6 +831,9 @@ module LavinMQ
       end
       @log.info { "Purged #{delete_count} messages" }
       delete_count.to_u32
+    rescue ex : MessageStore::Error
+      close
+      raise ex
     end
 
     def match?(frame)
@@ -878,6 +893,9 @@ module LavinMQ
       msg = @msg_store_lock.synchronize { @msg_store[sp] }
       msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
       Envelope.new(msg_sp, msg, redelivered: true)
+    rescue ex : MessageStore::Error
+      close
+      raise ex
     end
 
     class Error < Exception; end
