@@ -254,7 +254,10 @@ module LavinMQ
           acked = Array(UInt32).new
           loop do
             pos = UInt32.from_io(afile, IO::ByteFormat::SystemEndian)
-            break if pos.zero?
+            if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
+              afile.resize(afile.pos - 4)
+              break
+            end
             acked << pos
           rescue IO::EOFError
             break
