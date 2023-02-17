@@ -1,84 +1,60 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>Overview | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
-  </head>
-  <body>
-    <header>
-      <nav id="small-menu"></nav>
-      <h2>Overview</h2>
-      <nav id="user-menu"></nav>
-    </header>
-    <nav id="menu"></nav>
-    <main>
-      <table id="overview" class="stats-table card">
-        <tbody>
-          <tr>
-            <td id="connections"></td>
-            <td id="channels"></td>
-            <td id="consumers"></td>
-            <td id="exchanges"></td>
-            <td id="queues"></td>
-            <td id="uptime"></td>
-          </tr>
-        </tbody>
-        <tfoot>
-          <tr>
-            <th><a href="/connections">Connections</a></th>
-            <th><a href="/channels">Channels</a></th>
-            <th>Consumers</th>
-            <th><a href="/exchanges">Exchanges</a></th>
-            <th><a href="/queues">Queues</a></th>
-            <th>Uptime</th>
-          </tr>
-        </tfoot>
-      </table>
-      <section class="card cols-4 cols-6-md">
-        <h3>Queued messages</h3>
-        <div class="chart-container" id="msgChart"></div>
-      </section>
-      <section class="card cols-4 cols-6-md">
-        <h3>Data rates</h3>
-        <div class="chart-container" id="dataChart"></div>
-      </section>
-      <section class="card cols-4 cols-6-md">
-        <h3>Message rates</h3>
-        <div class="chart-container" id="rateChart"></div>
-      </section>
-      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
-        <h3>Upload definitions</h3>
-        <label>
-          <span>Virtual host</span>
-          <select id="uploadDefinitionsVhost" name="vhost" required></select>
-        </label>
-        <label>
-          <span>File</span>
-          <input id="file" name="file" type="file" accept=".json" required />
-        </label>
-        <button type="submit" class="btn-primary">Upload</button>
-      </form>
-      <form id="exportDefinitions" method="post" class="form card cols-6">
-        <h3>Export definitions</h3>
-        <label>
-          <span>Virtual host</span>
-          <select id="exportDefinitionsVhost" name="vhost" required></select>
-        </label>
-        <button type="submit" class="btn-primary">Download</button>
-      </form>
-    </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
-
-    <script type="module">
-      import * as Overview from './js/overview.js'
+<%- layout("/layout.html", { title: "Overview" }) do -%>
+<table id="overview" class="stats-table card">
+  <tbody>
+    <tr>
+      <td id="connections"></td>
+      <td id="channels"></td>
+      <td id="consumers"></td>
+      <td id="exchanges"></td>
+      <td id="queues"></td>
+      <td id="uptime"></td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <th><a href="/connections">Connections</a></th>
+      <th><a href="/channels">Channels</a></th>
+      <th>Consumers</th>
+      <th><a href="/exchanges">Exchanges</a></th>
+      <th><a href="/queues">Queues</a></th>
+      <th>Uptime</th>
+    </tr>
+  </tfoot>
+</table>
+<section class="card cols-4 cols-6-md">
+  <h3>Queued messages</h3>
+  <div class="chart-container" id="msgChart"></div>
+</section>
+<section class="card cols-4 cols-6-md">
+  <h3>Data rates</h3>
+  <div class="chart-container" id="dataChart"></div>
+</section>
+<section class="card cols-4 cols-6-md">
+  <h3>Message rates</h3>
+  <div class="chart-container" id="rateChart"></div>
+</section>
+<form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
+  <h3>Upload definitions</h3>
+  <label>
+    <span>Virtual host</span>
+    <select id="uploadDefinitionsVhost" name="vhost" required></select>
+  </label>
+  <label>
+    <span>File</span>
+    <input id="file" name="file" type="file" accept=".json" required />
+  </label>
+  <button type="submit" class="btn-primary">Upload</button>
+</form>
+<form id="exportDefinitions" method="post" class="form card cols-6">
+  <h3>Export definitions</h3>
+  <label>
+    <span>Virtual host</span>
+    <select id="exportDefinitionsVhost" name="vhost" required></select>
+  </label>
+  <button type="submit" class="btn-primary">Download</button>
+</form>
+<script type="module">
+  import * as Overview from './js/overview.js'
       import * as Chart from './js/chart.js'
       import * as Vhosts from './js/vhosts.js'
       import * as HTTP from './js/http.js'
@@ -149,6 +125,5 @@
           document.body.removeChild(a)
         }).catch(HTTP.standardErrorHandler)
       })
-    </script>
-  </body>
-</html>
+</script>
+<%- end -%>

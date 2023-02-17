@@ -9,13 +9,24 @@ module LavinMQ
       include ::HTTP::Handler
       PUBLIC_DIR = "#{__DIR__}/../../../../static"
 
+      module ViewHelpers
+        def url(path)
+          # Prefix with base path here
+          path
+        end
+      end
+
       class HtmlTemplates < Templates::Registry
-        add_dir PUBLIC_DIR, extension: ".html"
+        helpers ViewHelpers
+        add_dir {{PUBLIC_DIR}}, extension: ".html"
+      end
+
+      abstract class ::LavinMQ::HTTP::Templates::Template
       end
 
       class Release
         extend BakedFileSystem
-        bake_folder "../../../../static"
+        bake_folder {{PUBLIC_DIR}}
       end
 
       def initialize
@@ -41,19 +52,24 @@ module LavinMQ
       private def serve(context, file_path)
         file = nil
         etag = nil
-        {% if flag?(:release) || flag?(:bake_static) %}
-          file = Release.get?(file_path)
-          file = Release.get?("#{file_path}.html") unless file
-          file = Release.get?("#{file_path}/index.html") unless file
-          etag = Digest::MD5.hexdigest(file.path + BUILD_TIME) if file
-        {% else %}
-          file_path = File.join(PUBLIC_DIR, file_path)
-          file_path = "#{file_path}/index.html" if File.directory?(file_path)
-          file_path = "#{file_path}.html" unless File.exists?(file_path)
-          file, etag = static(context, file_path) if File.exists?(file_path)
-        {% end %}
+
+        if (file = @templates[file_path]?) ||
+           (file = @templates["#{file_path}.html"]?)
+          etag = Digest::MD5.hexdigest(file.filename + BUILD_TIME)
+        else
+          {% if flag?(:release) || flag?(:bake_static) %}
+            file = Release.get?(file_path)
+            file = Release.get?("#{file_path}.html") unless file
+            file = Release.get?("#{file_path}/index.html") unless file
+            etag = Digest::MD5.hexdigest(file.path + BUILD_TIME) if file
+          {% else %}
+            file_path = File.join(PUBLIC_DIR, file_path)
+            file_path = "#{file_path}/index.html" if File.directory?(file_path)
+            file_path = "#{file_path}.html" unless File.exists?(file_path)
+            file, etag = static(context, file_path) if File.exists?(file_path)
+          {% end %}
+        end
         return nil unless file && etag
-        context.response.content_type = mime_type(file.path)
         if context.request.headers["If-None-Match"]? == etag && cache?(context.request.path)
           context.response.status_code = 304
         else
@@ -61,13 +77,21 @@ module LavinMQ
             context.response.headers.add("Cache-Control", "public,max-age=300")
             context.response.headers.add("ETag", etag)
           end
-          context.response.content_length = file.size
 
-          IO.copy(file, context.response)
+          case file
+          when BakedFileSystem::BakedFile,
+               File
+            context.response.content_length = file.size
+            context.response.content_type = mime_type(file.path)
+            IO.copy(file, context.response)
+          when Templates::Template
+            context.response.content_type = mime_type(file.filename)
+            file.render(context.response)
+          end
         end
         context
       ensure
-        file.try &.close
+        file.try &.close if file.responds_to?(:close)
       end
 
       private def cache?(request_path)
