@@ -54,17 +54,15 @@ module LavinMQ
               next if wait_for_flow
               break
             end
-            get_and_deliver_message
+            {% unless flag?(:release) %}
+              @log.debug { "Getting a new message" }
+            {% end %}
+            @queue.consume_get(@no_ack) do |env|
+              deliver(env.message, env.segment_position, env.redelivered)
+            end
           end
         rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
           @log.debug { "deliver loop exiting: #{ex.inspect}" }
-        end
-
-        private def get_and_deliver_message
-          @log.debug { "Getting a new message" }
-          @queue.consume_get(@no_ack) do |env|
-            deliver(env.message, env.segment_position, env.redelivered)
-          end
         end
 
         private def wait_for_global_capacity
