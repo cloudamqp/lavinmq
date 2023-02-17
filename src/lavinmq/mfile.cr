@@ -197,6 +197,10 @@ class MFile < IO
     @buffer
   end
 
+  def to_slice
+    Bytes.new(@buffer, @size, read_only: true)
+  end
+
   def to_slice(pos, size)
     raise IO::EOFError.new if pos + size > @size
     Bytes.new(@buffer + pos, size, read_only: true)
@@ -229,7 +233,7 @@ class MFile < IO
   end
 
   def resize(new_size : Int) : Nil
-    raise ArgumentError.new("Can't expand file larger than capacity, use trunacte") if new_size > @capacity
+    raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
   end
 
