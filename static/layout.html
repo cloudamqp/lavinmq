@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <title><%= vars[:title]? %>LavinMQ</title>
-    <link href="<%= url("/main.css") %>" rel="stylesheet">
+    <link href="<%= url "/main.css" %>" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="<%= url("/img/favicon.png") %>">
-    <link rel="apple-touch-icon" href="<%= url("/img/apple-touch-icon-iphone.png") %>" >
-    <link rel="apple-touch-icon" sizes="72x72" href="<%= url("/img/apple-touch-icon-ipad.png") %>">
-    <link rel="apple-touch-icon" sizes="114x114" href="<%= url("/img/apple-touch-icon-iphone4.png") %>">
-    <script type="module" src="<%= url("/js/layout.js") %>"></script>
+    <link rel="shortcut icon" type="image/png" href="<%= url "/img/favicon.png" %>">
+    <link rel="apple-touch-icon" href="<%= url "/img/apple-touch-icon-iphone.png" %>" >
+    <link rel="apple-touch-icon" sizes="72x72" href="<%= url "/img/apple-touch-icon-ipad.png" %>">
+    <link rel="apple-touch-icon" sizes="114x114" href="<%= url "/img/apple-touch-icon-iphone4.png" %>">
+    <script type="module" src="<%= url "/js/layout.js" %>"></script>
   </head>
   <body>
     <header>
@@ -40,7 +40,7 @@
     </header>
     <nav id="menu">
       <h1 id="menu-header">
-        <a href="/"><img id="amq-logo" src="<%= url("/img/logo-lavinmq-white.png") %>"></a>
+        <a href="/"><img id="amq-logo" src="<%= url "/img/logo-lavinmq-white.png" %>"></a>
         <small id="version"></small>
         <small id="cluster_name"></small>
       </h1>
@@ -49,7 +49,7 @@
     <main>
       <%- yield -%>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="<%= url("/img/logo-84codes.svg") %>"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="<%= url "/img/logo-84codes.svg" %>"></a></footer>
 
   </body>
 </html>
