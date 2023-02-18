@@ -2,40 +2,50 @@
 <html lang="en">
   <head>
     <title><%= vars[:title]? %>LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="<%= url("/main.css") %>" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="<%= url("/img/favicon.png") %>"/>
-    <link rel="apple-touch-icon" href="<%= url("/img/apple-touch-icon-iphone.png") %>" />
-    <link rel="apple-touch-icon" sizes="72x72" href="<%= url("/img/apple-touch-icon-ipad.png") %>" />
-    <link rel="apple-touch-icon" sizes="114x114" href="<%= url("/img/apple-touch-icon-iphone4.png") %>" />
+    <link rel="shortcut icon" type="image/png" href="<%= url("/img/favicon.png") %>">
+    <link rel="apple-touch-icon" href="<%= url("/img/apple-touch-icon-iphone.png") %>" >
+    <link rel="apple-touch-icon" sizes="72x72" href="<%= url("/img/apple-touch-icon-ipad.png") %>">
+    <link rel="apple-touch-icon" sizes="114x114" href="<%= url("/img/apple-touch-icon-iphone4.png") %>">
     <script type="module" src="<%= url("/js/layout.js") %>"></script>
   </head>
   <body>
     <header>
       <nav id="small-menu">
         <button id="menu-button" class="closed-menu" onclick=toggleSmallMenu()></button>
-        <ul id="small-menu-content">
-          <li><a id="menu-item" href="<%= url("/") %>">Overview</a></li>
-          <li><a id="menu-item" href="<%= url("/connections") %>">Connections</a></li>
-          <li><a id="menu-item" href="<%= url("/channels") %>">Channels</a></li>
-          <li><a id="menu-item" href="<%= url("/exchanges") %>">Exchanges</a></li>
-          <li><a id="menu-item" href="<%= url("/queues") %>">Queues</a></li>
-          <li><a id="menu-item" href="<%= url("/policies") %>">Policies</a></li>
-          <li><a id="menu-item" href="<%= url("/operator-policies") %>">Operator policies</a></li>
-          <li><a id="menu-item" href="<%= url("/shovels") %>">Shovels</a></li>
-          <li><a id="menu-item" href="<%= url("/federation") %>">Federation</a></li>
-          <li><a id="menu-item" href="<%= url("/vhosts") %>">Virtual hosts</a></li>
-          <li><a id="menu-item" href="<%= url("/users") %>">Users</a></li>
-          <li><a id="menu-item" href="<%= url("/nodes") %>">Nodes</a></li>
-          <li><a id="menu-item" href="<%= url("/docs/") %>" target="_blank">HTTP API</a></li>
-        </ul>
+        <%- partial("/partials/menu.html", { id: "small-menu-content" }) -%>
       </nav>
       <h2><%= vars[:title]? %></h2>
-      <nav id="user-menu"></nav>
+      <nav id="user-menu">i
+        <ul>
+          <li><span id="username"></span></li>
+          <li>
+            <form id="user-vhost">
+              <label>
+                <span>vhost:</span>
+                <select id="userMenuVhost" name="vhost"></select>
+              </label>
+            </form>
+          </li>
+          <li>
+            <a id="signoutLink" href="#">
+              <span class="head">🙈</span>&nbsp; Sign out</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
     </header>
-    <nav id="menu"></nav>
+    <nav id="menu">
+      <h1 id="menu-header">
+        <a href="/"><img id="amq-logo" src="<%= url("/img/logo-lavinmq-white.png") %>"></a>
+        <small id="version"></small>
+        <small id="cluster_name"></small>
+      </h1>
+      <%- partial("/partials/menu.html", { id: "menu-content" }) -%>
+    </nav>
     <main>
       <%- yield -%>
     </main>
