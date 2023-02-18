@@ -16,7 +16,9 @@ module LavinMQ::HTTP::Templates
     end
 
     macro partial(partial_name, vars = NamedTuple(), &block)
-      _partial(io, {{partial_name}},{{vars}}) { {{block.body}} }
+      _partial(io, {{partial_name}},{{vars}}) do
+        {{block.body if block}}
+      end
     end
 
     def _partial(io, partial_name, vars, &block)
@@ -64,6 +66,7 @@ module LavinMQ::HTTP::Templates
                 include {{h.id}}
               {% end %}
               def render(io, vars, layout_name = "", &)
+                Log.trace { "rendering #{filename} vars=#{vars}" }
                 ECR.embed {{tpl[:disk_path]}}, io
               end
             end
@@ -83,14 +86,14 @@ module LavinMQ::HTTP::Templates
       {% end %}
     end
 
-    # Add templates to registry from path. Only add files with given extension.
+    # Add templates to registry from path. Only add files matching regex in `matching`.
     # Prefix will be appended to the path in the registry, i.e. if you add path
     # ./templates/ and that folder containex tpl.html, tpl.html will be access
     # with /tpl.html. But if you set path: "foo" it will be access with /foo/tpl.html
     #
-    macro add_dir(path, extension = ".html", prefix = "", overwrite = false)
+    macro add_dir(path, matching = ".", exclude = "^$", prefix = "", overwrite = false)
       {%
-        template_files = run("./find_templates", path, extension).split('\n').map(&.strip).reject(&.empty?)
+        template_files = run("./find_templates", path, matching, exclude).split('\n').map(&.strip).reject(&.empty?)
         file_to_template = {} of String => String
         prefix = prefix.gsub(%r{^/|/$}, "")
         # find_templates will do Path.expand for us, since we can't from macro

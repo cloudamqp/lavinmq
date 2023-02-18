@@ -21,7 +21,7 @@ module LavinMQ
 
       class HtmlTemplates < Templates::Registry
         helpers ViewHelpers
-        add_dir {{PUBLIC_DIR}}, extension: ".html"
+        add_dir {{PUBLIC_DIR}}, matching: "\\.html$", exclude: "/docs/"
       end
 
       abstract class ::LavinMQ::HTTP::Templates::Template
