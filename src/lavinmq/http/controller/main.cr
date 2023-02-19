@@ -28,6 +28,12 @@ module LavinMQ
       EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
 
       private def register_routes
+        get "/" do |context, _params|
+          pagename = "Overview"
+          ECR.embed "./views/overview.ecr", context.response
+          context
+        end
+
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32

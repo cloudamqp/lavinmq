@@ -1,23 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Overview | LavinMQ</title>
-    <link href="main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
-    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="js/layout.js"></script>
+    <% ECR.embed "./views/head.ecr", context.response %>
   </head>
   <body>
-    <header>
-      <h2>Overview</h2>
-      <nav id="user-menu"></nav>
-    </header>
-    <nav id="menu"></nav>
+    <% ECR.embed "./views/menu.ecr", context.response %>
     <main>
       <div id="overview" class="card">
         <div>
@@ -78,8 +65,7 @@
         <button type="submit" class="btn-primary">Download</button>
       </form>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
-
+    <% ECR.embed "./views/footer.ecr", context.response %>
     <script type="module">
       import * as Overview from './js/overview.js'
       import * as Chart from './js/chart.js'
