@@ -29,7 +29,6 @@ module LavinMQ
 
       private def register_routes
         get "/" do |context, _params|
-          pagename = "Overview"
           ECR.embed "./views/overview.ecr", context.response
           context
         end
