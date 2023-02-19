@@ -4,6 +4,7 @@ WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production
 COPY ./static ./static
+COPY ./views ./views
 COPY ./src ./src
 
 # Run specs on build platform

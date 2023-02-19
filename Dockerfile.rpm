@@ -13,6 +13,7 @@ COPY Makefile README.md LICENSE NOTICE CHANGELOG.md shard.yml shard.lock ./
 COPY extras/lavinmq.service extras/config.ini extras/
 COPY openapi/ openapi/
 COPY static/ static/
+COPY views/ views/
 COPY src/ src/
 RUN sed -i -E "s/(VERSION =) .*/\1 \"$version\"/" src/lavinmq/version.cr
 RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
