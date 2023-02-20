@@ -11,11 +11,16 @@ module LavinMQ
 
       module ViewHelpers
         def url(path)
+          # We assume path are absolute (initial slash)
           base_href = Config.instance.mgmt_base_href.rstrip('/')
           if base_href.empty?
             return path
           end
           "#{base_href}#{path}"
+        end
+
+        def base_href
+          Config.instance.mgmt_base_href.rstrip('/')
         end
       end
 

@@ -2,7 +2,7 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-const url = '/api/overview'
+const url = 'api/overview'
 let updateTimer = null
 let data = null
 

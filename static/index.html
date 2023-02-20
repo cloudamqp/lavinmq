@@ -54,10 +54,10 @@
   <button type="submit" class="btn-primary">Download</button>
 </form>
 <script type="module">
-  import * as Overview from '<%= url "/js/overview.js" %>'
-  import * as Chart from '<%= url "/js/chart.js" %>'
-  import * as Vhosts from '<%= url "/js/vhosts.js" %>'
-  import * as HTTP from '<%= url "/js/http.js" %>'
+  import * as Overview from './js/overview.js'
+  import * as Chart from './js/chart.js'
+  import * as Vhosts from './js/vhosts.js'
+  import * as HTTP from './js/http.js'
 
   const msgChart = Chart.render('msgChart', 'msgs', true)
   const dataChart = Chart.render('dataChart', 'bytes/s')
@@ -88,7 +88,7 @@
   document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
     evt.preventDefault()
     const body = new window.FormData(this)
-    let url = '<%= url "/api/definitions" %>'
+    let url = 'api/definitions'
     if(body.get('vhost') === '_all') {
       url += '/upload'
     } else {

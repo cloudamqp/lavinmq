@@ -1,109 +1,82 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>Connections | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
-  </head>
-  <body>
-    <header>
-      <nav id="small-menu"></nav>
-      <h2>
-        Connections
-        <small id="table-count"></small>
-      </h2>
-      <nav id="user-menu"/>
-    </header>
-    <nav id="menu"></nav>
-    <main>
-      <section class="card">
-        <div class="table-wrapper">
-          <div id="table-error"></div>
-          <table id="table" class="table">
-            <thead>
-              <tr>
-                <th data-sort-key="vhost">Virtual host</th>
-                <th data-sort-key="name" class="left">Name</th>
-                <th data-sort-key="user" class="left">User</th>
-                <th data-sort-key="state">State</th>
-                <th data-sort-key="ssl">TLS</th>
-                <th data-sort-key="tls_version">TLS Version</th>
-                <th data-sort-key="cipher">Cipher</th>
-                <th data-sort-key="protocol">Protocol</th>
-                <th data-sort-key="channels">Channels</th>
-                <th data-sort-key="channel_max">Channel max</th>
-                <th data-sort-key="timeout">Heartbeat</th>
-                <th>Client</th>
-                <th data-sort-key="connected_at">Connected at</th>
-                <th data-sort-key="recv_oct">Received bytes</th>
-                <th data-sort-key="send_oct">Sent bytes</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-    </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
-    <script type="module">
-      import * as DOM from './js/dom.js'
-      import * as Table from './js/table.js'
+<%- layout("/layout.haml", { title: "Connections" }) do -%>
+<section class="card">
+  <div class="table-wrapper">
+    <div id="table-error"></div>
+    <table id="table" class="table">
+      <thead>
+        <tr>
+          <th data-sort-key="vhost">Virtual host</th>
+          <th data-sort-key="name" class="left">Name</th>
+          <th data-sort-key="user" class="left">User</th>
+          <th data-sort-key="state">State</th>
+          <th data-sort-key="ssl">TLS</th>
+          <th data-sort-key="tls_version">TLS Version</th>
+          <th data-sort-key="cipher">Cipher</th>
+          <th data-sort-key="protocol">Protocol</th>
+          <th data-sort-key="channels">Channels</th>
+          <th data-sort-key="channel_max">Channel max</th>
+          <th data-sort-key="timeout">Heartbeat</th>
+          <th>Client</th>
+          <th data-sort-key="connected_at">Connected at</th>
+          <th data-sort-key="recv_oct">Received bytes</th>
+          <th data-sort-key="send_oct">Sent bytes</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+<script type="module">
+  import * as DOM from './js/dom.js'
+  import * as Table from './js/table.js'
 
-      const vhost = window.sessionStorage.getItem('vhost')
-      const escapeHTML = DOM.escapeHTML
-      const numFormatter = new Intl.NumberFormat()
-      let url = '/api/connections'
-      if (vhost && vhost !== '_all') {
-        url = `/api/vhosts/${encodeURIComponent(vhost)}/connections`
+  const vhost = window.sessionStorage.getItem('vhost')
+  const escapeHTML = DOM.escapeHTML
+  const numFormatter = new Intl.NumberFormat()
+  let url = 'api/connections'
+  if (vhost && vhost !== '_all') {
+    url = `api/vhosts/${encodeURIComponent(vhost)}/connections`
+  }
+  const tableOptions = {
+    url,
+    keyColumns: ['name'],
+    interval: 5000,
+    pagination: true,
+    columnSelector: true,
+    search: true
+  }
+  Table.renderTable('table', tableOptions, function (tr, item, all) {
+    if (all) {
+      let client = ''
+      if (item.client_properties.product) {
+        client = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
       }
-      const tableOptions = {
-        url,
-        keyColumns: ['name'],
-        interval: 5000,
-        pagination: true,
-        columnSelector: true,
-        search: true
+      const clientVersion = item.client_properties.version || ''
+      const connectionLink = document.createElement('a')
+      connectionLink.href = `connection?name=${encodeURIComponent(item.name)}`
+      if (item.client_properties.connection_name) {
+        connectionLink.innerHTML = `<span>${item.name}</span>
+          <br><small>${escapeHTML(item.client_properties.connection_name)}</small>`
+      } else {
+        connectionLink.textContent = item.name
       }
-      Table.renderTable('table', tableOptions, function (tr, item, all) {
-        if (all) {
-          let client = ''
-          if (item.client_properties.product) {
-            client = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
-          }
-          const clientVersion = item.client_properties.version || ''
-          const connectionLink = document.createElement('a')
-          connectionLink.href = `/connection?name=${encodeURIComponent(item.name)}`
-          if (item.client_properties.connection_name) {
-            connectionLink.innerHTML = `<span>${item.name}</span>
-              <br><small>${escapeHTML(item.client_properties.connection_name)}</small>`
-          } else {
-            connectionLink.textContent = item.name
-          }
-          Table.renderCell(tr, 0, item.vhost)
-          Table.renderCell(tr, 1, connectionLink)
-          Table.renderCell(tr, 2, item.user)
-          Table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
-          Table.renderCell(tr, 5, item.tls_version, 'center')
-          Table.renderCell(tr, 6, item.cipher, 'center')
-          Table.renderCell(tr, 7, item.protocol, 'center')
-          Table.renderCell(tr, 9, item.channel_max, 'right')
-          Table.renderCell(tr, 10, item.timeout, 'right')
-          // Table.renderCell(tr, 8, item.auth_mechanism)
-          Table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
-          Table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
-        }
-        Table.renderCell(tr, 3, null, `center state-${item.state}`)
-        Table.renderCell(tr, 8, item.channels, 'right')
-        Table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
-        Table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
-      })
-    </script>
-  </body>
-</html>
+      Table.renderCell(tr, 0, item.vhost)
+      Table.renderCell(tr, 1, connectionLink)
+      Table.renderCell(tr, 2, item.user)
+      Table.renderCell(tr, 4, item.ssl ? '🔒' : '', 'center')
+      Table.renderCell(tr, 5, item.tls_version, 'center')
+      Table.renderCell(tr, 6, item.cipher, 'center')
+      Table.renderCell(tr, 7, item.protocol, 'center')
+      Table.renderCell(tr, 9, item.channel_max, 'right')
+      Table.renderCell(tr, 10, item.timeout, 'right')
+      // Table.renderCell(tr, 8, item.auth_mechanism)
+      Table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
+      Table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
+    }
+    Table.renderCell(tr, 3, null, `center state-${item.state}`)
+    Table.renderCell(tr, 8, item.channels, 'right')
+    Table.renderCell(tr, 13, numFormatter.format(item.recv_oct), 'right')
+    Table.renderCell(tr, 14, numFormatter.format(item.send_oct), 'right')
+  })
+</script>
+<%- end -%>

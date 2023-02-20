@@ -21,7 +21,7 @@ function header () {
 function signOut () {
   clearCookieValue('auth')
   clearCookieValue('username')
-  window.location.assign('/login')
+  window.location.assign('login')
 }
 
 function setAuth (userInfo) {
