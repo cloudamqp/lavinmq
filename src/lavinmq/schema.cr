@@ -1,17 +1,252 @@
+require "../stdlib/copy_file_range"
+
 module LavinMQ
-  class OutdatedSchemaVersion < Exception
-    getter version : Int32
+  module Schema
+    VERSION = 4
 
-    def initialize(@version, path)
-      super "Outdated schema version #{@version} for #{path}"
+    def self.migrate(data_dir)
+      case version(data_dir)
+      when VERSION then return
+      else
+        backup_dir = backup(data_dir)
+        begin
+          SchemaV4.new(data_dir).migrate
+        rescue ex
+          restore(data_dir, backup_dir)
+          raise ex
+        end
+      end
     end
-  end
 
-  class UnsupportedSchemaVersion < Exception
-    getter version : Int32
+    private def self.version(data_dir) : Int32?
+      File.read(File.join(data_dir, "schema_version")).to_i32
+    rescue File::NotFoundError
+      nil
+    end
 
-    def initialize(@version, path)
-      super "Cannot migrate #{path} from version #{@version}"
+    private def self.backup(data_dir) : String
+      backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339)
+      Dir.mkdir_p(backup_dir)
+      Dir.each_child(data_dir) do |child|
+        next if child == "backups"
+        FileUtils.cp_r File.join(data_dir, child), backup_dir
+      end
+      backup_dir
+    end
+
+    private def self.restore(data_dir, backup_dir)
+      # delete everything in data dir except backups
+      Dir.each_child(data_dir) do |child|
+        next if child == "backups"
+        FileUtils.rm_r File.join(data_dir, child)
+      end
+      # move the backup files to data dir
+      Dir.each_child(backup_dir) do |c|
+        FileUtils.mv File.join(backup_dir, c), data_dir
+      end
+    end
+
+    # Migrates a data directory from version 1-3 to version 4
+    class SchemaV4
+      Log = ::Log.for(self)
+
+      def initialize(@data_dir : String)
+      end
+
+      def migrate
+        vhosts do |vhost_dir|
+          VhostMigrator.new(vhost_dir).migrate
+        end
+        File.write(File.join(@data_dir, "schema_version"), Schema::VERSION)
+      end
+
+      private def vhosts(&)
+        File.open(File.join(@data_dir, "vhosts.json")) do |f|
+          JSON.parse(f).as_a.each do |vhost|
+            dir = vhost["dir"].as_s
+            yield File.join(@data_dir, dir)
+          end
+        end
+      rescue File::NotFoundError
+        Log.debug { "Can't migrate data directory, vhosts.json is missing" }
+      end
+
+      class VhostMigrator
+        def initialize(@vhost_dir : String)
+        end
+
+        def migrate
+          Log.info { "Migrating #{@vhost_dir}" }
+          vhost_segments = Hash(UInt32, File).new { |h, k| h[k] = File.new("#{@vhost_dir}/msgs.#{k.to_s.rjust(10, '0')}") }
+          queues.each do |queue|
+            queue_dir = File.join(@vhost_dir, Digest::SHA1.hexdigest queue)
+            QueueMigrator.new(queue_dir, vhost_segments).migrate
+          end
+          vhost_segments.each_value &.delete
+          vhost_segments.each_value &.close
+        end
+
+        private def queues : Array(String)
+          queues = Array(String).new
+          File.open(File.join(@vhost_dir, "definitions.amqp")) do |io|
+            version = io.read_bytes Int32
+            raise UnsupportedSchemaVersion.new(version, io.path) unless version == 1
+
+            loop do
+              AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |frame|
+                case frame
+                when AMQP::Frame::Queue::Declare
+                  queues.push frame.queue_name
+                when AMQP::Frame::Queue::Delete
+                  queues.delete frame.queue_name
+                end
+              end
+            rescue IO::EOFError
+              break
+            end
+          end
+          queues
+        end
+
+        class QueueMigrator
+          def initialize(@queue_dir : String, @vhost_segments : Hash(UInt32, File))
+          end
+
+          def migrate
+            i = 0
+            wfile_id = 1u32
+            wfile = File.new("#{@queue_dir}/msgs.#{wfile_id.to_s.rjust(10, '0')}", "w")
+            wfile.write_bytes Schema::VERSION
+            enqs do |sp|
+              vseg = @vhost_segments[sp.segment]
+              vseg.seek sp.position
+              IO.copy(vseg, wfile, sp.bytesize)
+              if wfile.pos >= Config.instance.segment_size
+                wfile.close
+                wfile_id += 1
+                wfile = File.new("#{@queue_dir}/msgs.#{wfile_id.to_s.rjust(10, '0')}")
+                wfile.write_bytes Schema::VERSION
+              end
+              i += 1
+            end
+            wfile.close
+            File.delete File.join(@queue_dir, "ack")
+            File.delete File.join(@queue_dir, "enq")
+            Log.info { "Migrated #{i} messages in #{@queue_dir}" }
+          end
+
+          private def enqs(& : SegmentPositionBase -> Nil) : Nil
+            acks = acks()
+            File.open("#{@queue_dir}/enq") do |f|
+              segment_position_class = segment_position_class(f)
+              loop do
+                sp = segment_position_class.from_io f
+                if sp.zero?
+                  goto_next_block(f) # if holes in index
+                elsif acks.bsearch { |asp| asp >= sp } == sp
+                  next # already acked
+                else
+                  yield sp
+                end
+              rescue IO::EOFError
+                break
+              end
+            end
+          end
+
+          private def acks : Array(SegmentPositionBase)
+            ack_path = File.join(@queue_dir, "ack")
+            acks = Array(SegmentPositionBase).new
+            File.open(ack_path) do |f|
+              segment_position_class = segment_position_class(f)
+              loop do
+                sp = segment_position_class.from_io f
+                if sp.zero?
+                  goto_next_block(f) # if holes in index
+                else
+                  acks << sp
+                end
+              rescue IO::EOFError
+                break
+              end
+            end
+            acks.sort!
+          end
+
+          private def goto_next_block(f)
+            new_pos = ((f.pos // 4096) + 1) * 4096
+            f.pos = new_pos
+          end
+
+          private def segment_position_class(f)
+            case schema_version = f.read_bytes Int32
+            when 1 then SegmentPositionV1
+            when 2 then SegmentPositionV2
+            when 3 then SegmentPositionV3
+            else        raise OutdatedSchemaVersion.new(schema_version, f.path)
+            end
+          end
+        end
+      end
+    end
+
+    abstract struct SegmentPositionBase
+      include Comparable(self)
+      getter segment : UInt32
+      getter position : UInt32
+      getter bytesize : UInt32
+
+      def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32)
+      end
+
+      def zero?
+        segment == position == 0u32
+      end
+
+      def <=>(other : self)
+        r = segment <=> other.segment
+        return r unless r.zero?
+        position <=> other.position
+      end
+    end
+
+    struct SegmentPositionV1 < SegmentPositionBase
+      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
+        seg = UInt32.from_io(io, format)
+        pos = UInt32.from_io(io, format)
+        bytesize = UInt32.from_io(io, format)
+        # SegmentPosition at schema version 1 also included:
+        # expiration_ts and priority
+        # skipping them as we don't need them
+        io.skip(sizeof(Int64) + sizeof(UInt8))
+        self.new(seg, pos, bytesize)
+      end
+    end
+
+    struct SegmentPositionV2 < SegmentPositionBase
+      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
+        seg = UInt32.from_io(io, format)
+        pos = UInt32.from_io(io, format)
+        bytesize = UInt32.from_io(io, format)
+        # SegmentPosition at schema version 2 also included:
+        # expiration_ts and priority, flags
+        # skipping them as we don't need them
+        io.skip(sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
+        self.new(seg, pos, bytesize)
+      end
+    end
+
+    struct SegmentPositionV3 < SegmentPositionBase
+      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
+        seg = UInt32.from_io(io, format)
+        pos = UInt32.from_io(io, format)
+        bytesize = UInt32.from_io(io, format)
+        # SegmentPosition at schema version 3 also included:
+        # expiration_ts, ttl, priority, flags
+        # skipping them as we don't need them
+        io.skip(sizeof(Int64) + sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
+        self.new(seg, pos, bytesize)
+      end
     end
   end
 
@@ -20,8 +255,8 @@ module LavinMQ
 
     VERSIONS = {
       definition: 1,
-      message:    1,
-      index:      3,
+      message:    4,
+      index:      4,
     }
 
     def self.verify(file, type) : Int32
@@ -39,132 +274,26 @@ module LavinMQ
       version
     end
 
-    def self.verify_or_prefix(file, type)
+    def self.verify_or_prefix(file, type) : Int32
       verify(file, type)
     rescue IO::EOFError
       prefix(file, type)
     end
+  end
 
-    def self.migrate(path : String, type)
-      File.open(path) do |file|
-        begin
-          self.verify(file, type)
-        rescue ex : OutdatedSchemaVersion
-          self.migrate(file, type, ex.version)
-        end
-      end
+  class OutdatedSchemaVersion < Exception
+    getter version : Int32
+
+    def initialize(@version, path)
+      super "Outdated schema version #{@version} for #{path}"
     end
+  end
 
-    def self.migrate(file, type, current_version)
-      Log.info { "Migrating #{file.path} from version #{current_version} to #{VERSIONS[type]}" }
-      case type
-      when :index
-        case current_version
-        when 1
-          MigrateIndex(SegmentPositionV1).run(file)
-          return
-        when 2
-          MigrateIndex(SegmentPositionV2).run(file)
-          return
-        end
-      end
-      raise UnsupportedSchemaVersion.new current_version, file.path
-    end
+  class UnsupportedSchemaVersion < Exception
+    getter version : Int32
 
-    class MigrateIndex(T)
-      def self.run(file)
-        # data dir is one level up from index files
-        data_dir = File.join(File.dirname(file.path), "..")
-        File.open("#{file.path}.tmp", "w") do |f|
-          SchemaVersion.prefix(f, :index)
-          prev_segment = 0u32
-          seg = nil
-          loop do
-            sp =
-              begin
-                T.from_io file
-              rescue IO::EOFError
-                break
-              end
-            if sp.zero?
-              goto_next_block(file)
-              next
-            end
-            if prev_segment != sp.segment
-              seg.try &.close
-              seg = open_segment data_dir, sp.segment
-            end
-            if segment = seg
-              segment.pos = sp.position
-              begin
-                msg = MessageMetadata.from_io segment
-                new_sp = SegmentPosition.make(sp.segment, sp.position, msg)
-                f.write_bytes new_sp
-              rescue IO::EOFError | AMQ::Protocol::Error
-                next # if the message has been truncated or hole punched by GC already
-              rescue ex
-                Log.error { "sp_seg=#{sp.segment} sp_pos=#{sp.position} current_pos=#{segment.pos}" }
-                raise ex
-              end
-            else
-              next # if the file has been deleted by GC already
-            end
-          end
-          seg.try &.close
-          File.rename f.path, file.path
-          f.fsync
-        end
-      end
-
-      private def self.open_segment(data_dir, seg)
-        filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-        file = File.new(File.join(data_dir, filename))
-        file
-      rescue File::NotFoundError
-        nil
-      end
-
-      # Jump to the next block in a file
-      private def self.goto_next_block(f)
-        new_pos = ((f.pos // 4096) + 1) * 4096
-        f.pos = new_pos
-      end
-    end
-
-    abstract struct SegmentPositionBase
-      getter segment : UInt32
-      getter position : UInt32
-
-      def initialize(@segment : UInt32, @position : UInt32)
-      end
-
-      def zero?
-        segment == position == 0u32
-      end
-    end
-
-    struct SegmentPositionV1 < SegmentPositionBase
-      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
-        seg = UInt32.from_io(io, format)
-        pos = UInt32.from_io(io, format)
-        # SegmentPosition at schema version 1 also included:
-        # bytesize, expiration_ts and priority
-        # skipping them as we don't need them
-        io.skip(sizeof(UInt32) + sizeof(Int64) + sizeof(UInt8))
-        self.new(seg, pos)
-      end
-    end
-
-    struct SegmentPositionV2 < SegmentPositionBase
-      def self.from_io(io : IO, format = IO::ByteFormat::SystemEndian)
-        seg = UInt32.from_io(io, format)
-        pos = UInt32.from_io(io, format)
-        # SegmentPosition at schema version 2 also included:
-        # bytesize, expiration_ts and priority, flags
-        # skipping them as we don't need them
-        io.skip(sizeof(UInt32) + sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
-        self.new(seg, pos)
-      end
+    def initialize(@version, path)
+      super "Cannot migrate #{path} from version #{@version}"
     end
   end
 end
