@@ -112,7 +112,7 @@ module LavinMQ
           end
         end
 
-        private def try_passive(client, ch = nil)
+        private def try_passive(client, ch = nil, &)
           ch ||= client.channel
           {ch, yield(ch, true)}
         rescue ::AMQP::Client::Channel::ClosedException
@@ -286,7 +286,7 @@ module LavinMQ
           b
         end
 
-        private def with_consumer_q
+        private def with_consumer_q(&)
           if q = @consumer_q
             yield q
           else

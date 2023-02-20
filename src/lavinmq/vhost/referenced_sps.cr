@@ -22,7 +22,7 @@ module LavinMQ
         @pq.empty?
       end
 
-      def each
+      def each(&)
         pq = @pq
         until pq.empty?
           q = pq.shift

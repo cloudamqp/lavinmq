@@ -49,7 +49,7 @@ class MFile < IO
   end
 
   # Opens an existing file in readonly mode
-  def self.open(path)
+  def self.open(path, & : MFile -> _)
     mfile = self.new(path)
     begin
       yield mfile

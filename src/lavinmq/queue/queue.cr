@@ -669,7 +669,7 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def get_msg(consumer : Client::Channel::Consumer) : Bool
+    def get_msg(consumer : Client::Channel::Consumer, &) : Bool
       get(consumer.no_ack) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)

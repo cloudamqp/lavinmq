@@ -33,7 +33,7 @@ class Socket
 end
 
 module IO::Evented
-  def evented_sendfile(limit : Int, errno_msg : String) : Int64
+  def evented_sendfile(limit : Int, errno_msg : String, &) : Int64
     limit = limit.to_i64
     remaining = limit
     loop do

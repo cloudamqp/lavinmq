@@ -44,7 +44,7 @@ module LavinMQ
       end
     end
 
-    def each
+    def each(&)
       @shovels.each_value do |v|
         yield v
       end

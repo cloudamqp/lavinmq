@@ -29,7 +29,7 @@ module LavinMQ
       end
     end
 
-    def apply(parameter : Parameter? = nil)
+    def apply(parameter : Parameter? = nil, &)
       itr = if parameter.nil?
               @parameters.each_value
             else
@@ -44,7 +44,7 @@ module LavinMQ
       end
     end
 
-    def each
+    def each(&)
       @parameters.each do |kv|
         yield kv
       end

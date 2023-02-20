@@ -430,7 +430,7 @@ module LavinMQ
         found
       end
 
-      private def delete_multiple_unacked(delivery_tag)
+      private def delete_multiple_unacked(delivery_tag, &)
         was_full = false
         @unack_lock.synchronize do
           was_full = !has_capacity?
@@ -459,7 +459,7 @@ module LavinMQ
         @unacked.size
       end
 
-      def each_unacked
+      def each_unacked(&)
         @unack_lock.synchronize do
           @unacked.each do |unack|
             yield unack

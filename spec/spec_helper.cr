@@ -30,7 +30,7 @@ LavinMQ::Config.instance.tap do |cfg|
   cfg.http_port = HTTP_PORT
 end
 
-def with_channel(**args)
+def with_channel(**args, &)
   name = nil
   if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
     name = formatter.@last_description
@@ -43,18 +43,18 @@ ensure
   conn.try &.close(no_wait: false)
 end
 
-def with_vhost(name)
+def with_vhost(name, &)
   vhost = Server.vhosts.create(name)
   yield vhost
 ensure
   Server.vhosts.delete(name)
 end
 
-def with_ssl_channel(**args)
+def with_ssl_channel(**args, &)
   with_channel(args) { |ch| yield ch }
 end
 
-def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__)
+def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
   sec = Time.monotonic
   loop do
     Fiber.yield
@@ -67,7 +67,7 @@ def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = 
   end
 end
 
-def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__)
+def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
   sec = Time.monotonic
   loop do
     Fiber.yield

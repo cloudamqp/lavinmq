@@ -165,7 +165,7 @@ module LavinMQ
         raise HaltRequest.new(body.try { |b| b[:reason] })
       end
 
-      private def with_vhost(context, params, key = "vhost")
+      private def with_vhost(context, params, key = "vhost", &)
         name = URI.decode_www_form(params[key])
         if @amqp_server.vhosts[name]?
           yield name

@@ -12,7 +12,7 @@ module LavinMQ
         @log = Log.for "UpstreamStore[vhost=#{@vhost}]"
       end
 
-      def each
+      def each(&)
         @upstreams.each_value do |v|
           yield v
         end

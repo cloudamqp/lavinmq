@@ -301,7 +301,7 @@ module LavinMQ
       !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
     end
 
-    private def with_channel(frame)
+    private def with_channel(frame, &)
       if ch = @channels[frame.channel]?
         if ch.running?
           yield ch

@@ -34,7 +34,7 @@ module LavinMQ
         Iterator(Client::Channel).chain(connections(user).map(&.channels.each_value))
       end
 
-      private def with_channel(context, params)
+      private def with_channel(context, params, &)
         name = URI.decode_www_form(params["name"])
         channel = all_channels(user(context)).find { |c| c.name == name }
         not_found(context, "Channel #{name} does not exist") unless channel

@@ -18,7 +18,7 @@ module LavinMQ
 
     forward_missing_to @users
 
-    def each
+    def each(&)
       @users.each do |kv|
         yield kv
       end
