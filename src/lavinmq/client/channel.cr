@@ -26,7 +26,7 @@ module LavinMQ
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
-      @next_msg_size = 0_u32
+      @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @delivery_tag = 0_u64
       @unacked = Deque(Unack).new
@@ -140,7 +140,7 @@ module LavinMQ
           @log.warn { "Message size exceeded, #{frame.body_size}/#{Config.instance.max_message_size}" }
           return
         end
-        @next_msg_size = frame.body_size.to_u32
+        @next_msg_size = frame.body_size
         @next_msg_props = frame.properties
         finish_publish(@next_msg_body_tmp) if frame.body_size.zero?
       end
@@ -229,7 +229,7 @@ module LavinMQ
         confirm_nack
         raise ex
       ensure
-        @next_msg_size = 0_u32
+        @next_msg_size = 0_u64
         @next_msg_props = nil
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
