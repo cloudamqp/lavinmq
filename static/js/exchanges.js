@@ -20,7 +20,7 @@ Overview.get('exchange_types').then(exchangeTypes => {
 })
 
 const vhost = window.sessionStorage.getItem('vhost')
-let url = '/api/exchanges'
+let url = 'api/exchanges'
 if (vhost && vhost !== '_all') {
   url += '/' + encodeURIComponent(vhost)
 }
@@ -43,7 +43,7 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
     features += item.internal ? ' I' : ''
     features += item.arguments['x-delayed-exchange'] ? ' d' : ''
     const exchangeLink = document.createElement('a')
-    exchangeLink.href = '/exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
+    exchangeLink.href = 'exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
     exchangeLink.textContent = item.name
     Table.renderCell(tr, 0, item.vhost)
     Table.renderCell(tr, 1, exchangeLink)
@@ -53,7 +53,7 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
   let policyLink = ''
   if (item.policy) {
     policyLink = document.createElement('a')
-    policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+    policyLink.href = 'policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
     policyLink.textContent = item.policy
   }
   Table.renderCell(tr, 4, policyLink, 'center')
@@ -64,7 +64,7 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
   const data = new window.FormData(this)
   const vhost = encodeURIComponent(data.get('vhost'))
   const exchange = encodeURIComponent(data.get('name').trim())
-  const url = '/api/exchanges/' + vhost + '/' + exchange
+  const url = 'api/exchanges/' + vhost + '/' + exchange
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',

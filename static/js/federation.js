@@ -7,8 +7,8 @@ import * as Vhosts from './vhosts.js'
 const escapeHTML = DOM.escapeHTML
 Vhosts.addVhostOptions('createUpstream')
 
-let url = '/api/parameters/federation-upstream'
-let linksUrl = '/api/federation-links'
+let url = 'api/parameters/federation-upstream'
+let linksUrl = 'api/federation-links'
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
   const urlEncodedVhost = encodeURIComponent(vhost)
@@ -36,7 +36,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   btn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
-    const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
+    const url = 'api/parameters/federation-upstream/' + vhost + '/' + name
     if (!window.confirm(`Delete federation upstream ${item.name} ?`)) return
     HTTP.request('DELETE', url)
       .then(() => {
@@ -60,7 +60,7 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
   const data = new window.FormData(this)
   const name = encodeURIComponent(data.get('name').trim())
   const vhost = encodeURIComponent(data.get('vhost'))
-  const url = '/api/parameters/federation-upstream/' + vhost + '/' + name
+  const url = 'api/parameters/federation-upstream/' + vhost + '/' + name
   const body = {
     value: {
       uri: data.get('uri'),

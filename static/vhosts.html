@@ -57,7 +57,7 @@
       import * as Table from './js/table.js'
 
       const tableOptions = {
-        url: '/api/vhosts',
+        url: 'api/vhosts',
         keyColumns: ['name'],
         interval: 5000,
         pagination: true,
@@ -66,7 +66,7 @@
       }
       const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
-        const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
+        const permissionsUrl = 'api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
           HTTP.request('GET', permissionsUrl).then(permissions => {
             window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
@@ -79,7 +79,7 @@
         permissionsPromise.then(permissions => {
           if (all) {
             const vhostLink = document.createElement('a')
-            vhostLink.href = '/vhost?name=' + urlEncodedVhost
+            vhostLink.href = 'vhost?name=' + urlEncodedVhost
             vhostLink.textContent = item.name
             Table.renderCell(tr, 0, vhostLink)
           }
@@ -95,7 +95,7 @@
         evt.preventDefault()
         const data = new window.FormData(this)
         const name = encodeURIComponent(data.get('name').trim())
-        const url = '/api/vhosts/' + name
+        const url = 'api/vhosts/' + name
         HTTP.request('PUT', url)
           .then(() => {
             vhostTable.fetchAndUpdate()

@@ -13,7 +13,7 @@ const escapeHTML = DOM.escapeHTML
 
 document.title = exchange + ' | LavinMQ'
 
-const exchangeUrl = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
+const exchangeUrl = 'api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
 function updateExchange () {
   HTTP.request('GET', exchangeUrl).then(item => {
     Chart.update(chart, item.message_stats)
@@ -37,7 +37,7 @@ function updateExchange () {
     DOM.setChild('#e-arguments', argList)
     if (item.policy) {
       const policyLink = document.createElement('a')
-      policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+      policyLink.href = 'policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
       policyLink.textContent = item.policy
       DOM.setChild('#e-policy', policyLink)
     }
@@ -61,14 +61,14 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       const d = encodeURIComponent(item.destination)
       const p = encodeURIComponent(item.properties_key)
       const t = item.destination_type == "exchange" ? "e" : "q"
-      const url = '/api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
+      const url = 'api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
       HTTP.request('DELETE', url)
         .then(() => {
           DOM.removeNodes(tr)
         }).catch(HTTP.standardErrorHandler)
     }
     const d = encodeURIComponent(item.destination)
-    const destinationLink = `<a href="/${escapeHTML(item.destination_type)}?vhost=${urlEncodedVhost}&name=${escapeHTML(d)}">${escapeHTML(item.destination)}</a>`
+    const destinationLink = `<a href="${escapeHTML(item.destination_type)}?vhost=${urlEncodedVhost}&name=${escapeHTML(d)}">${escapeHTML(item.destination)}</a>`
     Table.renderCell(tr, 0, item.destination_type)
     Table.renderHtmlCell(tr, 1, destinationLink, 'left')
     Table.renderCell(tr, 2, item.routing_key, 'left')
@@ -82,7 +82,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
   const data = new window.FormData(this)
   const d = encodeURIComponent(data.get('destination').trim())
   const t = data.get('dest-type')
-  const url = '/api/bindings/' + urlEncodedVhost + '/e/' + urlEncodedExchange + '/' + t + '/' + d
+  const url = 'api/bindings/' + urlEncodedVhost + '/e/' + urlEncodedExchange + '/' + t + '/' + d
   const args = DOM.parseJSON(data.get('arguments'))
   const body = {
     routing_key: data.get('routing_key').trim(),
@@ -98,7 +98,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange + '/publish'
+  const url = 'api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange + '/publish'
   const properties = DOM.parseJSON(data.get('properties'))
   properties.delivery_mode = parseInt(data.get('delivery_mode'))
   properties.headers = DOM.parseJSON(data.get('headers'))
@@ -117,10 +117,10 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
 
 document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = '/api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
+  const url = 'api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
-      .then(() => { window.location = '/exchanges' })
+      .then(() => { window.location = 'exchanges' })
       .catch(HTTP.standardErrorHandler)
   }
 })

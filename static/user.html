@@ -123,7 +123,7 @@
       document.querySelector('#user').textContent = user
 
       function updateUser () {
-        const userUrl = '/api/users/' + urlEncodedUsername
+        const userUrl = 'api/users/' + urlEncodedUsername
         HTTP.request('GET', userUrl)
           .then(item => {
             const hasPassword = item.password_hash ? '●' : '○'
@@ -142,7 +142,7 @@
       }
       updateUser()
 
-      const permissionsUrl = '/api/users/' + urlEncodedUsername + '/permissions'
+      const permissionsUrl = 'api/users/' + urlEncodedUsername + '/permissions'
       const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0 }
       const permissionsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
         Table.renderCell(tr, 1, item.configure)
@@ -155,7 +155,7 @@
           btn.onclick = function () {
             const username = encodeURIComponent(item.user)
             const vhost = encodeURIComponent(item.vhost)
-            const url = '/api/permissions/' + vhost + '/' + username
+            const url = 'api/permissions/' + vhost + '/' + username
             HTTP.request('DELETE', url)
               .then(() => {
                 DOM.removeNodes(tr)
@@ -172,7 +172,7 @@
         evt.preventDefault()
         const data = new window.FormData(this)
         const vhost = encodeURIComponent(data.get('vhost'))
-        const url = '/api/permissions/' + vhost + '/' + urlEncodedUsername
+        const url = 'api/permissions/' + vhost + '/' + urlEncodedUsername
         const body = {
           configure: data.get('configure'),
           write: data.get('write'),
@@ -198,7 +198,7 @@
       document.querySelector('#updateUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const data = new window.FormData(this)
-        const url = '/api/users/' + urlEncodedUsername
+        const url = 'api/users/' + urlEncodedUsername
         const body = {
           tags: data.get('tags')
         }
@@ -221,10 +221,10 @@
 
       document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const url = '/api/users/' + urlEncodedUsername
+        const url = 'api/users/' + urlEncodedUsername
         if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
           HTTP.request('DELETE', url)
-            .then(() => { window.location = '/users' })
+            .then(() => { window.location = 'users' })
             .catch(HTTP.standardErrorHandler)
         }
       })

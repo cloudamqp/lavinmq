@@ -4,7 +4,7 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Vhosts from './vhosts.js'
 
-function apply(base_url = '/api/policies') {
+function apply(base_url = 'api/policies') {
   let url = base_url
   Vhosts.addVhostOptions('createPolicy').then(() => {
     autofill_editpolicy(policiesTable.getData())

@@ -10,7 +10,7 @@ const chart = Chart.render('chart', 'bytes/s')
 document.title = connection + ' | LavinMQ'
 document.querySelector('#connection').textContent = connection
 
-const connectionUrl = '/api/connections/' + urlEncodedConnection
+const connectionUrl = 'api/connections/' + urlEncodedConnection
 function updateConnection (all) {
   HTTP.request('GET', connectionUrl).then(item => {
     const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
@@ -55,7 +55,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     const channelLink = document.createElement('a')
     const urlEncodedChannel = encodeURIComponent(item.name)
     channelLink.textContent = item.name
-    channelLink.href = '/channel?name=' + urlEncodedChannel
+    channelLink.href = 'channel?name=' + urlEncodedChannel
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.username)
@@ -70,11 +70,11 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
 
 document.querySelector('#closeConnection').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = '/api/connections/' + urlEncodedConnection
+  const url = 'api/connections/' + urlEncodedConnection
   const headers = new window.Headers({
     'X-Reason': document.querySelector('[name=reason]').value
   })
   HTTP.request('DELETE', url, { headers })
-    .then(() => { window.location = '/connections' })
+    .then(() => { window.location = 'connections' })
     .catch(HTTP.standardErrorHandler)
 })

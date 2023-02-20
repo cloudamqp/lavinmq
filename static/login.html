@@ -48,9 +48,9 @@
         const user = document.querySelector('#amq-username').value
         const pass = document.querySelector('#amq-password').value
         Auth.setAuth(user + ':' + pass)
-        HTTP.request('GET', '/api/whoami').then(function () {
+        HTTP.request('GET', 'api/whoami').then(function () {
           Auth.storeCookie({ username: user, password: pass })
-          window.location.assign('/')
+          window.location.assign('')
         }).catch(function () {
           window.alert('Login failed')
         })

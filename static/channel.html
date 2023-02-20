@@ -103,7 +103,7 @@
         if (!all) return
         Table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
-        queueLink.href = '/queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
+        queueLink.href = 'queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
         queueLink.textContent = item.queue.name
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
@@ -113,7 +113,7 @@
         Table.renderCell(tr, 4, item.prefetch_count, 'right')
       })
 
-      const channelUrl = '/api/channels/' + urlEncodedChannel
+      const channelUrl = 'api/channels/' + urlEncodedChannel
       function updateChannel (all) {
         HTTP.request('GET', channelUrl).then(item => {
           Chart.update(chart, item.message_stats)
@@ -128,7 +128,7 @@
             document.querySelector('#channel').textContent = channel + ' in virtual host ' + item.vhost
             document.getElementById('ch-username').textContent = item.user
             const connectionLink = document.createElement('a')
-            connectionLink.href = '/connection?name=' + encodeURIComponent(item.connection_details.name)
+            connectionLink.href = 'connection?name=' + encodeURIComponent(item.connection_details.name)
             connectionLink.textContent = item.connection_details.name
             DOM.setChild('#ch-connection', connectionLink)
             document.getElementById('ch-prefetch').textContent = item.prefetch_count

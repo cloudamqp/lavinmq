@@ -2,7 +2,7 @@ import * as HTTP from './http.js'
 
 function fetch (cb) {
   const vhost = window.sessionStorage.getItem('vhost')
-  const url = '/api/vhosts'
+  const url = 'api/vhosts'
   return HTTP.request('GET', url).then(function (vhosts) {
     if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
       window.sessionStorage.removeItem('vhost')

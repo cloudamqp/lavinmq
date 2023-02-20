@@ -9,11 +9,11 @@ function testLoggedIn () {
     window.location.hash = ''
     window.location.assign('/')
   }
-  if (window.location.pathname !== '/login') {
-    request('GET', '/api/whoami').then((d) => {
+  if (window.location.pathname !== 'login') {
+    request('GET', 'api/whoami').then((d) => {
       Auth.setUsername()
     }).catch((e) => {
-      redirect('/login')
+      redirect('login')
     })
   }
 }
@@ -28,7 +28,7 @@ function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
   if (Auth.getUsername() == null) {
-    return redirect('/login')
+    return redirect('login')
   }
   const hdr = Auth.header()
   headers.append('Authorization', hdr)
