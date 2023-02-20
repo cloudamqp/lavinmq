@@ -57,17 +57,6 @@ module LavinMQ
       BytesMessage.new(ts, ex, rk, pr, sz, body)
     end
 
-    def self.from_io(io, format = IO::ByteFormat::SystemEndian) : self
-      ts = Int64.from_io io, format
-      ex = AMQP::ShortString.from_io io, format
-      rk = AMQP::ShortString.from_io io, format
-      pr = AMQP::Properties.from_io io, format
-      sz = UInt64.from_io io, format
-      body = io.to_slice(io.pos, sz)
-      io.seek(sz, IO::Seek::Current)
-      BytesMessage.new(ts, ex, rk, pr, sz, body)
-    end
-
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
       io.write_bytes AMQP::ShortString.new(@exchange_name), format

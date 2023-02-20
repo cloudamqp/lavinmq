@@ -29,6 +29,7 @@ module LavinMQ
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
+      Schema.migrate(@data_dir)
       @users = UserStore.new(@data_dir)
       @vhosts = VHostStore.new(@data_dir, @users)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
