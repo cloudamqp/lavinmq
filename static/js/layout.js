@@ -3,24 +3,24 @@ import * as Vhosts from './vhosts.js'
 import * as Overview from './overview.js'
 
 const menuLinks = `
-        <li><a id="menu-item" href="/">Overview</a></li>
-        <li><a id="menu-item" href="/connections">Connections</a></li>
-        <li><a id="menu-item" href="/channels">Channels</a></li>
-        <li><a id="menu-item" href="/exchanges">Exchanges</a></li>
-        <li><a id="menu-item" href="/queues">Queues</a></li>
-        <li><a id="menu-item" href="/policies">Policies</a></li>
-        <li><a id="menu-item" href="/operator-policies">Operator policies</a></li>
-        <li><a id="menu-item" href="/shovels">Shovels</a></li>
-        <li><a id="menu-item" href="/federation">Federation</a></li>
-        <li><a id="menu-item" href="/vhosts">Virtual hosts</a></li>
-        <li><a id="menu-item" href="/users">Users</a></li>
-        <li><a id="menu-item" href="/nodes">Nodes</a></li>
-        <li><a id="menu-item" href="/docs/" target="_blank">HTTP API</a></li>
+        <li><a id="menu-item" href="">Overview</a></li>
+        <li><a id="menu-item" href="connections">Connections</a></li>
+        <li><a id="menu-item" href="channels">Channels</a></li>
+        <li><a id="menu-item" href="exchanges">Exchanges</a></li>
+        <li><a id="menu-item" href="queues">Queues</a></li>
+        <li><a id="menu-item" href="policies">Policies</a></li>
+        <li><a id="menu-item" href="operator-policies">Operator policies</a></li>
+        <li><a id="menu-item" href="shovels">Shovels</a></li>
+        <li><a id="menu-item" href="federation">Federation</a></li>
+        <li><a id="menu-item" href="vhosts">Virtual hosts</a></li>
+        <li><a id="menu-item" href="users">Users</a></li>
+        <li><a id="menu-item" href="nodes">Nodes</a></li>
+        <li><a id="menu-item" href="docs" target="_blank">HTTP API</a></li>
     `
 
 document.getElementById('menu').innerHTML = `
   <h1 id="menu-header">
-    <a href="/"><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
+    <a href=""><img id="amq-logo" src="/img/logo-lavinmq-white.png"></a>
     <small id="version"></small>
     <small id="cluster_name"></small>
   </h1>
