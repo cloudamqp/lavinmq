@@ -148,7 +148,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
         .then(() => { DOM.removeNodes(tr) })
         .catch(HTTP.standardErrorHandler)
     }
-    const exchangeLink = `<a href="/exchange?vhost=${urlEncodedVhost}&name=${escapeHTML(e)}">${escapeHTML(item.source)}</a>`
+    const exchangeLink = `<a href="exchange?vhost=${urlEncodedVhost}&name=${escapeHTML(e)}">${escapeHTML(item.source)}</a>`
     Table.renderHtmlCell(tr, 0, exchangeLink)
     Table.renderCell(tr, 1, item.routing_key)
     Table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>')

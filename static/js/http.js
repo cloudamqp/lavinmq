@@ -7,7 +7,7 @@ function testLoggedIn () {
     const arr = hash.split('/')
     Auth.setAuth(arr[2] + ':' + arr[3])
     window.location.hash = ''
-    window.location.assign('/')
+    window.location.assign('.')
   }
   if (!/(^|\/)login$/.test(window.location.pathname)) {
     request('GET', 'api/whoami').then((d) => {
@@ -82,7 +82,7 @@ function standardErrorHandler (e) {
 
 function notFoundErrorHandler (e) {
   if (e.status === 404) {
-    window.location.assign('/404')
+    window.location.assign('404')
   } else {
     standardErrorHandler(e)
   }

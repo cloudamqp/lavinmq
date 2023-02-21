@@ -122,7 +122,7 @@
           url += encodeURIComponent(body.get('vhost')) + '/upload'
         }
         HTTP.request('POST', url, { body }).then(function () {
-          window.location.assign('')
+          window.location.assign('.')
         }).catch(function () {
           window.alert('Upload failed')
         })
