@@ -230,6 +230,7 @@ footer .logo {
     position: relative;
     height: 90vh;
     left: 20px;
+    text-align: left;
   }
 
   #menu-content.show-menu {
@@ -283,8 +284,8 @@ footer .logo {
 
   header {
     align-items: center;
-    grid-template-columns: 50px 250px auto;
-    grid-row: 2 / span 2;
+    grid-row: 1 / span 3;
+    padding: 10px 0 0 60px;
   }
 
   main {
@@ -293,10 +294,6 @@ footer .logo {
 
   #menu {
     grid-row: 1 / span 1;
-  }
-
-  #menu * {
-    text-align: center;
   }
 }
 
