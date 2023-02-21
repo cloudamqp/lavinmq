@@ -9,7 +9,7 @@ function testLoggedIn () {
     window.location.hash = ''
     window.location.assign('/')
   }
-  if (window.location.pathname !== 'login') {
+  if (!/(^|\/)login$/.test(window.location.pathname)) {
     request('GET', 'api/whoami').then((d) => {
       Auth.setUsername()
     }).catch((e) => {
