@@ -19,28 +19,33 @@
     </header>
     <nav id="menu"></nav>
     <main>
-      <table id="overview" class="stats-table card">
-        <tbody>
-          <tr>
-            <td id="connections"></td>
-            <td id="channels"></td>
-            <td id="consumers"></td>
-            <td id="exchanges"></td>
-            <td id="queues"></td>
-            <td id="uptime"></td>
-          </tr>
-        </tbody>
-        <tfoot>
-          <tr>
-            <th><a href="/connections">Connections</a></th>
-            <th><a href="/channels">Channels</a></th>
-            <th>Consumers</th>
-            <th><a href="/exchanges">Exchanges</a></th>
-            <th><a href="/queues">Queues</a></th>
-            <th>Uptime</th>
-          </tr>
-        </tfoot>
-      </table>
+      <div id="overview" class="card">
+        <div>
+          <div class="counter" id="connections">0</div>
+          <div class="counter-header"><a href="/connections">Connections</a></div>
+        </div>
+        <div>
+          <div class="counter" id="channels">0</div>
+          <div class="counter-header"><a href="/channels">Channels</a></div>
+        </div>
+        <div>
+          <div class="counter" id="consumers">0</div>
+          <div class="counter-header">Consumers</div>
+        </div>
+        <div>
+          <div class="counter" id="exchanges">0</div>
+          <div class="counter-header"><a href="/exchanges">Exchanges</a></div>
+        </div>
+        <div>
+          <div class="counter" id="queues">0</div>
+          <div class="counter-header"><a href="/queues">Queues</a></div>
+        </div>
+        <div>
+          <div class="counter" id="uptime">0s</div>
+          <div class="counter-header">Uptime</div>
+        </div>
+
+      </div>
       <section class="card cols-4 cols-6-md">
         <h3>Queued messages</h3>
         <div class="chart-container" id="msgChart"></div>
