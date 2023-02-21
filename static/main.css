@@ -113,6 +113,7 @@ main {
   background-repeat: no-repeat;
   background-position: center;
   display: none;
+  border-radius: 0px;
 }
 
 #menu {
@@ -191,6 +192,7 @@ footer .logo {
   .open-menu {
     background-image: url(img/close-icon.png);
     background-size: 15px;
+    background-color: #2b2c2d !important;
   }
 
   .closed-menu {
@@ -204,6 +206,9 @@ footer .logo {
 
   #menu-button {
     display: block;
+    position: relative;
+    left: 20px;
+    top: 20px;
   }
 
   #menu-content, #menu-header {
@@ -218,12 +223,17 @@ footer .logo {
     z-index: 1001;
     border-radius: 0px 4px 4px 4px;
     transition: all 0.3s;
-    background-color: #2c2c2c;
+    background-color: #000;
     --font-color: #FFF;
     --highlight-color: rgba(0, 0, 0, 0.4);
     color: var(--font-color);
     position: relative;
-    height: 100vh;
+    height: 90vh;
+    left: 20px;
+  }
+
+  #menu-content.show-menu {
+    margin-top: 40px;
   }
 
   #menu-content::after {
