@@ -24,6 +24,7 @@ document.getElementById('menu').innerHTML = `
     <small id="version"></small>
     <small id="cluster_name"></small>
   </h1>
+  <button id="menu-button" class="closed-menu" onclick=toggleMenu()></button>
   <ul id="menu-content">${menuLinks}</ul>
 `
 
@@ -46,54 +47,44 @@ document.getElementById('user-menu').innerHTML = `
   </ul>
 `
 
-document.getElementById('small-menu').innerHTML = `
-  <button id="menu-button" class="closed-menu" onclick=toggleSmallMenu()></button>
-  <ul id="small-menu-content">${menuLinks}</ul>
-`
-
 document.getElementById('userMenuVhost').onchange = (e) => Auth.selectVhost(e)
 document.getElementById('signoutLink').onclick = (e) => Auth.signOut(e)
 
-const smallMenuContent = document.getElementById('small-menu-content')
 const menuButton = document.getElementById('menu-button')
-const smallMenu = document.getElementById('small-menu')
+const menuContent = document.getElementById('menu-content')
 
-menuButton.onclick = (e) => toggleSmallMenu()
+menuButton.onclick = (e) => toggleMenu()
 
-function toggleSmallMenu () {
-  if (smallMenu.classList.contains('show-menu')) {
-    hideSmallMenu()
+function toggleMenu () {
+  if (menuContent.classList.contains('show-menu')) {
+    hideMenu()
   } else {
-    showSmallMenu()
+    showMenu()
   }
 }
 
-function showSmallMenu () {
-  smallMenu.classList.add('show-menu')
-  smallMenuContent.classList.add('show-menu')
+function showMenu () {
+  menuContent.classList.add('show-menu')
   menuButton.classList.add('open-menu')
   menuButton.classList.remove('closed-menu')
 }
 
-function hideSmallMenu () {
-  smallMenu.classList.remove('show-menu')
-  smallMenuContent.classList.remove('show-menu')
+function hideMenu () {
+  menuContent.classList.remove('show-menu')
   menuButton.classList.add('closed-menu')
   menuButton.classList.remove('open-menu')
 }
 
 const path = window.location.pathname
 const active = document.querySelector('#menu li a[href^="' + path + '"]')
-const smallActive = document.querySelector('#small-menu a[href^="' + path + '"]')
 
-if (active && smallActive) {
-  smallActive.parentElement.classList.add('active')
+if (active) {
   active.parentElement.classList.add('active')
 }
 
 function resizeListener () {
   if (window.innerWidth > 1000) {
-    hideSmallMenu()
+    hideMenu()
   }
 }
 
