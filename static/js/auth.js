@@ -21,12 +21,14 @@ function header () {
 function signOut () {
   clearCookieValue('auth')
   clearCookieValue('username')
+  clearCookieValue('password')
   window.location.assign('login')
 }
 
 function setAuth (userInfo) {
   clearCookieValue('auth')
   clearCookieValue('username')
+  clearCookieValue('password')
 
   const b64 = window.btoa(userInfo)
   storeCookie({ auth: encodeURIComponent(b64) })
