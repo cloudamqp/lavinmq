@@ -112,48 +112,8 @@ main {
   background-color: transparent;
   background-repeat: no-repeat;
   background-position: center;
-}
-
-#small-menu {
   display: none;
-  position: relative;
-  transition: all 0.3s;
-  z-index: 1001;
-  width: 40px;
-  height: 40px;
-  border-radius: 4px 4px 0px 0px;
-}
-
-#small-menu-content {
-  opacity: 0;
-  pointer-events: none;
-  width: 250px;
-  height: auto;
-  z-index: 1001;
-  font-size: 20px;
-  border-radius: 0px 4px 4px 4px;
-  transition: all 0.3s;
-  background-color: rgb(0, 0, 0);
-  --font-color: #FFF;
-  --highlight-color: rgba(0, 0, 0, 0.4);
-  color: var(--font-color);
-  position: relative;
-}
-
-.show-menu {
-  background-color: #2c2c2c;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-}
-
-.open-menu {
-  background-image: url(img/close-icon.png);
-  background-size: 15px;
-}
-
-.closed-menu {
-  background-image: url(img/menu-icon.png);
-  background-size: 20px;
+  border-radius: 4px 4px 0 0;
 }
 
 #menu {
@@ -166,7 +126,7 @@ main {
   position: relative;
 }
 
-#menu::after, #small-menu-content::after{
+#menu::after{
   background-image: url(img/bg-mountain.jpg);
   content: "";
   position: absolute;
@@ -175,11 +135,6 @@ main {
   right: 0;
   left: 0;
   z-index: -1;
-}
-
-#small-menu-content::after {
-  border-radius: 0px 4px 4px 0px;
-  opacity: 0.2;
 }
 
 #amq-logo {
@@ -199,6 +154,41 @@ footer {
 footer .logo {
   vertical-align: sub;
   height: 20px;
+}
+
+#overview {
+  justify-content: center;
+  display: flex;
+  flex-direction: row;
+  font-size: 20px;
+  text-transform: uppercase;
+  font-weight: 300;
+  padding: 10px 0;
+}
+
+#overview > div:first-child {
+  border-left: 0px !important;
+}
+
+#overview > div {
+  background-color: #fff;
+  border-left: 1px solid #000;
+  text-align: center;
+  padding: 10px 20px;
+}
+
+#overview .counter {
+  font-size: 32px;
+  color: var(--font-color-dark);
+}
+
+#overview .counter-header {
+  color: var(--font-color-light);
+}
+
+#overview a, #overview a:visited {
+  text-decoration: none;
+  color: var(--font-color-light);
 }
 
 @media (max-width: 1850px) {
@@ -222,20 +212,100 @@ footer .logo {
 }
 
 @media (max-width: 1000px) {
+  .show-menu {
+    display: block !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    position: relative;
+    transition: all 0.3s;
+    z-index: 1001;
+    width: 40px;
+    height: 40px;
+    border-radius: 4px 4px 0px 0px;
+  }
+
+  .open-menu {
+    background-image: url(img/close-icon.png);
+    background-size: 15px;
+    background-color: #2b2c2d !important;
+  }
+
+  .closed-menu {
+    background-image: url(img/menu-icon.png);
+    background-size: 20px;
+  }
+
   #menu::after {
     background-size: cover;
   }
 
-  #small-menu, #menu-button {
+  #menu-button {
     display: block;
-  }
-
-  #small-menu-content {
-    position: absolute;
+    position: relative;
+    left: 20px;
+    top: 20px;
   }
 
   #menu-content, #menu-header {
     display: none;
+  }
+
+  #menu-content {
+    opacity: 0;
+    pointer-events: none;
+    width: 250px;
+    height: auto;
+    z-index: 1001;
+    border-radius: 0px 4px 4px 4px;
+    transition: all 0.3s;
+    background-color: #000;
+    --font-color: #FFF;
+    --highlight-color: rgba(0, 0, 0, 0.4);
+    color: var(--font-color);
+    position: relative;
+    height: 90vh;
+    left: 20px;
+    text-align: left;
+  }
+
+  #menu-content.show-menu {
+    margin-top: 40px;
+  }
+
+  #menu-content::after {
+    border-radius: 0px 4px 4px 0px;
+    opacity: 0.2;
+    background-image: url(img/bg-mountain.jpg);
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    z-index: -1;
+  }
+
+  #menu ul li a, #menu ul li a:visited {
+    display: block;
+    padding: 0 1em;
+    font-size: 0.8em;
+    line-height: 3em;
+  }
+
+  #menu ul li a {
+    padding: 4px 20px 4px 40px;
+    font-size: small;
+  }
+
+  #menu ul a:hover {
+    background-color: var(--highlight-color);
+    border-radius: 0px 4px 4px 4px;
+  }
+
+  #menu li.active a {
+    background-color: var(--highlight-color);
+    border-left: 4px solid #3C9368;
+    border-radius: 0px 4px 4px 0px;
   }
 
   body {
@@ -249,20 +319,53 @@ footer .logo {
 
   header {
     align-items: center;
-    grid-template-columns: 50px 250px auto;
-    grid-row: 2 / span 2;
+    grid-row: 1 / span 3;
+    padding: 10px 0 0 60px;
   }
 
   main {
     grid-row: 3 / span 2;
+    margin-top: 20px;
   }
 
   #menu {
     grid-row: 1 / span 1;
   }
 
-  #menu * {
+  .card {
+    max-width: 95%;
+    overflow-x: scroll;
+  }
+
+  header #user-menu {
+    text-align: right;
+  }
+  header #user-menu ul {
+    padding: 0;
+  }
+  #overview {
+    flex-wrap: wrap;
+    padding: 10px 20px;
+  }
+  #overview > div {
+    flex: 33%;
+    font-size: 12px;
+    padding: 5px 0;
+  }
+  #overview > div {
+    background-color: #fff;
+    border-left: 0px;
     text-align: center;
+  }
+  #overview .counter {
+    font-size: 20px;
+  }
+  main.queue-main .card {
+    grid-column: 1 / span 12 !important;
+  }
+  header h2 small, header h3 small {
+    margin-left: 0px;
+    font-size: 12px;
   }
 }
 
@@ -348,34 +451,6 @@ footer .logo {
 #menu li.active a {
   background-color: var(--highlight-color);
   border-left: 6px solid #3C9368;
-}
-
-#small-menu ul {
-  list-style: none;
-  padding: 0;
-}
-
-#small-menu ul li a {
-  display: block;
-  padding: 0 1em;
-  font-size: 0.8em;
-  line-height: 3em;
-}
-
-#small-menu ul ul li a {
-  padding: 4px 20px 4px 40px;
-  font-size: small;
-}
-
-#small-menu ul a:hover {
-  background-color: var(--highlight-color);
-  border-radius: 0px 4px 4px 4px;
-}
-
-#small-menu li.active a {
-  background-color: var(--highlight-color);
-  border-left: 4px solid #3C9368;
-  border-radius: 0px 4px 4px 0px;
 }
 
 .table-wrapper {
