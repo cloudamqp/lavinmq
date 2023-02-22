@@ -45,7 +45,7 @@ function storeCookieWithExpiration (dict, expirationDate) {
   for (let k in dict) {
     enc.push(k + ':' + escape(dict[k]))
   }
-  document.cookie = 'm=' + enc.join('|') + '; expires=' + expirationDate.toUTCString()
+  document.cookie = 'm=' + enc.join('|') + '; samesite=lax; expires=' + expirationDate.toUTCString()
 }
 
 function clearCookieValue (k) {
