@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build lavinmqperf with multi threading
 - `lavinmqperf connection-count` now uses multiple fibers to take use of multi threading
 - Charts are updated faster with recent information
+- UI updates for a better responsive experience [#463](https://github.com/cloudamqp/lavinmq/pull/463)
 
 ### Fixed
 
