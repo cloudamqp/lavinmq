@@ -363,6 +363,10 @@ footer .logo {
   main.queue-main .card {
     grid-column: 1 / span 12 !important;
   }
+  header h2 small, header h3 small {
+    margin-left: 0px;
+    font-size: 12px;
+  }
 }
 
 #menu h1 {
