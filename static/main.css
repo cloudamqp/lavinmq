@@ -155,6 +155,7 @@ footer .logo {
   vertical-align: sub;
   height: 20px;
 }
+
 #overview {
   justify-content: center;
   display: flex;
@@ -164,22 +165,27 @@ footer .logo {
   font-weight: 300;
   padding: 10px 0;
 }
+
 #overview > div:first-child {
   border-left: 0px !important;
 }
+
 #overview > div {
   background-color: #fff;
   border-left: 1px solid #000;
   text-align: center;
   padding: 10px 20px;
 }
+
 #overview .counter {
   font-size: 32px;
   color: var(--font-color-dark);
 }
+
 #overview .counter-header {
   color: var(--font-color-light);
 }
+
 #overview a, #overview a:visited {
   text-decoration: none;
   color: var(--font-color-light);
@@ -353,6 +359,9 @@ footer .logo {
   }
   #overview .counter {
     font-size: 20px;
+  }
+  main.queue-main .card {
+    grid-column: 1 / span 12 !important;
   }
 }
 
