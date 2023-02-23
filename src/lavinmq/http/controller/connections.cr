@@ -17,6 +17,9 @@ module LavinMQ
       include ConnectionsHelper
 
       private def register_routes
+        static_view "/connections"
+        static_view "/connection"
+
         get "/api/connections" do |context, _params|
           page(context, connections(user(context)).each)
         end

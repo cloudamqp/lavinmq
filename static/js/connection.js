@@ -8,7 +8,7 @@ const connection = decodeURIComponent(urlEncodedConnection)
 const chart = Chart.render('chart', 'bytes/s')
 
 document.title = connection + ' | LavinMQ'
-document.querySelector('#connection').textContent = connection
+document.querySelector('#pagename-label').textContent = connection
 
 const connectionUrl = 'api/connections/' + urlEncodedConnection
 function updateConnection (all) {

@@ -1,11 +1,11 @@
-<% pagename = "Overview" %>
+<%- pagename = "Overview" -%>
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <% ECR.embed "./views/head.ecr", context.response %>
+    <% render "head" %>
   </head>
   <body>
-    <% ECR.embed "./views/menu.ecr", context.response %>
+    <% render "menu" %>
     <main>
       <div id="overview" class="card">
         <div>
@@ -66,7 +66,7 @@
         <button type="submit" class="btn-primary">Download</button>
       </form>
     </main>
-    <% ECR.embed "./views/footer.ecr", context.response %>
+    <% render "footer" %>
     <script type="module">
       import * as Overview from './js/overview.js'
       import * as Chart from './js/chart.js'

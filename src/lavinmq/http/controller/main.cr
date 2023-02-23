@@ -24,14 +24,17 @@ module LavinMQ
 
     class MainController < Controller
       include StatsHelpers
+
       OVERVIEW_STATS = {"ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"}
       EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
 
       private def register_routes
-        get "/" do |context, _params|
-          ECR.embed "./views/overview.ecr", context.response
-          context
-        end
+        static_view "/", "overview"
+        static_view "/login"
+        static_view "/401"
+        static_view "/404"
+        static_view "/federation"
+        static_view "/shovels"
 
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?

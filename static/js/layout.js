@@ -2,9 +2,6 @@ import * as Auth from './auth.js'
 import * as Vhosts from './vhosts.js'
 import * as Overview from './overview.js'
 
-document.getElementById('userMenuVhost').onchange = (e) => Auth.selectVhost(e)
-document.getElementById('signoutLink').onclick = (e) => Auth.signOut(e)
-
 const menuButton = document.getElementById('menu-button')
 const menuContent = document.getElementById('menu-content')
 
@@ -44,3 +41,7 @@ function resizeListener () {
 }
 
 window.addEventListener('resize', resizeListener)
+window.addEventListener('DOMContentLoaded', _ => {
+  document.getElementById('userMenuVhost').onchange = (e) => Auth.selectVhost(e)
+  document.getElementById('signoutLink').onclick = (e) => Auth.signOut(e)
+})
