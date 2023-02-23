@@ -21,12 +21,14 @@ function header () {
 function signOut () {
   clearCookieValue('auth')
   clearCookieValue('username')
-  window.location.assign('/login')
+  clearCookieValue('password')
+  window.location.assign('login')
 }
 
 function setAuth (userInfo) {
   clearCookieValue('auth')
   clearCookieValue('username')
+  clearCookieValue('password')
 
   const b64 = window.btoa(userInfo)
   storeCookie({ auth: encodeURIComponent(b64) })
@@ -45,7 +47,7 @@ function storeCookieWithExpiration (dict, expirationDate) {
   for (let k in dict) {
     enc.push(k + ':' + escape(dict[k]))
   }
-  document.cookie = 'm=' + enc.join('|') + '; expires=' + expirationDate.toUTCString()
+  document.cookie = 'm=' + enc.join('|') + '; samesite=lax; expires=' + expirationDate.toUTCString()
 }
 
 function clearCookieValue (k) {

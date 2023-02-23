@@ -6,7 +6,7 @@ import * as Table from './table.js'
 
 Vhosts.addVhostOptions('declare')
 const vhost = window.sessionStorage.getItem('vhost')
-let url = '/api/queues'
+let url = 'api/queues'
 if (vhost && vhost !== '_all') {
   url += '/' + encodeURIComponent(vhost)
 }
@@ -28,10 +28,10 @@ const performMultiAction = (el) => {
     let url;
     switch(action) {
       case "delete":
-        url = `/api/queues/${data.vhost}/${data.name}`
+        url = `api/queues/${data.vhost}/${data.name}`
         break
       case "purge":
-        url = `/api/queues/${data.vhost}/${data.name}/contents`
+        url = `api/queues/${data.vhost}/${data.name}/contents`
         break
     }
     if(!url) return;
@@ -82,7 +82,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     features += Object.keys(item.arguments).length > 0  ? ' Args ' : ''
     const queueLink = document.createElement('a')
     const view = item.internal ? 'queue_internal' : 'queue'
-    queueLink.href = '/' + view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
+    queueLink.href = view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
     queueLink.textContent = item.name
 
     const checkbox = document.createElement('input')
@@ -99,7 +99,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   let policyLink = ''
   if (item.policy) {
     policyLink = document.createElement('a')
-    policyLink.href = '/policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+    policyLink.href = 'policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
     policyLink.textContent = item.policy
   }
   Table.renderCell(tr, 4, policyLink, 'center')
@@ -119,7 +119,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
   const data = new window.FormData(this)
   const vhost = encodeURIComponent(data.get('vhost'))
   const queue = encodeURIComponent(data.get('name').trim())
-  const url = '/api/queues/' + vhost + '/' + queue
+  const url = 'api/queues/' + vhost + '/' + queue
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',

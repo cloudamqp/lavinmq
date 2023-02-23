@@ -170,7 +170,6 @@ function renderTable (id, options = {}, renderRow) {
     for (let i = 0; i < data.length; i++) {
       const item = data[i]
       try {
-        console.log(item)
         const foundIndex = findIndex(t.rows, start, item)
         if (foundIndex !== -1) {
           if (foundIndex !== i) {

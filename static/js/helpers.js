@@ -86,7 +86,7 @@ function formatTimestamp(timestamp) {
  * @param type input content, accepts: queues, exchanges, vhosts, users
  */
 function autoCompleteDatalist(datalistID, type) {
-  HTTP.request('GET',`/api/${type}`).then(res => {
+  HTTP.request('GET',`api/${type}`).then(res => {
     const datalist = document.getElementById(datalistID);
     while (datalist.firstChild) {
       datalist.removeChild(datalist.lastChild);

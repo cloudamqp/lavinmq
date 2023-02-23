@@ -2,14 +2,14 @@
 <html lang="en">
   <head>
     <title>Login | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
     <style>
       body {
         display: block;
@@ -48,9 +48,9 @@
         const user = document.querySelector('#amq-username').value
         const pass = document.querySelector('#amq-password').value
         Auth.setAuth(user + ':' + pass)
-        HTTP.request('GET', '/api/whoami').then(function () {
+        HTTP.request('GET', 'api/whoami').then(function () {
           Auth.storeCookie({ username: user, password: pass })
-          window.location.assign('/')
+          window.location.assign('.')
         }).catch(function () {
           window.alert('Login failed')
         })

@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <title>Channels | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -42,15 +42,15 @@
         </div>
       </section>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
     <script type="module">
       import * as Table from './js/table.js'
       import * as Helpers from './js/helpers.js'
 
       const vhost = window.sessionStorage.getItem('vhost')
-      let url = '/api/channels'
+      let url = 'api/channels'
       if (vhost && vhost !== '_all') {
-        url = '/api/vhosts/' + encodeURIComponent(vhost) + '/channels'
+        url = 'api/vhosts/' + encodeURIComponent(vhost) + '/channels'
       }
       const tableOptions = {
   url,
@@ -65,7 +65,7 @@
           const channelLink = document.createElement('a')
           const urlEncodedChannel = encodeURIComponent(item.name)
           channelLink.textContent = item.name
-          channelLink.href = '/channel?name=' + urlEncodedChannel
+          channelLink.href = 'channel?name=' + urlEncodedChannel
           Table.renderCell(tr, 0, channelLink)
           Table.renderCell(tr, 1, item.vhost)
           Table.renderCell(tr, 2, item.user)

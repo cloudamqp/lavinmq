@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <title>Channel | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -86,7 +86,7 @@
         </div>
       </section>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
     <script type="module">
       import * as Table from './js/table.js'
       import * as HTTP from './js/http.js'
@@ -103,7 +103,7 @@
         if (!all) return
         Table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
-        queueLink.href = '/queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
+        queueLink.href = 'queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
         queueLink.textContent = item.queue.name
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
@@ -113,7 +113,7 @@
         Table.renderCell(tr, 4, item.prefetch_count, 'right')
       })
 
-      const channelUrl = '/api/channels/' + urlEncodedChannel
+      const channelUrl = 'api/channels/' + urlEncodedChannel
       function updateChannel (all) {
         HTTP.request('GET', channelUrl).then(item => {
           Chart.update(chart, item.message_stats)
@@ -128,7 +128,7 @@
             document.querySelector('#channel').textContent = channel + ' in virtual host ' + item.vhost
             document.getElementById('ch-username').textContent = item.user
             const connectionLink = document.createElement('a')
-            connectionLink.href = '/connection?name=' + encodeURIComponent(item.connection_details.name)
+            connectionLink.href = 'connection?name=' + encodeURIComponent(item.connection_details.name)
             connectionLink.textContent = item.connection_details.name
             DOM.setChild('#ch-connection', connectionLink)
             document.getElementById('ch-prefetch').textContent = item.prefetch_count

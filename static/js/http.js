@@ -7,13 +7,13 @@ function testLoggedIn () {
     const arr = hash.split('/')
     Auth.setAuth(arr[2] + ':' + arr[3])
     window.location.hash = ''
-    window.location.assign('/')
+    window.location.assign('.')
   }
-  if (window.location.pathname !== '/login') {
-    request('GET', '/api/whoami').then((d) => {
+  if (!/(^|\/)login$/.test(window.location.pathname)) {
+    request('GET', 'api/whoami').then((d) => {
       Auth.setUsername()
     }).catch((e) => {
-      redirect('/login')
+      redirect('login')
     })
   }
 }
@@ -28,7 +28,7 @@ function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
   if (Auth.getUsername() == null) {
-    return redirect('/login')
+    return redirect('login')
   }
   const hdr = Auth.header()
   headers.append('Authorization', hdr)
@@ -82,7 +82,7 @@ function standardErrorHandler (e) {
 
 function notFoundErrorHandler (e) {
   if (e.status === 404) {
-    window.location.assign('/404')
+    window.location.assign('404')
   } else {
     standardErrorHandler(e)
   }

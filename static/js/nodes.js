@@ -3,7 +3,7 @@ import * as Chart from './chart.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-let url = '/api/nodes'
+let url = 'api/nodes'
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
   url += '?vhost=' + encodeURIComponent(vhost)

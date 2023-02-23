@@ -65,7 +65,7 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   btn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
-    const url = '/api/parameters/shovel/' + vhost + '/' + name
+    const url = 'api/parameters/shovel/' + vhost + '/' + name
     if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
       HTTP.request('DELETE', url)
         .then(() => {
@@ -77,8 +77,8 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
 })
 
 const vhost = window.sessionStorage.getItem('vhost')
-let url = '/api/parameters/shovel'
-let statusUrl = '/api/shovels'
+let url = 'api/parameters/shovel'
+let statusUrl = 'api/shovels'
 if (vhost && vhost !== '_all') {
   const urlEncodedVhost = encodeURIComponent(vhost)
   url += '/' + urlEncodedVhost
@@ -118,7 +118,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   const data = new window.FormData(this)
   const name = encodeURIComponent(data.get('name').trim())
   const vhost = encodeURIComponent(data.get('vhost'))
-  const url = '/api/parameters/shovel/' + vhost + '/' + name
+  const url = 'api/parameters/shovel/' + vhost + '/' + name
   const body = {
     value: {
       'src-uri': data.get('src-uri'),

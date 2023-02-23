@@ -3,15 +3,15 @@
 
   <head>
     <title>Virtual Hosts | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png" />
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png" />
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="js/layout.js"></script>
   </head>
 
   <body>
@@ -50,14 +50,14 @@
         <button type="submit" class="btn-primary">Add virtual host</button>
       </form>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
     <script type="module">
       import * as HTTP from './js/http.js'
       import * as Helpers from './js/helpers.js'
       import * as Table from './js/table.js'
 
       const tableOptions = {
-        url: '/api/vhosts',
+        url: 'api/vhosts',
         keyColumns: ['name'],
         interval: 5000,
         pagination: true,
@@ -66,7 +66,7 @@
       }
       const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
         const urlEncodedVhost = encodeURIComponent(item.name)
-        const permissionsUrl = '/api/vhosts/' + urlEncodedVhost + '/permissions'
+        const permissionsUrl = 'api/vhosts/' + urlEncodedVhost + '/permissions'
         const permissionsPromise = new Promise(function (resolve, reject) {
           HTTP.request('GET', permissionsUrl).then(permissions => {
             window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
@@ -79,7 +79,7 @@
         permissionsPromise.then(permissions => {
           if (all) {
             const vhostLink = document.createElement('a')
-            vhostLink.href = '/vhost?name=' + urlEncodedVhost
+            vhostLink.href = 'vhost?name=' + urlEncodedVhost
             vhostLink.textContent = item.name
             Table.renderCell(tr, 0, vhostLink)
           }
@@ -95,7 +95,7 @@
         evt.preventDefault()
         const data = new window.FormData(this)
         const name = encodeURIComponent(data.get('name').trim())
-        const url = '/api/vhosts/' + name
+        const url = 'api/vhosts/' + name
         HTTP.request('PUT', url)
           .then(() => {
             vhostTable.fetchAndUpdate()

@@ -3,15 +3,15 @@
 
   <head>
     <title>Users | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png" />
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png" />
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="js/layout.js"></script>
   </head>
 
   <body>
@@ -63,7 +63,7 @@
         <button type="submit" class="btn-primary">Add user</button>
       </form>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
     <script type="module">
       import * as HTTP from './js/http.js'
       import * as Helpers from './js/helpers.js'
@@ -71,9 +71,9 @@
       import * as DOM from './js/dom.js'
 
       let usersTable = null
-      HTTP.request('GET', '/api/permissions').then(permissions => {
+      HTTP.request('GET', 'api/permissions').then(permissions => {
         const tableOptions = {
-          url: '/api/users',
+          url: 'api/users',
           keyColumns: ['vhost', 'name'],
           interval: 0,
           pagination: true,
@@ -83,7 +83,7 @@
         usersTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
           if (all) {
             const userLink = document.createElement('a')
-            userLink.href = '/user?name=' + encodeURIComponent(item.name)
+            userLink.href = 'user?name=' + encodeURIComponent(item.name)
             userLink.textContent = item.name
             Table.renderCell(tr, 0, userLink)
           }
@@ -101,7 +101,7 @@
         evt.preventDefault()
         const data = new window.FormData(this)
         const username = encodeURIComponent(data.get('username').trim())
-        const url = '/api/users/' + username
+        const url = 'api/users/' + username
         let toastText = `User created: '${username}'`
         const trs = document.querySelectorAll('#table tbody tr')
         trs.forEach((tr) =>  {

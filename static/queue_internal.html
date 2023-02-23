@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <title>Queue | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -69,7 +69,7 @@
         </form>
       </section>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
     <script type="module">
       import * as HTTP from './js/http.js'
       import * as DOM from './js/dom.js'
@@ -83,7 +83,7 @@
       document.title = queue + ' | LavinMQ'
 
       const chart = Chart.render('chart', 'msgs/s')
-      const queueUrl = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
+      const queueUrl = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
       function updateQueue (all) {
         HTTP.request('GET', queueUrl).then(item => {
           const stats = {
@@ -102,7 +102,7 @@
             document.querySelector('#queue').textContent = queue + ' in virtual host ' + item.vhost
             if (item.policy) {
               const policyLink = document.createElement('a')
-              policyLink.href = '/policies?name=' + encodeURIComponent(item.policy)
+              policyLink.href = 'policies?name=' + encodeURIComponent(item.policy)
               policyLink.textContent = item.policy
               DOM.setChild('#q-policy', policyLink)
             }
@@ -119,7 +119,7 @@
       const qTimer = setInterval(updateQueue, 5000)
       document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
         evt.preventDefault()
-        const url = '/api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
+        const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/contents'
         if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
           HTTP.request('DELETE', url)
             .then(() => { DOM.toast('Queue purged!') })

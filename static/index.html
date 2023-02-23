@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <title>Overview | LavinMQ</title>
-    <link href="/main.css" rel="stylesheet">
+    <link href="main.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png"/>
-    <link rel="apple-touch-icon" href="/img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="/img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="/img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="/js/layout.js"></script>
+    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
+    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <script type="module" src="js/layout.js"></script>
   </head>
   <body>
     <header>
@@ -22,11 +22,11 @@
       <div id="overview" class="card">
         <div>
           <div class="counter" id="connections">0</div>
-          <div class="counter-header"><a href="/connections">Connections</a></div>
+          <div class="counter-header"><a href="connections">Connections</a></div>
         </div>
         <div>
           <div class="counter" id="channels">0</div>
-          <div class="counter-header"><a href="/channels">Channels</a></div>
+          <div class="counter-header"><a href="channels">Channels</a></div>
         </div>
         <div>
           <div class="counter" id="consumers">0</div>
@@ -34,17 +34,16 @@
         </div>
         <div>
           <div class="counter" id="exchanges">0</div>
-          <div class="counter-header"><a href="/exchanges">Exchanges</a></div>
+          <div class="counter-header"><a href="exchanges">Exchanges</a></div>
         </div>
         <div>
           <div class="counter" id="queues">0</div>
-          <div class="counter-header"><a href="/queues">Queues</a></div>
+          <div class="counter-header"><a href="queues">Queues</a></div>
         </div>
         <div>
           <div class="counter" id="uptime">0s</div>
           <div class="counter-header">Uptime</div>
         </div>
-
       </div>
       <section class="card cols-4 cols-6-md">
         <h3>Queued messages</h3>
@@ -79,7 +78,7 @@
         <button type="submit" class="btn-primary">Download</button>
       </form>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="/img/logo-84codes.svg"></a></footer>
+    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
 
     <script type="module">
       import * as Overview from './js/overview.js'
@@ -116,14 +115,14 @@
       document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const body = new window.FormData(this)
-        let url = '/api/definitions'
+        let url = 'api/definitions/'
         if(body.get('vhost') === '_all') {
-          url += '/upload'
+          url += 'upload'
         } else {
-          url += '/' + encodeURIComponent(body.get('vhost')) + '/upload'
+          url += encodeURIComponent(body.get('vhost')) + '/upload'
         }
         HTTP.request('POST', url, { body }).then(function () {
-          window.location.assign('/')
+          window.location.assign('.')
         }).catch(function () {
           window.alert('Upload failed')
         })
@@ -136,7 +135,7 @@
       document.querySelector('#exportDefinitions').addEventListener('submit', function (evt) {
         evt.preventDefault()
         const body = new window.FormData(this)
-        let url = '/api/definitions'
+        let url = 'api/definitions'
         if (body.get('vhost') !== '_all') {
           url += '/' + encodeURIComponent(body.get('vhost'))
         }
