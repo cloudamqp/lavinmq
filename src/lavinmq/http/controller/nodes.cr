@@ -92,6 +92,8 @@ module LavinMQ
       end
 
       private def register_routes
+        static_view "/nodes"
+
         get "/api/nodes" do |context, _params|
           Tuple.new(stats(context)).to_json(context.response)
           context
