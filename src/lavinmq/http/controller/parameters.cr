@@ -22,6 +22,7 @@ module LavinMQ
     class ParametersController < Controller
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         static_view "/policies"
+        static_view "/operator-policies"
 
         get "/api/parameters" do |context, _params|
           user = user(context)
