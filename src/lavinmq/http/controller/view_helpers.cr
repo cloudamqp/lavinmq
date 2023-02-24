@@ -23,6 +23,7 @@ module LavinMQ
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         get {{path}} do |context, params|
+          route_path = {{path}}
           etag = Digest::MD5.hexdigest("{{view.id}} #{BUILD_TIME}")
           context.response.content_type = "text/html;charset=utf-8"
           if context.request.headers["If-None-Match"]? == etag
