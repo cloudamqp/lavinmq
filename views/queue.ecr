@@ -1,27 +1,12 @@
+<%- pagename = "Queue" -%>
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Queue | LavinMQ</title>
-    <link href="main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="img/favicon.png" />
-    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="js/layout.js"></script>
+    <% render "head" %>
     <script type="module" src="js/queue.js"></script>
   </head>
   <body>
-    <header>
-      <h2>
-        Queue:
-        <small id="queue"></small>
-      </h2>
-      <nav id="user-menu"/>
-    </header>
-    <nav id="menu"></nav>
+    <% render "menu" %>:w
     <main class="queue-main">
       <section class="card cols-4">
         <h3>Details</h3>
@@ -92,7 +77,7 @@
       <section class="card">
         <h3>
           Consumers
-          <small id="table-count"></small>
+          <small id="consumer-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="table-error"></div>
@@ -115,7 +100,7 @@
       <section class="card">
         <h3>
           Bindings
-          <small id="bindings-table-count"></small>
+          <small id="bindings-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="bindings-table-error"></div>
@@ -364,6 +349,6 @@
         </table>
       </section>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
+    <% render "footer" %>
   </body>
 </html>
