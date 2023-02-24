@@ -46,7 +46,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   Table.renderCell(tr, 11, btn, 'right')
 })
 
-const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000 }
+const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000, countId: 'links-count' }
 Table.renderTable('linksTable', linksOpts, (tr, item) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
