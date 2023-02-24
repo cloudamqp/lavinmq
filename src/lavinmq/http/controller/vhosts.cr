@@ -16,8 +16,8 @@ module LavinMQ
 
     class VHostsController < Controller
       private def register_routes
-        static_view("/vhosts")
-        static_view("/vhost")
+        static_view "/vhosts"
+        static_view "/vhost"
 
         get "/api/vhosts" do |context, _params|
           vhosts = vhosts(user(context)).map { |v| VHostView.new(v) }
