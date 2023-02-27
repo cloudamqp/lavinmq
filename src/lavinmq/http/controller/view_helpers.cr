@@ -3,8 +3,6 @@ require "html"
 module LavinMQ
   module HTTP
     module ViewHelpers
-      BUILD_TIME = {{ `date +%s` }}
-
       # Render an ecr file from views dir
       macro render(file)
         ECR.embed "views/{{file.id}}.ecr", context.response
@@ -23,6 +21,7 @@ module LavinMQ
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         get {{path}} do |context, params|
+          # This is used from head which enable us to calc base path
           route_path = {{path}}
           etag = Digest::MD5.hexdigest("{{view.id}} #{BUILD_TIME}")
           context.response.content_type = "text/html;charset=utf-8"
