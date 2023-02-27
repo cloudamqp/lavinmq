@@ -9,6 +9,7 @@ on:
       - shard.lock
       - src/**
       - static/**
+      - views/**
       - openapi/**
   push:
     branches:
@@ -22,6 +23,7 @@ on:
       - shard.lock
       - src/**
       - static/**
+      - views/**
       - openapi/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
