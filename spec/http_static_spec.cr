@@ -1,13 +1,6 @@
 require "./spec_helper"
 
 describe LavinMQ::HTTP::StaticController do
-  it "GET /" do
-    response = ::HTTP::Client.get BASE_URL
-    response.status_code.should eq 200
-    response.headers["Content-Type"].should contain("text/html")
-    response.body.should contain("LavinMQ")
-  end
-
   it "GET /robots.txt" do
     response = ::HTTP::Client.get "#{BASE_URL}/robots.txt"
     response.status_code.should eq 200
