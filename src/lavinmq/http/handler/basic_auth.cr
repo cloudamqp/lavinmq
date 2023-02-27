@@ -38,7 +38,9 @@ module LavinMQ
       end
 
       private def public_path?(request_path) : Bool
-        !request_path.starts_with?("/api/") && !request_path == "/metrics"
+        !request_path.starts_with?("/api/") &&
+          request_path != "/metrics" &&
+          !request_path.starts_with?("/metrics/")
       end
 
       private def internal_unix_socket?(context) : Bool
