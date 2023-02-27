@@ -20,16 +20,18 @@ module LavinMQ
       # Optional block can be given to modify context or set variables before view is rendered.
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
+        %etag = Digest::MD5.hexdigest("{{view.id}} #{BUILD_TIME}")
         get {{path}} do |context, params|
           # This is used from head which enable us to calc base path
           route_path = {{path}}
-          etag = Digest::MD5.hexdigest("{{view.id}} #{BUILD_TIME}")
           context.response.content_type = "text/html;charset=utf-8"
-          if context.request.headers["If-None-Match"]? == etag
+          if_non_match = context.request.headers["If-None-Match"]?
+          Log.trace { "static_view path={{path.id}} etag=#{%etag} if-non-match=#{if_non_match}" }
+          if if_non_match == %etag
             context.response.status_code = 304
           else
             context.response.headers.add("Cache-Control", "public,max-age=300")
-            context.response.headers.add("ETag", etag)
+            context.response.headers.add("ETag", %etag)
             {{block.body if block}}
             render {{view}}
           end
