@@ -1,9 +1,13 @@
 freebsd_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**', 'views/**')"
-  freebsd_instance:
-    image_family: freebsd-14-0-snap
-    cpu: 4
+  compute_engine_instance:
+    image_project: freebsd-org-cloud-dev
+    image: family/freebsd-13-0
+    platform: freebsd
+    cpu: 2
     memory: 16G
+#  freebsd_instance:
+#    image_family: freebsd-14-0-snap
   install_script: pkg install -y crystal shards security/openssl curl gmake
   spec_script: gmake test nocolor=1 progress=1
   build_script: gmake -j2 DOCS=
