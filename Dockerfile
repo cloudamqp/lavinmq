@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/tmp/lock,sharing=locked make all bin/lavinmq-debu
 # Resulting image with minimal layers
 FROM ubuntu:22.04
 RUN apt-get update && \
-    apt-get install -y libssl3 libevent-2.1-7 ca-certificates && \
+    apt-get install -y libssl3 libevent-2.1-7 libevent-pthreads-2.1-7 ca-certificates && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 COPY --from=builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
