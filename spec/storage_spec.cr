@@ -70,47 +70,29 @@ describe LavinMQ::DurableQueue do
     end
   end
 
-  it "it truncates preallocated index files on boot" do
-    msg_count = 2_000
-    enq_path = ""
-    with_channel do |ch|
-      q = ch.queue("pre", durable: true)
-      msg_count.times { q.publish "" }
-      queue = Server.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
-      enq_path = queue.@msg_store.@segments.last_value.path
-    end
-    # emulate the file was preallocated after server crash
-    File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    Server.restart
-    queue = Server.vhosts["/"].queues["pre"].as(LavinMQ::DurableQueue)
-    # make sure that the @ready capacity doesn't take into account the preallocated size
-    queue.@msg_store.@segments.last_value.capacity.should eq Math.pw2ceil(msg_count)
-    queue.@msg_store.@segments.last_value.size.should eq msg_count
-  end
-
   # Index corruption bug
   # https://github.com/cloudamqp/lavinmq/pull/384
-  # it "must find messages written after a uncompacted hole" do
-  #  enq_path = ""
-  #  with_channel do |ch|
-  #    q = ch.queue("corruption_test", durable: true)
-  #    q.publish_confirm "Hello world"
-  #    queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
-  #    enq_path = queue.@enq.path
-  #  end
-  #  Server.stop
-  #  # Emulate the file was preallocated after server crash
-  #  File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-  #  Server.restart
-  #  # Write another message after the prealloced space
-  #  with_channel do |ch|
-  #    q = ch.queue("corruption_test", durable: true)
-  #    q.publish_confirm "Hello world"
-  #  end
-  #  Server.restart
-  #  queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
-  #  queue.@ready.size.should eq 2
-  # end
+  it "must find messages written after a uncompacted hole" do
+    enq_path = ""
+    with_channel do |ch|
+      q = ch.queue("corruption_test", durable: true)
+      q.publish_confirm "Hello world"
+      queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+      enq_path = queue.@msg_store.@segments.last_value.path
+    end
+    Server.stop
+    # Emulate the file was preallocated after server crash
+    File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
+    Server.restart
+    # Write another message after the prealloced space
+    with_channel do |ch|
+      q = ch.queue("corruption_test", durable: true)
+      q.publish_confirm "Hello world"
+    end
+    Server.restart
+    queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+    queue.message_count.should eq 2
+  end
 end
 
 describe LavinMQ::VHost do
