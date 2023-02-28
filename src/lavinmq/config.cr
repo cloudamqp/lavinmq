@@ -46,6 +46,9 @@ module LavinMQ
       @@instance
     end
 
+    private def initialize
+    end
+
     def parse(file)
       return if file.empty?
       abort "Config could not be found" unless File.file?(file)
