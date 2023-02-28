@@ -223,9 +223,11 @@ describe LavinMQ::Shovel do
           msgs.send(msg.body_io.to_s)
         end
         props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
-        q1.publish_confirm "shovel me 2", props: props
-        q1.publish_confirm "shovel me 3", props: props
-        q1.publish_confirm "shovel me 4", props: props
+        spawn do
+          q1.publish_confirm "shovel me 2", props: props
+          q1.publish_confirm "shovel me 3", props: props
+          q1.publish_confirm "shovel me 4", props: props
+        end
         4.times do |i|
           msgs.receive.should eq "shovel me #{i + 1}"
         end
