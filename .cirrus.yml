@@ -1,15 +1,15 @@
 freebsd_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**', 'views/**')"
   freebsd_instance:
     image_family: freebsd-14-0-snap
   install_script: pkg install -y crystal shards security/openssl curl gmake
-  spec_script: gmake test nocolor=1
+  spec_script: gmake test nocolor=1 progress=1
   build_script: gmake -j2 DOCS=
   artifacts:
     path: bin/*
 
 osx_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**', 'views/**')"
   macos_instance:
     image: ghcr.io/cirruslabs/macos-monterey-base:latest
   install_script:
@@ -23,7 +23,7 @@ osx_task:
     path: bin/*
 
 arm_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**', 'views/**')"
   arm_container:
     image: 84codes/crystal:latest-ubuntu-22.04
     cpu: 2
