@@ -550,7 +550,6 @@ module LavinMQ
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
       should_compact = false
       File.open(File.join(@data_dir, "definitions.amqp"), "r") do |io|
-        io.advise(File::Advice::Sequential)
         SchemaVersion.verify(io, :definition)
         loop do
           begin
