@@ -5,7 +5,7 @@ freebsd_task:
     image: family/freebsd-13-0
     platform: freebsd
     cpu: 2
-    memory: 16G
+    memory: 8G
 #  freebsd_instance:
 #    image_family: freebsd-14-0-snap
   install_script: pkg install -y crystal shards security/openssl curl gmake
