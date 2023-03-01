@@ -704,7 +704,7 @@ module LavinMQ
       false
     rescue ex : MessageStore::Error
       close
-      raise ex
+      raise ClosedError.new(cause: ex)
     end
 
     private def mark_unacked(sp, &)
