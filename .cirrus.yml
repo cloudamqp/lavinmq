@@ -9,8 +9,8 @@ freebsd_task:
 #  freebsd_instance:
 #    image_family: freebsd-14-0-snap
   install_script: pkg install -y crystal shards security/openssl curl gmake
-  spec_script: gmake test nocolor=1 progress=1
-  build_script: gmake -j2 DOCS=
+  spec_script: gmake -j1 test nocolor=1 progress=1
+  build_script: gmake -j1 DOCS=
   artifacts:
     path: bin/*
 
