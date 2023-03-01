@@ -43,6 +43,8 @@ module LavinMQ
         end
 
         private def deliver_loop
+          queue = @queue
+          no_ack = @no_ack
           loop do
             wait_for_capacity
             loop do
@@ -57,7 +59,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.debug { "Getting a new message" }
             {% end %}
-            @queue.consume_get(@no_ack) do |env|
+            queue.consume_get(no_ack) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
           end
