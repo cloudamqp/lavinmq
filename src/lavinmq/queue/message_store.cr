@@ -162,26 +162,16 @@ module LavinMQ
         end
       end
 
-      # Resets the message store
-      def purge : UInt32
+      # Deletes all "ready" messages (not unacked)
+      def purge(max_count : Int = UInt32::MAX) : UInt32
         raise ClosedError.new if @closed
-        @segments.each_value &.close
-        @acks.each_value &.close
-        @segments.clear
-        @acks.clear
-        @deleted.clear
-        @segment_msg_count.clear
-        @requeued.clear
-        @bytesize = 0u64
-        size = @size
-        @size = 0u32
-        open_new_segment
-        @wfile_id = @segments.last_key
-        @wfile = @segments.last_value
-        @rfile_id = @segments.first_key
-        @rfile = @segments.first_value
-        notify_empty(true) unless size.zero?
-        size
+        count = 0u32
+        while count < max_count && (env = shift?)
+          delete(env.segment_position)
+          count += 1
+          break if count >= max_count
+        end
+        count
       end
 
       def delete
