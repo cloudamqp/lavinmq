@@ -840,18 +840,10 @@ module LavinMQ
       count.to_u32
     end
 
-    def purge(max_count : Int? = nil) : UInt32
-      @log.info { "Purging at most #{max_count || "all"} messages" }
-      delete_count = 0_u32
-      @msg_store_lock.synchronize do
-        if max_count.nil? || max_count >= @msg_store.size
-          delete_count = @msg_store.purge
-        else
-          max_count.times { @msg_store.shift? && (delete_count += 1) }
-        end
-      end
+    def purge(max_count : Int = UInt32::MAX) : UInt32
+      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
-      delete_count.to_u32
+      delete_count
     rescue ex : MessageStore::Error
       close
       raise ex
