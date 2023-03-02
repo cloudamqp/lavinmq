@@ -1,5 +1,6 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
+SPEC_SOURCES := $(shell find src/lavinmq src/stdlib spec/ -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js
 DOCS := static/docs/index.html
 CRYSTAL_FLAGS := --release
@@ -20,12 +21,12 @@ bin/lavinmqperf: src/lavinmqperf.cr lib | bin
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/specs: lib | bin
+spec/combined.cr: $(SPEC_SOURCES) lib | bin
 	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' | \
 		sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
+
+bin/specs: spec/combined.cr
 	crystal build spec/combined.cr -o $@ $(CRYSTAL_FLAGS)
-	rm -f spec/combined.cr
-	#
 
 lib: shard.yml shard.lock
 	shards install --production $(if $(nocolor),--no-color)
