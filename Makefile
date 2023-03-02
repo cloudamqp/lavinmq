@@ -25,8 +25,8 @@ bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 #	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' | \
 #		sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
 
-bin/specs: spec/combined.cr
-	crystal build spec/combined.cr -o $@ --error-on-warnings --progress
+#bin/specs: spec/combined.cr
+#	crystal build spec/combined.cr -o $@ --error-on-warnings --progress
 
 lib: shard.yml shard.lock
 	shards install --production $(if $(nocolor),--no-color)
