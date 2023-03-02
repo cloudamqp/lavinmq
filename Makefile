@@ -89,7 +89,7 @@ test: lib
 
 .PHONY: test-compiled
 test-compiled: bin/specs
-	./bin/specs --order random $(if $(nocolor),--no-color) $(if $(failfast),--fail-fast)
+	LOG_LEVEL=trace ./bin/specs --order random $(if $(nocolor),--no-color) $(if $(failfast),--fail-fast)
 
 .PHONY: format
 format:
