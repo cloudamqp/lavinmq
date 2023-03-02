@@ -21,11 +21,10 @@ bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/specs:
-	rm spec/combined.cr
 	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' | \
 		sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
 	crystal build spec/combined.cr -o $@ $(CRYSTAL_FLAGS)
-	rm spec/combined.cr
+	rm -f spec/combined.cr
 	#
 
 lib: shard.yml shard.lock
