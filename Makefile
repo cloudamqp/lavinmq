@@ -26,7 +26,7 @@ spec/combined.cr: $(SPEC_SOURCES) lib | bin
 		sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
 
 bin/specs: spec/combined.cr
-	crystal build spec/combined.cr -o $@ --error-on-warning --progress
+	crystal build spec/combined.cr -o $@ --error-on-warnings --progress
 
 lib: shard.yml shard.lock
 	shards install --production $(if $(nocolor),--no-color)
