@@ -40,6 +40,7 @@ module LavinMQ
           ParametersController.new(@amqp_server, @log).route_handler,
           NodesController.new(@amqp_server, @log).route_handler,
           PrometheusController.new(@amqp_server, @log).route_handler,
+          LogsController.new(@amqp_server, @log).route_handler,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(@log)) if @log.level == Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)

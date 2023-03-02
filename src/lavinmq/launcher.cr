@@ -5,6 +5,7 @@ require "./reporter"
 require "./server"
 require "./http/http_server"
 require "./log_formatter"
+require "./in_memory_backend"
 
 module LavinMQ
   class Launcher
@@ -68,12 +69,19 @@ module LavinMQ
 
     private def reload_logger
       log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
+      broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
-      ::Log.setup(@config.log_level, backend)
+
+      broadcast_backend.append(backend, @config.log_level)
+
+      in_memory_backend = ::Log::InMemoryBackend.instance
+      broadcast_backend.append(in_memory_backend, @config.log_level)
+
+      ::Log.setup(@config.log_level, broadcast_backend)
       # ::Log.setup do |c|
       #   c.bind "*", , backend
       # end
