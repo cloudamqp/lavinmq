@@ -20,7 +20,7 @@ bin/lavinmqperf: src/lavinmqperf.cr lib | bin
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/specs:
+bin/specs: lib | bin
 	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' | \
 		sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
 	crystal build spec/combined.cr -o $@ $(CRYSTAL_FLAGS)
