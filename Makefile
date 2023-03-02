@@ -85,11 +85,11 @@ lint: lib
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color)
+	crystal spec --order random $(if $(nocolor),--no-color) $(if $(failfast),--fail-fast)
 
 .PHONY: test-compiled
 test-compiled: bin/specs
-	./bin/specs --order random $(if $(nocolor),--no-color)
+	./bin/specs --order random $(if $(nocolor),--no-color) $(if $(failfast),--fail-fast)
 
 .PHONY: format
 format:
