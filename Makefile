@@ -55,7 +55,7 @@ man1/lavinmqctl.1: bin/lavinmqctl | man1
 	help2man -Nn "control utility for lavinmq server" $< -o $@
 
 man1/lavinmqperf.1: bin/lavinmqperf | man1
-	help2man -Nn "performance esting tool for amqp servers" $< -o $@
+	help2man -Nn "performance testing tool for amqp servers" $< -o $@
 
 MANPAGES := man1/lavinmq.1 man1/lavinmqctl.1 man1/lavinmqperf.1
 
