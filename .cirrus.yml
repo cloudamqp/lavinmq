@@ -8,7 +8,7 @@ freebsd_task:
     memory: 8G
   install_script: pkg install -y crystal shards security/openssl curl gmake
   prebuild_script: gmake bin/specs
-  spec_script: gmake test-compiled nocolor=1 failfast=1
+  spec_script: gmake test-each
   build_script: gmake -j2 DOCS=
   artifacts:
     path: bin/*
