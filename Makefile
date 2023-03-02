@@ -79,12 +79,6 @@ lint: lib
 test: lib
 	crystal spec $(if $(random),--order random) $(if $(nocolor),--no-color) $(if $(failfast),--fail-fast)
 
-#	$(foreach spec, $(SPEC_SOURCES), crystal spec $(spec) --no-color;)
-
-#.PHONY: test-compiled
-#test-compiled: bin/specs
-#	LOG_LEVEL=trace ./bin/specs --order random $(if $(nocolor),--no-color) $(if $(failfast),--fail-fast)
-
 .PHONY: format
 format:
 	crystal tool format --check
