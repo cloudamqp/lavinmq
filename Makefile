@@ -3,7 +3,6 @@ SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js
 DOCS := static/docs/index.html
 CRYSTAL_FLAGS := --release
-SPECS_COMBINED := $(shell mktemp -t lavinmq_specs)
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
 .PHONY: all
@@ -21,17 +20,13 @@ bin/lavinmqperf: src/lavinmqperf.cr lib | bin
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-#bin/specs: spec/combined.cr
-#	crystal build $< -o $@ $(CRYSTAL_FLAGS)
-#
-#spec/combined.cr: lib
-#	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' |  sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
-
-bin/specs: $(SPECS_COMBINED)
-	crystal build $< -o $@ $(CRYSTAL_FLAGS)
-
-$(SPECS_COMBINED): lib
-	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' |  sed 's/^require \".*\/src/require \"\.\.\/src/' > $(SPECS_COMBINED)
+bin/specs:
+	rm spec/combined.cr
+	find spec -name "*_spec.cr" -type f -exec cat '{}' + | sed 's/^require \".*\/spec_helper/require \"\.\/spec_helper/' | \
+		sed 's/^require \".*\/src/require \"\.\.\/src/' > spec/combined.cr
+	crystal build spec/combined.cr -o $@ $(CRYSTAL_FLAGS)
+	rm spec/combined.cr
+	#
 
 lib: shard.yml shard.lock
 	shards install --production $(if $(nocolor),--no-color)
@@ -90,11 +85,11 @@ lint: lib
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color) $(if $(progress),--progress)
+	crystal spec --order random $(if $(nocolor),--no-color)
 
 .PHONY: test-compiled
 test-compiled: bin/specs
-	./bin/specs
+	./bin/specs --order random $(if $(nocolor),--no-color)
 
 .PHONY: format
 format:
