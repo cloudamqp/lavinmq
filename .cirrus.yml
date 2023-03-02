@@ -7,7 +7,7 @@ freebsd_task:
     cpu: 2
     memory: 8G
   install_script: pkg install -y crystal shards security/openssl curl gmake
-  spec_script: gmake test-each
+  spec_script: gmake test
   build_script: gmake -j2 DOCS=
   artifacts:
     path: bin/*
@@ -19,7 +19,7 @@ osx_task:
   install_script:
     - brew update
     - brew install crystal
-  spec_script: make test nocolor=1
+  spec_script: make test nocolor=1 random=1
   env:
     PKG_CONFIG_PATH: /usr/local/opt/openssl@1.1/lib/pkgconfig
   build_script: make -j2 DOCS=
@@ -33,4 +33,4 @@ arm_task:
     cpu: 2
     memory: 4G
     greedy: true
-  spec_script: make test
+  spec_script: make test random01
