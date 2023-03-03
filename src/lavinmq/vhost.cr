@@ -992,6 +992,8 @@ module LavinMQ
         FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
         ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-random"
+        RandomExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise Error::ExchangeTypeError.new("invalid exchange type '#{type}'")
       end
     end

@@ -25,7 +25,7 @@ module LavinMQ
     class MainController < Controller
       include StatsHelpers
       OVERVIEW_STATS = {"ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"}
-      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
+      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash", "x-random"}
 
       private def register_routes
         get "/api/overview" do |context, _params|

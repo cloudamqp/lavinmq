@@ -28,6 +28,25 @@ describe LavinMQ::DirectExchange do
   end
 end
 
+describe LavinMQ::RandomExchange do
+  it "matches one in any rk" do
+    vhost = Server.vhosts.create("x")
+    q1 = LavinMQ::Queue.new(vhost, "q1")
+    q2 = LavinMQ::Queue.new(vhost, "q2")
+    x = LavinMQ::RandomExchange.new(vhost, "")
+    x.bind(q1, "q1", Hash(String, LavinMQ::AMQP::Field).new)
+    x.bind(q2, "")
+    matches = x.matches("q1")
+    (matches == Set{q1} || matches == Set{q2}).should be_true
+  end
+
+  it "matches no rk" do
+    vhost = Server.vhosts.create("x")
+    x = LavinMQ::RandomExchange.new(vhost, "")
+    x.matches("q1").should be_empty
+  end
+end
+
 describe LavinMQ::FanoutExchange do
   it "matches any rk" do
     vhost = Server.vhosts.create("x")
