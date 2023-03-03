@@ -15,7 +15,7 @@ module LavinMQ
             if last_event_id = context.request.headers["Last-Event-Id"]?
               last_ts = last_event_id.to_i64
               LogBackend.entries.each do |entry|
-                next if entry.timestamp.to_unix_ms <= last_ts 
+                next if entry.timestamp.to_unix_ms <= last_ts
                 print_entry(entry, io)
               end
             else

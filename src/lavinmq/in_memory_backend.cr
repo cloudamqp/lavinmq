@@ -25,7 +25,7 @@ class Log::InMemoryBackend < Log::Backend
   end
 
   def write(entry : Log::Entry) : Nil
-    @lock.synchronize do 
+    @lock.synchronize do
       if @entries.size >= @size
         @entries.shift(@entries.size - @size + 1)
       end
