@@ -435,7 +435,7 @@ describe LavinMQ::Server do
   end
 
   it "splits frames into max frame sizes" do
-    with_channel(port: 5672, frame_max: 4096_u32) do |ch|
+    with_channel(frame_max: 4096_u32) do |ch|
       2.times do
         msg_size = (2**17 + 1)
         pmsg1 = "m" * msg_size
