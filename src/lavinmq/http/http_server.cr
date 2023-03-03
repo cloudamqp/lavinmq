@@ -49,21 +49,25 @@ module LavinMQ
       def bind(socket)
         addr = @http.bind(socket)
         @log.info { "Bound to #{addr}" }
+        addr
       end
 
       def bind_tcp(address, port)
         addr = @http.bind_tcp address, port
         @log.info { "Bound to #{addr}" }
+        addr
       end
 
       def bind_tls(address, port, ctx)
         addr = @http.bind_tls address, port, ctx
         @log.info { "Bound on #{addr}" }
+        addr
       end
 
       def bind_unix(path)
         addr = @http.bind_unix path
         @log.info { "Bound to #{addr}" }
+        addr
       end
 
       def bind_internal_unix

@@ -20,7 +20,7 @@ module UpstreamSpecHelpers
     upstream_vhost = Server.vhosts.create("upstream")
     downstream_vhost = Server.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
-      "#{AMQP_BASE_URL}/upstream", "upstream_ex")
+      "#{Helper.amqp_base_url}/upstream", "upstream_ex")
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
   end
@@ -44,7 +44,7 @@ end
 describe LavinMQ::Federation::Upstream do
   it "should federate queue" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", AMQP_BASE_URL, nil, "federation_q1")
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", Helper.amqp_base_url, nil, "federation_q1")
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -60,7 +60,7 @@ describe LavinMQ::Federation::Upstream do
 
   it "should not federate queue if no downstream consumer" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", AMQP_BASE_URL, nil, "federation_q1")
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", Helper.amqp_base_url, nil, "federation_q1")
 
     with_channel do |ch|
       x = UpstreamSpecHelpers.setup_qs(ch).first
@@ -74,7 +74,7 @@ describe LavinMQ::Federation::Upstream do
 
   it "should federate queue with ack mode no-ack" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", AMQP_BASE_URL, nil, "federation_q1",
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", Helper.amqp_base_url, nil, "federation_q1",
       ack_mode: LavinMQ::Federation::AckMode::NoAck)
 
     with_channel do |ch|
@@ -91,7 +91,7 @@ describe LavinMQ::Federation::Upstream do
 
   it "should federate queue with ack mode on-publish" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", AMQP_BASE_URL, nil, "federation_q1",
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", Helper.amqp_base_url, nil, "federation_q1",
       ack_mode: LavinMQ::Federation::AckMode::OnPublish)
 
     with_channel do |ch|
@@ -108,7 +108,7 @@ describe LavinMQ::Federation::Upstream do
 
   it "should resume federation after downstream reconnects" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", AMQP_BASE_URL, nil, "federation_q1")
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", Helper.amqp_base_url, nil, "federation_q1")
     msgs = [] of AMQP::Client::DeliverMessage
 
     with_channel do |ch|
@@ -136,7 +136,7 @@ describe LavinMQ::Federation::Upstream do
 
   it "should federate exchange" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", AMQP_BASE_URL, "upstream_ex")
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", Helper.amqp_base_url, "upstream_ex")
 
     with_channel do |ch|
       downstream_ex = ch.exchange("downstream_ex", "topic")
@@ -155,7 +155,7 @@ describe LavinMQ::Federation::Upstream do
 
   it "should keep message properties" do
     vhost = Server.vhosts["/"]
-    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", AMQP_BASE_URL, nil, "federation_q1")
+    upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", Helper.amqp_base_url, nil, "federation_q1")
 
     with_channel do |ch|
       x, q2 = UpstreamSpecHelpers.setup_qs ch
