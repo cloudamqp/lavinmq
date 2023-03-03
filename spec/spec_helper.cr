@@ -13,13 +13,10 @@ Log.setup_from_env
 
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
-AMQP_PORT      = ENV.fetch("AMQP_PORT", "5672").to_i
-AMQPS_PORT     = ENV.fetch("AMQPS_PORT", "5671").to_i
-AMQP_BASE_URL  = "amqp://localhost:#{AMQP_PORT}"
-AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
-HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
-BASE_URL       = "http://localhost:#{HTTP_PORT}"
-DATA_DIR       = "/tmp/lavinmq-spec"
+AMQP_PORT  = ENV.fetch("AMQP_PORT", "0").to_i
+AMQPS_PORT = ENV.fetch("AMQPS_PORT", "0").to_i
+HTTP_PORT  = ENV.fetch("HTTP_PORT", "0").to_i
+DATA_DIR   = "/tmp/lavinmq-spec"
 
 LavinMQ::Config.instance.tap do |cfg|
   cfg.gc_segments_interval = 1
@@ -28,6 +25,34 @@ LavinMQ::Config.instance.tap do |cfg|
   cfg.amqp_port = AMQP_PORT
   cfg.amqps_port = AMQPS_PORT
   cfg.http_port = HTTP_PORT
+end
+
+module Helper
+  extend self
+
+  def amqp_base_url
+    "amqp://localhost:#{LavinMQ::Config.instance.amqp_port}"
+  end
+
+  def amqps_base_url
+    "amqps://localhost:#{LavinMQ::Config.instance.amqps_port}"
+  end
+
+  def base_url
+    "http://localhost:#{LavinMQ::Config.instance.http_port}"
+  end
+
+  def http_port
+    LavinMQ::Config.instance.http_port
+  end
+
+  def amqp_port
+    LavinMQ::Config.instance.amqp_port
+  end
+
+  def amqps_port
+    LavinMQ::Config.instance.amqps_port
+  end
 end
 
 def with_channel(**args, &)
@@ -86,39 +111,51 @@ def test_headers(headers = nil)
 end
 
 def start_amqp_server
+  amqp_tcp_server = TCPServer.new(port: 0)
   s = LavinMQ::Server.new(DATA_DIR)
-  spawn { s.listen(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqp_port) }
+  # spawn { s.listen(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqp_port) }
+  spawn { s.listen(amqp_tcp_server) }
   cert = Dir.current + "/spec/resources/server_certificate.pem"
   key = Dir.current + "/spec/resources/server_key.pem"
   ctx = OpenSSL::SSL::Context::Server.new
   ctx.certificate_chain = cert
   ctx.private_key = key
-  spawn { s.listen_tls(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqps_port, ctx) }
+  amqps_tcp_server = TCPServer.new(port: 0)
+  spawn { s.listen_tls(amqps_tcp_server, ctx) }
+
+  LavinMQ::Config.instance.tap do |cfg|
+    cfg.amqp_port = amqp_tcp_server.local_address.port
+    cfg.amqps_port = amqps_tcp_server.local_address.port
+  end
+
   s
 end
 
 def start_http_server
   h = LavinMQ::HTTP::Server.new(Server)
-  h.bind_tcp(LavinMQ::Config.instance.http_bind, LavinMQ::Config.instance.http_port)
+  addr = h.bind_tcp(LavinMQ::Config.instance.http_bind, LavinMQ::Config.instance.http_port)
+  LavinMQ::Config.instance.tap do |cfg|
+    cfg.http_port = addr.port
+  end
   spawn { h.listen }
   Fiber.yield
   h
 end
 
 def get(path, headers = nil)
-  HTTP::Client.get("#{BASE_URL}#{path}", headers: test_headers(headers))
+  HTTP::Client.get("#{Helper.base_url}#{path}", headers: test_headers(headers))
 end
 
 def post(path, headers = nil, body = nil)
-  HTTP::Client.post("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  HTTP::Client.post("#{Helper.base_url}#{path}", headers: test_headers(headers), body: body)
 end
 
 def put(path, headers = nil, body = nil)
-  HTTP::Client.put("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  HTTP::Client.put("#{Helper.base_url}#{path}", headers: test_headers(headers), body: body)
 end
 
 def delete(path, headers = nil, body = nil)
-  HTTP::Client.delete("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  HTTP::Client.delete("#{Helper.base_url}#{path}", headers: test_headers(headers), body: body)
 end
 
 # If we can connect to the port, it's busy by another listener
@@ -135,6 +172,7 @@ def port_busy?(port)
 end
 
 {AMQP_PORT, AMQPS_PORT, HTTP_PORT}.each do |port|
+  next if port == 0
   if port_busy?(port)
     puts "TCP port #{port} collision!"
     puts "Make sure no other process is listening to port #{port}"
