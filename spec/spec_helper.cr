@@ -111,7 +111,7 @@ def test_headers(headers = nil)
 end
 
 def start_amqp_server
-  amqp_tcp_server = TCPServer.new(port: 0)
+  amqp_tcp_server = TCPServer.new(port: AMQP_PORT)
   s = LavinMQ::Server.new(DATA_DIR)
   # spawn { s.listen(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqp_port) }
   spawn { s.listen(amqp_tcp_server) }
@@ -120,7 +120,7 @@ def start_amqp_server
   ctx = OpenSSL::SSL::Context::Server.new
   ctx.certificate_chain = cert
   ctx.private_key = key
-  amqps_tcp_server = TCPServer.new(port: 0)
+  amqps_tcp_server = TCPServer.new(port: AMQPS_PORT)
   spawn { s.listen_tls(amqps_tcp_server, ctx) }
 
   LavinMQ::Config.instance.tap do |cfg|
@@ -133,7 +133,7 @@ end
 
 def start_http_server
   h = LavinMQ::HTTP::Server.new(Server)
-  addr = h.bind_tcp(LavinMQ::Config.instance.http_bind, LavinMQ::Config.instance.http_port)
+  addr = h.bind_tcp(LavinMQ::Config.instance.http_bind, HTTP_PORT)
   LavinMQ::Config.instance.tap do |cfg|
     cfg.http_port = addr.port
   end
