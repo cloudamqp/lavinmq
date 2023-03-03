@@ -1,0 +1,29 @@
+<% pagename = "Logs" %>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% render "head" %>
+    <script type="module" src="js/logs.js"></script>
+  </head>
+  <body>
+    <% render "header" %>
+    <main>
+      <section id="livelog" class="card livelog">
+        <button id="download-logs" class="btn-primary"><a href="api/logs">Download logs</a></button>
+        <div id="table-error"></div>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th class="livelog-timestamp">Timestamp</th>
+              <th class="livelog-severity">Severity</th>
+              <th class="livelog-source">Source</th>
+              <th class="livelog-message">Message</th>
+            </tr>
+          </thead>
+          <tbody id="livelog-body"></tbody>
+        </table>
+      </section>
+    </main>
+    <% render "footer" %>
+  </body>
+</html>
