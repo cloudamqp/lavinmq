@@ -79,8 +79,7 @@ describe LavinMQ::HTTP::ConnectionsController do
         body = JSON.parse(response.body)
         name = URI.encode_www_form(body.as_a.last["name"].as_s)
         response = get("/api/connections/#{name}", headers: hdrs)
-      ensure
-        response.try &.status_code.should eq 401
+        response.status_code.should eq 401
       end
     end
   end
