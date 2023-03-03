@@ -18,11 +18,20 @@ module LavinMQ
       # slash will be used as view.
       #
       # Optional block can be given to modify context or set variables before view is rendered.
+      #
+      # This would render views/json_data.ecr and change content type:
+      #
+      # ```
+      # static_view "/json", "json_data" do
+      #   context.response.content_type = "application/json"
+      # end
+      # ```
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
+        # etag won't change in runtime, so it's enough to calculate it once
         %etag = Digest::MD5.hexdigest("{{view.id}} #{BUILD_TIME}")
         get {{path}} do |context, params|
-          # This is used from head which enable us to calc base path
+          # This is used from head.ecr which enable us to calc base path
           route_path = {{path}}
           context.response.content_type = "text/html;charset=utf-8"
           if_non_match = context.request.headers["If-None-Match"]?
