@@ -2,6 +2,9 @@ freebsd_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   freebsd_instance:
     image_family: freebsd-14-0-snap
+    memory: 4G
+  pkg_cache:
+    folder: /var/cache/pkg
   install_script: pkg install -y crystal shards security/openssl curl gmake
   spec_script: gmake test nocolor=1
   build_script: gmake -j2 DOCS=
@@ -12,6 +15,8 @@ osx_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   macos_instance:
     image: ghcr.io/cirruslabs/macos-monterey-base:latest
+  brew_cache:
+    folder: ~/Library/Caches/Homebrew
   install_script:
     - brew update
     - brew install crystal
