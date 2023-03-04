@@ -1,27 +1,12 @@
+<%- pagename = "Virtual host" -%>
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Virtual host | LavinMQ</title>
-    <link href="main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
-    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
-    <script type="module" src="js/layout.js"></script>
+    <% render "head" %>
     <script type="module" src="js/vhost.js"> </script>
   </head>
   <body>
-    <header>
-      <h2>
-        Virtual host:
-        <small id="vhost2"></small>
-      </h2>
-      <nav id="user-menu"/>
-    </header>
-    <nav id="menu"></nav>
+    <% render "header" %>
     <main>
       <section class="card cols-6">
         <h3>
@@ -60,11 +45,11 @@
       <section class="card">
         <h3>
           Permissions
-          <small id="table-count"></small>
+          <small id="permissions-count"></small>
         </h3>
         <div class="table-wrapper">
-          <div id="table-error"></div>
-          <table id="table" class="table">
+          <div id="permissions-error"></div>
+          <table id="permissions" class="table">
             <thead>
               <tr>
                 <th>User</th>
@@ -125,6 +110,6 @@
         </form>
       </section>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
+    <% render "footer" %>
   </body>
 </html>

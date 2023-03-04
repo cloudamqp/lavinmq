@@ -19,6 +19,7 @@ function renderTable (id, options = {}, renderRow) {
     sortKey = window.sessionStorage.getItem(view + '-sortkey')
     reverseOrder = strToBool(window.sessionStorage.getItem(view + '-reverseorder'))
   }
+  const countId = options.countId || 'pagename-label'
   const url = options.url
   const table = document.getElementById(id)
   const container = table.parentElement
@@ -153,7 +154,7 @@ function renderTable (id, options = {}, renderRow) {
     if (response == null && response.items == null) return
     const data = response.items || response
     const totalCount = response.filtered_count || response.length
-    document.getElementById(id + '-count').textContent = totalCount
+    document.getElementById(countId).textContent = totalCount
     if (options.pagination && response.items) {
       pageSize = response.page_size
       const pages = Math.ceil(response.filtered_count / pageSize)

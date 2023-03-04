@@ -24,10 +24,18 @@ module LavinMQ
 
     class MainController < Controller
       include StatsHelpers
+
       OVERVIEW_STATS = {"ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"}
       EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
 
       private def register_routes
+        static_view "/", "overview"
+        static_view "/login"
+        static_view "/401"
+        static_view "/404"
+        static_view "/federation"
+        static_view "/shovels"
+
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32

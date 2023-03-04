@@ -9,6 +9,7 @@ on:
       - shard.lock
       - src/**
       - static/**
+      - views/**
       - openapi/**
       - lavinmq.spec
   push:
@@ -24,6 +25,7 @@ on:
       - shard.lock
       - src/**
       - static/**
+      - views/**
       - openapi/**
       - lavinmq.spec
 concurrency:

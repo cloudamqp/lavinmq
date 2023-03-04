@@ -81,7 +81,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     features += item.internal ? ' I' : ''
     features += Object.keys(item.arguments).length > 0  ? ' Args ' : ''
     const queueLink = document.createElement('a')
-    const view = item.internal ? 'queue_internal' : 'queue'
+    const view = item.internal ? 'queue-internal' : 'queue'
     queueLink.href = view + '?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
     queueLink.textContent = item.name
 

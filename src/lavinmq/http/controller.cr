@@ -1,10 +1,12 @@
 require "router"
 require "../sortable_json"
+require "./controller/view_helpers"
 
 module LavinMQ
   module HTTP
     abstract class Controller
       include Router
+      include ViewHelpers
       @log : Log
 
       def initialize(@amqp_server : LavinMQ::Server, log : Log)

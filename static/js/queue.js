@@ -15,7 +15,7 @@ const resumeQueueForm = document.querySelector('#resumeQueue')
 const messageSnapshotForm = document.querySelector('#messageSnapshot')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
-const consumersTable = Table.renderTable('table', { keyColumns: [] }, function (tr, item) {
+const consumersTable = Table.renderTable('table', { keyColumns: [], countId: "consumer-count" }, function (tr, item) {
   const channelLink = document.createElement('a')
   channelLink.href = 'channel?name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
@@ -101,7 +101,7 @@ function updateQueue (all) {
         features += item.auto_delete ? ' AD' : ''
         features += item.exclusive ? ' E' : ''
         document.getElementById('q-features').textContent = features
-        document.querySelector('#queue').textContent = queue + ' in virtual host ' + item.vhost
+        document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
           const policyLink = document.createElement('a')
@@ -130,7 +130,12 @@ function updateQueue (all) {
 updateQueue(true)
 const qTimer = setInterval(updateQueue, 5000)
 
-const tableOptions = { url: queueUrl + '/bindings', keyColumns: ['properties_key'], interval: 5000 }
+const tableOptions = {
+  url: queueUrl + '/bindings',
+  keyColumns: ['properties_key'],
+  interval: 5000,
+  countId: 'bindings-count'
+}
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {

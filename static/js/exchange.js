@@ -24,7 +24,7 @@ function updateExchange () {
     features += item.arguments['x-delayed-exchange'] ? ' d' : ''
     document.getElementById('e-features').textContent = features
     document.getElementById('e-type').textContent = item.type
-    document.querySelector('#exchange').textContent = exchange + ' in virtual host ' + item.vhost
+    document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
     let argList = document.createElement('div')
     let args = Object.keys(item.arguments).forEach(key => {
       if (key == 'x-delayed-exchange' && item.arguments[key] === false) {

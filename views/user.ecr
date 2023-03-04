@@ -1,26 +1,12 @@
+<%- pagename = "User" -%>
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>User | LavinMQ</title>
-    <link href="main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="img/favicon.png"/>
-    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <% render "head" %>
     <script type="module" src="js/layout.js"></script>
   </head>
   <body>
-    <header>
-      <h2>
-        User:
-        <small id="user"></small>
-      </h2>
-      <nav id="user-menu"/>
-    </header>
-    <nav id="menu"></nav>
+    <% render "header" %>
     <main>
       <section class="card cols-4">
         <h3>Details</h3>
@@ -38,11 +24,11 @@
       <section class="card">
         <h3>
           Permissions
-          <small id="table-count"></small>
+          <small id="permissions-count"></small>
         </h3>
         <div class="table-wrapper">
-          <div id="table-error"></div>
-          <table id="table" class="table">
+          <div id="permissions-error"></div>
+          <table id="permissions" class="table">
             <thead>
               <tr>
                 <th>Virtual host</th>
@@ -109,7 +95,7 @@
         </form>
       </section>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
+    <% render "footer" %>
     <script type="module">
       import * as HTTP from './js/http.js'
       import * as Helpers from './js/helpers.js'
@@ -120,7 +106,7 @@
       const user = new URLSearchParams(window.location.search).get('name')
       const urlEncodedUsername = encodeURIComponent(user)
       document.title = user + ' | LavinMQ'
-      document.querySelector('#user').textContent = user
+      document.querySelector('#pagename-label').textContent = user
 
       function updateUser () {
         const userUrl = 'api/users/' + urlEncodedUsername
@@ -143,8 +129,8 @@
       updateUser()
 
       const permissionsUrl = 'api/users/' + urlEncodedUsername + '/permissions'
-      const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0 }
-      const permissionsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
+      const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0, countId: "permissions-count" }
+      const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
         Table.renderCell(tr, 1, item.configure)
         Table.renderCell(tr, 2, item.write)
         Table.renderCell(tr, 3, item.read)
@@ -212,6 +198,8 @@
             updateUser()
             DOM.toast("User updated")
             evt.target.reset()
+            pwd.disabled = false
+            pwd.required = true
           }).catch(HTTP.standardErrorHandler)
       })
 

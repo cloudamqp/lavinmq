@@ -37,7 +37,7 @@ module LavinMQ
           file = Release.get?(file_path)
           file = Release.get?("#{file_path}.html") unless file
           file = Release.get?("#{file_path}/index.html") unless file
-          etag = Digest::MD5.hexdigest(file.path + BUILD_TIME) if file
+          etag = Digest::MD5.hexdigest("#{file.path} #{BUILD_TIME}") if file
         {% else %}
           file_path = File.join(PUBLIC_DIR, file_path)
           file_path = "#{file_path}/index.html" if File.directory?(file_path)

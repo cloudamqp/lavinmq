@@ -6,7 +6,7 @@ import * as DOM from './dom.js'
 const vhost = new URLSearchParams(window.location.search).get('name')
 const urlEncodedVhost = encodeURIComponent(vhost)
 document.title = vhost + ' | LavinMQ'
-document.querySelector('#vhost2').textContent = vhost
+document.querySelector('#pagename-label').textContent = vhost
 
 const vhostUrl = 'api/vhosts/' + urlEncodedVhost
 HTTP.request('GET', vhostUrl).then(item => {
@@ -29,8 +29,8 @@ function fetchLimits() {
 fetchLimits()
 
 const permissionsUrl = 'api/vhosts/' + urlEncodedVhost + '/permissions'
-const tableOptions = { url: permissionsUrl, keyColumns: ['user'] }
-const permissionsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
+const tableOptions = { url: permissionsUrl, keyColumns: ['user'], countId: 'permissions-count' }
+const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
   Table.renderCell(tr, 2, item.write)
   Table.renderCell(tr, 3, item.read)

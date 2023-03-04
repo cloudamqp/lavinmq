@@ -8,6 +8,8 @@ module LavinMQ
       LogBackend = ::Log::InMemoryBackend.instance
 
       private def register_routes
+        static_view "/logs"
+
         get "/api/livelog" do |context, _params|
           channel = LogBackend.add_channel
           context.response.content_type = "text/event-stream"
@@ -15,7 +17,7 @@ module LavinMQ
             if last_event_id = context.request.headers["Last-Event-Id"]?
               last_ts = last_event_id.to_i64
               LogBackend.entries.each do |entry|
-                next if entry.timestamp.to_unix_ms <= last_ts 
+                next if entry.timestamp.to_unix_ms <= last_ts
                 print_entry(entry, io)
               end
             else

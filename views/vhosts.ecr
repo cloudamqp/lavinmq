@@ -1,28 +1,12 @@
+<%- pagename = "Virtual Hosts" -%>
 <!DOCTYPE html>
 <html lang="en">
-
   <head>
-    <title>Virtual Hosts | LavinMQ</title>
-    <link href="main.css" rel="stylesheet">
-    <meta name="google" content="notranslate">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="img/favicon.png" />
-    <link rel="apple-touch-icon" href="img/apple-touch-icon-iphone.png" />
-    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-ipad.png" />
-    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-iphone4.png" />
+    <% render "head" %>
     <script type="module" src="js/layout.js"></script>
   </head>
-
   <body>
-    <header>
-      <h2>
-        Virtual Hosts
-        <small id="table-count"></small>
-      </h2>
-      <nav id="user-menu" />
-    </header>
-    <nav id="menu"></nav>
+    <% render "header" %>
     <main>
       <section class="card">
         <div id="table-error"></div>
@@ -50,7 +34,7 @@
         <button type="submit" class="btn-primary">Add virtual host</button>
       </form>
     </main>
-    <footer>LavinMQ is open source and developed by <a href="https://www.84codes.com" target="_blank"><img class="logo" src="img/logo-84codes.svg"></a></footer>
+    <% render "footer" %>
     <script type="module">
       import * as HTTP from './js/http.js'
       import * as Helpers from './js/helpers.js'
