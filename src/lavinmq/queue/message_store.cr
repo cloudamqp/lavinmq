@@ -29,6 +29,7 @@ module LavinMQ
         load_segments_from_disk
         load_deleted_from_disk
         load_stats_from_segments
+        delete_unused_segments
         @wfile_id = @segments.last_key
         @wfile = @segments.last_value
         @rfile_id = @segments.first_key
@@ -152,6 +153,7 @@ module LavinMQ
           ack_count = afile.size // sizeof(UInt32)
           msg_count = @segment_msg_count[sp.segment]
           if ack_count == msg_count
+            Log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
             @acks.delete(sp.segment).try &.delete.close
             @segments.delete(sp.segment).try &.delete.close
@@ -320,7 +322,7 @@ module LavinMQ
           next if seg == current_seg # don't the delete the segment still being written to
 
           if @segment_msg_count[seg] == @deleted[seg]?.try(&.size)
-            Log.info { "Deleting segment #{seg}" }
+            Log.info { "Deleting unused segment #{seg}" }
             @acks.delete(seg).try &.delete.close
             mfile.delete.close
             true
