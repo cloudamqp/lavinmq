@@ -207,6 +207,7 @@ module LavinMQ
       private def write_to_disk(msg) : SegmentPosition
         wfile = @wfile
         if wfile.capacity < wfile.size + msg.bytesize
+          wfile.truncate(wfile.size) # won't write more to this, so truncate/unmap the remainder
           wfile = open_new_segment(msg.bytesize)
         end
         sp = SegmentPosition.make(@wfile_id, wfile.size.to_u32, msg)
@@ -216,11 +217,9 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        # FIXME: fsync
-        next_id = @segments.empty? ? 1_u32 : @wfile_id + 1
-        filename = "msgs.#{next_id.to_s.rjust(10, '0')}"
-        path = File.join(@data_dir, filename)
-        capacity = Config.instance.segment_size + next_msg_size
+        next_id = @wfile_id + 1
+        path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
+        capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
         wfile = MFile.new(path, capacity)
         SchemaVersion.prefix(wfile, :message)
         wfile.pos = 4
@@ -231,11 +230,10 @@ module LavinMQ
       end
 
       private def open_ack_file(id, segment_capacity) : MFile
-        filename = "acks.#{id.to_s.rjust(10, '0')}"
         max_msgs_per_segment = segment_capacity // BytesMessage::MIN_BYTESIZE
         capacity = (max_msgs_per_segment + 1) * sizeof(UInt32)
-        mfile = MFile.new(File.join(@data_dir, filename), capacity)
-        @acks[id] = mfile
+        path = File.join(@data_dir, "acks.#{id.to_s.rjust(10, '0')}")
+        @acks[id] = MFile.new(path, capacity)
       end
 
       private def load_deleted_from_disk
