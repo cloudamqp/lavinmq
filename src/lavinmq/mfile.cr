@@ -25,6 +25,7 @@ class MFile < IO
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
+  getter fd : Int32
   @buffer : Pointer(UInt8)
 
   # Map a file, if no capacity is given the file must exists and
@@ -113,11 +114,11 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer, @pos, LibC::MS_ASYNC)
+    msync(@buffer, @size, LibC::MS_ASYNC)
   end
 
   def fsync
-    msync(@buffer, @pos, LibC::MS_SYNC)
+    msync(@buffer, @size, LibC::MS_SYNC)
   end
 
   private def munmap(buffer = @buffer, length = @capacity)
@@ -136,20 +137,20 @@ class MFile < IO
 
   def write(slice : Bytes) : Nil
     raise IO::Error.new("MFile closed") if @closed
-    pos = @pos
-    raise IO::EOFError.new if pos + slice.size > @capacity
-    slice.copy_to(@buffer + pos, slice.size)
-    @pos = pos += slice.size
-    @size = pos.to_i64 if pos > @size
+    size = @size
+    slice.copy_to(@buffer + size, slice.size)
+    @size = size + slice.size
+  rescue ex : IndexError
+    raise IO::EOFError.new
   end
 
   def read(slice : Bytes)
     raise IO::Error.new("MFile closed") if @closed
     pos = @pos
-    len = pos + slice.size
-    raise IO::EOFError.new if len > @size
-    (@buffer + pos).copy_to(slice.to_unsafe, slice.size)
-    @pos = len
+    new_pos = pos + slice.size
+    raise IO::EOFError.new if new_pos > @size
+    slice.copy_from(@buffer + pos, slice.size)
+    @pos = new_pos
     slice.size
   end
 
@@ -219,6 +220,7 @@ class MFile < IO
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     old_capacity = @capacity
     @capacity = @size = new_size.to_i64
+    @pos = new_size.to_i64 if @pos > new_size
 
     offset = page_align(new_size.to_i64)
     length = old_capacity - offset
@@ -228,6 +230,7 @@ class MFile < IO
   def resize(new_size : Int) : Nil
     raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
+    @pos = new_size.to_i64 if @pos > new_size
   end
 
   def rename(new_path)
