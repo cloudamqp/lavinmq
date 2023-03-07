@@ -149,13 +149,14 @@ module LavinMQ
 
           # if all msgs in a segment are deleted then delete the segment
           return if sp.segment == @wfile_id # don't try to delete a segment we still write to
-          ack_count = afile.pos // sizeof(UInt32)
+          ack_count = afile.size // sizeof(UInt32)
           msg_count = @segment_msg_count[sp.segment]
           if ack_count == msg_count
             select_next_read_segment if sp.segment == @rfile_id
             @acks.delete(sp.segment).try &.delete.close
             @segments.delete(sp.segment).try &.delete.close
             @segment_msg_count.delete(sp.segment)
+            @deleted.delete(sp.segment)
           end
         rescue ex
           raise Error.new(afile, cause: ex)
@@ -208,12 +209,10 @@ module LavinMQ
         if wfile.capacity < wfile.size + msg.bytesize
           wfile = open_new_segment(msg.bytesize)
         end
-        wfile.seek(0, IO::Seek::End) do |pos|
-          sp = SegmentPosition.make(@wfile_id, pos.to_u32, msg)
-          wfile.write_bytes msg
-          @segment_msg_count[@wfile_id] += 1
-          sp
-        end
+        sp = SegmentPosition.make(@wfile_id, wfile.size.to_u32, msg)
+        wfile.write_bytes msg
+        @segment_msg_count[@wfile_id] += 1
+        sp
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
@@ -224,6 +223,7 @@ module LavinMQ
         capacity = Config.instance.segment_size + next_msg_size
         wfile = MFile.new(path, capacity)
         SchemaVersion.prefix(wfile, :message)
+        wfile.pos = 4
         @wfile_id = next_id
         @segment_msg_count[next_id] = 0u32
         @acks[next_id] = open_ack_file(next_id, capacity)
@@ -280,6 +280,7 @@ module LavinMQ
           else
             SchemaVersion.verify(file, :message)
           end
+          file.pos = 4
           @segments[seg] = file
           @acks[seg] = open_ack_file(seg, file.capacity)
         end
@@ -289,28 +290,43 @@ module LavinMQ
       private def load_stats_from_segments : Nil
         @segments.each do |seg, mfile|
           count = 0u32
-          mfile.seek(4) do |pos|
-            loop do
-              pos = mfile.pos
-              raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
-              ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
-              raise IO::EOFError.new if ts.zero? # This means that the rest of the file is zero, so truncate it
+          loop do
+            pos = mfile.pos
+            raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
+            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
+            raise IO::EOFError.new if ts.zero? # This means that the rest of the file is zero, so truncate it
 
-              bytesize = BytesMessage.skip mfile
-              unless deleted?(seg, pos)
-                @bytesize += bytesize
-                count += 1
-              end
-            rescue IO::EOFError
-              if pos < mfile.size
-                Log.warn { "Resizing #{mfile.path} from #{mfile.size} to #{pos}" }
-                mfile.resize(pos)
-              end
-              break
+            bytesize = BytesMessage.skip(mfile)
+            count += 1
+            unless deleted?(seg, pos)
+              @bytesize += bytesize
+              @size += 1
             end
+          rescue ex : IO::EOFError
+            if mfile.pos < mfile.size
+              Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
+              mfile.truncate(mfile.pos)
+            end
+            break
+          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+            raise Error.new(mfile, cause: ex)
           end
+          mfile.pos = 4
           @segment_msg_count[seg] = count
-          @size += count
+        end
+      end
+
+      private def delete_unused_segments : Nil
+        current_seg = @segments.last_key
+        @segments.reject! do |seg, mfile|
+          next if seg == current_seg # don't the delete the segment still being written to
+
+          if @segment_msg_count[seg] == @deleted[seg]?.try(&.size)
+            Log.info { "Deleting segment #{seg}" }
+            @acks.delete(seg).try &.delete.close
+            mfile.delete.close
+            true
+          end
         end
       end
 
