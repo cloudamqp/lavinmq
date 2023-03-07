@@ -20,13 +20,12 @@ end
 # not `size` large, only on graceful close is the file truncated to its `size`.
 # The file does not expand further than initial `capacity`, unless manually expanded.
 class MFile < IO
-  property pos : Int64 = 0i64
+  getter pos : Int64 = 0i64
   getter? closed : Bool = false
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
   @buffer : Pointer(UInt8)
-  @fd : Int32
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
@@ -163,23 +162,17 @@ class MFile < IO
     in IO::Seek::Set
       pos = offset.to_i64
     in IO::Seek::Current
-      pos = @pos + offset.to_i64
+      pos = @pos + offset
     in IO::Seek::End
-      pos = @size + offset.to_i64
+      pos = @size + offset
     end
     raise ArgumentError.new("Can't seek ahead start of file") if pos.negative?
     raise ArgumentError.new("Can't seek beyond end of file") if pos > @size
     @pos = pos
   end
 
-  def seek(offset : Int, whence : IO::Seek = IO::Seek::Set, &)
-    prev_pos = @pos
-    begin
-      pos = seek(offset, whence)
-      yield pos
-    ensure
-      @pos = prev_pos
-    end
+  def pos=(pos)
+    seek(pos, IO::Seek::Set)
   end
 
   def skip(bytes_count : Int) : Int
