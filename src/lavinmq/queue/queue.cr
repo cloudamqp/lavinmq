@@ -109,6 +109,7 @@ module LavinMQ
         break
       end
     rescue ex : MessageStore::Error
+      @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ex
     end
@@ -424,6 +425,7 @@ module LavinMQ
       drop_overflow unless immediate_delivery?
       true
     rescue ex : MessageStore::Error
+      @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ex
     end
@@ -703,6 +705,7 @@ module LavinMQ
       end
       false
     rescue ex : MessageStore::Error
+      @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ClosedError.new(cause: ex)
     end
@@ -845,6 +848,7 @@ module LavinMQ
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
+      @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ex
     end
@@ -907,6 +911,7 @@ module LavinMQ
       msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
       Envelope.new(msg_sp, msg, redelivered: true)
     rescue ex : MessageStore::Error
+      @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ex
     end
