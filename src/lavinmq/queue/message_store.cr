@@ -77,7 +77,7 @@ module LavinMQ
           if pos == rfile.size # EOF?
             select_next_read_segment && next
             return if @size.zero?
-            raise IO::EOFError.new
+            raise IO::EOFError.new("EOF but @size=#{@size}")
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
@@ -113,7 +113,7 @@ module LavinMQ
           if pos == rfile.size # EOF?
             select_next_read_segment && next
             return if @size.zero?
-            raise IO::EOFError.new
+            raise IO::EOFError.new("EOF but @size=#{@size}")
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
