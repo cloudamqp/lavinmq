@@ -265,7 +265,7 @@ class Throughput < Perf
       start = Time.monotonic
       q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
         @consumes += 1
-        raise "Invalid data" if @verify && m.body_io.to_slice != data
+        raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
         m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
         ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
         if @stopped || @consumes == @cmessages
