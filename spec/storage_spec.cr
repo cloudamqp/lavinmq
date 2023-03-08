@@ -35,8 +35,9 @@ describe LavinMQ::DurableQueue do
             sleep 0.01
             bytes = "111111111aaaaauaoeuaoeu".to_slice
             queue.@msg_store.@segments.each_value do |mfile|
-              mfile.seek(-bytes.size, IO::Seek::End) do
-                mfile.write(bytes)
+              File.open(mfile.path, "w+") do |f|
+                f.seek(mfile.size - bytes.size)
+                f.write(bytes)
               end
             end
 
