@@ -9,6 +9,8 @@ module LavinMQ
     DEFAULT_PREFETCH        = 1000_u16
     DEFAULT_RECONNECT_DELAY =        5
 
+    PERSISTENT_ERRORS = {Socket::Addrinfo::Error}
+
     enum State
       Starting
       Running
@@ -310,22 +312,30 @@ module LavinMQ
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
           return if terminated?
           @state = State::Error
+          @log.error(exception: ex) { ex.message }
+          @error = ex.message
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
             break
           end
-          @log.error(exception: ex) { ex.message }
-          @error = ex.message
           sleep @reconnect_delay.seconds
         rescue ex
           break if terminated?
           @state = State::Error
           @log.error(exception: ex) { ex.message }
           @error = ex.message
+          break if persistent_error?(ex, ex.cause)
           sleep @reconnect_delay.seconds
         end
       ensure
         terminate
+      end
+
+      private def persistent_error?(*exceptions : Exception | Nil)
+        {% for persistent_error in PERSISTENT_ERRORS %}
+          return true if exceptions.any? &.is_a?({{persistent_error}})
+        {% end %}
+        false
       end
 
       def details_tuple
