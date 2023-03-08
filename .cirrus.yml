@@ -27,9 +27,18 @@ osx_task:
   artifacts:
     path: bin/*
 
-arm_task:
+arm64_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   arm_container:
+    image: 84codes/crystal:latest-ubuntu-22.04
+    cpu: 2
+    memory: 4G
+    greedy: true
+  spec_script: make test
+
+amd64_task:
+  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+  container:
     image: 84codes/crystal:latest-ubuntu-22.04
     cpu: 2
     memory: 4G
