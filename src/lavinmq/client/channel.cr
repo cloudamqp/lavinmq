@@ -164,7 +164,10 @@ module LavinMQ
             @next_msg_body_file_pos = 0
           end
         elsif frame.body_size == @next_msg_size
-          IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
+          copied = IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
+          if copied != frame.body_size
+            raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
+          end
           @next_msg_body_tmp.rewind
           begin
             finish_publish(@next_msg_body_tmp)
