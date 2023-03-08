@@ -14,7 +14,7 @@ freebsd_task:
 osx_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-monterey-base:latest
+    image: ghcr.io/cirruslabs/macos-ventura-base:latest
   brew_cache:
     folder: ~/Library/Caches/Homebrew
   install_script:
