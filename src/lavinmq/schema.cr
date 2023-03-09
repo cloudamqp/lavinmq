@@ -58,8 +58,9 @@ module LavinMQ
     end
 
     private def self.delete_backup(backup_dir)
-      Log.info { "Deleting backup dir #{backup_dir}" }
-      FileUtils.rm_rf backup_dir
+      return if backup_dir.nil?
+
+      Log.warn { "Migration successful, backup #{backup_dir} can be deleted" }
     end
 
     # Migrates a data directory from version 1-3 to version 4
