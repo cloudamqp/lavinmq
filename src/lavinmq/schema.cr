@@ -4,7 +4,7 @@ module LavinMQ
   module Schema
     VERSION = 4
 
-    Log = ::Log.for(self)
+    Log = ::Log.for("Schema")
 
     def self.migrate(data_dir)
       case v = version(data_dir)
@@ -29,22 +29,26 @@ module LavinMQ
       nil
     end
 
-    private def self.backup(data_dir) : String
+    private def self.backup(data_dir) : String?
+      children = Dir.children(data_dir).reject!(&.in?("backups", ".lock"))
+      return if children.empty?
+
       backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339)
       Log.info { "Saving a backup of #{data_dir} to #{backup_dir}" }
       Dir.mkdir_p(backup_dir)
-      Dir.each_child(data_dir) do |child|
-        next if child == "backups"
+      children.each do |child|
         FileUtils.cp_r File.join(data_dir, child), backup_dir
       end
       backup_dir
     end
 
     private def self.restore(data_dir, backup_dir)
+      return if backup_dir.nil?
+
       Log.info { "Restoring backup #{backup_dir}" }
       # delete everything in data dir except backups
       Dir.each_child(data_dir) do |child|
-        next if child == "backups"
+        next if child.in?("backups", ".lock")
         FileUtils.rm_r File.join(data_dir, child)
       end
       # move the backup files to data dir
@@ -60,7 +64,7 @@ module LavinMQ
 
     # Migrates a data directory from version 1-3 to version 4
     class SchemaV4
-      Log = ::Log.for(self)
+      Log = ::Log.for("SchemaV4")
 
       def initialize(@data_dir : String)
       end
