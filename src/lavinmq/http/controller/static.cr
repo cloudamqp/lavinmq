@@ -1,5 +1,4 @@
 require "http/server/handler"
-require "baked_file_system"
 require "digest/md5"
 
 module LavinMQ
@@ -9,63 +8,54 @@ module LavinMQ
 
       PUBLIC_DIR = "#{__DIR__}/../../../../static"
 
-      class Release
-        extend BakedFileSystem
-        bake_folder "../../../../static"
-      end
-
       def call(context)
         path = context.request.path
-        if !%w(GET HEAD).includes?(context.request.method) || path.starts_with?("/api/")
-          call_next(context)
-          return
-        end
-
-        is_dir_path = path.ends_with? "/"
-        file_path = URI.decode_www_form(path)
-        file_path = "#{file_path}index.html" if is_dir_path
-
-        serve(context, file_path) || call_next(context)
-      end
-
-      private def serve(context, file_path)
-        file = nil
-        etag = nil
-        {% if flag?(:release) || flag?(:bake_static) %}
-          file = Release.get?(file_path)
-          file = Release.get?("#{file_path}.html") unless file
-          file = Release.get?("#{file_path}/index.html") unless file
-          etag = Digest::MD5.hexdigest("#{file.path} #{VERSION}") if file
-        {% else %}
-          file_path = File.join(PUBLIC_DIR, file_path)
-          file_path = "#{file_path}/index.html" if File.directory?(file_path)
-          file_path = "#{file_path}.html" unless File.exists?(file_path)
-          file, etag = static(context, file_path) if File.exists?(file_path)
-        {% end %}
-        return nil unless file && etag
-        context.response.content_type = mime_type(file.path)
-        if context.request.headers["If-None-Match"]? == etag && cache?(context.request.path)
-          context.response.status_code = 304
+        if context.request.method.in?("GET", "HEAD") && !path.starts_with?("/api/")
+          path = File.join(path, "index.html") if path.ends_with?('/') || !path.includes?('.')
+          serve(context, path) || call_next(context)
         else
-          if cache?(context.request.path)
-            context.response.headers.add("Cache-Control", "public,max-age=300")
-            context.response.headers.add("ETag", etag)
-          end
-          context.response.content_length = file.size
-          IO.copy(file, context.response)
+          call_next(context)
         end
-        context
-      ensure
-        file.try &.close
       end
 
-      private def cache?(request_path)
-        {% if flag?(:release) %}
-          true
-        {% else %}
-          !request_path.starts_with?("/docs/")
-        {% end %}
-      end
+      {% if flag?(:release) || flag?(:bake_static) %}
+        Files = {
+          {{ run("./static/bake", PUBLIC_DIR) }}
+        }
+
+        private def serve(context, file_path)
+          if bytes = Files[file_path]?
+            etag = Digest::MD5.hexdigest(bytes)
+            if context.request.headers["If-None-Match"]? == etag
+              context.response.status_code = 304
+            else
+              context.response.headers.add("Cache-Control", "public,max-age=300")
+              context.response.headers.add("ETag", etag)
+              context.response.content_type = mime_type(file_path)
+              context.response.content_length = bytes.size
+              context.response.write(bytes) unless context.request.method == "HEAD"
+            end
+            context
+          end
+        end
+      {% else %}
+        private def serve(context, file_path)
+          File.open(File.join(PUBLIC_DIR, file_path)) do |file|
+            etag = file.info.modification_time.to_unix_ms.to_s
+            if context.request.headers["If-None-Match"]? == etag
+              context.response.status_code = 304
+            else
+              context.response.headers.add("Cache-Control", "public,max-age=300")
+              context.response.headers.add("ETag", etag)
+              context.response.content_type = mime_type(file.path)
+              context.response.content_length = file.size
+              IO.copy(file, context.response) unless context.request.method == "HEAD"
+            end
+            context
+          end
+        rescue File::NotFoundError
+        end
+      {% end %}
 
       private def mime_type(path)
         case File.extname(path)
@@ -79,12 +69,6 @@ module LavinMQ
         when ".svg"         then "image/svg+xml"
         else                     "application/octet-stream"
         end
-      end
-
-      private def static(context, file_path)
-        info = File.info(file_path)
-        etag = info.modification_time.to_unix_ms.to_s
-        {File.open(file_path), etag}
       end
     end
   end

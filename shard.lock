@@ -12,10 +12,6 @@ shards:
     git: https://github.com/cloudamqp/amqp-client.cr.git
     version: 1.0.10+git.commit.fd6c7f4242408e5cd08281c459470412765be81c
 
-  baked_file_system:
-    git: https://github.com/schovi/baked_file_system.git
-    version: 0.10.0+git.commit.f086b45c52bac364e67b4b4c0b5698f2407215e2
-
   http-protection:
     git: https://github.com/84codes/http-protection.git
     version: 0.2.0+git.commit.893a191d55e301e0df96d6dd0f7d72c527bddeb8
