@@ -29,7 +29,7 @@ module LavinMQ
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         # etag won't change in runtime, so it's enough to calculate it once
-        %etag = Digest::MD5.hexdigest("{{view.id}} #{BUILD_TIME}")
+        %etag = Digest::MD5.hexdigest("{{view.id}} #{VERSION}")
         get {{path}} do |context, params|
           # This is used from head.ecr which enable us to calc base path
           route_path = {{path}}
