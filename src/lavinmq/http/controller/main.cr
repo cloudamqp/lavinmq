@@ -26,7 +26,7 @@ module LavinMQ
       include StatsHelpers
 
       OVERVIEW_STATS = {"ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"}
-      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
+      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash", "log"}
 
       private def register_routes
         static_view "/", "overview"

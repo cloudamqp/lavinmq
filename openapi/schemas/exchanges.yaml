@@ -76,6 +76,7 @@ type-field:
       - x-delayed-message
       - x-federation-upstream
       - x-consistent-hash
+      - log
 
 PutExchangeRequestBody:
   allOf:
