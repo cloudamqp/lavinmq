@@ -1,5 +1,5 @@
 # Base layer
-FROM 84codes/crystal:1.7.2-ubuntu-22.04 AS base
+FROM 84codes/crystal:1.7.3-ubuntu-22.04 AS base
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production
