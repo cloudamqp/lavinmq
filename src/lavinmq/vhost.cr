@@ -611,7 +611,6 @@ module LavinMQ
       @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, false)
       @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, false)
       @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
-      @exchanges["amq.log"] = LogExchange.new(self, "amq.log", true, false, false)
     end
 
     private def compact!(include_transient = false)
