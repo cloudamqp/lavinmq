@@ -27,6 +27,7 @@ module LavinMQ
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
+      setup_log_exchange
     end
 
     def run
@@ -87,6 +88,30 @@ module LavinMQ
       # end
       target = (path = @config.log_file) ? path : "stdout"
       Log.info &.emit("logger settings", level: @config.log_level.to_s, target: target)
+    end
+
+    private def setup_log_exchange
+      #new queue
+      q_name = "logstream"
+      vhost_name = "/"
+      exchange_name = "amq.log"
+      vhost = @amqp_server.vhosts[vhost_name]
+      vhost.declare_exchange(exchange_name, "log", true, false, true)
+      vhost.declare_queue(q_name, true, false)
+      vhost.bind_queue(q_name, exchange_name, ".*")
+
+
+      routing_key = ".*"
+      msg = Message.new(exchange_name, routing_key, "hej", AMQP::Properties.new)
+
+      vhost.publish(msg: msg)
+
+
+      #    def publish(msg : Message, immediate = false,
+      #       visited = Set(Exchange).new, found_queues = Set(Queue).new, confirm = false) : Bool
+
+
+      # ? publish to bindings
     end
 
     private def listen
