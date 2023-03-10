@@ -6,33 +6,32 @@ module LavinMQ
       "log"
     end
 
+    @log_channel : Channel(Log::Entry) = Channel(Log::Entry).new(128)
+
     def bind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}] << destination
-
-      #channel = ::Log::InMemoryBackend.instance.add_channel
-      #handle channel from in_memory_backend
-      #while entry = channel.receive
-      #  puts "hej"
-      #  msg = Message.new("amq.log", ".*", "hej", AMQP::Properties.new)
-      #  @vhost.publish(msg: msg)
-      #end
-
+      @log_channel = ::Log::InMemoryBackend.instance.add_channel
+      spawn do
+        while entry = @log_channel.receive
+          log_text = "#{entry.timestamp} [#{entry.severity.to_s.upcase}] #{entry.source} - #{entry.message}"
+          @vhost.publish(msg: Message.new("amq.log", ".*", log_text, AMQP::Properties.new))
+        end
+      end
       after_bind(destination, routing_key, headers)
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
-      @exchange_bindings[{routing_key, nil}] << destination
-      after_bind(destination, routing_key, headers)
+      raise NotImplementedError.new("Not implemented")
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
       @queue_bindings[{routing_key, nil}].delete destination
+      ::Log::InMemoryBackend.instance.remove_channel(@log_channel)
       after_unbind(destination, routing_key, headers)
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
-      @exchange_bindings[{routing_key, nil}].delete destination
-      after_unbind(destination, routing_key, headers)
+      raise NotImplementedError.new("Not implemented")
     end
 
     def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
