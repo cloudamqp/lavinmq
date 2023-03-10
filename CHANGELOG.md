@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.10] - 2023-03-10
+
 ### Added
 
 - Log view in the UI, uses SSE to live stream any logs from the server
@@ -15,11 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Use relative links in the UI, so that the mgmt interface can be mapped at any path
 - HTML views are now templated using ECR
+- Own implementation of embedding UI assets in executable
 
 ### Fixed
 
 - Fixed potential message store corruption bug, if client disconnected while publishing (and body frame split over multiple TCP packets)
 - Include libsystemd-pthread in container image so that lavinmqperf works again
+- Builds are reproducible
 
 ## [1.0.0-beta.9] - 2023-02-22
 
