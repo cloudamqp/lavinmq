@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Each queue now has its own message store, simplifying a lot of code (net -1500 LOC), but sacrificing fanout performance and persistent exchange support (to be replaced with stream queues)
+
 ## [1.0.0-beta.10] - 2023-03-10
 
 ### Added
