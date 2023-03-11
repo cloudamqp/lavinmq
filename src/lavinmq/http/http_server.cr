@@ -19,7 +19,6 @@ module LavinMQ
         handlers = [
           ::HTTP::Protection::StrictTransport.new,
           ::HTTP::Protection::FrameOptions.new,
-          ::HTTP::CompressHandler.new,
           AMQPWebsocket.new(@amqp_server),
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log),
