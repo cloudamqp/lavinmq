@@ -82,8 +82,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - run: |
-        brew update
-        brew install crystal pcre2
+          brew update
+          brew install crystal pcre2
 
       - name: Print Crystal version
         run: crystal -v
