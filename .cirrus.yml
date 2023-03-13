@@ -19,7 +19,7 @@ osx_task:
     folder: ~/Library/Caches/Homebrew
   install_script:
     - brew update
-    - brew install crystal
+    - brew install crystal pcre2
   spec_script: make test nocolor=1
   env:
     PKG_CONFIG_PATH: /usr/local/opt/openssl@1.1/lib/pkgconfig

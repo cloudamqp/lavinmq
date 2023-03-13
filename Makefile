@@ -77,7 +77,7 @@ lint: lib
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color)
+	crystal spec --order random $(if $(nocolor),--no-color) -Duse_pcre2
 
 .PHONY: format
 format:
