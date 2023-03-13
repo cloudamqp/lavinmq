@@ -190,7 +190,7 @@ module LavinMQ
       end
 
       private def logged_in?(context) : Bool
-        #puts ::HTTP::Cookies.from_client_headers(context.request.headers)["m"].value
+        # puts ::HTTP::Cookies.from_client_headers(context.request.headers)["m"].value
         cookie = ::HTTP::Cookies.from_client_headers(context.request.headers)["m"].value
         begin
           base64 = cookie.split("|")[2].split(":")[1].split("%")[0]
@@ -200,7 +200,8 @@ module LavinMQ
               return true
             end
           end
-        rescue IndexError; Base64::Error
+        rescue IndexError
+          Base64::Error
         end
         return false
       end
