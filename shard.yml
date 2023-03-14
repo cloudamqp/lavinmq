@@ -28,7 +28,6 @@ dependencies:
     github: tbrand/router.cr
   amqp-client:
     github: cloudamqp/amqp-client.cr
-    branch: main
   http-protection:
     github: 84codes/http-protection
     branch: master
