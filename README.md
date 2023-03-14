@@ -1,4 +1,5 @@
-[![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg?branch=main)](https://github.com/cloudamqp/lavinmq/actions)
+[![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg)](https://github.com/cloudamqp/lavinmq/actions)
+[![Build Status](https://api.cirrus-ci.com/github/cloudamqp/lavinmq.svg)](https://cirrus-ci.com/github/cloudamqp/lavinmq)
 
 # ![LavinMQ](static/img/logo-lavinmq.png)
 
