@@ -1,4 +1,4 @@
-<%- if !logged_in?(context) -%>
+<%- unless logged_in?(context) -%>
   <script>
     window.location.assign("login")
   </script>
