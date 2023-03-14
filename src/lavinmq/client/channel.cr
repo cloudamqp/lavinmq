@@ -19,7 +19,7 @@ module LavinMQ
       getter consumers = Array(Consumer).new
       getter prefetch_count = 0_u16
       getter global_prefetch_count = 0_u16
-      getter has_capacity = ::Channel(Bool).new
+      getter has_capacity = ::Channel(Nil).new
       @confirm = false
       @confirm_total = 0_u64
       @next_publish_mandatory = false
@@ -414,9 +414,7 @@ module LavinMQ
 
       private def delete_unacked(delivery_tag) : Unack?
         found = nil
-        was_full = false
         @unack_lock.synchronize do
-          was_full = @unacked.size >= @global_prefetch_count
           # @unacked is always sorted so can do a binary search
           # optimization for acking first unacked
           if @unacked[0]?.try(&.tag) == delivery_tag
@@ -427,19 +425,18 @@ module LavinMQ
             # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             found = @unacked.delete_at(idx)
           end
-          has_capacity = @unacked.size < @global_prefetch_count
         end
-        notify_has_capacity(true) if was_full
+        notify_has_capacity(1) if found
         found
       end
 
       private def delete_multiple_unacked(delivery_tag, & : Unack -> Nil)
-        was_full = false
+        count = 0
         @unack_lock.synchronize do
-          was_full = !has_capacity?
           if delivery_tag.zero?
             until @unacked.empty?
               yield @unacked.shift
+              count += 1
             end
           else
             idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
@@ -448,10 +445,11 @@ module LavinMQ
             # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             (idx + 1).times do
               yield @unacked.shift
+              count += 1
             end
           end
         end
-        notify_has_capacity(true) if was_full
+        notify_has_capacity(count)
       end
 
       def unacked_for_queue(queue) : Iterator(SegmentPosition)
@@ -598,10 +596,11 @@ module LavinMQ
         if frame.global
           @global_prefetch_count = frame.prefetch_count
           if frame.prefetch_count.zero?
-            while @has_capacity.try_send?(true)
+            while @has_capacity.try_send?(nil)
             end
           else
-            notify_has_capacity(true)
+            unacked_by_consumers = @unack_lock.synchronize { @unacked.count(&.consumer) }
+            notify_has_capacity(frame.prefetch_count.to_i - unacked_by_consumers)
           end
         else
           @prefetch_count = frame.prefetch_count
@@ -620,9 +619,8 @@ module LavinMQ
               end
               unack.queue.reject(unack.sp, requeue: true)
             end
-            was_full = !has_capacity?
             @unacked.clear
-            notify_has_capacity(true) if was_full
+            notify_has_capacity
           else # redeliver to the original recipient
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
@@ -680,16 +678,25 @@ module LavinMQ
         end
       end
 
-      def has_capacity?
-        @unacked.count(&.consumer) < @global_prefetch_count
+      def has_capacity? : Bool
+        return true if @global_prefetch_count.zero?
+        prefetch_limit = @global_prefetch_count
+        @unack_lock.synchronize do
+          count = 0
+          @unacked.each do |unack|
+            next if unack.consumer.nil? # only count consumer unacked against limit
+            count += 1
+            return false if count >= prefetch_limit
+          end
+          true
+        end
       end
 
-      private def notify_has_capacity(value)
+      private def notify_has_capacity(capacity = Int32::MAX)
         return if @global_prefetch_count.zero?
-        capacity = @global_prefetch_count.to_i - @unacked.count(&.consumer)
         return if capacity.negative?
         capacity.times do
-          @has_capacity.try_send?(value) || break
+          @has_capacity.try_send?(nil) || break
         end
       end
 
@@ -752,9 +759,8 @@ module LavinMQ
       @queues_to_fsync = Set(Queue).new
 
       private def process_tx_acks
-        was_full = false
+        count = 0
         @unack_lock.synchronize do
-          was_full = !has_capacity?
           @tx_acks.each do |tx_ack|
             if idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
               raise "BUG: Delivery tag not found" unless @unacked[idx].tag == tx_ack.delivery_tag
@@ -768,6 +774,7 @@ module LavinMQ
                     do_ack(unack)
                   end
                   @queues_to_fsync.add(unack.queue) unless tx_ack.requeue
+                  count += 1
                 end
               else
                 unack = @unacked.delete_at(idx)
@@ -777,6 +784,7 @@ module LavinMQ
                   do_ack(unack)
                 end
                 @queues_to_fsync.add(unack.queue) unless tx_ack.requeue
+                count += 1
               end
             end
           end
@@ -784,7 +792,7 @@ module LavinMQ
           @queues_to_fsync.each &.fsync_ack
           @queues_to_fsync.clear
         end
-        notify_has_capacity(true) if was_full
+        notify_has_capacity(count)
       end
 
       def tx_rollback(frame)

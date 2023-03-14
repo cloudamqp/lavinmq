@@ -69,14 +69,10 @@ module LavinMQ
 
         private def wait_for_global_capacity
           ch = @channel
-          if ch.global_prefetch_count > 0
-            unless ch.has_capacity?
-              @log.debug { "Waiting for global prefetch capacity" }
-              has_capacity = ch.has_capacity.receive
-              @log.debug { "Global prefetch #{has_capacity ? "has capacity" : "doesn't have capacity"}" }
-              return true
-            end
-          end
+          return if ch.has_capacity?
+          @log.debug { "Waiting for global prefetch capacity" }
+          ch.has_capacity.receive
+          true
         end
 
         private def wait_for_priority_consumers
