@@ -33,7 +33,13 @@ module LavinMQ
               context.response.headers.add("ETag", etag)
               context.response.content_type = mime_type(file_path)
               context.response.content_length = bytes.size
-              context.response.write(bytes) unless context.request.method == "HEAD"
+              if context.request.method == "GET" # HEAD requests don't get bodies
+                begin
+                  context.response.write(bytes)
+                rescue ex : IndexError
+                  raise IO::Error.new(cause: ex)
+                end
+              end
             end
             context
           end
