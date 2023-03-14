@@ -8,7 +8,7 @@ on:
       - main
 jobs:
   spec:
-    name: Spec
+    name: benchmark
     runs-on: ubuntu-latest
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
