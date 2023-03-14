@@ -190,26 +190,18 @@ module LavinMQ
       end
 
       private def logged_in?(context) : Bool
-        # puts ::HTTP::Cookies.from_client_headers(context.request.headers)["m"].value
-        cookie = ::HTTP::Cookies.from_client_headers(context.request.headers)["m"].value
         begin
-          base64 = cookie.split("|")[2].split(":")[1].split("%")[0]
+          cookie = ::HTTP::Cookies.from_client_headers(context.request.headers)["m"]?
+          cookie_value = cookie ? cookie.value : ""
+          base64 = cookie_value.split("|")[2].split(":")[1].split("%")[0]
           username, password = Base64.decode_string(base64).split(":")
           if user = @amqp_server.users[username]?
-            if valid_auth?(user, password)
-              return true
-            end
+            return user.password.not_nil!.verify(password)
           end
         rescue IndexError
           Base64::Error
         end
-        return false
-      end
-
-      private def valid_auth?(user, password) : Bool
-        return false if user.tags.empty?
-        return false if user.password.to_s.empty?
-        user.password.not_nil!.verify(password)
+        false
       end
 
       def vhosts(user : User)

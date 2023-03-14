@@ -1,3 +1,8 @@
+<%- if !logged_in?(context) -%>
+  <script>
+    window.location.assign("login")
+  </script>
+<%- end -%>
 <script>
   Object.assign(window, {
     currentRoute: '<%=route_path%>',
