@@ -62,7 +62,7 @@ module LavinMQ
         if max_map_count < 100_000
           Log.warn { "The max mmap count limit is very low, consider raising it." }
           Log.warn { "The limits should be higher than the maximum of # connections * 2 + # consumer * 2 + # queues * 4" }
-          Log.warn { "sysctl -w vm.max_map_count = 1000000" }
+          Log.warn { "sysctl -w vm.max_map_count=1000000" }
         end
       {% end %}
     end
