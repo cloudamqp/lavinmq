@@ -19,17 +19,12 @@ function header () {
 }
 
 function signOut () {
-  clearCookieValue('auth')
-  clearCookieValue('username')
-  clearCookieValue('password')
+  removeCookie()
   window.location.assign('login')
 }
 
 function setAuth (userInfo) {
-  clearCookieValue('auth')
-  clearCookieValue('username')
-  clearCookieValue('password')
-
+  removeCookie()
   const b64 = window.btoa(userInfo)
   storeCookie({ auth: encodeURIComponent(b64) })
   storeCookie({ username: userInfo.split(':')[0] })
@@ -50,12 +45,8 @@ function storeCookieWithExpiration (dict, expirationDate) {
   document.cookie = 'm=' + enc.join('|') + '; samesite=lax; expires=' + expirationDate.toUTCString()
 }
 
-function clearCookieValue (k) {
-  const d = parseCookie()
-  delete d[k]
-  const date = new Date()
-  date.setHours(date.getHours() + 8)
-  storeCookieWithExpiration(d, date)
+function removeCookie () {
+  document.cookie = 'm=; Max-Age=-99999999;'
 }
 
 function getCookieValue (k) {
