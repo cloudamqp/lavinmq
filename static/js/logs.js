@@ -1,6 +1,6 @@
 import * as Auth from './auth.js'
 
-const url = new URL(`${window.baseHref}/api/livelog`, window.location.origin)
+const url = new URL(window.location.pathname.replace(/\/logs$/, "/api/livelog"), window.location.origin)
 url.username = Auth.getUsername()
 url.password = Auth.getPassword()
 

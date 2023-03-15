@@ -41,7 +41,5 @@ function resizeListener () {
 }
 
 window.addEventListener('resize', resizeListener)
-window.addEventListener('DOMContentLoaded', _ => {
-  document.getElementById('userMenuVhost').onchange = (e) => Auth.selectVhost(e)
-  document.getElementById('signoutLink').onclick = (e) => Auth.signOut(e)
-})
+document.getElementById('userMenuVhost').onchange = (e) => Auth.selectVhost(e)
+document.getElementById('signoutLink').onclick = (e) => Auth.signOut(e)

@@ -1,35 +1,17 @@
 import * as Auth from './auth.js'
-import * as Dom from './dom.js'
 
-function testLoggedIn () {
-  const hash = window.location.hash
-  if (hash.startsWith('#/login')) {
-    const arr = hash.split('/')
+function loginUsingHash () {
+  if (window.location.hash.startsWith('#/login')) {
+    const arr = window.location.hash.split('/')
     Auth.setAuth(arr[2] + ':' + arr[3])
     window.location.hash = ''
-    window.location.assign('.')
-  }
-  if (!/(^|\/)login$/.test(window.location.pathname)) {
-    request('GET', 'api/whoami').then((d) => {
-      Auth.setUsername()
-    }).catch((e) => {
-      redirect('login')
-    })
   }
 }
-
-function redirect (path) {
-  if (window.location.pathname !== path) {
-    window.location.assign(path)
-  }
-}
+loginUsingHash()
 
 function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
-  if (Auth.getUsername() == null) {
-    return redirect('login')
-  }
   const hdr = Auth.header()
   headers.append('Authorization', hdr)
   const opts = {
@@ -70,8 +52,7 @@ function standardErrorHandler (e) {
   if (e.status === 404) {
     console.warn(`Not found: ${e.message}`)
   } else if (e.status === 401) {
-    testLoggedIn()
-    Dom.toast("Access Refused: You don't have the permission to perform this action", "error")
+    window.location.assign("login")
   } else if (e.body) {
     alertErrorHandler(e)
   } else {
@@ -96,8 +77,6 @@ class HTTPError extends Error {
   }
 }
 
-window.addEventListener("load", () => testLoggedIn())
-
 export {
-  request, redirect, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
+  request, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
 }

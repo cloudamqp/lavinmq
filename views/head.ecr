@@ -1,8 +1,6 @@
 <script>
-  Object.assign(window, {
-    currentRoute: '<%=route_path%>',
-    baseHref: window.location.pathname.replace(new RegExp('<%=route_path%>$'),'')
-  })
+  if (!document.cookie.split('; ').find(c => c.startsWith('m=')))
+    window.location.assign("login")
 </script>
 <title><% escape pagename %> | LavinMQ</title>
 <link href="main.css" rel="stylesheet">
