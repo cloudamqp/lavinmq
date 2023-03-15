@@ -96,7 +96,7 @@ module LavinMQ
       vhost = @amqp_server.vhosts["/"]
       vhost.declare_exchange(exchange_name, "log", true, true, true)
       vhost.declare_queue(q_name, true, false)
-      vhost.bind_queue(q_name, exchange_name, ".*")
+      vhost.bind_queue(q_name, exchange_name, "#")
     end
 
     private def listen
