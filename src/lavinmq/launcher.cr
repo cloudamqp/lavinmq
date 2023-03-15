@@ -92,9 +92,9 @@ module LavinMQ
 
     private def setup_log_exchange
       q_name = "logstream"
-      exchange_name = "amq.log"
+      exchange_name = "amq.lavinmq.log"
       vhost = @amqp_server.vhosts["/"]
-      vhost.declare_exchange(exchange_name, "log", true, false, true)
+      vhost.declare_exchange(exchange_name, "log", true, true, true)
       vhost.declare_queue(q_name, true, false)
       vhost.bind_queue(q_name, exchange_name, ".*")
     end
