@@ -55,16 +55,19 @@
         </div>
       </section>
       <form method="put" id="createUpstream" class="form card">
-        <h3>Add a new upstream</h3>
+        <h3>
+          <span class="when-create">Add a new upstream</span>
+          <span class="when-edit">Edit upstream</span>
+        </h3>
         <fieldset>
           <legend>General paramenters</legend>
-          <label>
+          <label class="when-create">
             <span>Virtual host</span>
             <select name="vhost" required></select>
           </label>
           <label>
             <span>Name</span>
-            <input type="text" name="name" required>
+            <input type="text" name="name" required data-primary-key>
           </label>
           <label>
             <span>URI</span>
@@ -119,7 +122,12 @@
             <input type="text" name="consumer-tag">
           </label>
         </fieldset>
-        <button type="submit" class="btn-primary">Add upstream</button>
+        <button type="submit" class="btn-primary when-create">Add upstream</button>
+        <div class="when-edit">
+          <button type="submit" class="btn-primary">Update</button>
+          <button type="reset" class="btn-danger cancel">Cancel</button>
+        </div>
+
       </form>
     </main>
     <% render "footer" %>

@@ -45,16 +45,16 @@
       </section>
       <form method="put" id="createShovel" class="form card">
         <h3>
-          <span class="create">Add a new shovel</span>
-          <span class="update">Edit shovel</span>
+          <span class="when-create">Add a new shovel</span>
+          <span class="when-edit">Edit shovel</span>
         </h3>
-        <label>
+        <label class="when-create">
           <span>Virtual host</span>
           <select name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
-          <input type="text" name="name" required class="primary-key">
+          <input type="text" name="name" required data-primary-key>
         </label>
         <fieldset class="inline">
           <legend>Source</legend>
@@ -121,8 +121,8 @@
             <option value="no-ack">No ack</option>
           </select>
         </label>
-        <button type="submit" class="btn-primary create">Add shovel</button>
-        <div class="update">
+        <button type="submit" class="btn-primary when-create">Add shovel</button>
+        <div class="when-edit">
           <button type="submit" class="btn-primary">Update</button>
           <button type="reset" class="btn-danger cancel">Cancel</button>
         </div>

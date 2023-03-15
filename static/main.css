@@ -751,11 +751,11 @@ input, select, textarea, button {
   padding: 7px;
 }
 
-form:not(.edit) .update {
+form:not(.edit-mode) .when-edit {
   display: none
 }
 
-form.edit .create {
+form.edit-mode .when-create {
   display: none ! important
 }
 

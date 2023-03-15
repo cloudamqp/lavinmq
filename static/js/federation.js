@@ -3,6 +3,7 @@ import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Vhosts from './vhosts.js'
+import * as Form from './form.js'
 
 const escapeHTML = DOM.escapeHTML
 Vhosts.addVhostOptions('createUpstream')
@@ -30,10 +31,12 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   Table.renderCell(tr, 8, item.value['message-ttl'])
   Table.renderCell(tr, 9, item.value.queue)
   Table.renderCell(tr, 10, item.value['consumer-tag'])
-  const btn = document.createElement('button')
-  btn.classList.add('btn-danger')
-  btn.textContent = 'Delete'
-  btn.onclick = function () {
+  const buttons = document.createElement('div')
+  buttons.classList.add('buttons')
+  const deleteBtn = document.createElement('button')
+  deleteBtn.classList.add('btn-danger')
+  deleteBtn.textContent = 'Delete'
+  deleteBtn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
     const url = 'api/parameters/federation-upstream/' + vhost + '/' + name
@@ -41,9 +44,17 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
     HTTP.request('DELETE', url)
       .then(() => {
         DOM.removeNodes(tr)
+        DOM.toast(`Upstream ${item.name} deleted`)
       }).catch(HTTP.standardErrorHandler)
   }
-  Table.renderCell(tr, 11, btn, 'right')
+  const editBtn = document.createElement('button')
+  editBtn.classList.add('btn-secondary')
+  editBtn.textContent = 'Edit'
+  editBtn.onclick = function() {
+    Form.editItem('#createUpstream', item)
+  }
+  buttons.append(editBtn, deleteBtn)
+  Table.renderCell(tr, 11, buttons, 'right')
 })
 
 const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000, countId: 'links-count' }
@@ -79,6 +90,7 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
     .then(() => {
       upstreamsTable.fetchAndUpdate()
       evt.target.reset()
+      DOM.toast(`Upstream ${name} saved`)
     }).catch(HTTP.standardErrorHandler)
 })
 Helpers.autoCompleteDatalist('queue-datalist', 'queues')

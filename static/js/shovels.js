@@ -61,6 +61,7 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
   const btns = document.createElement("div")
+  btns.classList.add("buttons")
   const deleteBtn = document.createElement('button')
   deleteBtn.classList.add('btn-danger')
   deleteBtn.textContent = 'Delete'
@@ -72,6 +73,7 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
       HTTP.request('DELETE', url)
         .then(() => {
           DOM.removeNodes(tr)
+          DOM.toast(`Shovel ${item.name} deleted`)
         }).catch(HTTP.standardErrorHandler)
     }
   }
@@ -158,7 +160,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
     .then(() => {
       updateShovelsTable()
       evt.target.reset()
-      DOM.toast('Shovel ' + name + ' created')
+      DOM.toast(`Shovel ${name} saved`)
     }).catch(HTTP.standardErrorHandler)
 })
 
