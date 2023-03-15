@@ -26,7 +26,7 @@ module LavinMQ
       rescue ex : Controller::HaltRequest
         @log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
       rescue ex : ::HTTP::Server::ClientError
-        context.response.status_code = 499
+        @log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.message}\"" }
       rescue ex : IO::Error
         @log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.message}\"" }
       rescue ex : Exception
