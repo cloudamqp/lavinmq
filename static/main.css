@@ -751,6 +751,19 @@ input, select, textarea, button {
   padding: 7px;
 }
 
+form:not(.edit) .update {
+  display: none
+}
+
+form.edit .create {
+  display: none ! important
+}
+
+form input:read-only,
+form textarea:read-only {
+  opacity: 0.5
+}
+
 button:hover {
   opacity: 0.8;
 }

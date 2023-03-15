@@ -3,6 +3,7 @@ import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Vhosts from './vhosts.js'
+import * as Form from './form.js'
 
 const escapeHTML = DOM.escapeHTML
 Vhosts.addVhostOptions('createShovel')
@@ -59,10 +60,11 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
-  const btn = document.createElement('button')
-  btn.classList.add('btn-danger')
-  btn.textContent = 'Delete'
-  btn.onclick = function () {
+  const btns = document.createElement("div")
+  const deleteBtn = document.createElement('button')
+  deleteBtn.classList.add('btn-danger')
+  deleteBtn.textContent = 'Delete'
+  deleteBtn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
     const url = 'api/parameters/shovel/' + vhost + '/' + name
@@ -73,7 +75,19 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
         }).catch(HTTP.standardErrorHandler)
     }
   }
-  Table.renderCell(tr, 11, btn, 'right')
+  const editBtn = document.createElement('button')
+  editBtn.classList.add("btn-secondary")
+  editBtn.textContent = 'Edit'
+  editBtn.onclick = function () {
+    Form.editItem("#createShovel", item, {
+      'src-type': (item) => item.value['src-queue'] ? "queue" : "exchange",
+      'dest-type': (item) => item.value['dest-queue'] ? "queue" : "exchange",
+      'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
+      'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
+     })
+  }
+  btns.append(editBtn, deleteBtn)
+  Table.renderCell(tr, 11, btns, 'right')
 })
 
 const vhost = window.sessionStorage.getItem('vhost')
