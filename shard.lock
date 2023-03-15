@@ -10,7 +10,7 @@ shards:
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 1.0.10+git.commit.fd6c7f4242408e5cd08281c459470412765be81c
+    version: 1.0.10
 
   http-protection:
     git: https://github.com/84codes/http-protection.git
