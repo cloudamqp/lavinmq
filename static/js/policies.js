@@ -3,6 +3,7 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Vhosts from './vhosts.js'
+import * as Form from './form.js'
 
 function apply(base_url = 'api/policies') {
   let url = base_url
@@ -31,10 +32,12 @@ function apply(base_url = 'api/policies') {
     Table.renderCell(tr, 4, JSON.stringify(item.definition))
     Table.renderCell(tr, 5, item.priority)
 
-    const btn = document.createElement('button')
-    btn.classList.add('btn-danger')
-    btn.textContent = 'Delete'
-    btn.onclick = function () {
+    const buttons = document.createElement('div')
+    buttons.classList.add('buttons')
+    const deleteBtn = document.createElement('button')
+    deleteBtn.classList.add('btn-danger')
+    deleteBtn.textContent = 'Delete'
+    deleteBtn.onclick = function () {
       const name = encodeURIComponent(item.name)
       const vhost = encodeURIComponent(item.vhost)
       const url = `${base_url}/${vhost}/${name}`
@@ -44,7 +47,16 @@ function apply(base_url = 'api/policies') {
           .catch(HTTP.standardErrorHandler)
       }
     }
-    Table.renderCell(tr, 6, btn, 'right')
+    const editBtn = document.createElement('button')
+    editBtn.classList.add('btn-secondary')
+    editBtn.textContent = 'Edit'
+    editBtn.onclick = function() {
+      Form.editItem('#createPolicy', item, {
+        'definition': item => Helpers.formatJSONargument(item.definition || {})
+      })
+    }
+    buttons.append(editBtn, deleteBtn)
+    Table.renderCell(tr, 6, buttons, 'right')
   })
 
   document.querySelector('#createPolicy').addEventListener('submit', function (evt) {

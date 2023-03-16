@@ -31,14 +31,17 @@
         </div>
       </section>
       <form method="put" id="createPolicy" class="form card">
-        <h3>Add/update policy</h3>
-        <label>
+        <h3>
+          <span class="when-create">Add policy</span>
+          <span class="when-edit">Edit policy</span>
+        </h3>
+        <label class="when-create">
           <span>Virtual host</span>
           <select id="addPolicyVhost" name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
-          <input type="text" name="name" required>
+          <input type="text" name="name" required data-primary-key="">
         </label>
         <label>
           <span>Pattern</span>
@@ -102,7 +105,11 @@
           <span>Priority</span>
           <input type="number" name="priority" value="0" max="10" min="-10" step="1" required>
         </label>
-        <button type="submit" class="btn-primary">Add policy</button>
+        <button type="submit" class="btn-primary when-create">Add policy</button>
+        <div class="when-edit">
+          <button type="submit" class="btn-primary">Update</button>
+          <button type="reset" class="btn-danger cancel">Cancel</button>
+        </div>
       </form>
     </main>
     <% render "footer" %>

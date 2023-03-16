@@ -4,7 +4,7 @@ function editItem(form, item, valueFactories)  {
   form.classList.add('edit-mode')
   const pkfield = form.querySelector('[data-primary-key]')
   if (pkfield) { pkfield.setAttribute("readonly", true) }
-  form.querySelectorAll('input, select').forEach(input => {
+  form.querySelectorAll('input, select, textarea').forEach(input => {
     let value = item[input.name] || item.value[input.name]
     if (valueFactories[input.name]) { value = valueFactories[input.name](item) }
     if (input instanceof HTMLSelectElement) {
@@ -17,8 +17,11 @@ function editItem(form, item, valueFactories)  {
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('form').forEach(form => {
     form.addEventListener('reset', _ => {
-      form.classList.remove("edit-mode")
-      form.querySelector('[data-primary-key]').setAttribute("readonly", false)
+      if (form.classList.contains('edit-mode')) {
+        console.log(form)
+        form.classList.remove("edit-mode")
+        form.querySelector('[data-primary-key]').removeAttribute("readonly")
+      }
     })
   })
 })
