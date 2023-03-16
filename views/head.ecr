@@ -1,5 +1,5 @@
 <script>
-  if (!document.cookie.split('; ').find(c => c.startsWith('m=')))
+  if (!document.cookie.startsWith("m=") && !document.cookie.contains("; m="))
     window.location.assign("login")
 </script>
 <title><% escape pagename %> | LavinMQ</title>
