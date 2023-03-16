@@ -62,22 +62,18 @@ function argumentHelper (formID, name, e) {
   }
 }
 
-function parseJSON(value, defaultValue) {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return defaultValue
-  }
-}
-
 function argumentHelperJSON (formID, name, e) {
   const key = e.target.getAttribute('data-tag')
   const value = e.target.getAttribute('value') || 'value'
   const form = document.getElementById(formID)
-  const currentValue = parseJSON(form.elements[name].value, {})
-  if (currentValue[key] || !key) { return }
-  currentValue[key] = value
-  form.elements[name].value = formatJSONargument(currentValue)
+   try {
+   const currentValue = JSON.parse(form.elements[name].value ?? '{}')
+    if (currentValue[key] || !key) { return }
+    currentValue[key] = value
+    form.elements[name].value = formatJSONargument(currentValue)
+  } catch {
+    form.elements[name].value += `\n"${key}": ${value}`
+  }
 }
 
 function formatJSONargument(obj) {
