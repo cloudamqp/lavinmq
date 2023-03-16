@@ -33,12 +33,12 @@ module LavinMQ
         get {{path}} do |context, params|
           # This is used from head.ecr which enable us to calc base path
           route_path = {{path}}
-          context.response.content_type = "text/html;charset=utf-8"
           if_non_match = context.request.headers["If-None-Match"]?
           Log.trace { "static_view path={{path.id}} etag=#{%etag} if-non-match=#{if_non_match}" }
           if if_non_match == %etag
             context.response.status_code = 304
           else
+            context.response.content_type = "text/html;charset=utf-8"
             context.response.headers.add("Cache-Control", "public,max-age=300")
             context.response.headers.add("ETag", %etag)
             {{block.body if block}}
