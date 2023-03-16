@@ -19,7 +19,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('form').forEach(form => {
     form.addEventListener('reset', _ => {
       if (form.classList.contains('edit-mode')) {
-        console.log(form)
         form.classList.remove("edit-mode")
         form.querySelector('[data-primary-key]').removeAttribute("readonly")
       }
