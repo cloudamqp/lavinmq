@@ -27,13 +27,6 @@ function hideMenu () {
   menuButton.classList.remove('open-menu')
 }
 
-const path = window.location.pathname
-const active = document.querySelector('#menu li a[href^="' + path + '"]')
-
-if (active) {
-  active.parentElement.classList.add('active')
-}
-
 function resizeListener () {
   if (window.innerWidth > 1000) {
     hideMenu()

@@ -1,4 +1,5 @@
 require "html"
+require "../../version"
 
 module LavinMQ
   module HTTP
@@ -12,6 +13,10 @@ module LavinMQ
       # `<% escape varaible_name %>` or `<% escape "string" %>`
       macro escape(value)
         HTML.escape({{value}}, context.response)
+      end
+
+      macro active_path?(path)
+        route_path.strip('/') == {{path}}.to_s.strip('.')
       end
 
       # Generate a get handler for given path. If no view is specified, path without initial

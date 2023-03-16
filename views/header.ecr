@@ -28,19 +28,23 @@
   </h1>
   <button id="menu-button" class="closed-menu" onclick=toggleMenu()></button>
   <ul id="menu-content">
-    <li><a id="menu-item" href=".">Overview</a></li>
-    <li><a id="menu-item" href="connections">Connections</a></li>
-    <li><a id="menu-item" href="channels">Channels</a></li>
-    <li><a id="menu-item" href="exchanges">Exchanges</a></li>
-    <li><a id="menu-item" href="queues">Queues</a></li>
-    <li><a id="menu-item" href="policies">Policies</a></li>
-    <li><a id="menu-item" href="operator-policies">Operator policies</a></li>
-    <li><a id="menu-item" href="shovels">Shovels</a></li>
-    <li><a id="menu-item" href="federation">Federation</a></li>
-    <li><a id="menu-item" href="vhosts">Virtual hosts</a></li>
-    <li><a id="menu-item" href="users">Users</a></li>
-    <li><a id="menu-item" href="nodes">Nodes</a></li>
-    <li><a id="menu-item" href="logs">Logs</a></li>
-    <li><a id="menu-item" href="docs/" target="_blank">HTTP API</a></li>
+    <% {
+      ".":            "Overview",
+      "connections":  "Connections",
+      "channels":     "Channels",
+      "exchanges":    "Exchanges",
+      "queues":       "Queues",
+      "policies":     "Policies",
+      "operator-policies": "Operator policies",
+      "shovels":      "Shovels",
+      "federation":   "Federation",
+      "vhosts":       "Virtual hosts",
+      "users":        "Users",
+      "nodes":        "Nodes",
+      "logs":         "Logs"
+      }.each do |href, label| -%>
+        <li<%= " class=\"active\"" if active_path?(href) %>><a href="<%=href%>"><%=label%></a></li>
+      <%-end-%>
+    <li><a href="docs/" target="_blank">HTTP API</a></li>
   </ul>
 </nav>
