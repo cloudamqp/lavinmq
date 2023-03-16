@@ -1,4 +1,5 @@
 require "html"
+require "../../version"
 
 module LavinMQ
   module HTTP
@@ -12,6 +13,10 @@ module LavinMQ
       # `<% escape varaible_name %>` or `<% escape "string" %>`
       macro escape(value)
         HTML.escape({{value}}, context.response)
+      end
+
+      macro active_path?(path)
+        context.request.path == "/#{{{path}}}" || (context.request.path == "/" && {{path}} == :".")
       end
 
       # Generate a get handler for given path. If no view is specified, path without initial
@@ -31,8 +36,6 @@ module LavinMQ
         # etag won't change in runtime, so it's enough to calculate it once
         %etag = Digest::MD5.hexdigest("{{view.id}} #{VERSION}")
         get {{path}} do |context, params|
-          # This is used from head.ecr which enable us to calc base path
-          route_path = {{path}}
           if_non_match = context.request.headers["If-None-Match"]?
           Log.trace { "static_view path={{path.id}} etag=#{%etag} if-non-match=#{if_non_match}" }
           if if_non_match == %etag
