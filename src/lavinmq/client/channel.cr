@@ -353,10 +353,6 @@ module LavinMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          if q.internal?
-            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
-            return
-          end
           priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
@@ -390,8 +386,6 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
-          elsif q.internal?
-            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' is internal")
           else
             @get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)

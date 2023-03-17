@@ -16,7 +16,7 @@ module LavinMQ
 
     def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
       if q = @vhost.queues[routing_key]?
-        yield q unless q.internal?
+        yield q
       end
     end
 
