@@ -122,8 +122,7 @@ module LavinMQ
     getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, last_get_time
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
-    getter? closed
-    property? internal = false
+    getter? closed = false
     getter state = QueueState::Running
     getter empty_change : Channel(Bool)
 
@@ -386,7 +385,6 @@ module LavinMQ
         state:                       @state.to_s,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               stats_details,
-        internal:                    @internal,
       }
     end
 

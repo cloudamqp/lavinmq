@@ -41,9 +41,7 @@ module LavinMQ
 
     def do_queue_matches(routing_key, headers = nil, & : Queue ->)
       matches(@queue_bindings, routing_key, headers) do |destination|
-        q = destination.as(Queue)
-        next if q.internal?
-        yield q
+        yield destination.as(Queue)
       end
     end
 

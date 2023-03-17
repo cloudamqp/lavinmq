@@ -27,7 +27,7 @@ module LavinMQ
     end
 
     def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
-      @queue_bindings[{routing_key, nil}].each { |q| yield q unless q.internal? }
+      @queue_bindings[{routing_key, nil}].each { |q| yield q }
     end
 
     def do_exchange_matches(routing_key, headers = nil, & : Exchange -> _)

@@ -21,7 +21,6 @@ module LavinMQ
       private def register_routes
         static_view "/queues"
         static_view "/queue"
-        static_view "/queue-internal"
 
         get "/api/queues" do |context, _|
           itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
@@ -115,9 +114,6 @@ module LavinMQ
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
             end
-            if q.internal?
-              bad_request(context, "Not allowed to delete internal queue")
-            end
             @amqp_server.vhosts[vhost].delete_queue(q.name)
             context.response.status_code = 204
           end
@@ -161,9 +157,6 @@ module LavinMQ
             q = queue(context, params, vhost)
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
-            end
-            if q.internal?
-              bad_request(context, "Not allowed to get from internal queue")
             end
             if q.state != QueueState::Running && q.state != QueueState::Paused
               forbidden(context, "Can't get from queue that is not in running state")

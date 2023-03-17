@@ -582,8 +582,6 @@ module LavinMQ
         send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
       elsif !@user.can_config?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have permissions to delete queue '#{q.name}'")
-      elsif q.internal?
-        send_access_refused(frame, "Not allowed to delete internal queue")
       else
         size = q.message_count
         @vhost.apply(frame)
@@ -631,8 +629,6 @@ module LavinMQ
     private def redeclare_queue(frame, q)
       if queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
         send_resource_locked(frame, "Exclusive queue")
-      elsif q.internal?
-        send_access_refused(frame, "Queue '#{frame.queue_name}' in vhost '#{@vhost.name}' is internal")
       elsif frame.passive || q.match?(frame)
         q.redeclare
         unless frame.no_wait
@@ -693,8 +689,6 @@ module LavinMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
-        send_access_refused(frame, "Not allowed to bind to internal queue")
       elsif queue_exclusive_to_other_client?(q)
         send_resource_locked(frame, "Exclusive queue")
       else
@@ -720,8 +714,6 @@ module LavinMQ
         send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
       elsif !@user.can_write?(@vhost.name, frame.queue_name)
         send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-      elsif @vhost.queues.fetch(frame.queue_name, nil).try &.internal?
-        send_access_refused(frame, "Not allowed to unbind from the internal queue")
       elsif queue_exclusive_to_other_client?(q)
         send_resource_locked(frame, "Exclusive queue")
       else
