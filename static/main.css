@@ -759,8 +759,9 @@ form.edit-mode .when-create {
   display: none ! important
 }
 
-form input:read-only,
-form textarea:read-only {
+form select:disabled,
+form input:disabled,
+form textarea:disabled {
   opacity: 0.5
 }
 

@@ -3,7 +3,9 @@ function editItem(form, item, valueFactories)  {
   form = form instanceof HTMLFormElement ?  form : document.querySelector(form)
   form.classList.add('edit-mode')
   const pkfield = form.querySelector('[data-primary-key]')
-  if (pkfield) { pkfield.setAttribute("readonly", true) }
+  if (pkfield) {
+    pkfield.disabled = true
+  }
   form.querySelectorAll('input, select, textarea').forEach(input => {
     let value = item[input.name]
     if (!value && item.value) { value = item.value[input.name] }
@@ -17,10 +19,18 @@ function editItem(form, item, valueFactories)  {
 }
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('form').forEach(form => {
+    form.addEventListener('formdata', evt => {
+      // Disabled fields wont be included in formdata, so this is a
+      // workaround when we edit an entity
+      const pkfield = form.querySelector('[data-primary-key]')
+      if (pkfield && pkfield.disabled) {
+        evt.formData.set(pkfield.name, pkfield.value)
+      }
+    })
     form.addEventListener('reset', _ => {
       if (form.classList.contains('edit-mode')) {
         form.classList.remove("edit-mode")
-        form.querySelector('[data-primary-key]').removeAttribute("readonly")
+        form.querySelector('[data-primary-key]').disabled = false
       }
     })
   })
