@@ -16,10 +16,40 @@ end
 class MFile < IO
   def copy_file_range(src : File, limit : Int)
     raise ArgumentError.new("Read buffering not supported") if src.read_buffering?
+    raise IO::EOFError.new if @capacity < @size + limit
+
     remaining = limit.to_i64
     until remaining.zero?
       len = LibC.copy_file_range(src.fd, nil, fd, pointerof(@size), remaining, 0)
       # copy_file_range will update @size
+      break if len <= 0 # fallback to buffer copying on error
+      remaining &-= len
+    end
+    limit - remaining
+  end
+
+  def copy_file_range(src : MFile, limit : Int)
+    raise IO::EOFError.new if @capacity < @size + limit
+    raise IO::EOFError.new if src.pos + limit > src.size
+
+    remaining = limit.to_i64
+    until remaining.zero?
+      len = LibC.copy_file_range(src.fd, pointerof(src.@pos), fd, pointerof(@size), remaining, 0)
+      # copy_file_range will update src.@pos and @size
+      break if len <= 0 # fallback to buffer copying on error
+      remaining &-= len
+    end
+    limit - remaining
+  end
+end
+
+class File
+  def copy_file_range(src : MFile, limit : Int)
+    raise ArgumentError.new("Write buffering not supported") unless sync?
+    remaining = limit.to_i64
+    until remaining.zero?
+      len = LibC.copy_file_range(src.fd, pointerof(src.@pos), fd, nil, remaining, 0)
+      # copy_file_range will update @pos
       break if len <= 0 # fallback to buffer copying on error
       remaining &-= len
     end
@@ -59,6 +89,14 @@ class IO
 
     {% if LibC.has_method?(:copy_file_range) %}
       if src.is_a?(File) && dst.is_a?(MFile)
+        copied = dst.copy_file_range(src, limit)
+        remaining &-= copied
+        return limit if remaining.zero?
+      elsif src.is_a?(MFile) && dst.is_a?(File)
+        copied = dst.copy_file_range(src, limit)
+        remaining &-= copied
+        return limit if remaining.zero?
+      elsif src.is_a?(MFile) && dst.is_a?(MFile)
         copied = dst.copy_file_range(src, limit)
         remaining &-= copied
         return limit if remaining.zero?
