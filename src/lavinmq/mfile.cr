@@ -168,7 +168,6 @@ class MFile < IO
       pos = @size + offset
     end
     raise ArgumentError.new("Can't seek ahead start of file") if pos.negative?
-    raise ArgumentError.new("Can't seek beyond end of file") if pos > @size
     @pos = pos
   end
 
