@@ -24,8 +24,8 @@ Clone the git repository and build the project.
 ```sh
 git clone git@github.com:cloudamqp/lavinmq.git
 cd lavinmq
-shards build --release --production
-install bin/lavinmq /usr/local/bin/lavinmq # optional
+make
+sudo make install # optional
 ```
 
 Now, LavinMQ is ready to be used. You can check the version with:
@@ -37,11 +37,25 @@ lavinmq -v
 ### Debian/Ubuntu
 
 ```sh
-curl -L https://packagecloud.io/cloudamqp/lavinmq/gpgkey | sudo apt-key add -
+curl -fsSL https://packagecloud.io/cloudamqp/lavinmq/gpgkey | gpg --dearmor | sudo tee /usr/share/keyrings/lavinmq.gpg > /dev/null
 . /etc/os-release
-echo "deb https://packagecloud.io/cloudamqp/lavinmq/$ID $VERSION_CODENAME main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
+echo "deb [signed-by=/usr/share/keyrings/lavinmq.gpg] https://packagecloud.io/cloudamqp/lavinmq/$ID $VERSION_CODENAME main" | sudo tee /etc/apt/sources.list.d/lavinmq.list
 sudo apt-get update
 sudo apt-get install lavinmq
+```
+
+### Fedora
+
+```sh
+sudo tee /etc/yum.repos.d/lavinmq.repo << 'EOF'
+[lavinmq]
+name=LavinMQ
+baseurl=https://packagecloud.io/cloudamqp/lavinmq/fedora/$releasever/$basearch
+gpgkey=https://packagecloud.io/cloudamqp/lavinmq/gpgkey
+repo_gpgcheck=1
+gpgcheck=0
+EOF
+sudo dnf install lavinmq
 ```
 
 ## Usage
@@ -141,30 +155,20 @@ to a single binary. You can liken it to Go, but with a nicer syntax.
 Instead of trying to cache messages in RAM, we write all messages as fast as we can to
 disk and let the OS cache do the caching.
 
-Each vhost is backed by a message store on disk, it's just a series of files (segments),
-that can grow to 256 MB each. Each incoming message is appended to the last segment,
+Each queues is backed by a message store on disk, it's just a series of files (segments),
+by default 8MB each. Each incoming message is appended to the last segment,
 prefixed with a timestamp, its exchange name, routing key and message headers.
-If the message is routed to a queue then the segment number and the position in
-that segment is written to each queue's queue index. The queue index is
-just an [in-memory array](https://crystal-lang.org/api/Deque.html)
-of segment numbers and file positions. In the case of durable queues
-the message index is also appended to a file.
 
-When a message is being consumed it removes the segment-position from the queue's
-in-memory array, and write the segment-position to an "ack" file. That way
-we can restore the queue index on boot by reading all the segment-position stored
-in the queue index file, then exclude all the segment-position read from the
-"ack" file. The queue index is rewritten when the "ack" file becomes 16 MB,
-that is, every `16 * 1024 * 1024 / 8 = 2097152` message.
-Then the current in-memory queue index is written to a new file and the
-"ack" file is truncated.
-
-Segments in the vhost's message store are being deleted when no queue index has
-a reference to a position in that segment.
+When a message is being consumed it reads sequentially from the segments.
+Each acknowledged (or rejected) message position in the segment is written to an "ack" file
+(per segment). If a message is requeued its position is added to a in memory queue.
+On boot all acked message positions are read from the "ack" files and then
+when deliviering messages skip those when reading sequentially from the message segments.
+Segments are deleted when all message in them are acknowledged.
 
 Declarations of queues, exchanges and bindings are written to a definitions
 file (if the target is durable), encoded as the AMQP frame they came in as.
-Periodically this file is garbage collected
+Periodically this file is compacted/garbage-collected
 by writing only the current in-memory state to the file (getting rid
 of all delete events). This file is read on boot to restore all definitions.
 
@@ -190,14 +194,13 @@ Here is an architectural description of the different flows in the server.
 and `Channel#add_content` for Body frames. When all content has been received
 (and appended to an `IO::Memory` object) it calls `VHost#publish` with a `Message` struct.
 `VHost#publish` finds all matching queues, writes the message to the message store and then
-calls `Queue#publish` with the segment position.
-`Queue#publish` writes to the queue index file (if it's a durable queue).
+calls `Queue#publish` with the segment position. `Queue#publish` writes to the message store.
 
 #### Consume
 
 When `Client#read_loop` receives a Basic.Consume frame it will create a `Consumer` class and add it to
-the queue's list of consumers. The Queue got a `deliver_loop` fiber that will loop over the list of
-consumers and deliver a message to each.
+the queue's list of consumers. Each consumer has a `deliver_loop` fiber that will be notified
+by an internal `Channel` when new messages are available in the queue.
 
 ## Features
 
@@ -223,13 +226,11 @@ consumers and deliver a message to each.
 - Importing/export definitions
 - Priority queues
 - Delayed exchanges
-- Rewindable queues (all messages that are published to an exchange
-  are stored and can be dumped into a queue when a certain binding is
-  made, even if they have already been consumed before)
 - AMQP WebSocket
 
 Currently missing features
 
+- Stream queues
 - Clustering
 - Plugins
 
@@ -241,85 +242,6 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 - When comparing queue/exchange/binding arguments non-effective parameters are also considered, and not ignored
 - TTL of queues and messages are correct to the 0.1 second, not to the millisecond
 - Newlines are not removed from Queue or Exchange names, they are forbidden
-
-### Persistent Exchange
-
-A persistent exchange will store all messages coming into the exchange
-even though there are no queue bindings on that exchange, this differs
-from other exchanges where messages will be dropped if the exchange
-doesn't have any bindings.
-The exchange will also keep the message in the exchange after the
-message has been routed to all queue bindings.
-
-When a new binding gets applied to the exchange additional arguments
-can be applied which decides if these stored messages should be routed
-to the new queue or not.
-For example, you can have a publisher that has been writing messages to a
-exchange for a while but you notice that no queue has been bound to
-that exchange. Since the exchange is persistent you can bind a new
-queue saying that all existing messages in the exchange should be routed
-the to newly bound queue.
-
-#### Message selection
-
-There are currently three arguments you can give to the exchange to tell
-it which messages should be published to the queue.
-
-If the exchange has 10 messages persisted, each box represent a
-message where the first message published to the exchange is the one
-to the far right, message 0.
-
-```
-[9] [8] [7] [6] [5] [4] [3] [2] [1] [0]
-```
-
-##### 1. x-head
-
-By supplying `x-head` as argument to the binding you can select to
-get X number of message start counting from the oldest message.
-The value for `x-head` can be both positive and negative, and this
-has different meaning which is illustrated below.
-
-If you bind a queue with the argument `x-head=3` messages
-0, 1 and 2 will be routed to your queue.
-
-If you bind a queue with the argument `x-head=-3` you will get
-all the messages except the last 3 messages.
-So for the example queue above you would get messages 0, 1, 2, 3, 4, 5, 6
-routed to your queue.
-
-##### 2. x-tail
-
-`x-tail` is very similar to `x-head` but it counts from the other
-direction.
-
-If you bind a queue with the argument `x-tail=3` messages
-7, 8 and 9 will be routed to your queue.
-
-If you bind a queue with the argument `x-tail=-3` you would get
-all the messages except the first 3 messages. So looking at the example
-above you would get messages 3, 4, 5, 6, 7, 8 and 9 routed to your queue.
-
-##### 3. x-from
-
-`x-from` allows you to be very specific on which messages to get.
-Instead of saying give me the oldest or newest like `x-head` and
-`x-tail`, `x-from` allows you to say exactly which message to start from
-to route to the queue.
-Each message consumed from a persistent exchange will have an additional
-argument `x-offset` which you can use to request that message again.
-
-If you specify a `x-offset=0` or an offset that doesn't exist you will
-get all messages stored in the exchange.
-
-Example
-
-You consume messages from a queue that is bound to a persistent
-exchange, some message fails to be process but you missed to re-queue the
-message. If you have been logging `x-offset` for each message you can use
-that value, bind a new queue to the exchange and supply that
-value as `x-from` for that binding and the new queue would get all
-messages from that offset.
 
 ## Contributors
 
@@ -340,6 +262,6 @@ messages from that offset.
 
 The software is licensed under the [Apache License 2.0](LICENSE).
 
-Copyright 2018-2021 84codes AB
+Copyright 2018-2023 84codes AB
 
 LavinMQ is a trademark of 84codes AB
