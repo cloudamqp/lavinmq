@@ -93,8 +93,7 @@ module LavinMQ
         end
 
         def migrate
-          Log.info { "Migrating #{@vhost_dir}" }
-          vhost_segments = Hash(UInt32, File).new { |h, k| h[k] = File.new("#{@vhost_dir}/msgs.#{k.to_s.rjust(10, '0')}") }
+          vhost_segments = Hash(UInt32, MFile).new { |h, k| h[k] = MFile.new("#{@vhost_dir}/msgs.#{k.to_s.rjust(10, '0')}") }
           queues.each do |queue|
             queue_dir = File.join(@vhost_dir, Digest::SHA1.hexdigest queue)
             QueueMigrator.new(queue_dir, vhost_segments).migrate
@@ -126,13 +125,13 @@ module LavinMQ
         end
 
         class QueueMigrator
-          def initialize(@queue_dir : String, @vhost_segments : Hash(UInt32, File))
+          def initialize(@queue_dir : String, @vhost_segments : Hash(UInt32, MFile))
           end
 
           def migrate
             i = 0
             wfile_id = 1u32
-            wfile = File.new("#{@queue_dir}/msgs.#{wfile_id.to_s.rjust(10, '0')}", "w")
+            wfile = File.new("#{@queue_dir}/msgs.#{wfile_id.to_s.rjust(10, '0')}", "w").tap &.sync = true
             wfile.write_bytes Schema::VERSION
             enqs do |sp|
               vseg = @vhost_segments[sp.segment]
@@ -141,7 +140,7 @@ module LavinMQ
               if wfile.pos >= Config.instance.segment_size
                 wfile.close
                 wfile_id += 1
-                wfile = File.new("#{@queue_dir}/msgs.#{wfile_id.to_s.rjust(10, '0')}")
+                wfile = File.new("#{@queue_dir}/msgs.#{wfile_id.to_s.rjust(10, '0')}", "w").tap &.sync = true
                 wfile.write_bytes Schema::VERSION
               end
               i += 1
@@ -154,7 +153,7 @@ module LavinMQ
 
           private def enqs(& : SegmentPositionBase -> Nil) : Nil
             acks = acks()
-            File.open("#{@queue_dir}/enq") do |f|
+            MFile.open("#{@queue_dir}/enq") do |f|
               segment_position_class = segment_position_class(f)
               loop do
                 sp = segment_position_class.from_io f
@@ -174,7 +173,7 @@ module LavinMQ
           private def acks : Array(SegmentPositionBase)
             ack_path = File.join(@queue_dir, "ack")
             acks = Array(SegmentPositionBase).new
-            File.open(ack_path) do |f|
+            MFile.open(ack_path) do |f|
               segment_position_class = segment_position_class(f)
               loop do
                 sp = segment_position_class.from_io f
