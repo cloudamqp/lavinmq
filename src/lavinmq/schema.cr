@@ -53,7 +53,7 @@ module LavinMQ
       end
       # move the backup files to data dir
       Dir.each_child(backup_dir) do |c|
-        FileUtils.mv File.join(backup_dir, c), data_dir
+        FileUtils.mv File.join(backup_dir, c), File.join(data_dir, c)
       end
     end
 
