@@ -1,5 +1,5 @@
 #!/bin/sh
-LATEST_TAG=$(git describe --abbrev=0)
+LATEST_TAG=${GITHUB_REF_NAME:-$(git describe --abbrev=0)}
 PREV_TAG=$(git describe --abbrev=0 "${LATEST_TAG}~")
 TAG_BODY=$(git tag --list --format='%(body)' "$LATEST_TAG")
 echo "$TAG_BODY" | sed '/^-----BEGIN PGP/,/^-----END PGP/d'
