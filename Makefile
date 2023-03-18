@@ -46,7 +46,7 @@ static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
 
 static/docs/index.html: openapi/openapi.yaml openapi/.spectral.json $(wildcard openapi/paths/*.yaml) $(wildcard openapi/schemas/*.yaml)
 	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint $<
-	npx redoc-cli build --output $@ $<
+	npx @redocly/cli build-docs --output $@ $<
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
