@@ -9,14 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Each queue now has its own message store, simplifying a lot of code (net -1500 LOC), but sacrificing fanout performance and persistent exchange support (to be replaced with stream queues)
+- Each queue now has its own message store, simplifying a lot of code (net -1500 LOC), but sacrificing fanout performance and persistent exchange support (to be replaced with stream queues). Single queue performance is better (as only one write is needed per message) and no message GC is needed, disk space usage is better.
 - Backup data dir before migration (remember to delete when successful)
 - pcre2 as regex engine
-- HTML is generated from ECR templates
 
 ### Fixed
 
-- No flash of layout when not logged-in in the UI
+- No flash of layout when not logged in to the UI
 - Delete temporary messages on transaction rollback
 
 ## [1.0.0-beta.10] - 2023-03-10
