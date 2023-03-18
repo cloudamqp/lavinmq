@@ -59,7 +59,7 @@ class MFile < IO
   end
 
   private def open_fd
-    flags = @readonly ? LibC::O_RDWR : LibC::O_CREAT | LibC::O_RDWR
+    flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
     perms = 0o644
     fd = LibC.open(@path.check_no_null_byte, flags, perms)
     raise File::Error.from_errno("Error opening file", file: @path) if fd < 0
@@ -80,7 +80,7 @@ class MFile < IO
 
   private def mmap : Pointer(UInt8)
     protection = LibC::PROT_READ
-    protection |= LibC::PROT_WRITE # unless @readonly
+    protection |= LibC::PROT_WRITE unless @readonly
     flags = LibC::MAP_SHARED
     ptr = LibC.mmap(nil, @capacity, protection, flags, @fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
