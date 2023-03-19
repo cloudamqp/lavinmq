@@ -8,7 +8,7 @@ Maintainer: CloudAMQP <contact@cloudamqp.com>,
 
 Package: lavinmq
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser
 Description: message queue server that implements the AMQP 0-9-1 protocol
  Aims to be very fast, have low RAM requirements,
  handle very long queues, many connections and
