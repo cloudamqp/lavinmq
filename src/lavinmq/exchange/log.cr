@@ -14,7 +14,7 @@ module LavinMQ
       spawn do
         while entry = @log_channel.receive
           log_text = "#{entry.timestamp} [#{entry.severity.to_s.upcase}] #{entry.source} - #{entry.message}"
-          properties =  AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
+          properties = AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
           @vhost.publish(msg: Message.new("amq.lavinmq.log", entry.severity.to_s, log_text, properties))
         end
       end
