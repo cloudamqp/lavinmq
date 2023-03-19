@@ -11,6 +11,7 @@ on:
       - static/**
       - views/**
       - openapi/**
+      - debian/**
   push:
     branches:
       - main
@@ -26,6 +27,7 @@ on:
       - static/**
       - views/**
       - openapi/**
+      - debian/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
