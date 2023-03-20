@@ -13,6 +13,8 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @lock_file : File?
+    @log_channel : Channel(::Log::Entry) = Channel(::Log::Entry).new(128)
+
 
     def initialize(@config : LavinMQ::Config)
       reload_logger
@@ -94,9 +96,17 @@ module LavinMQ
       q_name = "logstream"
       exchange_name = "amq.lavinmq.log"
       vhost = @amqp_server.vhosts["/"]
-      vhost.declare_exchange(exchange_name, "log", true, true, true)
+      vhost.declare_exchange(exchange_name, "topic", true, true, true)
       vhost.declare_queue(q_name, true, false)
       vhost.bind_queue(q_name, exchange_name, "#")
+      log_channel = ::Log::InMemoryBackend.instance.add_channel
+      spawn do
+        while entry = log_channel.receive
+          log_text = "#{entry.timestamp} [#{entry.severity.to_s.upcase}] #{entry.source} - #{entry.message}"
+          properties = AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
+          vhost.publish(msg: Message.new("amq.lavinmq.log", entry.severity.to_s, log_text, properties))
+        end
+      end
     end
 
     private def listen
