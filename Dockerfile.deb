@@ -1,4 +1,4 @@
-ARG build_image=84codes/crystal:latest-ubuntu-22.04
+ARG build_image=84codes/crystal:latest-ubuntu-20.04
 
 FROM $build_image AS builder
 RUN curl -fsSL https://deb.nodesource.com/setup_19.x | bash -
@@ -19,7 +19,7 @@ RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
 ARG DEB_BUILD_OPTIONS="parallel=2"
 RUN --mount=type=cache,target=/tmp/lock,sharing=locked debuild -us -uc
 
-FROM ubuntu:22.04 AS test
+FROM ubuntu:20.04 AS test
 COPY --from=builder /usr/src/*deb .
 RUN apt-get update && apt-get install -y ./*.deb ./*.ddeb
 RUN lavinmq --version
