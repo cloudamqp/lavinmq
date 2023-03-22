@@ -4,7 +4,7 @@ Homepage: https://github.com/cloudamqp/lavinmq
 Section: net
 Priority: optional
 Build-Depends: debhelper (>= 12), crystal (>= 1.7.3), nodejs (>= 12), curl
-Maintainer: CloudAMQP <contact@cloudamqp.com>,
+Maintainer: CloudAMQP <contact@cloudamqp.com>
 
 Package: lavinmq
 Architecture: any
