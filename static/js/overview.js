@@ -18,8 +18,6 @@ if (raw) {
   update(render)
 }
 
-window.addEventListener("load", () => render(data))
-
 function cacheKey () {
   const vhost = window.sessionStorage.getItem('vhost')
   return url + '/' + vhost
