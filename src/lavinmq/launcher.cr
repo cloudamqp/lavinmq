@@ -92,18 +92,21 @@ module LavinMQ
     end
 
     private def setup_log_exchange
-      q_name = "logstream"
+      queue_name = "logstream"
       exchange_name = "amq.lavinmq.log"
       vhost = @amqp_server.vhosts["/"]
       vhost.declare_exchange(exchange_name, "topic", true, true, true)
-      vhost.declare_queue(q_name, true, false)
-      vhost.bind_queue(q_name, exchange_name, "#")
+      vhost.declare_queue(queue_name, true, false)
+      vhost.bind_queue(queue_name, exchange_name, "#")
       log_channel = ::Log::InMemoryBackend.instance.add_channel
       spawn do
         while entry = log_channel.receive
-          log_text = "#{entry.timestamp} [#{entry.severity.to_s.upcase}] #{entry.source} - #{entry.message}"
-          properties = AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
-          vhost.publish(msg: Message.new("amq.lavinmq.log", entry.severity.to_s, log_text, properties))
+          vhost.publish(msg: Message.new(
+            exchange_name,
+            entry.severity.to_s,
+            "#{entry.timestamp} [#{entry.severity.to_s.upcase}] #{entry.source} - #{entry.message}",
+            AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
+          ))
         end
       end
     end
