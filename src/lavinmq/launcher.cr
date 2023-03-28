@@ -13,7 +13,6 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @lock_file : File?
-    @log_channel : Channel(::Log::Entry) = Channel(::Log::Entry).new(128)
 
     def initialize(@config : LavinMQ::Config)
       reload_logger
