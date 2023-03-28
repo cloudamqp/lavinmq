@@ -1,5 +1,5 @@
 <script>
-  if (!document.cookie.startsWith("m=") && !document.cookie.contains("; m="))
+  if (!document.cookie.startsWith("m=") && document.cookie.indexOf("; m=") === -1)
     window.location.assign("login")
 </script>
 <title><% escape pagename %> | LavinMQ</title>
