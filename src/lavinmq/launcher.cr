@@ -97,8 +97,8 @@ module LavinMQ
       vhost.declare_exchange(exchange_name, "topic", true, true, true)
       vhost.declare_queue(queue_name, true, false)
       vhost.bind_queue(queue_name, exchange_name, "#")
-      log_channel = ::Log::InMemoryBackend.instance.add_channel
-      spawn do
+      spawn(name: "Log Exchange") do
+        log_channel = ::Log::InMemoryBackend.instance.add_channel
         while entry = log_channel.receive
           vhost.publish(msg: Message.new(
             exchange_name,
