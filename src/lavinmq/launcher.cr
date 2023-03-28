@@ -100,7 +100,7 @@ module LavinMQ
           vhost.publish(msg: Message.new(
             exchange_name,
             entry.severity.to_s,
-            "#{entry.timestamp} [#{entry.severity.to_s.upcase}] #{entry.source} - #{entry.message}",
+            "#{entry.source} - #{entry.message}",
             AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
           ))
         end
