@@ -84,7 +84,7 @@ jobs:
           fi
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
           DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.version_number == \"${VERSION_ID}\").id" distributions.json)
-          rename .ddeb .deb builds/*.ddeb
+          for f in deb/*.ddeb; do mv -- "$f" "${f%.ddeb}.deb"; done
           for PKG_FILE in $(find builds -name "*.deb")
           do curl -u "${{ secrets.packagecloud_token }}:" -XPOST --no-progress-meter \
               -F "package[distro_version_id]=${DIST_ID}" \
@@ -103,7 +103,7 @@ jobs:
           fi
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
           DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.version_number == \"${VERSION_ID}\").id" distributions.json)
-          rename .ddeb .deb builds/*.ddeb
+          for f in deb/*.ddeb; do mv -- "$f" "${f%.ddeb}.deb"; done
           for PKG_FILE in $(find builds -name "*.deb")
           do curl -u "${{ secrets.packagecloud_token }}:" -XPOST --no-progress-meter \
               -F "package[distro_version_id]=${DIST_ID}" \
