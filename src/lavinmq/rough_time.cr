@@ -1,14 +1,17 @@
 module RoughTime
   {% if flag?(:realtime) %}
-    macro utc
+    @[AlwaysInline]
+    def self.utc : Time
       Time.utc
     end
 
-    macro unix_ms
+    @[AlwaysInline]
+    def self.unix_ms : Int64
       Time.utc.to_unix_ms
     end
 
-    macro monotonic
+    @[AlwaysInline]
+    def self.monotonic : Time::Span
       Time.monotonic
     end
   {% else %}
