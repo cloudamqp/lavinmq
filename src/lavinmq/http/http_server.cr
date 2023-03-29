@@ -61,18 +61,15 @@ module LavinMQ
       end
 
       def bind_unix(path)
-        addr = @http.bind_unix path
+        File.delete?(path)
+        addr = @http.bind_unix(path)
         File.chmod(path, 0o777)
         @log.info { "Bound to #{addr}" }
       end
 
       def bind_internal_unix
-        if File.exists? INTERNAL_UNIX_SOCKET
-          File.delete INTERNAL_UNIX_SOCKET
-        else
-          FileUtils.mkdir_p(File.dirname(INTERNAL_UNIX_SOCKET))
-        end
-        addr = @http.bind_unix INTERNAL_UNIX_SOCKET
+        File.delete?(INTERNAL_UNIX_SOCKET)
+        addr = @http.bind_unix(INTERNAL_UNIX_SOCKET)
         File.chmod(INTERNAL_UNIX_SOCKET, 0o770)
         @log.info { "Bound to #{addr}" }
       end
@@ -83,6 +80,7 @@ module LavinMQ
 
       def close
         @http.try &.close
+        File.delete?(INTERNAL_UNIX_SOCKET)
       end
 
       def closed?

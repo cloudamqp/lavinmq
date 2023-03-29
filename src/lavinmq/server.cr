@@ -149,7 +149,7 @@ module LavinMQ
     end
 
     def listen_unix(path : String)
-      File.delete(path) if File.exists?(path)
+      File.delete?(path)
       s = UNIXServer.new(path)
       File.chmod(path, 0o777)
       listen(s)
