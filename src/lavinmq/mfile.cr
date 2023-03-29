@@ -40,7 +40,7 @@ class MFile < IO
       code = LibC.ftruncate(@fd, @capacity)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     end
-    @buffer = mmap
+    @buffer = @capacity.zero? ? Pointer(UInt8).null : mmap
   end
 
   # Opens an existing file in readonly mode
@@ -122,11 +122,13 @@ class MFile < IO
   end
 
   private def munmap(buffer = @buffer, length = @capacity)
+    return if length.zero?
     code = LibC.munmap(buffer, length)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
   end
 
   private def msync(addr, len, flag) : Nil
+    return if len.zero?
     code = LibC.msync(addr, len, flag)
     raise RuntimeError.from_errno("msync") if code < 0
   end
@@ -138,10 +140,10 @@ class MFile < IO
   def write(slice : Bytes) : Nil
     raise IO::Error.new("MFile closed") if @closed
     size = @size
+    new_size = size + slice.size
+    raise IO::EOFError.new if new_size > @capacity
     slice.copy_to(@buffer + size, slice.size)
-    @size = size + slice.size
-  rescue ex : IndexError
-    raise IO::EOFError.new
+    @size = new_size
   end
 
   def read(slice : Bytes)
