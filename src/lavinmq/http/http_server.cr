@@ -62,6 +62,7 @@ module LavinMQ
 
       def bind_unix(path)
         addr = @http.bind_unix path
+        File.chmod(path, 0o777)
         @log.info { "Bound to #{addr}" }
       end
 
