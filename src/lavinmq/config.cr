@@ -40,6 +40,7 @@ module LavinMQ
     property tcp_send_buffer_size : Int32? = nil
     property? guest_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
+    property log_exchange : Bool = false
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -93,6 +94,7 @@ module LavinMQ
         when "tls_ciphers"          then @tls_ciphers = v
         when "tls_min_version"      then @tls_min_version = v
         when "guest_only_loopback"  then @guest_only_loopback = true?(v)
+        when "log_exchange"         then @log_exchange = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end

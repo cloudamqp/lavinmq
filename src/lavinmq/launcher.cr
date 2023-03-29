@@ -91,6 +91,7 @@ module LavinMQ
     end
 
     private def setup_log_exchange
+      return unless @config.log_exchange
       exchange_name = "amq.lavinmq.log"
       vhost = @amqp_server.vhosts["/"]
       vhost.declare_exchange(exchange_name, "topic", true, true, true)
