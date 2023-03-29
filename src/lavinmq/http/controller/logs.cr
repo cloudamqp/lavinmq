@@ -39,6 +39,7 @@ module LavinMQ
 
         get "/api/logs" do |context, _params|
           context.response.content_type = "text/plain"
+          context.response.headers["Cache-Control"] = "no-store"
           context.response.headers["Content-Disposition"] = "attachment; filename=logs.txt"
           LogBackend.entries.each do |e|
             context.response.puts "#{e.timestamp} [#{e.severity.to_s.upcase}] #{e.source} - #{e.message}"
