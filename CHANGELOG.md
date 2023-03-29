@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.13] - 2023-03-30
+
 ### Changed
 
 - Use /tmp/lavinmqctl.sock as unix socket path for lavinmqctl on all platforms
@@ -15,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Debug symbols package available on Ubuntu
 - JS error when checking authentication
 - Optimized basic auth check
 
