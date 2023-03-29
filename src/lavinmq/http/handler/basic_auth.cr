@@ -21,13 +21,17 @@ module LavinMQ
 
         if auth = context.request.headers.fetch("Authorization", nil)
           if auth.starts_with? "Basic "
-            base64 = auth[6..-1]
+            base64 = auth[6..]
             begin
-              username, password = Base64.decode_string(base64).split(":")
-              if user = @server.users[username]?
-                if valid_auth?(user, password) && guest_only_loopback?(context, user)
-                  context.authenticated_username = username
-                  return call_next(context)
+              decode = Base64.decode_string(base64)
+              if idx = decode.index(':')
+                username = decode[0...idx]
+                password = decode[idx + 1..]
+                if user = @server.users[username]?
+                  if valid_auth?(user, password) && guest_only_loopback?(context, user)
+                    context.authenticated_username = username
+                    return call_next(context)
+                  end
                 end
               end
             rescue Base64::Error
