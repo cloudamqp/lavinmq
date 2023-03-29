@@ -13,6 +13,7 @@ module LavinMQ
         get "/api/livelog" do |context, _params|
           channel = LogBackend.add_channel
           context.response.content_type = "text/event-stream"
+          context.response.headers["X-Accel-Buffering"] = "no"
           context.response.upgrade do |io|
             if last_event_id = context.request.headers["Last-Event-Id"]?
               last_ts = last_event_id.to_i64
