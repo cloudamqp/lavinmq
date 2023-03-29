@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Use /tmp/lavinmqctl.sock as unix socket path for lavinmqctl on all platforms
+- Make HTTP unix sockets world writeable, authentication is done on the protocol level
+- Keep debug symbols in debian packages, no separate dbgsym package required
+
+### Fixed
+
+- Debug symbols package available on Ubuntu
+- JS error when checking authentication
+- Optimized basic auth check
+
 ## [1.0.0-beta.12] - 2023-03-22
 
 ### Fixed
