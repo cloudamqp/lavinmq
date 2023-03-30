@@ -66,8 +66,8 @@ function argumentHelperJSON (formID, name, e) {
   const key = e.target.getAttribute('data-tag')
   const value = e.target.getAttribute('value') || 'value'
   const form = document.getElementById(formID)
-   try {
-   const currentValue = JSON.parse(form.elements[name].value ?? '{}')
+  try {
+    const currentValue = JSON.parse(form.elements[name].value ?? '{}')
     if (currentValue[key] || !key) { return }
     currentValue[key] = value
     form.elements[name].value = formatJSONargument(currentValue)
@@ -77,9 +77,8 @@ function argumentHelperJSON (formID, name, e) {
 }
 
 function formatJSONargument(obj) {
-  let value = '{'
-  value += Object.keys(obj).map(key => `"${key}": ${JSON.stringify(obj[key])}`).join(',\n')
-  return value + '}'
+  const values = Object.keys(obj).map(key => `"${key}": ${JSON.stringify(obj[key])}`).join(',\n')
+  return `{ ${values} }`
 }
 
 function formatTimestamp(timestamp) {
