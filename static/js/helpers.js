@@ -66,13 +66,19 @@ function argumentHelperJSON (formID, name, e) {
   const key = e.target.getAttribute('data-tag')
   const value = e.target.getAttribute('value') || 'value'
   const form = document.getElementById(formID)
-  const currentValue = form.elements[name].value
-  if (currentValue.includes(key) || !key) { return }
-  if (currentValue === '') {
-    form.elements[name].value = `{"${key}": ${value}}`
-  } else if (currentValue.slice(-1) === '}') {
-    form.elements[name].value = currentValue.substr(0, currentValue.length - 1) + `,\n"${key}": ${value}}`
+  try {
+    const currentValue = JSON.parse(form.elements[name].value ?? '{}')
+    if (currentValue[key] || !key) { return }
+    currentValue[key] = value
+    form.elements[name].value = formatJSONargument(currentValue)
+  } catch {
+    form.elements[name].value += `\n"${key}": ${value}`
   }
+}
+
+function formatJSONargument(obj) {
+  const values = Object.keys(obj).map(key => `"${key}": ${JSON.stringify(obj[key])}`).join(',\n')
+  return `{ ${values} }`
 }
 
 function formatTimestamp(timestamp) {
@@ -107,6 +113,7 @@ export {
   duration,
   argumentHelper,
   argumentHelperJSON,
+  formatJSONargument,
   autoCompleteDatalist,
   formatTimestamp
 }

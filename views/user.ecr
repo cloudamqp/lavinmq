@@ -3,7 +3,7 @@
 <html lang="en">
   <head>
     <% render "head" %>
-    <script type="module" src="js/layout.js"></script>
+    <script type="module" src="js/user.js"></script>
   </head>
   <body>
     <% render "header" %>
@@ -43,10 +43,13 @@
         </div>
       </section>
       <form method="put" id="setPermission" class="form card cols-6">
-        <h3>Set permission</h3>
+        <h3>
+          <span class="when-create">Set permission</span>
+          <span class="when-edit">Edit permission</span>
+        </h3>
         <label>
           <span>Virtual host</span>
-          <select name="vhost" required></select>
+          <select name="vhost" required data-primary-key=""></select>
         </label>
         <label>
           <span>Configure regexp</span>
@@ -60,7 +63,11 @@
           <span>Read regexp</span>
           <input type="text" name="read" required value=".*">
         </label>
-        <button type="submit" class="btn-primary">Set permission</button>
+        <button type="submit" class="btn-primary when-create">Set permission</button>
+        <div class="when-edit">
+          <button type="submit" class="btn-primary">Update</button>
+          <button type="reset" class="btn-danger cancel">Cancel</button>
+        </div>
       </form>
       <form method="put" id="updateUser" class="form card cols-6">
         <h3>Update user</h3>
@@ -96,126 +103,5 @@
       </section>
     </main>
     <% render "footer" %>
-    <script type="module">
-      import * as HTTP from './js/http.js'
-      import * as Helpers from './js/helpers.js'
-      import * as Table from './js/table.js'
-      import * as DOM from './js/dom.js'
-      import * as Vhosts from './js/vhosts.js'
-
-      const user = new URLSearchParams(window.location.search).get('name')
-      const urlEncodedUsername = encodeURIComponent(user)
-      document.title = user + ' | LavinMQ'
-      document.querySelector('#pagename-label').textContent = user
-
-      function updateUser () {
-        const userUrl = 'api/users/' + urlEncodedUsername
-        HTTP.request('GET', userUrl)
-          .then(item => {
-            const hasPassword = item.password_hash ? '●' : '○'
-            document.getElementById('tags').textContent = item.tags
-            document.getElementById('hasPassword').textContent = hasPassword
-            tagHelper(item.tags)
-          }).catch(HTTP.standardErrorHandler)
-      }
-
-      function tagHelper(tags) {
-        const vals = tags.split(',')
-        vals.forEach((val) =>  {
-          const currentVal = document.querySelector(`[name=tags]`).value
-          document.querySelector(`[name=tags]`).value = currentVal ? currentVal + ', ' + val : val
-        })
-      }
-      updateUser()
-
-      const permissionsUrl = 'api/users/' + urlEncodedUsername + '/permissions'
-      const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0, countId: "permissions-count" }
-      const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
-        Table.renderCell(tr, 1, item.configure)
-        Table.renderCell(tr, 2, item.write)
-        Table.renderCell(tr, 3, item.read)
-        if (all) {
-          const btn = document.createElement('button')
-          btn.classList.add('btn-secondary')
-          btn.innerText = 'Clear'
-          btn.onclick = function () {
-            const username = encodeURIComponent(item.user)
-            const vhost = encodeURIComponent(item.vhost)
-            const url = 'api/permissions/' + vhost + '/' + username
-            HTTP.request('DELETE', url)
-              .then(() => {
-                DOM.removeNodes(tr)
-              }).catch(HTTP.standardErrorHandler)
-          }
-          Table.renderCell(tr, 0, item.vhost)
-          Table.renderCell(tr, 4, btn, 'right')
-        }
-      })
-
-      Vhosts.addVhostOptions('setPermission')
-
-      document.querySelector('#setPermission').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const vhost = encodeURIComponent(data.get('vhost'))
-        const url = 'api/permissions/' + vhost + '/' + urlEncodedUsername
-        const body = {
-          configure: data.get('configure'),
-          write: data.get('write'),
-          read: data.get('read')
-        }
-        HTTP.request('PUT', url, { body })
-          .then(() => {
-            permissionsTable.fetchAndUpdate()
-            evt.target.reset()
-          }).catch(HTTP.standardErrorHandler)
-      })
-
-      document.querySelector('[name=remove_password]').addEventListener('change', function () {
-        const pwd = document.querySelector('[name=password]')
-        if (this.checked) {
-          pwd.disabled = true
-          pwd.required = false
-        } else {
-          pwd.disabled = false
-          pwd.required = true
-        }
-      })
-      document.querySelector('#updateUser').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const data = new window.FormData(this)
-        const url = 'api/users/' + urlEncodedUsername
-        const body = {
-          tags: data.get('tags')
-        }
-        if (data.get('remove_password') === 'on') {
-          body.password_hash = ''
-        } else if (data.get('password') != "") {
-          body.password = data.get('password')
-        }
-        HTTP.request('PUT', url, { body })
-          .then(() => {
-            updateUser()
-            DOM.toast("User updated")
-            evt.target.reset()
-            pwd.disabled = false
-            pwd.required = true
-          }).catch(HTTP.standardErrorHandler)
-      })
-
-      document.querySelector('#dataTags').onclick = e => {
-        Helpers.argumentHelper('updateUser', 'tags', e)
-      }
-
-      document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const url = 'api/users/' + urlEncodedUsername
-        if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
-          HTTP.request('DELETE', url)
-            .then(() => { window.location = 'users' })
-            .catch(HTTP.standardErrorHandler)
-        }
-      })
-    </script>
   </body>
 </html>

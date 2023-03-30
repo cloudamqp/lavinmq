@@ -44,14 +44,17 @@
         </div>
       </section>
       <form method="put" id="createShovel" class="form card">
-        <h3>Add a new shovel</h3>
-        <label>
+        <h3>
+          <span class="when-create">Add a new shovel</span>
+          <span class="when-edit">Edit shovel</span>
+        </h3>
+        <label class="when-create">
           <span>Virtual host</span>
           <select name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
-          <input type="text" name="name" required>
+          <input type="text" name="name" required data-primary-key="">
         </label>
         <fieldset class="inline">
           <legend>Source</legend>
@@ -118,7 +121,11 @@
             <option value="no-ack">No ack</option>
           </select>
         </label>
-        <button type="submit" class="btn-primary">Add shovel</button>
+        <button type="submit" class="btn-primary when-create">Add shovel</button>
+        <div class="when-edit">
+          <button type="submit" class="btn-primary">Update</button>
+          <button type="reset" class="btn-danger cancel">Cancel</button>
+        </div>
       </form>
     </main>
     <% render "footer" %>
