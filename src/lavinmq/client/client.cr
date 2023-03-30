@@ -403,7 +403,6 @@ module LavinMQ
       when AMQP::Frame::Heartbeat
         nil
       else
-        @log.error { "#{frame.inspect}, not implemented" }
         send_not_implemented(frame)
       end
       if heartbeat_interval_ms = @heartbeat_interval_ms
