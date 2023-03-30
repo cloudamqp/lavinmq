@@ -94,7 +94,7 @@ module LavinMQ
       return unless @config.log_exchange
       exchange_name = "amq.lavinmq.log"
       vhost = @amqp_server.vhosts["/"]
-      vhost.declare_exchange(exchange_name, "topic", true, true, true)
+      vhost.declare_exchange(exchange_name, "topic", true, false, true)
       spawn(name: "Log Exchange") do
         log_channel = ::Log::InMemoryBackend.instance.add_channel
         while entry = log_channel.receive
