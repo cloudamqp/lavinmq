@@ -301,10 +301,9 @@ function renderTable (id, options = {}, renderRow) {
 function renderCell (tr, column, value, classList = '') {
   const cell = tr.cells[column] || buildCells(tr, column)
   if (value instanceof window.Element) {
-    if (!value.isEqualNode(cell.firstChild)) {
-      while (cell.lastChild) {
-        cell.removeChild(cell.lastChild)
-      }
+    if (cell.firstChild) {
+      cell.replaceChild(value, cell.firstChild)
+    } else {
       cell.appendChild(value)
     }
   } else {
