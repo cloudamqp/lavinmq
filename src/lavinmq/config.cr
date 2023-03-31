@@ -40,7 +40,7 @@ module LavinMQ
     property tcp_send_buffer_size : Int32? = nil
     property? guest_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
-    property log_exchange : Bool = false
+    property? log_exchange : Bool = false
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
