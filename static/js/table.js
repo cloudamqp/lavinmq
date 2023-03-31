@@ -203,12 +203,8 @@ function renderTable (id, options = {}, renderRow) {
 
   function findIndex (rows, start, item) {
     for (let i = start; i < rows.length; i++) {
-      for (let k = 0; k < keyColumns.length; k++) {
-        if (rows[i].dataset[keyColumns[k]] !== item[keyColumns[k]]) {
-          break
-        } else if (k === keyColumns.length - 1) {
-          return i
-        }
+      if (keyColumns.every(key => rows[i].dataset[key] === item[key])) {
+        return i;
       }
     }
     return -1
