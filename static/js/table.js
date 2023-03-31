@@ -75,7 +75,7 @@ function renderTable (id, options = {}, renderRow) {
     table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
       cell.addEventListener('click', function (e) {
         table.querySelectorAll('th[data-sort-key]').forEach(th => {
-          if (th.isEqualNode(e.target)) return
+          if (th === e.target) return
           th.classList.remove('sorting_desc')
           th.classList.remove('sorting_asc')
         })
