@@ -44,8 +44,6 @@ function update (cb) {
 }
 
 function render (data) {
-  document.getElementById('version').textContent = data.lavinmq_version
-  document.getElementById('cluster_name').textContent = data.node
   const table = document.getElementById('overview')
   if (table) {
     Object.keys(data.object_totals).forEach((key) => {

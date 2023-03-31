@@ -19,6 +19,14 @@ module LavinMQ
         context.request.path == "/#{{{path}}}" || (context.request.path == "/" && {{path}} == :".")
       end
 
+      macro lavinmq_version
+        LavinMQ::VERSION
+      end
+
+      macro hostname
+        System.hostname
+      end
+
       # Generate a get handler for given path. If no view is specified, path without initial
       # slash will be used as view.
       #
@@ -34,7 +42,7 @@ module LavinMQ
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         # etag won't change in runtime, so it's enough to calculate it once
-        %etag = Digest::MD5.hexdigest("{{view.id}} #{VERSION}")
+        %etag = Digest::MD5.hexdigest("{{view.id}} #{VERSION} #{System.hostname}")
         get {{path}} do |context, params|
           if_non_match = context.request.headers["If-None-Match"]?
           Log.trace { "static_view path={{path.id}} etag=#{%etag} if-non-match=#{if_non_match}" }
