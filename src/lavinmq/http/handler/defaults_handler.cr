@@ -8,6 +8,7 @@ module LavinMQ
       def call(context)
         if context.request.path.starts_with?("/api/")
           context.response.content_type = "application/json"
+          context.response.headers.add("Cache-Control", "private,max-age=5")
         end
         context.response.headers.add("Referrer-Policy", "same-origin")
         call_next(context)
