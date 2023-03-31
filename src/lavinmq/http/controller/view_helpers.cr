@@ -19,10 +19,6 @@ module LavinMQ
         context.request.path == "/#{{{path}}}" || (context.request.path == "/" && {{path}} == :".")
       end
 
-      macro lavinmq_version
-        LavinMQ::VERSION
-      end
-
       # Generate a get handler for given path. If no view is specified, path without initial
       # slash will be used as view.
       #
