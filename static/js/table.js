@@ -175,7 +175,7 @@ function renderTable (id, options = {}, renderRow) {
               setKeyAttributes(t.rows[foundIndex], data[foundIndex])
             }
           } else {
-            renderRow(t.children[i], item, false)
+            renderRow(t.children[i], item, true)
           }
           start = Math.min(i + 1, foundIndex)
         } else {
