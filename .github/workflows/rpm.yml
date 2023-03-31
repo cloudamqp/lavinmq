@@ -52,7 +52,7 @@ jobs:
         run: |
           last_tag=$(git describe --tags --abbrev=0)
           version=$(cut -d- -f1 <<< ${last_tag:1})
-          pre_release=$(cut -d- -f2 <<< $last_tag)
+          pre_release=$(cut -d- -f2 -s <<< $last_tag)
           if [ -n "$pre_release" ]
           then version=$version~${pre_release//./}
           fi
