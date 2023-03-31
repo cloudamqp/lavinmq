@@ -43,6 +43,8 @@ function addVhostOptions (formId, options) {
     if (addAllOpt) {
       select.add(new Option('All', '_all', true, false))
     }
+    const collator = new Intl.Collator()
+    vhosts.sort((a, b) => collator.compare(a.name, b.name))
     vhosts.forEach(vhost => {
       select.add(new Option(vhost.name, vhost.name, false, vhost.name === selectedVhost))
     })
