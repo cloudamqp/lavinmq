@@ -54,8 +54,6 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
-            elsif e.internal
-              bad_request(context, "Not allowed to bind to internal exchange")
             end
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
@@ -98,8 +96,6 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
               access_refused(context, "Not allowed to unbind from the default exchange")
-            elsif e.internal
-              bad_request(context, "Not allowed to unbind from internal exchange")
             end
             props = URI.decode_www_form(params["props"])
             found = false
@@ -137,8 +133,8 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
-            elsif source.internal || destination.internal
-              bad_request(context, "Not allowed to bind to internal exchange")
+            elsif destination.internal
+              bad_request(context, "Not allowed to bind to an internal exchange")
             end
             body = parse_body(context)
             routing_key = body["routing_key"]?.try(&.as_s?) ||
@@ -177,8 +173,8 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
               access_refused(context, "Not allowed to unbind from the default exchange")
-            elsif source.internal || destination.internal
-              bad_request(context, "Not allowed to unbind from internal exchange")
+            elsif destination.internal
+              bad_request(context, "Not allowed to unbind from an internal exchange")
             end
             props = URI.decode_www_form(params["props"])
             found = false
