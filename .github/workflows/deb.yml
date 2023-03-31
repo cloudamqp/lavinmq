@@ -51,7 +51,7 @@ jobs:
       - name: Generate version string
         run: |
           git_describe=$(git describe --tags)
-          echo "version=${git_describe}:1" >> $GITHUB_ENV
+          echo "version=${git_describe:1}" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
