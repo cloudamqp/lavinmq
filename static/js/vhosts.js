@@ -2,10 +2,10 @@ import * as HTTP from './http.js'
 
 let loadedVhosts
 
-function fetch(forceRefresh) {
+function fetch() {
   const vhost = window.sessionStorage.getItem('vhost')
   const url = 'api/vhosts'
-  if (!loadedVhosts || forceRefresh) {
+  if (!loadedVhosts) {
     loadedVhosts = HTTP.request('GET', url).then(function (vhosts) {
       if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
         window.sessionStorage.removeItem('vhost')
