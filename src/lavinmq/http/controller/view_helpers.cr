@@ -23,10 +23,6 @@ module LavinMQ
         LavinMQ::VERSION
       end
 
-      macro hostname
-        System.hostname
-      end
-
       # Generate a get handler for given path. If no view is specified, path without initial
       # slash will be used as view.
       #
