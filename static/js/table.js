@@ -24,7 +24,6 @@ function renderTable (id, options = {}, renderRow) {
   const currentPage = getQueryVariable('page') || 1
   let pageSize = getQueryVariable('page_size') || 100
 
-  makeHeadersSortable()
   if (options.columnSelector) {
     renderColumnSelector(table)
   }
@@ -42,6 +41,9 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   if (url) {
+    if (table.querySelector('th[data-sort-key]')) {
+      makeHeadersSortable()
+    }
     const raw = window.sessionStorage.getItem(url)
     if (raw) {
       try {

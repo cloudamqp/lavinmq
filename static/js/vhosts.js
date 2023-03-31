@@ -1,21 +1,28 @@
 import * as HTTP from './http.js'
 
-function fetch (cb) {
+let loadedVhosts
+
+function fetch(forceRefresh) {
   const vhost = window.sessionStorage.getItem('vhost')
   const url = 'api/vhosts'
-  return HTTP.request('GET', url).then(function (vhosts) {
-    if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
-      window.sessionStorage.removeItem('vhost')
-    }
-    cb(vhosts)
-  }).catch(function (e) {
-    console.error(e)
-    cb(null)
-  })
+  if (!loadedVhosts || forceRefresh) {
+    loadedVhosts = HTTP.request('GET', url).then(function (vhosts) {
+      if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
+        window.sessionStorage.removeItem('vhost')
+      }
+      return vhosts
+    }).catch(function (e) {
+      console.error(e)
+      return null
+    })
+  }
+  return loadedVhosts
 }
 
-function addVhostOptions (formId) {
-  return fetch(vhosts => {
+function addVhostOptions (formId, options) {
+  options = options ?? {}
+  const addAllOpt = options["addAll"] ?? false
+  return fetch().then(vhosts => {
     const select = document.forms[formId].elements.vhost
     while (select.options.length) {
       select.remove(0)
@@ -33,19 +40,17 @@ function addVhostOptions (formId) {
     }
 
     const selectedVhost = window.sessionStorage.getItem('vhost')
-    for (let i = 0; i < vhosts.length; i++) {
-      const opt = document.createElement('option')
-      opt.label = vhosts[i].name
-      opt.value = vhosts[i].name
-      opt.selected = vhosts[i].name === selectedVhost
-      select.add(opt)
+    if (addAllOpt) {
+      select.add(new Option('All', '_all', true, false))
     }
+    vhosts.forEach(vhost => {
+      select.add(new Option(vhost.name, vhost.name, false, vhost.name === selectedVhost))
+    })
+    return vhosts
   })
 }
 
-addVhostOptions('user-vhost').then(() => {
-  const allOpt = '<option value="_all">All</option>'
-  document.querySelector('#userMenuVhost').insertAdjacentHTML('afterbegin', allOpt)
+addVhostOptions('user-vhost', {addAll: true}).then(() => {
   const vhost = window.sessionStorage.getItem('vhost')
   if (vhost) {
     const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
