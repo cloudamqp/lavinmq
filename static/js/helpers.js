@@ -67,7 +67,11 @@ function argumentHelperJSON (formID, name, e) {
   const value = e.target.getAttribute('value') || 'value'
   const form = document.getElementById(formID)
   try {
-    const currentValue = JSON.parse(form.elements[name].value ?? '{}')
+    let currentValue = form.elements[name].value.trim()
+    if (currentValue.length == 0) {
+      currentValue = '{}'
+    }
+    currentValue = JSON.parse(currentValue)
     if (currentValue[key] || !key) { return }
     currentValue[key] = value
     form.elements[name].value = formatJSONargument(currentValue)

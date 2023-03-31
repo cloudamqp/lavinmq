@@ -2,13 +2,7 @@ import * as HTTP from './http.js'
 import * as Dom from './dom.js'
 
 function getQueryVariable (variable) {
-  const query = window.location.search.substring(1)
-  const vars = query.split('&')
-  for (let i = 0; i < vars.length; i++) {
-    const pair = vars[i].split('=')
-    if (pair[0] === variable) { return pair[1] }
-  }
-  return ''
+  return new URLSearchParams(window.location.search).get(variable)
 }
 
 function renderTable (id, options = {}, renderRow) {
@@ -30,7 +24,6 @@ function renderTable (id, options = {}, renderRow) {
   const currentPage = getQueryVariable('page') || 1
   let pageSize = getQueryVariable('page_size') || 100
 
-  makeHeadersSortable()
   if (options.columnSelector) {
     renderColumnSelector(table)
   }
@@ -48,6 +41,9 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   if (url) {
+    if (table.querySelector('th[data-sort-key]')) {
+      makeHeadersSortable()
+    }
     const raw = window.sessionStorage.getItem(url)
     if (raw) {
       try {
@@ -81,7 +77,7 @@ function renderTable (id, options = {}, renderRow) {
     table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
       cell.addEventListener('click', function (e) {
         table.querySelectorAll('th[data-sort-key]').forEach(th => {
-          if (th.isEqualNode(e.target)) return
+          if (th === e.target) return
           th.classList.remove('sorting_desc')
           th.classList.remove('sorting_asc')
         })
@@ -181,7 +177,7 @@ function renderTable (id, options = {}, renderRow) {
               setKeyAttributes(t.rows[foundIndex], data[foundIndex])
             }
           } else {
-            renderRow(t.children[i], item, false)
+            renderRow(t.children[i], item, true)
           }
           start = Math.min(i + 1, foundIndex)
         } else {
@@ -203,12 +199,8 @@ function renderTable (id, options = {}, renderRow) {
 
   function findIndex (rows, start, item) {
     for (let i = start; i < rows.length; i++) {
-      for (let k = 0; k < keyColumns.length; k++) {
-        if (rows[i].getAttribute('data-' + keyColumns[k]) !== item[keyColumns[k]]) {
-          break
-        } else if (k === keyColumns.length - 1) {
-          return i
-        }
+      if (keyColumns.every(key => rows[i].dataset[key] === item[key])) {
+        return i;
       }
     }
     return -1
@@ -216,7 +208,7 @@ function renderTable (id, options = {}, renderRow) {
 
   function setKeyAttributes (tr, item) {
     keyColumns.forEach(function (key) {
-      tr.setAttribute('data-' + key, item[key])
+      tr.dataset[key] = item[key]
     })
   }
 
@@ -301,10 +293,9 @@ function renderTable (id, options = {}, renderRow) {
 function renderCell (tr, column, value, classList = '') {
   const cell = tr.cells[column] || buildCells(tr, column)
   if (value instanceof window.Element) {
-    if (!value.isEqualNode(cell.firstChild)) {
-      while (cell.lastChild) {
-        cell.removeChild(cell.lastChild)
-      }
+    if (cell.firstChild) {
+      cell.replaceChild(value, cell.firstChild)
+    } else {
       cell.appendChild(value)
     }
   } else {
