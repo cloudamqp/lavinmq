@@ -204,7 +204,7 @@ function renderTable (id, options = {}, renderRow) {
   function findIndex (rows, start, item) {
     for (let i = start; i < rows.length; i++) {
       for (let k = 0; k < keyColumns.length; k++) {
-        if (rows[i].getAttribute('data-' + keyColumns[k]) !== item[keyColumns[k]]) {
+        if (rows[i].dataset[keyColumns[k]] !== item[keyColumns[k]]) {
           break
         } else if (k === keyColumns.length - 1) {
           return i
@@ -216,7 +216,7 @@ function renderTable (id, options = {}, renderRow) {
 
   function setKeyAttributes (tr, item) {
     keyColumns.forEach(function (key) {
-      tr.setAttribute('data-' + key, item[key])
+      tr.dataset[key] = item[key]
     })
   }
 
