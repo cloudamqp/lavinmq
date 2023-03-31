@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2023-03-31
+
 ### Added
 
 - Log exchange [#473](https://github.com/cloudamqp/lavinmq/pull/473)
 
 ### Fixed
 
+- A lot of management UI fixes
 - Disable proxy buffering of /api/livelog
 
 ## [1.0.0-beta.13] - 2023-03-30
