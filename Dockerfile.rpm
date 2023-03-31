@@ -18,7 +18,7 @@ COPY src/ src/
 RUN sed -i -E "s/(VERSION =) .*/\1 \"$version\"/" src/lavinmq/version.cr
 RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
 ARG MAKEFLAGS=-j2
-RUN --mount=type=cache,target=/tmp/lock,sharing=locked rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
+RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true
 
 FROM fedora:37 AS test

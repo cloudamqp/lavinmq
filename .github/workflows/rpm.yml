@@ -74,7 +74,7 @@ jobs:
           build-args: |
             build_image=84codes/crystal:1.7.3-${{ matrix.os }}
             version=${{ env.version }}
-            MAKEFLAGS=-j4
+            MAKEFLAGS=-j1
           outputs: RPMS
 
       - uses: actions/upload-artifact@v3

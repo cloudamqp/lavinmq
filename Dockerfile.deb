@@ -17,7 +17,7 @@ COPY debian/ debian/
 COPY extras/lavinmq.service debian/
 RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
 ARG DEB_BUILD_OPTIONS="parallel=2"
-RUN --mount=type=cache,target=/tmp/lock,sharing=locked debuild -us -uc
+RUN debuild -us -uc
 
 FROM ubuntu:20.04 AS test
 COPY --from=builder /usr/src/*deb .

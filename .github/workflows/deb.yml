@@ -61,7 +61,7 @@ jobs:
           build-args: |
             build_image=84codes/crystal:1.7.3-${{ matrix.os }}
             version=${{ env.version }}
-            DEB_BUILD_OPTIONS="parallel=4"
+            DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds
 
       - uses: actions/upload-artifact@v3
