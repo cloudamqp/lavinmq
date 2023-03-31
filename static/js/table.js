@@ -2,13 +2,7 @@ import * as HTTP from './http.js'
 import * as Dom from './dom.js'
 
 function getQueryVariable (variable) {
-  const query = window.location.search.substring(1)
-  const vars = query.split('&')
-  for (let i = 0; i < vars.length; i++) {
-    const pair = vars[i].split('=')
-    if (pair[0] === variable) { return pair[1] }
-  }
-  return ''
+  return new URLSearchParams(window.location.search).get(variable)
 }
 
 function renderTable (id, options = {}, renderRow) {
