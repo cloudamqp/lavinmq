@@ -213,18 +213,22 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   function renderSearch () {
-    const debouncedUpdate = debounce(() => {
-      updateQueryState({ name: searchTerm })
-      fetchAndUpdate()
-    })
-    const str = `<form class="form" action="javascript:void(0);">
-            <input class="filter-table" placeholder="Filter regex" value="${searchTerm}">
-          </form>`
-    container.insertAdjacentHTML('afterbegin', str)
+    const form = document.createElement("form")
+    form.classList.add("form")
+    form.addEventListener("submit", (e) => { e.preventDefault() })
+    const filterInput = document.createElement("input")
+    filterInput.classList.add("filter-table")
+    filterInput.placeholder = "Filter regex"
+    filterInput.value = searchTerm
+    form.appendChild(filterInput)
+    container.insertBefore(form, container.children[0])
     container.addEventListener('keyup', e => {
       if (!e.target.classList.contains('filter-table')) return true
       searchTerm = encodeURIComponent(e.target.value)
-      debouncedUpdate()
+      debounce(() => {
+        updateQueryState({ name: searchTerm })
+        fetchAndUpdate()
+      })
     })
   }
 
