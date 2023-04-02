@@ -40,8 +40,7 @@ footer {
 
 header {
   grid-row: 1 / span 2;
-  background-image: url(img/bg-head.jpg);
-  background-size: cover;
+  background: radial-gradient(farthest-corner at 30% 0, rgb(105, 164, 121), rgb(3, 56, 85) 70%, rgb(1, 18, 36));
   color: #FFF;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -127,7 +126,7 @@ main {
 }
 
 #menu::after{
-  background-image: url(img/bg-mountain.jpg);
+  background-image: url(img/bg-mountain.webp);
   content: "";
   position: absolute;
   top: 0;
@@ -225,13 +224,13 @@ footer .logo {
   }
 
   .open-menu {
-    background-image: url(img/close-icon.png);
+    background-image: url(img/close-icon.webp);
     background-size: 15px;
     background-color: #2b2c2d !important;
   }
 
   .closed-menu {
-    background-image: url(img/menu-icon.png);
+    background-image: url(img/menu-icon.webp);
     background-size: 20px;
   }
 
@@ -275,7 +274,7 @@ footer .logo {
   #menu-content::after {
     border-radius: 0px 4px 4px 0px;
     opacity: 0.2;
-    background-image: url(img/bg-mountain.jpg);
+    background-image: url(img/bg-mountain.webp);
     content: "";
     position: absolute;
     top: 0;

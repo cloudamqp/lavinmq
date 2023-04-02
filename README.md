@@ -1,7 +1,7 @@
 [![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg)](https://github.com/cloudamqp/lavinmq/actions)
 [![Build Status](https://api.cirrus-ci.com/github/cloudamqp/lavinmq.svg)](https://cirrus-ci.com/github/cloudamqp/lavinmq)
 
-# ![LavinMQ](static/img/logo-lavinmq.png)
+# ![LavinMQ](static/img/logo-lavinmq.svg)
 
 A message queue server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
