@@ -1,5 +1,4 @@
 require "http/server/handler"
-require "digest/md5"
 
 module LavinMQ
   module HTTP
@@ -24,8 +23,8 @@ module LavinMQ
         }
 
         private def serve(context, file_path)
-          if bytes = Files[file_path]?
-            etag = Digest::MD5.hexdigest(bytes)
+          if bytes_etag = Files[file_path]?
+            bytes, etag = bytes_etag
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
             else
