@@ -63,17 +63,20 @@ module LavinMQ
         end
       {% end %}
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def mime_type(path)
         case File.extname(path)
-        when ".txt"         then "text/plain;charset=utf-8"
-        when ".html"        then "text/html;charset=utf-8"
-        when ".css"         then "text/css;charset=utf-8"
-        when ".js", ".mjs"  then "application/javascript;charset=utf-8"
-        when ".png", ".ico" then "image/png"
-        when ".jpg"         then "image/jpeg"
-        when ".gif"         then "image/gif"
-        when ".svg"         then "image/svg+xml"
-        else                     "application/octet-stream"
+        when ".txt"        then "text/plain;charset=utf-8"
+        when ".html"       then "text/html;charset=utf-8"
+        when ".css"        then "text/css;charset=utf-8"
+        when ".js", ".mjs" then "application/javascript;charset=utf-8"
+        when ".png"        then "image/png"
+        when ".ico"        then "image/x-icon"
+        when ".jpg"        then "image/jpeg"
+        when ".gif"        then "image/gif"
+        when ".svg"        then "image/svg+xml"
+        when ".webp"       then "image/webp"
+        else                    "application/octet-stream"
         end
       end
     end
