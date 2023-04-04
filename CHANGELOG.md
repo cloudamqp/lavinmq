@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Optimized images in UI (replace jpg/png with webp, svg and css gradients)
+- VHost dropdown menu is now sorted by name
+
 ## [1.0.0] - 2023-03-31
 
 ### Added
