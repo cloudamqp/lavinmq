@@ -30,9 +30,6 @@ dependencies:
     github: cloudamqp/amq-protocol.cr
   router:
     github: tbrand/router.cr
-  http-protection:
-    github: 84codes/http-protection
-    branch: master
   systemd:
     github: 84codes/systemd.cr
 
