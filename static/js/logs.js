@@ -1,11 +1,9 @@
 import * as Auth from './auth.js'
 
 const url = new URL(window.location.pathname.replace(/\/logs$/, "/api/livelog"), window.location.origin)
-url.username = Auth.getUsername()
-url.password = Auth.getPassword()
 
 let shouldAutoScroll = true
-const evtSource = new EventSource(url)
+const evtSource = new EventSource(url.href, {withcredentials : true})
 const livelog = document.getElementById('livelog')
 const tbody = document.getElementById("livelog-body")
 
@@ -49,4 +47,5 @@ livelog.addEventListener('scroll', event => {
   }
   lastScrollTop = st <= 0 ? 0 : st
 })
+
 livelog.addEventListener("beforeunload", (e) => livelog.close())
