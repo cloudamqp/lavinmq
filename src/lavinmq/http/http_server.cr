@@ -1,5 +1,4 @@
 require "http/server"
-require "http-protection"
 require "json"
 require "router"
 require "./constants"
@@ -17,12 +16,11 @@ module LavinMQ
       def initialize(@amqp_server : LavinMQ::Server)
         @log = Log.for "http"
         handlers = [
-          ::HTTP::Protection::StrictTransport.new,
-          ::HTTP::Protection::FrameOptions.new,
+          StrictTransportSecurity.new,
+          StaticController.new,
           AMQPWebsocket.new(@amqp_server),
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log),
-          StaticController.new,
           BasicAuthHandler.new(@amqp_server, @log),
           MainController.new(@amqp_server, @log).route_handler,
           DefinitionsController.new(@amqp_server, @log).route_handler,
