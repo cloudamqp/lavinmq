@@ -1,5 +1,6 @@
 require "html"
 require "../../version"
+require "digest/md5"
 
 module LavinMQ
   module HTTP
