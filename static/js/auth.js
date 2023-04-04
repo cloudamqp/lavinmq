@@ -3,7 +3,7 @@ function getUsername () {
 }
 
 function getPassword () {
-  return window.atob(decodeURIComponent(getCookieValue('auth'))).split(':')[1]
+  return window.atob(getCookieValue('auth')).split(':')[1]
 }
 
 function setUsername () {
@@ -12,7 +12,7 @@ function setUsername () {
 
 function header () {
   if (getCookieValue('auth')) {
-    return 'Basic ' + decodeURIComponent(getCookieValue('auth'))
+    return 'Basic ' + getCookieValue('auth')
   } else {
     return null
   }
@@ -26,7 +26,7 @@ function signOut () {
 function setAuth (userInfo) {
   removeCookie()
   const b64 = window.btoa(userInfo)
-  storeCookie({ auth: encodeURIComponent(b64) })
+  storeCookie({ auth: b64 })
   storeCookie({ username: userInfo.split(':')[0] })
 }
 
@@ -40,7 +40,7 @@ function storeCookie (dict) {
 function storeCookieWithExpiration (dict, expirationDate) {
   const enc = []
   for (let k in dict) {
-    enc.push(k + ':' + escape(dict[k]))
+    enc.push(k + ':' + encodeURIComponent(dict[k]))
   }
   document.cookie = 'm=' + enc.join('|') + '; samesite=lax; expires=' + expirationDate.toUTCString()
 }
@@ -60,7 +60,7 @@ function parseCookie () {
   const dict = {}
   for (let i in items) {
     const kv = items[i].split(':')
-    dict[kv[0]] = unescape(kv[1])
+    dict[kv[0]] = decodeURIComponent(kv[1])
   }
   return dict
 }

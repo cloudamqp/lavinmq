@@ -1070,6 +1070,10 @@ pre.arguments > div {
   margin: 5px 0 5px 0;
 }
 
+#download-logs a {
+  text-decoration: none;
+}
+
 #livelog table td, #livelog table th {
   padding:0;
 }
