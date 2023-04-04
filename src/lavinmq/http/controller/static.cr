@@ -10,7 +10,7 @@ module LavinMQ
       def call(context)
         path = context.request.path
         if context.request.method.in?("GET", "HEAD") && !path.starts_with?("/api/")
-          path = File.join(path, "index.html") if path.ends_with?('/') || !path.includes?('.')
+          path = "/docs/index.html" if path == "/docs/"
           serve(context, path) || call_next(context)
         else
           call_next(context)
@@ -54,7 +54,7 @@ module LavinMQ
               context.response.headers.add("ETag", etag)
               context.response.content_type = mime_type(file.path)
               context.response.content_length = file.size
-              IO.copy(file, context.response) unless context.request.method == "HEAD"
+              IO.copy(file, context.response) if context.request.method == "GET"
             end
             context
           end
