@@ -1035,6 +1035,7 @@ pre.arguments > div {
 .popup-close, .popup-close:hover {
   text-decoration: none;
   color: #000;
+  float: right;
 }
 
 #livelog {
