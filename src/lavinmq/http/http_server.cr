@@ -17,9 +17,9 @@ module LavinMQ
         @log = Log.for "http"
         handlers = [
           StrictTransportSecurity.new,
+          AMQPWebsocket.new(@amqp_server),
           ViewsController.new.route_handler,
           StaticController.new,
-          AMQPWebsocket.new(@amqp_server),
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log),
           BasicAuthHandler.new(@amqp_server, @log),
