@@ -67,9 +67,9 @@ module LavinMQ
 
       # etag won't change in runtime
       {% if flag?(:release) %}
-        ETag = %("#{LavinMQ::VERSION}")
+        ETag = %(W/"#{LavinMQ::VERSION}")
       {% else %}
-        ETag = %("{{ `date +%s`.strip }}")
+        ETag = %(W/"{{ `date +%s`.strip }}")
       {% end %}
 
       # Render an ecr file from views dir
