@@ -68,9 +68,13 @@ module LavinMQ
             elsif name.starts_with? "amq."
               bad_request(context, "Not allowed to use the amq. prefix")
             else
-              @amqp_server.vhosts[vhost]
-                .declare_queue(name, durable, auto_delete, tbl)
-              context.response.status_code = 201
+              begin
+                @amqp_server.vhosts[vhost]
+                  .declare_queue(name, durable, auto_delete, tbl)
+                context.response.status_code = 201
+              rescue e : LavinMQ::Error::PreconditionFailed
+                bad_request(context, e.message)
+              end
             end
           end
         end
