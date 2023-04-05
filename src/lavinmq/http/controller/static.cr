@@ -28,7 +28,7 @@ module LavinMQ
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
             else
-              context.response.headers.add("Cache-Control", "public,max-age=300")
+              context.response.headers.add("Cache-Control", "no-cache")
               context.response.headers.add("ETag", etag)
               context.response.content_type = mime_type(file_path)
               context.response.content_length = bytes.size
@@ -50,7 +50,7 @@ module LavinMQ
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
             else
-              context.response.headers.add("Cache-Control", "public,max-age=300")
+              context.response.headers.add("Cache-Control", "no-cache")
               context.response.headers.add("ETag", etag)
               context.response.content_type = mime_type(file.path)
               context.response.content_length = file.size
