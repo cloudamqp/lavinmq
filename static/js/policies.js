@@ -84,7 +84,7 @@ function apply(base_url = 'api/policies') {
   function autofill_editpolicy(policies, otherOrigin = true) {
     let policy = null
     if (otherOrigin) {
-      const urlParams = new URLSearchParams(window.location.search);
+      const urlParams = new URLSearchParams(window.location.hash.substring(1));
       const pname = urlParams.get('name')
       const pvhost = urlParams.get('vhost');
       if (!(pname && pvhost)) {

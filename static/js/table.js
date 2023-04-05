@@ -1,14 +1,11 @@
 import * as HTTP from './http.js'
 import * as Dom from './dom.js'
 
-function getQueryVariable (variable) {
-  return new URLSearchParams(window.location.search).get(variable)
-}
-
 function renderTable (id, options = {}, renderRow) {
-  let sortKey = getQueryVariable('sort')
-  let reverseOrder = strToBool(getQueryVariable('reverseOrder'))
-  const view = window.location.pathname.split('/').pop()
+  const search = new URLSearchParams(window.location.hash.substring(1))
+  let sortKey = search.get('sort')
+  let reverseOrder = strToBool(search.get('reverseOrder'))
+  const view = window.location.pathname.split('/', 2)[0]
   if (!sortKey || reverseOrder === null) {
     sortKey = window.sessionStorage.getItem(view + '-sortkey')
     reverseOrder = strToBool(window.sessionStorage.getItem(view + '-reverseorder'))
@@ -21,15 +18,15 @@ function renderTable (id, options = {}, renderRow) {
   const interval = options.interval
   let timer = null
   let searchTerm = null
-  const currentPage = getQueryVariable('page') || 1
-  let pageSize = getQueryVariable('page_size') || 100
+  const currentPage = search.get('page') || 1
+  let pageSize = search.get('page_size') || 100
 
   if (options.columnSelector) {
     renderColumnSelector(table)
   }
 
   if (options.search) {
-    searchTerm = getQueryVariable('name')
+    searchTerm = search.get('name')
     renderSearch(table)
   }
 
@@ -120,11 +117,11 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   function getData () {
-    return JSON.parse(window.sessionStorage.getItem(`${url}?${buildQuery(currentPage)}`)).items
+    return JSON.parse(window.sessionStorage.getItem(`${url}#${buildQuery(currentPage)}`)).items
   }
 
   function fetchAndUpdate () {
-    const fullUrl = `${url}?${buildQuery(currentPage)}`
+    const fullUrl = `${url}#${buildQuery(currentPage)}`
     return HTTP.request('GET', fullUrl).then(function (response) {
       toggleDisplayError(id, false)
       try {
@@ -243,18 +240,18 @@ function renderTable (id, options = {}, renderRow) {
     }
 
     if (page > 1) {
-      str += `<div class="page-item previous"><a href="?${buildQuery(page - 1)}">Previous</a></div>`
+      str += `<div class="page-item previous"><a href="#${buildQuery(page - 1)}">Previous</a></div>`
     }
     if (pages < 6) {
       for (let p = 1; p <= pages; p++) {
         active = page === p ? 'active' : ''
-        str += `<div class="page-item ${active}"><a href="?${buildQuery(p)}">${p}</a></div>`
+        str += `<div class="page-item ${active}"><a href="#${buildQuery(p)}">${p}</a></div>`
       }
     } else {
       if (page > 2) {
-        str += `<div class="page-item"><a href="?${buildQuery(1)}">1</a></div>`
+        str += `<div class="page-item"><a href="#${buildQuery(1)}">1</a></div>`
         if (page > 3) {
-          str += `<div class="page-item out-of-range"><a href="?${buildQuery(page - 2)}">...</a></div>`
+          str += `<div class="page-item out-of-range"><a href="#${buildQuery(page - 2)}">...</a></div>`
         }
       }
       if (page === 1) {
@@ -275,17 +272,17 @@ function renderTable (id, options = {}, renderRow) {
           continue
         }
         active = page === p ? 'active' : ''
-        str += `<div class="page-item ${active}"><a href="?${buildQuery(p)}">${p}</a></div>`
+        str += `<div class="page-item ${active}"><a href="#${buildQuery(p)}">${p}</a></div>`
       }
       if (page < pages - 1) {
         if (page < pages - 2) {
-          str += `<div class="page-item out-of-range"><a href="?${buildQuery(page + 2)}">...</a></div>`
+          str += `<div class="page-item out-of-range"><a href="#${buildQuery(page + 2)}">...</a></div>`
         }
-        str += `<div class="page-item"><a href="?${buildQuery(pages)}">${pages}</a></div>`
+        str += `<div class="page-item"><a href="#${buildQuery(pages)}">${pages}</a></div>`
       }
     }
     if (page < pages) {
-      str += `<div class="page-item next"><a href="?${buildQuery(page + 1)}">Next</a></div>`
+      str += `<div class="page-item next"><a href="#${buildQuery(page + 1)}">Next</a></div>`
     }
     document.getElementById('pagination').innerHTML = str
     return str
@@ -429,11 +426,11 @@ function debounce (func, wait, immediate) {
 }
 
 function updateQueryState (params) {
-  const searchParams = new URLSearchParams(window.location.search)
+  const searchParams = new URLSearchParams(window.location.hash.substring(1))
   Object.keys(params).forEach(k => {
     searchParams.set(k, params[k])
   })
-  const newurl = window.location.pathname + '?' + searchParams.toString()
+  const newurl = `${window.location.pathname}#${searchParams.toString()}`
   window.history.replaceState(null, '', newurl)
 }
 

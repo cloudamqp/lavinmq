@@ -3,14 +3,13 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 
-const urlEncodedConnection = new URLSearchParams(window.location.search).get('name')
-const connection = decodeURIComponent(urlEncodedConnection)
 const chart = Chart.render('chart', 'bytes/s')
 
-document.title = connection + ' | LavinMQ'
+const connection = new URLSearchParams(window.location.hash.substring(1)).get('name')
+document.title = `Connection ${connection} | LavinMQ`
 document.querySelector('#pagename-label').textContent = connection
 
-const connectionUrl = 'api/connections/' + urlEncodedConnection
+const connectionUrl = `api/connections/${connection}`
 function updateConnection (all) {
   HTTP.request('GET', connectionUrl).then(item => {
     const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
@@ -49,13 +48,18 @@ function updateConnection (all) {
 updateConnection(true)
 const cTimer = setInterval(updateConnection, 5000)
 const channelsUrl = connectionUrl + '/channels'
-const tableOptions = { url: channelsUrl, keyColumns: ['name'], interval: 5000 }
+const tableOptions = {
+  url: channelsUrl,
+  keyColumns: ['name'],
+  interval: 5000,
+  countId: 'table-count'
+}
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const channelLink = document.createElement('a')
     const urlEncodedChannel = encodeURIComponent(item.name)
     channelLink.textContent = item.name
-    channelLink.href = 'channel?name=' + urlEncodedChannel
+    channelLink.href = `channel#name=${urlEncodedChannel}`
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.username)

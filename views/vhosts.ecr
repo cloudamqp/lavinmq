@@ -63,7 +63,7 @@
         permissionsPromise.then(permissions => {
           if (all) {
             const vhostLink = document.createElement('a')
-            vhostLink.href = 'vhost?name=' + urlEncodedVhost
+            vhostLink.href = `vhost#name=${urlEncodedVhost}`
             vhostLink.textContent = item.name
             Table.renderCell(tr, 0, vhostLink)
           }
@@ -88,5 +88,4 @@
       })
     </script>
   </body>
-
 </html>

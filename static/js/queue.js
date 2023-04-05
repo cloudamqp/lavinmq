@@ -5,8 +5,9 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 
-const queue = new URLSearchParams(window.location.search).get('name')
-const vhost = new URLSearchParams(window.location.search).get('vhost')
+const search = new URLSearchParams(window.location.hash.substring(1))
+const queue = search.get('name')
+const vhost = search.get('vhost')
 const urlEncodedQueue = encodeURIComponent(queue)
 const urlEncodedVhost = encodeURIComponent(vhost)
 const escapeHTML = DOM.escapeHTML
@@ -17,7 +18,7 @@ document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 const consumersTable = Table.renderTable('table', { keyColumns: [], countId: "consumer-count" }, function (tr, item) {
   const channelLink = document.createElement('a')
-  channelLink.href = 'channel?name=' + encodeURIComponent(item.channel_details.name)
+  channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
@@ -105,13 +106,13 @@ function updateQueue (all) {
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
           const policyLink = document.createElement('a')
-          policyLink.href = 'policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+          policyLink.href = `policies#name=${encodeURIComponent(item.policy)}&vhost=${encodeURIComponent(item.vhost)}`
           policyLink.textContent = item.policy
           document.getElementById("q-policy").appendChild(policyLink)
         }
         if (item.operator_policy) {
           const policyLink = document.createElement('a')
-          policyLink.href = `operator-policies?name=${encodeURIComponent(item.operator_policy)}&vhost=${encodeURIComponent(item.vhost)}`
+          policyLink.href = `operator-policies#name=${encodeURIComponent(item.operator_policy)}&vhost=${encodeURIComponent(item.vhost)}`
           policyLink.textContent = item.operator_policy
           document.getElementById("q-operator-policy").appendChild(policyLink)
         }
@@ -153,10 +154,14 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
         .then(() => { DOM.removeNodes(tr) })
         .catch(HTTP.standardErrorHandler)
     }
-    const exchangeLink = `<a href="exchange?vhost=${urlEncodedVhost}&name=${escapeHTML(e)}">${escapeHTML(item.source)}</a>`
-    Table.renderHtmlCell(tr, 0, exchangeLink)
+    const exchangeLink = document.createElement('a')
+    exchangeLink.href = `exchange#vhost=${urlEncodedVhost}&name=${e}`
+    exchangeLink.textContent = escapeHTML(item.source)
+    Table.renderCell(tr, 0, exchangeLink)
     Table.renderCell(tr, 1, item.routing_key)
-    Table.renderHtmlCell(tr, 2, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>')
+    const pre = document.createElement("pre")
+    pre.textContent = JSON.stringify(item.arguments || {})
+    Table.renderCell(tr, 2, pre)
     Table.renderCell(tr, 3, btn, 'right')
   }
 })

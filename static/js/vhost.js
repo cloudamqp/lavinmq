@@ -3,7 +3,7 @@ import * as Table from './table.js'
 import * as Users from './users.js'
 import * as DOM from './dom.js'
 
-const vhost = new URLSearchParams(window.location.search).get('name')
+const vhost = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const urlEncodedVhost = encodeURIComponent(vhost)
 document.title = vhost + ' | LavinMQ'
 document.querySelector('#pagename-label').textContent = vhost
@@ -45,7 +45,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
         .catch(HTTP.standardErrorHandler)
     }
     const userLink = document.createElement('a')
-    userLink.href = 'user?name=' + encodeURIComponent(item.user)
+    userLink.href = `user#name=${encodeURIComponent(item.user)}`
     userLink.textContent = item.user
     Table.renderCell(tr, 0, userLink)
     Table.renderCell(tr, 4, btn, 'right')
@@ -108,7 +108,7 @@ document.querySelector('#resetVhost').addEventListener('submit', function (evt) 
   const url = 'api/vhosts/' + urlEncodedVhost + '/purge_and_close_consumers'
   if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
     HTTP.request('POST', url)
-      .then(() => { window.location = 'vhost?name=' + urlEncodedVhost })
+      .then(() => { window.location = 'vhost#name=' + urlEncodedVhost })
       .catch(HTTP.standardErrorHandler)
   }
 })
