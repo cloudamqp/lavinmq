@@ -4,8 +4,9 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 
-const exchange = new URLSearchParams(window.location.search).get('name')
-const vhost = new URLSearchParams(window.location.search).get('vhost')
+const search = new URLSearchParams(window.location.hash.substring(1))
+const exchange = search.get('name')
+const vhost = search.get('vhost')
 const urlEncodedExchange = encodeURIComponent(exchange)
 const urlEncodedVhost = encodeURIComponent(vhost)
 const chart = Chart.render('chart', 'msgs/s')
@@ -37,7 +38,7 @@ function updateExchange () {
     DOM.setChild('#e-arguments', argList)
     if (item.policy) {
       const policyLink = document.createElement('a')
-      policyLink.href = 'policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+      policyLink.href = 'policies#name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
       policyLink.textContent = item.policy
       DOM.setChild('#e-policy', policyLink)
     }
@@ -68,7 +69,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
         }).catch(HTTP.standardErrorHandler)
     }
     const d = encodeURIComponent(item.destination)
-    const destinationLink = `<a href="${escapeHTML(item.destination_type)}?vhost=${urlEncodedVhost}&name=${escapeHTML(d)}">${escapeHTML(item.destination)}</a>`
+    const destinationLink = `<a href="${escapeHTML(item.destination_type)}#vhost=${urlEncodedVhost}&name=${escapeHTML(d)}">${escapeHTML(item.destination)}</a>`
     Table.renderCell(tr, 0, item.destination_type)
     Table.renderHtmlCell(tr, 1, destinationLink, 'left')
     Table.renderCell(tr, 2, item.routing_key, 'left')

@@ -67,7 +67,7 @@
         usersTable = Table.renderTable('users', tableOptions, (tr, item, all) => {
           if (all) {
             const userLink = document.createElement('a')
-            userLink.href = 'user?name=' + encodeURIComponent(item.name)
+            userLink.href = 'user#name=' + encodeURIComponent(item.name)
             userLink.textContent = item.name
             Table.renderCell(tr, 0, userLink)
           }

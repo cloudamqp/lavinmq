@@ -50,7 +50,7 @@
           const channelLink = document.createElement('a')
           const urlEncodedChannel = encodeURIComponent(item.name)
           channelLink.textContent = item.name
-          channelLink.href = 'channel?name=' + urlEncodedChannel
+          channelLink.href = `channel#name=${urlEncodedChannel}`
           Table.renderCell(tr, 0, channelLink)
           Table.renderCell(tr, 1, item.vhost)
           Table.renderCell(tr, 2, item.user)

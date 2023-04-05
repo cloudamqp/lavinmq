@@ -43,7 +43,7 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
     features += item.internal ? ' I' : ''
     features += item.arguments['x-delayed-exchange'] ? ' d' : ''
     const exchangeLink = document.createElement('a')
-    exchangeLink.href = 'exchange?vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
+    exchangeLink.href = `exchange#vhost=${encodeURIComponent(item.vhost)}&name=${encodeURIComponent(item.name)}`
     exchangeLink.textContent = item.name
     Table.renderCell(tr, 0, item.vhost)
     Table.renderCell(tr, 1, exchangeLink)
@@ -53,7 +53,7 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
   let policyLink = ''
   if (item.policy) {
     policyLink = document.createElement('a')
-    policyLink.href = 'policies?name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+    policyLink.href = 'policies#name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
     policyLink.textContent = item.policy
   }
   Table.renderCell(tr, 4, policyLink, 'center')

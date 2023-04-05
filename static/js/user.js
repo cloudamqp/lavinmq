@@ -5,7 +5,7 @@ import * as DOM from './dom.js'
 import * as Vhosts from './vhosts.js'
 import * as Form from './form.js'
 
-const user = new URLSearchParams(window.location.search).get('name')
+const user = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const urlEncodedUsername = encodeURIComponent(user)
 
 function updateUser () {

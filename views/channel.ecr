@@ -78,7 +78,7 @@
       import * as DOM from './js/dom.js'
       import * as Chart from './js/chart.js'
 
-      const channel = new URLSearchParams(window.location.search).get('name')
+      const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
       const urlEncodedChannel = encodeURIComponent(channel)
       const chart = Chart.render('chart', 'msgs/s')
       let vhost = null
@@ -92,7 +92,7 @@
         if (!all) return
         Table.renderCell(tr, 0, item.consumer_tag)
         const queueLink = document.createElement('a')
-        queueLink.href = 'queue?vhost=' + encodeURIComponent(vhost) + '&name=' + encodeURIComponent(item.queue.name)
+        queueLink.href = `queue#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(item.queue.name)}`
         queueLink.textContent = item.queue.name
         const ack = item.ack_required ? '●' : '○'
         const exclusive = item.exclusive ? '●' : '○'
@@ -117,7 +117,7 @@
             document.querySelector('#pagename-label').textContent = channel + ' in virtual host ' + item.vhost
             document.getElementById('ch-username').textContent = item.user
             const connectionLink = document.createElement('a')
-            connectionLink.href = 'connection?name=' + encodeURIComponent(item.connection_details.name)
+            connectionLink.href = `connection#name=${encodeURIComponent(item.connection_details.name)}`
             connectionLink.textContent = item.connection_details.name
             DOM.setChild('#ch-connection', connectionLink)
             document.getElementById('ch-prefetch').textContent = item.prefetch_count
