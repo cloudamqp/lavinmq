@@ -30,6 +30,7 @@ module LavinMQ
             else
               context.response.headers.add("Cache-Control", "no-cache")
               context.response.headers.add("ETag", etag)
+              context.response.headers.add("Content-Encoding", "identity") # hack for nginx to preserves etags when gzip compressing
               context.response.content_type = mime_type(file_path)
               context.response.content_length = bytes.size
               if context.request.method == "GET" # HEAD requests don't get bodies
@@ -52,6 +53,7 @@ module LavinMQ
             else
               context.response.headers.add("Cache-Control", "no-cache")
               context.response.headers.add("ETag", etag)
+              context.response.headers.add("Content-Encoding", "identity") # hack for nginx to preserves etags when gzip compressing
               context.response.content_type = mime_type(file.path)
               context.response.content_length = file.size
               IO.copy(file, context.response) if context.request.method == "GET"
