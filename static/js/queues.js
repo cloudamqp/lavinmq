@@ -4,6 +4,84 @@ import * as Dom from './dom.js'
 import * as Vhosts from './vhosts.js'
 import * as Table from './table.js'
 
+
+const multiActions = (callback) => {
+  const multiSelectControls = document.getElementById("multiselect-controls")
+  let selectedQueues = {}
+
+  const performAction = (el) => {
+    const action = el.target.dataset.action
+    const elems = document.querySelectorAll("input[data-name]:checked")
+    const totalCount = elems.length
+    let performed = 0
+    elems.forEach(el => {
+      const data = el.dataset;
+      let url;
+      switch(action) {
+      case "delete":
+        url = `api/queues/${data.vhost}/${data.name}`
+        break
+      case "purge":
+        url = `api/queues/${data.vhost}/${data.name}/contents`
+        break
+      }
+      if(!url) return;
+      HTTP.request('DELETE', url).then(() => {
+        performed += 1
+        if(performed == totalCount) {
+          multiSelectControls.classList.add("hide")
+          selectedQueues = {}
+          elems.forEach(e => e.checked = false)
+          document.getElementById("multi-check-all").checked = false
+          callback(null, data.name)
+        }
+      }).catch(e => {
+        callback(e, data.name)
+      })
+    })
+  }
+
+  const id = (vhost, name) => `${vhost}/${name}`
+
+  const onSelectionChange = () => {
+    const checked = document.querySelectorAll("input[data-name]:checked")
+    selectedQueues = {}
+    checked.forEach(el => {
+      const data = el.dataset
+      selectedQueues[id(data.vhost, data.name)] = true
+    })
+    const count = checked.length
+    document.getElementById("multi-queue-count").textContent = count
+    multiSelectControls.classList.toggle("hide", count == 0)
+  }
+
+
+  document
+    .querySelectorAll("#multiselect-controls [data-action]")
+    .forEach(e => e.addEventListener("click", performAction))
+  document
+    .querySelector("#multiselect-controls .popup-close")
+    .addEventListener("click", () => multiSelectControls.classList.add("hide"))
+
+  document
+    .getElementById("multi-check-all")
+    .addEventListener("change", (e) => {
+      const checked = e.target.checked;
+      document.querySelectorAll("input[data-name]").forEach((el) => {
+        el.checked = checked;
+      })
+      onSelectionChange()
+    })
+
+  return {
+    itemChanged: onSelectionChange,
+    isSelected: (vhost, name) => {
+      console.log("selected?", id(vhost, name), selectedQueues[id(vhost, name)])
+      return selectedQueues[id(vhost, name)] || false
+    }
+  }
+}
+
 Vhosts.addVhostOptions('declare')
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/queues'
@@ -18,60 +96,13 @@ const tableOptions = {
   columnSelector: true,
   search: true
 }
-const performMultiAction = (el) => {
-  const action = el.target.dataset.action
-  const elems = document.querySelectorAll("input[data-name]:checked")
-  const totalCount = elems.length
-  let performed = 0
-  elems.forEach(el => {
-    const data = el.dataset;
-    let url;
-    switch(action) {
-      case "delete":
-        url = `api/queues/${data.vhost}/${data.name}`
-        break
-      case "purge":
-        url = `api/queues/${data.vhost}/${data.name}/contents`
-        break
-    }
-    if(!url) return;
-    HTTP.request('DELETE', url).then(() => {
-      performed += 1
-      if(performed == totalCount) {
-        multiSelectControls.classList.add("hide")
-        elems.forEach(e => e.checked = false)
-        document.getElementById("multi-check-all").checked = false
-        queuesTable.fetchAndUpdate()
-      }
-    }).catch(e => {
-      Dom.toast(`Failed to perform action on ${data.name}`, "error")
-      queuesTable.fetchAndUpdate()
-    })
-  })
-}
-const multiSelectControls = document.getElementById("multiselect-controls")
-document.querySelectorAll("#multiselect-controls [data-action]")
-  .forEach(e => e.addEventListener("click", performMultiAction))
-document.querySelector("#multiselect-controls .popup-close").addEventListener("click", () => {
-  toggleMultiActionControls(false, 0)
+const multiActionHandler = multiActions((err, queueName) => {
+  if (err) {
+    Dom.toast(`Failed to perform action on ${queueName}`, "error")
+  }
+  queuesTable.fetchAndUpdate()
 })
-const toggleMultiActionControls = (show, count) => {
-  multiSelectControls.classList.toggle("hide", !(show && count > 0))
-  document.getElementById("multi-queue-count").textContent = count;
-}
-const rowCheckboxChanged = (e) => {
-  const checked = document.querySelectorAll("input[data-name]:checked")
-  toggleMultiActionControls(true, checked.length)
-}
-document.getElementById("multi-check-all").addEventListener("change", (el) => {
-  const checked = el.target.checked;
-  let c = 0;
-  document.querySelectorAll("input[data-name]").forEach((el) => {
-    el.checked = checked;
-    c += 1
-  })
-  toggleMultiActionControls(checked, c)
-})
+
 const queuesTable = Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     let features = ''
@@ -87,7 +118,8 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     checkbox.type='checkbox'
     checkbox.setAttribute('data-vhost', encodeURIComponent(item.vhost))
     checkbox.setAttribute('data-name', encodeURIComponent(item.name))
-    checkbox.addEventListener('change', rowCheckboxChanged)
+    checkbox.addEventListener('change', multiActionHandler.itemChanged)
+    checkbox.checked = multiActionHandler.isSelected(item.vhost, item.name)
     Table.renderCell(tr, 0, checkbox)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, queueLink)
