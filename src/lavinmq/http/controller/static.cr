@@ -46,7 +46,7 @@ module LavinMQ
       {% else %}
         private def serve(context, file_path)
           File.open(File.join(PUBLIC_DIR, file_path)) do |file|
-            etag = file.info.modification_time.to_unix_ms.to_s
+            etag = %("#{file.info.modification_time.to_unix_ms}")
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
             else

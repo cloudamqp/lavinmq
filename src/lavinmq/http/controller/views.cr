@@ -47,17 +47,15 @@ module LavinMQ
       # ```
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
-        # etag won't change in runtime, so it's enough to calculate it once
-        %etag = Digest::MD5.hexdigest("{{view.id}} #{LavinMQ::VERSION}")
         get {{path}} do |context, params|
           if_non_match = context.request.headers["If-None-Match"]?
-          Log.trace { "static_view path={{path.id}} etag=#{%etag} if-non-match=#{if_non_match}" }
-          if if_non_match == %etag
+          Log.trace { "static_view path={{path.id}} etag=#{ETag} if-non-match=#{if_non_match}" }
+          if if_non_match == ETag
             context.response.status_code = 304
           else
             context.response.content_type = "text/html;charset=utf-8"
             context.response.headers.add("Cache-Control", "no-cache")
-            context.response.headers.add("ETag", %etag)
+            context.response.headers.add("ETag", ETag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
             {{block.body if block}}
@@ -66,6 +64,13 @@ module LavinMQ
           context
         end
       end
+
+      # etag won't change in runtime
+      {% if flag?(:release) %}
+        ETag = %("#{LavinMQ::VERSION}")
+      {% else %}
+        ETag = %("{{ `date +%s`.strip }}")
+      {% end %}
 
       # Render an ecr file from views dir
       macro render(file)

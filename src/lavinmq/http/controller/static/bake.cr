@@ -7,7 +7,7 @@ def recursive_bake(dir)
       recursive_bake path
     else
       bytes = File.read(path)
-      etag = Digest::MD5.hexdigest(bytes)
+      etag = %("#{Digest::MD5.hexdigest(bytes)}")
       puts %("#{path.lchop(ARGV[0])}": {#{bytes.inspect}.to_slice, #{etag.inspect}},)
     end
   end
