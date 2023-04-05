@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized images in UI (replace jpg/png with webp, svg and css gradients)
 - VHost dropdown menu is now sorted by name
 
+### Changed
+
+- Calculate etags for static resources at compile time
+- no-cache for views and static resources, the browser will still cache them, but query the browser if there are newer versions
+- Use the hash part of the URL as arguments to /queue and other views, so that the browser reuse the same cached HTML
+
 ## [1.0.0] - 2023-03-31
 
 ### Added
