@@ -5,7 +5,7 @@ import { UrlDataSource } from './datasource.js'
 function renderTable (id, options = {}, renderRow) {
   const countId = options.countId || 'pagename-label'
   const url = options.url
-  const dataSource = new UrlDataSource(options.url)
+  const dataSource = options.dataSource || new UrlDataSource(options.url)
   const table = document.getElementById(id)
   const container = table.parentElement
   const keyColumns = options.keyColumns
