@@ -144,6 +144,17 @@ describe LavinMQ::HTTP::QueuesController do
       response.status_code.should eq 400
     end
 
+    it "should respond with 400 for PreconditionFailed errors" do
+      # supplying 'x-dead-letter-routing-key' is only valid if
+      # 'x-dead-letter-exchange' is also in the request
+      # so this request generates a Error::PreconditionFailed
+      body = %({
+        "arguments": {"x-dead-letter-routing-key": "value"}
+      })
+      response = put("/api/queues/%2f/precond-failed", body: body)
+      response.status_code.should eq 400
+    end
+
     it "should require config access to declare" do
       hdrs = HTTP::Headers{"Authorization" => "Basic dGVzdF9wZXJtOnB3"}
       response = put("/api/queues/%2f/test_perm", headers: hdrs, body: %({}))
