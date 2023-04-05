@@ -5,8 +5,7 @@ module LavinMQ
     def self.new(amqp_server : Server)
       ::HTTP::WebSocketHandler.new do |ws, ctx|
         req = ctx.request
-        local_address = Socket::IPAddress.new("0.0.0.0", 15672) # guessing local address for older crystal versions
-        local_address = req.local_address.as(Socket::IPAddress) if req.responds_to?(:local_address)
+        local_address = req.local_address.as(Socket::IPAddress)
         remote_address = req.remote_address.as(Socket::IPAddress)
         connection_info = ConnectionInfo.new(remote_address, local_address)
         io = WebSocketIO.new(ws)
