@@ -26,16 +26,16 @@ class DataSource {
       try {
         cachedState = JSON.parse(cachedState)
         this._queryState = cachedState
-      } catch {
-        console.error('Failed to load cached query state')
+      } catch(e) {
+        console.error(`Failed to load cached query state: ${e}`)
       }
     }
     this._lastLoadedUrl = ''
     if (this._opts.useQueryState) {
       const urlParams = new URLSearchParams(window.location.search)
       urlParams.has('name') && (this._queryState.name = urlParams.get('name'))
-      urlParams.has('page') && (this._queryState.page = parseInt(urlParams.get('name')))
-      urlParams.has('page_size') && (this._queryState.page_size = parseInt(urlParams.get('page_size')))
+      urlParams.has('page') && (this._queryState.page = parseInt(urlParams.get('page')))
+      urlParams.has('page_size') && (this._queryState.pageSize = parseInt(urlParams.get('page_size')))
       urlParams.has('sort_reverse') && (this._queryState.reverseOrder = (urlParams.get('sort_reverse') === 'true'))
       urlParams.has('sort_key') && (this._queryState.sortKey = urlParams.get('sort_key'))
       window.addEventListener('popstate', evt => {
@@ -88,8 +88,6 @@ class DataSource {
       this._filteredCount = this.items.length
       this._totalCount = this.items.length
       this._pageCount = 1
-      this._queryState.pageSize = this.items.length
-      this._queryState.page = 1
     }
     this.emit('update')
   }
