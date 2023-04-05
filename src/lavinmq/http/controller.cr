@@ -14,10 +14,6 @@ module LavinMQ
 
       private abstract def register_routes
 
-      private def query_params(context)
-        context.request.query_params
-      end
-
       private def filter_values(params, iterator)
         return iterator unless raw_name = params["name"]?
         term = URI.decode_www_form(raw_name)
@@ -35,7 +31,7 @@ module LavinMQ
       MAX_PAGE_SIZE = 10_000
 
       private def page(context, iterator : Iterator(SortableJSON))
-        params = query_params(context)
+        params = context.request.query_params
         page = params["page"]?.try(&.to_i) || 1
         page_size = params["page_size"]?.try(&.to_i) || 100
         if page_size > MAX_PAGE_SIZE
