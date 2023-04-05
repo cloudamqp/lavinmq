@@ -19,9 +19,6 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
-        static_view "/queues"
-        static_view "/queue"
-
         get "/api/queues" do |context, _|
           itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
           page(context, itr)
