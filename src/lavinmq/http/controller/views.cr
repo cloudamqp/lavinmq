@@ -1,23 +1,36 @@
-require "html"
+require "router"
 require "../../version"
+require "html"
 require "digest/md5"
 
 module LavinMQ
   module HTTP
-    module ViewHelpers
-      # Render an ecr file from views dir
-      macro render(file)
-        ECR.embed "views/{{file.id}}.ecr", context.response
-      end
+    class ViewsController
+      include Router
 
-      # Use in view to html escape output
-      # `<% escape varaible_name %>` or `<% escape "string" %>`
-      macro escape(value)
-        HTML.escape({{value}}, context.response)
-      end
-
-      macro active_path?(path)
-        context.request.path == "/#{{{path}}}" || (context.request.path == "/" && {{path}} == :".")
+      def initialize
+        static_view "/", "overview"
+        static_view "/login"
+        static_view "/401"
+        static_view "/404"
+        static_view "/federation"
+        static_view "/shovels"
+        static_view "/connections"
+        static_view "/connection"
+        static_view "/channels"
+        static_view "/channel"
+        static_view "/exchanges"
+        static_view "/exchange"
+        static_view "/vhosts"
+        static_view "/vhost"
+        static_view "/queues"
+        static_view "/queue"
+        static_view "/nodes"
+        static_view "/logs"
+        static_view "/users"
+        static_view "/user"
+        static_view "/policies"
+        static_view "/operator-policies"
       end
 
       # Generate a get handler for given path. If no view is specified, path without initial
@@ -43,7 +56,7 @@ module LavinMQ
             context.response.status_code = 304
           else
             context.response.content_type = "text/html;charset=utf-8"
-            context.response.headers.add("Cache-Control", "public,max-age=300")
+            context.response.headers.add("Cache-Control", "no-cache")
             context.response.headers.add("ETag", %etag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
@@ -52,6 +65,15 @@ module LavinMQ
           end
           context
         end
+      end
+
+      # Render an ecr file from views dir
+      macro render(file)
+        ECR.embed "views/{{file.id}}.ecr", context.response
+      end
+
+      macro active_path?(path)
+        context.request.path == "/#{{{path}}}" || (context.request.path == "/" && {{path}} == :".")
       end
     end
   end

@@ -8,8 +8,6 @@ module LavinMQ
       LogBackend = ::Log::InMemoryBackend.instance
 
       private def register_routes
-        static_view "/logs"
-
         get "/api/livelog" do |context, _params|
           channel = LogBackend.add_channel
           context.response.content_type = "text/event-stream"

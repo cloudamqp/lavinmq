@@ -8,9 +8,6 @@ module LavinMQ
       include ConnectionsHelper
 
       private def register_routes
-        static_view "/channels"
-        static_view "/channel"
-
         get "/api/channels" do |context, _params|
           page(context, all_channels(user(context)))
         end
