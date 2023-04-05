@@ -2,6 +2,7 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as Dom from './dom.js'
 import * as Table from './table.js'
+import { UrlDataSource } from './datasource.js'
 
 Helpers.addVhostOptions('declare')
 const vhost = window.sessionStorage.getItem('vhost')
@@ -9,10 +10,10 @@ let url = 'api/queues'
 if (vhost && vhost !== '_all') {
   url += '/' + encodeURIComponent(vhost)
 }
+const queueDataSource = new UrlDataSource(url)
 const tableOptions = {
-  url,
+  dataSource: queueDataSource,
   keyColumns: ['vhost', 'name'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true
@@ -71,6 +72,7 @@ document.getElementById("multi-check-all").addEventListener("change", (el) => {
   })
   toggleMultiActionControls(checked, c)
 })
+
 const queuesTable = Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     let features = ''
@@ -128,6 +130,11 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
       evt.target.reset()
       Dom.toast('Queue ' + queue + ' created')
     }).catch(HTTP.standardErrorHandler)
+})
+queuesTable.on('updated', _ => {
+  const checked = document.querySelectorAll("input[data-name]:checked")
+  console.log(checked)
+  toggleMultiActionControls(true, checked.length)
 })
 
 document.querySelector('#dataTags').onclick = e => {
