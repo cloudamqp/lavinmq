@@ -70,18 +70,14 @@ function renderTable (id, options = {}, renderRow) {
       try {
         const foundIndex = findIndex(t.rows, start, item)
         if (foundIndex !== -1) {
+          // Item is display, update that row
+          renderRow(t.rows[foundIndex], item, false)
+          // And make sure the row is in the right place
           if (foundIndex !== i) {
-            renderRow(t.rows[i], item, true)
-            setKeyAttributes(t.rows[i], item)
-            if (items[foundIndex]) {
-              renderRow(t.rows[foundIndex], items[foundIndex], true)
-              setKeyAttributes(t.rows[foundIndex], items[foundIndex])
-            }
-          } else {
-            renderRow(t.children[i], item, true)
+            t.insertBefore(t.rows[foundIndex], t.rows[i])
           }
-          start = Math.min(i + 1, foundIndex)
         } else {
+          // New item, create new row
           const tr = t.insertRow(i)
           setKeyAttributes(tr, item)
           renderRow(tr, item, true)
