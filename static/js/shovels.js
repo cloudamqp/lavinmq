@@ -23,10 +23,6 @@ function renderState(item) {
 
 const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true }
 const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
-  if (!all) {
-    Table.renderCell(tr, 10, renderState(item))
-    return
-  }
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
