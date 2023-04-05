@@ -58,7 +58,6 @@ module LavinMQ
             context.response.content_type = "text/html;charset=utf-8"
             context.response.headers.add("Cache-Control", "no-cache")
             context.response.headers.add("ETag", %etag)
-            context.response.headers.add("Content-Encoding", "identity") # hack for nginx to preserves etags when gzip compressing
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
             {{block.body if block}}
