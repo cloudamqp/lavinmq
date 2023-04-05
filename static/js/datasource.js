@@ -1,4 +1,5 @@
 import * as HTTP from './http.js'
+import EventEmitter from './eventemitter.js'
 
 class DataSource {
   constructor(opts) {
@@ -8,7 +9,7 @@ class DataSource {
         useQueryState: true
       }, opts)
     this._reloadTimer = null
-    this.listeners = new Map()
+    this._events = new EventEmitter()
     this._items = []
     this._filteredCount = 0
     this._itemCount = 0
@@ -112,19 +113,11 @@ class DataSource {
   }
 
   emit(eventName, ...args) {
-    if (!this.listeners.has(eventName)) {
-      return
-    }
-    this.listeners.get(eventName).forEach(listener => {
-      listener(...args)
-    })
+    this._events.emit(eventName, ...args)
   }
 
   on(eventName, listener) {
-    if (!this.listeners.has(eventName)) {
-      this.listeners.set(eventName, [])
-    }
-    this.listeners.get(eventName).push(listener)
+    this._events.on(eventName, listener)
   }
 
   queryParams(params) {
