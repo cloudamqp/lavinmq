@@ -21,11 +21,11 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   if (options.pagination) {
-    const footer = `<tfoot><tr>
-                      <td colspan="999"><div id="pagination"></div></td>
-                    </tr></tfoot>`
-    table.insertAdjacentHTML('beforeend', footer)
-    Pagination.create(document.getElementById('pagination'), dataSource)
+    const paginationCell = table.createTFoot().insertRow().insertCell()
+    const paginationContainer = document.createElement('div')
+    paginationCell.appendChild(paginationContainer)
+    paginationContainer.classList.add('pagination')
+    Pagination.create(paginationContainer, dataSource)
   }
   if (table.querySelector('th[data-sort-key]')) {
     TableHeaderSort.create(table, dataSource)
