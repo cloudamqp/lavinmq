@@ -48,6 +48,7 @@ updateExchange()
 
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
+  pagination: true,
   keyColumns: ['properties_key']
 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
