@@ -3,7 +3,7 @@ import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Form from './form.js'
-import { DataSource } from './datasource.js'
+import { UrlDataSource, DataSource } from './datasource.js'
 
 Helpers.addVhostOptions('createShovel')
 
@@ -32,33 +32,25 @@ if (vhost && vhost !== '_all') {
   statusUrl += '/' + urlEncodedVhost
 }
 
-class ShovelsDataSource extends DataSource {
+class ShovelsDataSource extends UrlDataSource {
   constructor(url, statusUrl) {
-    super()
-    if (url.startsWith('http')) {
-      this.url = new URL(url)
-    } else {
-      this.url = new URL(url, window.location)
-    }
+    super(url)
     this.statusUrl = statusUrl
   }
   _reload() {
-    const shovelsUrl = new URL(this.url)
-    shovelsUrl.search = this.queryParams()
-    const p1 = HTTP.request('GET', shovelsUrl)
+    const p1 = super._reload()
     const p2 = HTTP.request('GET', this.statusUrl)
 
     return Promise.all([p1, p2]).then(values => {
-        const items = values[0]
-        const status = values[1]
-        const shovels = items.map(item => {
-          item.state = status.find(s => s.name === item.name && s.vhost === item.vhost).state
-          item.error = status.find(s => s.name === item.name && s.vhost === item.vhost).error
-          return item
-        })
-        this.items = shovels
-      }
-    )
+      let shovels = values[0].items ?? values[0]
+      const status = values[1]
+      shovels = shovels.map(item => {
+        item.state = status.find(s => s.name === item.name && s.vhost === item.vhost).state
+        item.error = status.find(s => s.name === item.name && s.vhost === item.vhost).error
+        return item
+      })
+      return shovels
+    })
   }
 }
 const dataSource = new ShovelsDataSource(url, statusUrl)

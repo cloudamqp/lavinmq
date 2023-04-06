@@ -100,14 +100,22 @@ class DataSource {
     throw "Not implemented"
   }
 
-  reload() {
+ reload() {
     clearTimeout(this._reloadTimer)
-    this._reload().then(_ => {
-      if (this._opts.autoReloadTimeout === 0) {
-        return
-      }
-      clearTimeout(this._reloadTimer)
-      this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
+    return new Promise((resolve, reject) => {
+      this._reload().then(resp => {
+        if (this._opts.autoReloadTimeout > 0) {
+          clearTimeout(this._reloadTimer)
+          this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
+        }
+        this.items = resp
+        resolve(resp)
+      }).catch(err => {
+        console.log(err)
+        this.stopAutoReload()
+        this.emit('error', err)
+        reject(err)
+      });
     })
   }
 
@@ -189,13 +197,7 @@ class UrlDataSource extends DataSource {
     }
     window.sessionStorage.setItem(this._cacheKey, JSON.stringify(this._queryState))
     this._lastLoadedUrl = url.toString()
-    return HTTP.request('GET', url).then(data => {
-      this.items = data
-    }).catch(err => {
-      console.error(err)
-      this.stopAutoReload()
-      this.emit('error', err)
-    })
+    return HTTP.request('GET', url)
   }
 }
 
