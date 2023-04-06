@@ -119,6 +119,10 @@ class DataSource {
     })
   }
 
+  reset() {
+    this._setState()
+  }
+
   stopAutoReload() {
     clearTimeout(this._reloadTimer)
   }
