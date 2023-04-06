@@ -875,18 +875,18 @@ module LavinMQ
     def fsync_ack
     end
 
-    def to_json(builder : JSON::Builder, limit : Int32 = -1)
-      builder.object do
-        details_tuple.each do |k, v|
-          builder.field(k, v) unless v.nil?
+    def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
+      json.object do
+        details_tuple.merge(message_stats: stats_details).each do |k, v|
+          json.field(k, v) unless v.nil?
         end
-        builder.field("consumer_details") do
-          builder.array do
+        json.field("consumer_details") do
+          json.array do
             @consumers_lock.synchronize do
               @consumers.each do |c|
-                c.to_json(builder)
-                limit -= 1
-                break if limit.zero?
+                c.to_json(json)
+                consumer_limit -= 1
+                break if consumer_limit.zero?
               end
             end
           end
@@ -894,10 +894,10 @@ module LavinMQ
       end
     end
 
-    def size_details_to_json(builder : JSON::Builder, limit : Int32 = -1)
-      builder.object do
+    def size_details_to_json(json : JSON::Builder)
+      json.object do
         size_details_tuple.each do |k, v|
-          builder.field(k, v) unless v.nil?
+          json.field(k, v) unless v.nil?
         end
       end
     end
