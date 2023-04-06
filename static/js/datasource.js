@@ -3,7 +3,7 @@ import EventEmitter from './eventemitter.js'
 
 class DataSource {
   static DEFAULT_STATE = {
-    page: 0,
+    page: 1,
     pageSize: 100,
     sortKey: '',
     reverseOrder: false,
