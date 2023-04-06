@@ -93,5 +93,3 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
       DOM.toast(`Upstream ${name} saved`)
     }).catch(HTTP.standardErrorHandler)
 })
-Helpers.autoCompleteDatalist('queue-datalist', 'queues')
-Helpers.autoCompleteDatalist('exchange-datalist', 'exchanges')

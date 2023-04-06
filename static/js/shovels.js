@@ -168,5 +168,5 @@ function updateAutocomplete(e, id) {
   const type = e === 'queue' ? 'queues' : 'exchanges'
   Helpers.autoCompleteDatalist(id, type)
 }
-updateAutocomplete('queue',"shovel-src-list")
-updateAutocomplete('queue',"shovel-dest-list")
+//updateAutocomplete("queue", "shovel-src-list")
+//updateAutocomplete("queue", "shovel-dest-list")
