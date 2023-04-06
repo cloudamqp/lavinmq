@@ -33,7 +33,7 @@ class DataSource {
     }
     this._lastLoadedUrl = ''
     if (this._opts.useQueryState) {
-      const urlParams = new URLSearchParams(window.location.search)
+      const urlParams = new URLSearchParams(window.location.hash.substring(1))
       urlParams.has('name') && (this._queryState.name = urlParams.get('name'))
       urlParams.has('page') && (this._queryState.page = parseInt(urlParams.get('page')))
       urlParams.has('page_size') && (this._queryState.pageSize = parseInt(urlParams.get('page_size')))
@@ -49,7 +49,7 @@ class DataSource {
   }
 
   _setStateFromQuery() {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(window.location.hash.substring(1))
   }
 
   get page() { return this._queryState.page }
@@ -165,18 +165,20 @@ class UrlDataSource extends DataSource {
     }
   }
 
-  _fullUrl() {
+  _fullApiUrl() {
     let url = new URL(this.url)
     url.search = this.queryParams()
     return url
   }
 
   _reload() {
-    const url = this._fullUrl()
+    const url = this._fullApiUrl()
     if (this._opts.useQueryState) {
       const documentUrl = new URL(window.location)
-      this.queryParams(documentUrl.searchParams)
-      if (window.location.search.length == 0 || this._lastLoadedUrl == '') {
+      const query = new URLSearchParams(documentUrl.hash.substring(1))
+      this.queryParams(query)
+      documentUrl.hash = query
+      if (window.location.hash.length <= 1 || this._lastLoadedUrl == '') {
         window.history.replaceState(this._queryState, '', documentUrl)
       } else if (this._lastLoadedUrl != url.toString()) {
         window.history.pushState(this._queryState, '', documentUrl)

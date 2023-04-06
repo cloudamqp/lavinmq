@@ -10,7 +10,7 @@ function create(container, dataSource) {
     a.textContent  = label
     let params = dataSource.queryParams()
     params.set('page', toPage)
-    a.href = `?${params.toString()}`
+    a.href = `#${params.toString()}`
     div.appendChild(a)
     a.onclick = e => {
       e.preventDefault()
