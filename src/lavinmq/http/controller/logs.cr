@@ -9,6 +9,7 @@ module LavinMQ
 
       private def register_routes
         get "/api/livelog" do |context, _params|
+          refuse_unless_administrator(context, user(context))
           channel = LogBackend.add_channel
           context.response.content_type = "text/event-stream"
           context.response.headers["X-Accel-Buffering"] = "no"
@@ -36,6 +37,7 @@ module LavinMQ
         end
 
         get "/api/logs" do |context, _params|
+          refuse_unless_administrator(context, user(context))
           context.response.content_type = "text/plain"
           context.response.headers["Cache-Control"] = "no-store"
           context.response.headers["Content-Disposition"] = "attachment; filename=logs.txt"
