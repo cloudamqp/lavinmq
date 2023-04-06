@@ -4,9 +4,9 @@ import EventEmitter from './eventemitter.js'
 class DataSource {
   static DEFAULT_STATE = {
     page: 1,
-    pageSize: 100,
-    sortKey: '',
-    reverseOrder: false,
+    page_size: 100,
+    sort_key: '',
+    reverse_order: false,
     name: ''
   }
   constructor(opts) {
@@ -24,16 +24,16 @@ class DataSource {
     this._totalCount = 0
     this._setState()
     let cachedState
-    if (cachedState = window.sessionStorage.getItem(this._cacheKey)) {
-      try {
-        cachedState = JSON.parse(cachedState)
-        this._setState(cachedState)
-      } catch(e) {
-        console.error(`Failed to load cached query state: ${e}`)
-      }
-    }
     this._lastLoadedUrl = ''
     if (this._opts.useQueryState) {
+      if (cachedState = window.sessionStorage.getItem(this._cacheKey)) {
+        try {
+          cachedState = JSON.parse(cachedState)
+          this._setState(cachedState)
+        } catch(e) {
+          console.error(`Failed to load cached query state: ${e}`)
+        }
+      }
       this._setStateFromQuery()
       window.addEventListener('hashchange', evt => this._setStateFromQuery())
     }
@@ -57,18 +57,18 @@ class DataSource {
 
   get page() { return this._queryState.page }
   set page(value) { this._queryState.page = parseInt(value) }
-  get pageSize() { return this._queryState.pageSize }
-  set pageSize(value) { this._queryState.pageSize = parseInt(value) }
-  set sortKey(value) { this._queryState.sortKey = value }
-  get sortKey() { return this._queryState.sortKey }
+  get pageSize() { return this._queryState.page_size }
+  set pageSize(value) { this._queryState.page_size = parseInt(value) }
+  set sortKey(value) { this._queryState.sort_key = value }
+  get sortKey() { return this._queryState.sort_key }
   set reverseOrder(value) { 
     if (typeof value === 'boolean') {
-      this._queryState.reverseOrder = value
+      this._queryState.reverse_order = value
     } else {
-      this._queryState.reverseOrder = value === 'true' || value === 1
+      this._queryState.reverse_order = value === 'true' || value === 1
     }
   }
-  get reverseOrder() { return this._queryState.reverseOrder }
+  get reverseOrder() { return this._queryState.reverse_orrder }
   set searchTerm(value) { this._queryState.name = value }
   get searchTerm() { return this._queryState.name }
 
@@ -81,7 +81,7 @@ class DataSource {
   set items(data) {
     if ('items' in data) {
       this._queryState.page = data.page
-      this._queryState.pageSize = data.page_size
+      this._queryState.page_size = data.page_size
       this._items = data.items
       this._filteredCount = data.filtered_count
       this._itemCount = data.item_count
@@ -100,7 +100,7 @@ class DataSource {
     throw "Not implemented"
   }
 
- reload() {
+  reload() {
     clearTimeout(this._reloadTimer)
     return new Promise((resolve, reject) => {
       this._reload().then(resp => {
@@ -198,8 +198,8 @@ class UrlDataSource extends DataSource {
       } else if (this._lastLoadedUrl != url.toString()) {
         window.history.pushState(this._queryState, '', documentUrl)
       }
+      window.sessionStorage.setItem(this._cacheKey, JSON.stringify(this._queryState))
     }
-    window.sessionStorage.setItem(this._cacheKey, JSON.stringify(this._queryState))
     this._lastLoadedUrl = url.toString()
     return HTTP.request('GET', url)
   }
