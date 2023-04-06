@@ -84,7 +84,7 @@ function create(container, dataSource) {
     }
     const nextLink = makeLink(page + 1, 'Next', {class: 'next', disabled: (page === pages)})
     links.push(nextLink)
-    while (container.firstChild) container.removeChild(pagination.firstChild)
+    while (container.firstChild) container.removeChild(container.firstChild)
     links.forEach(l => container.appendChild(l))
   }
 }
