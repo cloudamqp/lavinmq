@@ -63,9 +63,10 @@ module LavinMQ
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
+        columns = params["columns"]?.try(&.split(','))
         unless params.has_key?("page")
           JSON.build(context.response) do |json|
-            items, total = array_iterator_to_json(json, all_items, 0, MAX_PAGE_SIZE)
+            items, total = array_iterator_to_json(json, all_items, columns, 0, MAX_PAGE_SIZE)
             if total > MAX_PAGE_SIZE
               @log.warn { "Result set truncated: #{items}/#{total}" }
             end
@@ -76,7 +77,7 @@ module LavinMQ
           json.object do
             item_count, total_count = json.field("items") do
               start = (page - 1) * page_size
-              array_iterator_to_json(json, all_items, start, page_size)
+              array_iterator_to_json(json, all_items, columns, start, page_size)
             end
             filtered_count ||= total_count
             json.field("filtered_count", filtered_count)
@@ -99,14 +100,24 @@ module LavinMQ
         end
       end
 
-      private def array_iterator_to_json(json, iterator, start : Int, page_size : Int)
+      private def array_iterator_to_json(json, iterator, columns : Array(String)?, start : Int, page_size : Int)
         size = 0
         total = 0
         json.array do
           iterator.each_with_index do |o, i|
             total += 1
             next if i < start || start + page_size <= i
-            o.to_json(json)
+            if columns
+              json.object do
+                columns.each do |col|
+                  json.field col, o[col]
+                rescue KeyError
+                  next
+                end
+              end
+            else
+              o.to_json(json)
+            end
             size += 1
           end
         end
