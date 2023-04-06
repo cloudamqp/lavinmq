@@ -2,6 +2,13 @@ import * as HTTP from './http.js'
 import EventEmitter from './eventemitter.js'
 
 class DataSource {
+  static DEFAULT_STATE = {
+    page: 0,
+    pageSize: 100,
+    sortKey: '',
+    reverseOrder: false,
+    name: ''
+  }
   constructor(opts) {
     this._opts = Object.assign(
       {
@@ -15,41 +22,37 @@ class DataSource {
     this._itemCount = 0
     this._pageCount = 0
     this._totalCount = 0
-    this._queryState = {
-      page: 1,
-      pageSize: 100,
-      sortKey: '',
-      reverseOrder: false,
-      name: ''
-    }
+    this._setState()
     let cachedState
     if (cachedState = window.sessionStorage.getItem(this._cacheKey)) {
       try {
         cachedState = JSON.parse(cachedState)
-        this._queryState = cachedState
+        this._setState(cachedState)
       } catch(e) {
         console.error(`Failed to load cached query state: ${e}`)
       }
     }
     this._lastLoadedUrl = ''
     if (this._opts.useQueryState) {
-      const urlParams = new URLSearchParams(window.location.hash.substring(1))
-      urlParams.has('name') && (this._queryState.name = urlParams.get('name'))
-      urlParams.has('page') && (this._queryState.page = parseInt(urlParams.get('page')))
-      urlParams.has('page_size') && (this._queryState.pageSize = parseInt(urlParams.get('page_size')))
-      urlParams.has('sort_reverse') && (this._queryState.reverseOrder = (urlParams.get('sort_reverse') === 'true'))
-      urlParams.has('sort_key') && (this._queryState.sortKey = urlParams.get('sort_key'))
-      window.addEventListener('popstate', evt => {
-        if (evt.state) {
-          this._queryState = evt.state
-          this.reload()
-        }
-      })
+      this._setStateFromQuery()
+      window.addEventListener('hashchange', evt => this._setStateFromQuery())
     }
   }
 
   _setStateFromQuery() {
-    const params = new URLSearchParams(window.location.hash.substring(1))
+    const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
+    this._setState(urlParams)
+  }
+
+  _setState(properties = {}) {
+    // clone default
+    const state = Object.assign({}, DataSource.DEFAULT_STATE)
+    for (const key of Object.keys(properties)) {
+      if (Object.hasOwn(state, key)) {
+        state[key] = properties[key]
+      }
+    }
+    this._queryState = state
   }
 
   get page() { return this._queryState.page }
