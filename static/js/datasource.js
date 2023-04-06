@@ -185,7 +185,7 @@ class UrlDataSource extends DataSource {
     window.sessionStorage.setItem(this._cacheKey, JSON.stringify(this._queryState))
     this._lastLoadedUrl = url.toString()
     return HTTP.request('GET', url).then(data => {
-        this.items = data
+      this.items = data
     }).catch(err => {
       console.error(err)
       this.stopAutoReload()

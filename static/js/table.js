@@ -69,25 +69,25 @@ function renderTable (id, options = {}, renderRow) {
       return
     }
 
-    let start = 0
     toggleDisplayError(id, false)
+    const rows = Array.from(t.rows)
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
+      const currentRow = t.rows[i]
       try {
-        const foundIndex = findIndex(t.rows, start, item)
-        if (foundIndex !== -1) {
+        const foundRow = findRow(rows, item)
+        if (foundRow) {
           // Item is display, update that row
-          renderRow(t.rows[foundIndex], item, false)
+          renderRow(foundRow, item, false)
           // And make sure the row is in the right place
-          if (foundIndex !== i) {
-            t.insertBefore(t.rows[foundIndex], t.rows[i])
+          if (foundRow !== currentRow) {
+            t.insertBefore(foundRow, currentRow)
           }
         } else {
           // New item, create new row
           const tr = t.insertRow(i)
           setKeyAttributes(tr, item)
           renderRow(tr, item, true)
-          start = i + 1
         }
       } catch (e) {
         toggleDisplayError(id, item.error || e.message)
@@ -98,15 +98,11 @@ function renderTable (id, options = {}, renderRow) {
     while (rowsToDelete-- > 0) {
       t.deleteRow(t.rows.length - 1)
     }
+    events.emit('updated')
   }
 
-  function findIndex (rows, start, item) {
-    for (let i = start; i < rows.length; i++) {
-      if (keyColumns.every(key => rows[i].dataset[key] === item[key])) {
-        return i;
-      }
-    }
-    return -1
+  function findRow (rows, item) {
+    return rows.find(row => keyColumns.every(key => row.dataset[key] === item[key]))
   }
 
   function setKeyAttributes (tr, item) {
