@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Optimized images in UI (replace jpg/png with webp, svg and css gradients)
+- Require `administrator` tag to show logs in UI/API
 - VHost dropdown menu is now sorted by name
 
 ### Changed
 
+- Optimized images in UI (replace jpg/png with webp, svg and css gradients)
 - Calculate etags for static resources at compile time
+- Use weak etags so that responses can be compressed without dropping the etag
 - no-cache for views and static resources, the browser will still cache them, but query the browser if there are newer versions
 - Use the hash part of the URL as arguments to /queue and other views, so that the browser reuse the same cached HTML
 
