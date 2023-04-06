@@ -128,7 +128,7 @@ document.querySelector('#deleteExchange').addEventListener('submit', function (e
 
 function updateAutocomplete(e) {
   const type = e === 'q' ? 'queues' : 'exchanges'
-  Helpers.autoCompleteDatalist("exchange-dest-list", type)
+  Helpers.autoCompleteDatalist("exchange-dest-list", type, urlEncodedVhost)
 }
 updateAutocomplete('q')
 
