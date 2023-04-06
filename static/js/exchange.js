@@ -92,7 +92,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
   }
   HTTP.request('POST', url, { body })
     .then(() => {
-      bindingsTable.fetchAndUpdate()
+      bindingsTable.reload()
       evt.target.reset()
     }).catch(HTTP.alertErrorHandler)
 })

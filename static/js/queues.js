@@ -41,11 +41,11 @@ const performMultiAction = (el) => {
         multiSelectControls.classList.add("hide")
         elems.forEach(e => e.checked = false)
         document.getElementById("multi-check-all").checked = false
-        queuesTable.fetchAndUpdate()
+        queuesTable.reload()
       }
     }).catch(e => {
       Dom.toast(`Failed to perform action on ${data.name}`, "error")
-      queuesTable.fetchAndUpdate()
+      queuesTable.reload()
     })
   })
 }
@@ -126,7 +126,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      queuesTable.fetchAndUpdate()
+      queuesTable.reload()
       evt.target.reset()
       Dom.toast('Queue ' + queue + ' created')
     }).catch(HTTP.standardErrorHandler)

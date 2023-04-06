@@ -70,7 +70,7 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      policiesTable.fetchAndUpdate()
+      policiesTable.reload()
       evt.target.reset()
     }).catch(HTTP.standardErrorHandler)
 })
