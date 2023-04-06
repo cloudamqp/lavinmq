@@ -3,6 +3,7 @@ import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Form from './form.js'
+import { DataSource } from './datasource.js'
 
 Helpers.addVhostOptions('createShovel')
 
@@ -21,7 +22,41 @@ function renderState(item) {
   }
 }
 
-const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true }
+
+const vhost = window.sessionStorage.getItem('vhost')
+let url = 'api/parameters/shovel'
+let statusUrl = 'api/shovels'
+if (vhost && vhost !== '_all') {
+  const urlEncodedVhost = encodeURIComponent(vhost)
+  url += '/' + urlEncodedVhost
+  statusUrl += '/' + urlEncodedVhost
+}
+
+class ShovelsDataSource extends DataSource {
+  constructor(url, statusUrl) {
+    super()
+    this.url = url
+    this.statusUrl = statusUrl
+  }
+  reload() {
+    const p1 = HTTP.request('GET', this.url)
+    const p2 = HTTP.request('GET', this.statusUrl)
+
+    return Promise.all([p1, p2]).then(values => {
+        const items = values[0]
+        const status = values[1]
+        const shovels = items.map(item => {
+          item.state = status.find(s => s.name === item.name && s.vhost === item.vhost).state
+          item.error = status.find(s => s.name === item.name && s.vhost === item.vhost).error
+          return item
+        })
+        this.items = shovels
+      }
+    )
+  }
+}
+const dataSource = new ShovelsDataSource(url, statusUrl)
+const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, dataSource }
 const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
@@ -88,34 +123,6 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   Table.renderCell(tr, 11, btns, 'right')
 })
 
-const vhost = window.sessionStorage.getItem('vhost')
-let url = 'api/parameters/shovel'
-let statusUrl = 'api/shovels'
-if (vhost && vhost !== '_all') {
-  const urlEncodedVhost = encodeURIComponent(vhost)
-  url += '/' + urlEncodedVhost
-  statusUrl += '/' + urlEncodedVhost
-}
-function updateShovelsTable () {
-  const p1 = HTTP.request('GET', url)
-  const p2 = HTTP.request('GET', statusUrl)
-
-  Promise.all([p1, p2]).then(values => {
-    const items = values[0]
-    const status = values[1]
-    const shovels = items.map(item => {
-      item.state = status.find(s => s.name === item.name && s.vhost === item.vhost).state
-      item.error = status.find(s => s.name === item.name && s.vhost === item.vhost).error
-      return item
-    })
-    shovelsTable.updateTable(shovels)
-  }).catch(e => {
-    Table.toggleDisplayError("table", e.status === 403 ? "Permission denied" : e)
-  })
-}
-updateShovelsTable()
-setInterval(updateShovelsTable, 5000)
-
 document.querySelector('[name=src-type]').addEventListener('change', function () {
   document.getElementById('srcRoutingKey').classList.toggle('hide', this.value === 'queue')
 })
@@ -156,7 +163,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      updateShovelsTable()
+      dataSource.reload()
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
     }).catch(HTTP.standardErrorHandler)
