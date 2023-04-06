@@ -6,7 +6,7 @@ class DataSource {
     page: 1,
     page_size: 100,
     sort_key: '',
-    reverse_order: false,
+    sort_reverse: false,
     name: ''
   }
   constructor(opts) {
@@ -63,12 +63,12 @@ class DataSource {
   get sortKey() { return this._queryState.sort_key }
   set reverseOrder(value) { 
     if (typeof value === 'boolean') {
-      this._queryState.reverse_order = value
+      this._queryState.sort_reverse = value
     } else {
-      this._queryState.reverse_order = value === 'true' || value === 1
+      this._queryState.sort_reverse = value === 'true' || value === 1
     }
   }
-  get reverseOrder() { return this._queryState.reverse_orrder }
+  get reverseOrder() { return this._queryState.sort_reverse }
   set searchTerm(value) { this._queryState.name = value }
   get searchTerm() { return this._queryState.name }
 
