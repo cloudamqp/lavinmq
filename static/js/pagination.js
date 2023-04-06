@@ -1,22 +1,29 @@
 function create(container, dataSource) {
   dataSource.on('update', update)
-  function makeLink(toPage, label = toPage, extraClass = '') {
+  function makeLink(toPage, label = toPage, opts = {}) {
     const div = document.createElement('div')
     div.classList.add('page-item')
-    if (extraClass.length > 0) {
-      div.classList.add(extraClass)
+    if (opts.class && opts.class.length > 0) {
+      div.classList.add(...opts.class.split(' '))
     }
-    const a = document.createElement('a')
-    a.textContent  = label
+    let tag = 'a'
+    if (opts.disabled === true) {
+      div.classList.add('disabled')
+      tag = 'span'
+    }
+    const button = document.createElement(tag)
+    button.textContent  = label
     let params = dataSource.queryParams()
     params.set('page', toPage)
-    a.href = `#${params.toString()}`
-    div.appendChild(a)
-    a.onclick = e => {
-      e.preventDefault()
-      dataSource.page = toPage
-      dataSource.reload()
-      return false
+    div.appendChild(button)
+    if (opts.disabled !== true) {
+      button.href = `#${params.toString()}`
+      button.onclick = e => {
+        e.preventDefault()
+        dataSource.page = toPage
+        dataSource.reload()
+        return false
+      }
     }
     return div
   }
@@ -34,9 +41,8 @@ function create(container, dataSource) {
 
     const links = []
 
-    if (page > 1) {
-      links.push(makeLink(page - 1, 'Previous', 'previous'))
-    }
+    const prevLink = makeLink(page - 1, 'Previous', {class: 'previous', disabled: (page === 1)})
+    links.push(prevLink)
     if (pages < 6) {
       for (let p = 1; p <= pages; p++) {
         active = page === p ? 'active' : ''
@@ -46,7 +52,7 @@ function create(container, dataSource) {
       if (page > 2) {
         links.push(makeLink(1, 1))
         if (page > 3) {
-          links.push(makeLink(page - 2, '…', 'out-of-range'))
+          links.push(makeLink(page - 2, '…', {class: 'out-of-range'}))
         }
       }
       if (page === 1) {
@@ -67,18 +73,17 @@ function create(container, dataSource) {
           continue
         }
         active = page === p ? 'active' : ''
-        links.push(makeLink(p, p, active))
+        links.push(makeLink(p, p, {class: active}))
       }
       if (page < pages - 1) {
         if (page < pages - 2) {
-          links.push(makeLink(page + 2, '…', 'out-of-range'))
+          links.push(makeLink(page + 2, '…', {class: 'out-of-range'}))
         }
         links.push(makeLink(pages, '…', ''))
       }
     }
-    if (page < pages) {
-      links.push(makeLink(page + 1, 'Next', 'next'))
-    }
+    const nextLink = makeLink(page + 1, 'Next', {class: 'next', disabled: (page === pages)})
+    links.push(nextLink)
     while (container.firstChild) container.removeChild(pagination.firstChild)
     links.forEach(l => container.appendChild(l))
   }

@@ -953,7 +953,11 @@ fieldset.inline {
   border-right: 1px solid #ddd;;
   box-sizing: content-box;
 }
-#pagination .page-item a {
+#pagination .page-item.disabled {
+  opacity: 0.8
+}
+#pagination .page-item a,
+#pagination .page-item span {
   padding: 0 15px;
   height: 32px;
   line-height: 32px;
@@ -962,6 +966,10 @@ fieldset.inline {
   text-decoration: none;
   text-align: center;
   font-weight: bold;
+}
+
+#pagination .page-item.disabled a {
+  cursor: default;
 }
 #pagination .page-item.active a {
   background-color: var(--theme-color-link);
