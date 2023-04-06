@@ -35,11 +35,17 @@ if (vhost && vhost !== '_all') {
 class ShovelsDataSource extends DataSource {
   constructor(url, statusUrl) {
     super()
-    this.url = url
+    if (url.startsWith('http')) {
+      this.url = new URL(url)
+    } else {
+      this.url = new URL(url, window.location)
+    }
     this.statusUrl = statusUrl
   }
-  reload() {
-    const p1 = HTTP.request('GET', this.url)
+  _reload() {
+    const shovelsUrl = new URL(this.url)
+    shovelsUrl.search = this.queryParams()
+    const p1 = HTTP.request('GET', shovelsUrl)
     const p2 = HTTP.request('GET', this.statusUrl)
 
     return Promise.all([p1, p2]).then(values => {
