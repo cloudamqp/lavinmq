@@ -1,6 +1,7 @@
 import * as Table from './table.js'
 import * as HTTP from './http.js'
 import * as Chart from './chart.js'
+import { DataSource } from './datasource.js'
 
 const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const urlEncodedChannel = encodeURIComponent(channel)
@@ -8,7 +9,14 @@ const chart = Chart.render('chart', 'msgs/s')
 let vhost = null
 document.title = channel + ' | LavinMQ'
 
+const consumersDataSource = new (class extends DataSource {
+  constructor() { super({autoReloadTimeout: 0, useQueryState: false}) }
+  setConsumers(consumers) { this.items = consumers }
+  reload() { }
+})
+
 const consumerTableOpts = {
+  dataSource: consumersDataSource,
   keyColumns: ['consumer_tag'],
   countId: 'consumer-count'
 }
@@ -36,7 +44,7 @@ function updateChannel (all) {
       stateEl.textContent = item.state
     }
     document.getElementById('ch-unacked').textContent = item.messages_unacknowledged
-    consumersTable.updateTable(item.consumer_details)
+    consumersDataSource.setConsumers(item.consumer_details)
     if (all) {
       document.getElementById('pagename-label').textContent = `${channel} in virtual host ${item.vhost}`
       document.getElementById('ch-username').textContent = item.user
@@ -52,3 +60,4 @@ function updateChannel (all) {
 }
 updateChannel(true)
 setInterval(updateChannel, 5000)
+
