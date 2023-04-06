@@ -27,6 +27,18 @@ module LavinMQ
         }
       end
 
+      # Like stats_details but without log
+      def current_stats_details
+        {
+          {% for name in stats_keys %}
+            {{name.id}}: @{{name.id}}_count,
+              {{name.id}}_details: {
+              rate: @{{name.id}}_rate,
+            },
+          {% end %}
+        }
+      end
+
       def update_rates : Nil
         interval = Config.instance.stats_interval // 1000
         log_size = Config.instance.stats_log_size

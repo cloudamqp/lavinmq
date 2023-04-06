@@ -384,7 +384,7 @@ module LavinMQ
         exclusive_consumer_tag:      @exclusive ? @consumers_lock.synchronize { @consumers.first?.try(&.tag) } : nil,
         state:                       @state.to_s,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
-        message_stats:               stats_details,
+        message_stats:               current_stats_details,
       }
     end
 
