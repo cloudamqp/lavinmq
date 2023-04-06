@@ -95,15 +95,14 @@ function formatTimestamp(timestamp) {
  * @param datalistID id of the datalist element linked to input
  * @param type input content, accepts: queues, exchanges, vhosts, users
  */
-function autoCompleteDatalist(datalistID, type) {
-  HTTP.request('GET',`api/${type}`).then(res => {
+function autoCompleteDatalist(datalistID, type, vhost) {
+  HTTP.request('GET',`api/${type}/${vhost}?columns=name`).then(res => {
     const datalist = document.getElementById(datalistID);
     while (datalist.firstChild) {
       datalist.removeChild(datalist.lastChild);
     }
-    const values = res.map(val => val.name)
-    const uniqValues = [...new Set(values)];
-    uniqValues.sort().forEach(val => {
+    const values = res.map(val => val.name).sort()
+    values.forEach(val => {
       const option = document.createElement("option")
       option.value = val
       datalist.appendChild(option)
