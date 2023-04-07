@@ -25,14 +25,14 @@
     <main>
       <section class="card">
         <h1>LavinMQ</h1>
-        <form id="login" action="/" class="form">
+        <form id="login" class="form">
           <label>
             <span>Username</span>
-            <input type="text" id="amq-username">
+            <input type="text" id="username">
           </label>
           <label>
             <span>Password</span>
-            <input type="password" id="amq-password">
+            <input type="password" id="password">
           </label>
           <button type="submit" class="btn-primary">Sign in</button>
         </form>
@@ -41,15 +41,15 @@
     <script type="module">
       import * as HTTP from './js/http.js'
       import * as Auth from './js/auth.js'
-      document.querySelector('#login').addEventListener('submit', function (evt) {
-        evt.preventDefault()
-        const user = document.querySelector('#amq-username').value
-        const pass = document.querySelector('#amq-password').value
-        Auth.setAuth(user + ':' + pass)
-        HTTP.request('GET', 'api/whoami').then(function () {
+      document.getElementById('login').addEventListener('submit', (e) => {
+        e.preventDefault()
+        const user = document.getElementById('username').value
+        const pass = document.getElementById('password').value
+        Auth.setAuth(`${user}:${pass}`)
+        HTTP.request('GET', 'api/whoami').then(() => {
           Auth.storeCookie({ username: user})
           window.location.assign('.')
-        }).catch(function () {
+        }).catch(() => {
           window.alert('Login failed')
         })
       })
