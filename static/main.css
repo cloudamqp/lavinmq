@@ -223,15 +223,16 @@ footer .logo {
     border-radius: 4px 4px 0px 0px;
   }
 
+  .open-menu::before {
+    content: "\2715";
+  }
+
   .open-menu {
-    background-image: url(img/close-icon.webp);
-    background-size: 15px;
     background-color: #2b2c2d !important;
   }
 
-  .closed-menu {
-    background-image: url(img/menu-icon.webp);
-    background-size: 20px;
+  .closed-menu::before {
+    content: "\2630";
   }
 
   #menu::after {
