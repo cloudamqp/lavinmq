@@ -8,20 +8,9 @@
     <link rel="icon" sizes="32x32" href="favicon.ico">
     <link rel="icon" sizes="180x180" href="img/favicon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="img/favicon.png">
-    <style>
-      body {
-        display: block;
-      }
-
-      main {
-        width: 60%;
-        min-width: 400px;
-        max-width: 800px;
-        margin: 40px auto;
-      }
-    </style>
+    <script type="module" src="js/login.js"></script>
   </head>
-  <body>
+  <body class="login">
     <main>
       <section class="card">
         <h1>LavinMQ</h1>
@@ -38,21 +27,5 @@
         </form>
       </section>
     </main>
-    <script type="module">
-      import * as HTTP from './js/http.js'
-      import * as Auth from './js/auth.js'
-      document.getElementById('login').addEventListener('submit', (e) => {
-        e.preventDefault()
-        const user = document.getElementById('username').value
-        const pass = document.getElementById('password').value
-        Auth.setAuth(`${user}:${pass}`)
-        HTTP.request('GET', 'api/whoami').then(() => {
-          Auth.storeCookie({ username: user})
-          window.location.assign('.')
-        }).catch(() => {
-          window.alert('Login failed')
-        })
-      })
-    </script>
   </body>
 </html>

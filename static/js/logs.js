@@ -49,3 +49,4 @@ livelog.addEventListener('scroll', event => {
   }
   lastScrollTop = st <= 0 ? 0 : st
 })
+livelog.addEventListener("beforeunload", (e) => livelog.close())

@@ -2,7 +2,6 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
-import * as Vhosts from './vhosts.js'
 import * as Form from './form.js'
 
 const user = new URLSearchParams(window.location.hash.substring(1)).get('name')
@@ -60,7 +59,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
   }
 })
 
-Vhosts.addVhostOptions('setPermission')
+Helpers.addVhostOptions('setPermission')
 
 document.querySelector('#setPermission').addEventListener('submit', function (evt) {
   evt.preventDefault()

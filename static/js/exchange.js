@@ -126,11 +126,12 @@ document.querySelector('#deleteExchange').addEventListener('submit', function (e
   }
 })
 
-function updateAutocomplete(e) {
-  const type = e === 'q' ? 'queues' : 'exchanges'
+function updateAutocomplete(val) {
+  const type = val === 'q' ? 'queues' : 'exchanges'
   Helpers.autoCompleteDatalist("exchange-dest-list", type, urlEncodedVhost)
 }
 updateAutocomplete('q')
+document.getElementById("dest-type").onchange = (e) => updateAutocomplete(e.target.value)
 
 document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)

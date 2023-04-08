@@ -1,6 +1,5 @@
 import * as HTTP from './http.js'
 import * as Table from './table.js'
-import * as Users from './users.js'
 import * as DOM from './dom.js'
 
 const vhost = new URLSearchParams(window.location.hash.substring(1)).get('name')
@@ -62,7 +61,25 @@ function addUserOptions (users) {
   }
 }
 
-Users.fetch(addUserOptions)
+function fetchUsers (cb) {
+  const url = 'api/users'
+  const raw = window.sessionStorage.getItem(url)
+  if (raw) {
+    const users = JSON.parse(raw)
+    cb(users)
+  }
+  HTTP.request('GET', url).then(function (users) {
+    try {
+      window.sessionStorage.setItem('api/users', JSON.stringify(users))
+    } catch (e) {
+      console.error('Saving sessionStorage', e)
+    }
+    cb(users)
+  }).catch(function (e) {
+    console.error(e.message)
+  })
+}
+fetchUsers(addUserOptions)
 
 document.querySelector('#setPermission').addEventListener('submit', function (evt) {
   evt.preventDefault()

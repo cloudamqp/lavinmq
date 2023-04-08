@@ -2,21 +2,17 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
-import * as Vhosts from './vhosts.js'
-import * as Overview from './overview.js'
 
-Vhosts.addVhostOptions('addExchange')
+Helpers.addVhostOptions('addExchange')
 
-Overview.get('exchange_types').then(exchangeTypes => {
+HTTP.request('GET', 'api/overview').then(function (response) {
+  const exchangeTypes = response['exchange_types']
   const select = document.forms.addExchange.elements.type
-  while (select.options.length) {
-    select.remove(0)
-  }
-  for (let i = 0; i < exchangeTypes.length; i++) {
+  exchangeTypes.forEach(type => {
     const opt = document.createElement('option')
-    opt.text = exchangeTypes[i].name
+    opt.text = type.name
     select.add(opt)
-  }
+  })
 })
 
 const vhost = window.sessionStorage.getItem('vhost')

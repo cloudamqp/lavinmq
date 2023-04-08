@@ -2,11 +2,10 @@ import * as HTTP from './http.js'
 import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
-import * as Vhosts from './vhosts.js'
 import * as Form from './form.js'
 
 const escapeHTML = DOM.escapeHTML
-Vhosts.addVhostOptions('createUpstream')
+Helpers.addVhostOptions('createUpstream')
 
 let url = 'api/parameters/federation-upstream'
 let linksUrl = 'api/federation-links'

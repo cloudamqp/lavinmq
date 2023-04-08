@@ -2,11 +2,10 @@ import * as HTTP from './http.js'
 import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
-import * as Vhosts from './vhosts.js'
 import * as Form from './form.js'
 
 const escapeHTML = DOM.escapeHTML
-Vhosts.addVhostOptions('createShovel')
+Helpers.addVhostOptions('createShovel')
 
 function renderState(item) {
   if (item.error) {
@@ -168,5 +167,7 @@ function updateAutocomplete(e, id) {
   const type = e === 'queue' ? 'queues' : 'exchanges'
   Helpers.autoCompleteDatalist(id, type)
 }
-//updateAutocomplete("queue", "shovel-src-list")
-//updateAutocomplete("queue", "shovel-dest-list")
+//updateAutocomplete('queue', 'shovel-src-list')
+//updateAutocomplete('queue', 'shovel-dest-list')
+//document.getElementById("createShovel").elements["src-type"].onchange = (e) => updateAutocomplete(e.target.value, 'shovel-src-list')
+//document.getElementById("createShovel").elements["dest-type"].onchange = (e) => updateAutocomplete(e.target.value, 'shovel-dest-list')
