@@ -1,10 +1,9 @@
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as Dom from './dom.js'
-import * as Vhosts from './vhosts.js'
 import * as Table from './table.js'
 
-Vhosts.addVhostOptions('declare')
+Helpers.addVhostOptions('declare')
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/queues'
 if (vhost && vhost !== '_all') {

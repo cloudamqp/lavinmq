@@ -24,6 +24,17 @@ body, input, select, button {
   font-family: Verdana, sans-serif;
 }
 
+body.login {
+  display: block;
+}
+
+body.login main {
+  width: 60%;
+  min-width: 400px;
+  max-width: 800px;
+  margin: 40px auto;
+}
+
 textarea {
   font-family: monospace;
 }
@@ -126,7 +137,10 @@ main {
 }
 
 #menu::after{
+  background-color: #c9d1d9;
   background-image: url(img/bg-mountain.webp);
+  background-position: bottom;
+  background-repeat: no-repeat;
   content: "";
   position: absolute;
   top: 0;

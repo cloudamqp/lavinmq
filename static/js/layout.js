@@ -1,6 +1,4 @@
 import * as Auth from './auth.js'
-import * as Vhosts from './vhosts.js'
-import * as Overview from './overview.js'
 
 const menuButton = document.getElementById('menu-button')
 const menuContent = document.getElementById('menu-content')

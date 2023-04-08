@@ -57,7 +57,7 @@
       <form method="post" id="addBinding" class="form card cols-6">
         <h3>Add a binding from this exchange</h3>
         <label>
-          <select name="dest-type" required onchange="updateAutocomplete(this.value)">
+          <select id="dest-type" name="dest-type" required>
             <option value="q">To queue</option>
             <option value="e">To exchange</option>
           </select>
