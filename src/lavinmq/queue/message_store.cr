@@ -30,6 +30,7 @@ module LavinMQ
         load_deleted_from_disk
         load_stats_from_segments
         delete_unused_segments
+        unmap_segments
         @wfile_id = @segments.last_key
         @wfile = @segments.last_value
         @rfile_id = @segments.first_key
@@ -219,6 +220,7 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
+        @wfile.unmap if @segments.size > 1 # unmap last mfile to save mmap's, if reader is further behind
         next_id = @wfile_id + 1
         path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
@@ -328,6 +330,11 @@ module LavinMQ
             true
           end
         end
+      end
+
+      # Unmap to save mmap's, will be remapped on demand
+      private def unmap_segments
+        @segments.values.each &.unmap
       end
 
       private def deleted?(seg, pos) : Bool
