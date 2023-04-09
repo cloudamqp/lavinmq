@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CSP rules in the UI, forbids inline js etc.
+- Support `?columns=` query for all API endpoints
+- Try cookie login to /api if basic auth header is missing
+
+### Changed
+
+- New favicon (that works both in dark and light mode)
+- Precompress static assets (inflate on-demand if client don't accept deflate)
+- Don't include historic message stats when listing queues via the API
+- Autocomplete queues/vhosts is now correct in the UI (selecting only from the vhost in question)
+- Return 403 rather than 401 for access refused in /api (401 only if unauthenticated)
+
 ## [1.0.1] - 2023-04-06
 
 ### Fixed
