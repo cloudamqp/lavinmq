@@ -40,7 +40,7 @@ class MFile < IO
       code = LibC.ftruncate(@fd, @capacity)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     end
-    @buffer = @capacity.zero? ? Pointer(UInt8).null : mmap
+    @buffer = mmap
   end
 
   # Opens an existing file in readonly mode
@@ -79,6 +79,7 @@ class MFile < IO
   end
 
   private def mmap : Pointer(UInt8)
+    return Pointer(UInt8).null if @capacity.zero?
     protection = LibC::PROT_READ
     protection |= LibC::PROT_WRITE unless @readonly
     flags = LibC::MAP_SHARED
@@ -114,15 +115,27 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer, @size, LibC::MS_ASYNC)
+    msync(buffer, @size, LibC::MS_ASYNC)
   end
 
   def fsync
-    msync(@buffer, @size, LibC::MS_SYNC)
+    msync(buffer, @size, LibC::MS_SYNC)
+  end
+
+  # unload the memory mapping, will be remapped on demand
+  def unmap : Nil
+    munmap
+    @buffer = Pointer(UInt8).null
+  end
+
+  # mmap on demand
+  private def buffer : Pointer(UInt8)
+    return @buffer unless @buffer.null?
+    @buffer = mmap
   end
 
   private def munmap(buffer = @buffer, length = @capacity)
-    return if length.zero?
+    return if length.zero? || buffer.null?
     code = LibC.munmap(buffer, length)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
   end
@@ -142,7 +155,7 @@ class MFile < IO
     size = @size
     new_size = size + slice.size
     raise IO::EOFError.new if new_size > @capacity
-    slice.copy_to(@buffer + size, slice.size)
+    slice.copy_to(buffer + size, slice.size)
     @size = new_size
   end
 
@@ -151,7 +164,7 @@ class MFile < IO
     pos = @pos
     new_pos = pos + slice.size
     raise IO::EOFError.new if new_pos > @size
-    slice.copy_from(@buffer + pos, slice.size)
+    slice.copy_from(buffer + pos, slice.size)
     @pos = new_pos
     slice.size
   end
@@ -189,20 +202,20 @@ class MFile < IO
   end
 
   def to_unsafe
-    @buffer
+    buffer
   end
 
   def to_slice
-    Bytes.new(@buffer, @size, read_only: true)
+    Bytes.new(buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
     raise IO::EOFError.new if pos + size > @size
-    Bytes.new(@buffer + pos, size, read_only: true)
+    Bytes.new(buffer + pos, size, read_only: true)
   end
 
   def advise(advice : Advice, offset = 0, length = @capacity)
-    if LibC.madvise(@buffer + offset, length, advice) != 0
+    if LibC.madvise(buffer + offset, length, advice) != 0
       raise IO::Error.from_errno("madvise")
     end
   end
@@ -225,7 +238,7 @@ class MFile < IO
 
     offset = page_align(new_size.to_i64)
     length = old_capacity - offset
-    munmap(@buffer + offset, length) if length > 0
+    munmap(buffer + offset, length) if length > 0
   end
 
   def resize(new_size : Int) : Nil
