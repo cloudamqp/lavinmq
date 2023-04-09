@@ -1,4 +1,5 @@
 require "http/server/handler"
+require "compress/zlib"
 
 module LavinMQ
   module HTTP
@@ -23,20 +24,41 @@ module LavinMQ
         }
 
         private def serve(context, file_path)
-          if bytes_etag = Files[file_path]?
-            bytes, etag = bytes_etag
+          if static_file = Files[file_path]?
+            bytes, etag, deflated = static_file
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
             else
               context.response.headers.add("Cache-Control", "no-cache")
               context.response.headers.add("ETag", etag)
               context.response.content_type = mime_type(file_path)
-              context.response.content_length = bytes.size
-              if context.request.method == "GET" # HEAD requests don't get bodies
-                begin
-                  context.response.write(bytes)
-                rescue ex : IndexError
-                  raise IO::Error.new(cause: ex)
+              if deflated
+                if context.request.headers["Accept-Encoding"]?.try &.includes?("deflate")
+                  context.response.headers.add("Content-Encoding", "deflate")
+                  context.response.content_length = bytes.size
+                  if context.request.method == "GET" # HEAD requests don't get bodies
+                    begin
+                      context.response.write(bytes)
+                    rescue ex : IndexError
+                      raise IO::Error.new(cause: ex)
+                    end
+                  end
+                else # client doesn't want deflated bodies
+                  if context.request.method == "GET" # HEAD requests don't get bodies
+                    io = IO::Memory.new(bytes)
+                    Compress::Zlib::Reader.open(io) do |zlib|
+                      IO.copy(zlib, context.response)
+                    end
+                  end
+                end
+              else # not deflated
+                context.response.content_length = bytes.size
+                if context.request.method == "GET" # HEAD requests don't get bodies
+                  begin
+                    context.response.write(bytes)
+                  rescue ex : IndexError
+                    raise IO::Error.new(cause: ex)
+                  end
                 end
               end
             end
@@ -46,7 +68,7 @@ module LavinMQ
       {% else %}
         private def serve(context, file_path)
           File.open(File.join(PUBLIC_DIR, file_path)) do |file|
-            etag = %(W/"#{file.info.modification_time.to_unix_ms}")
+            etag = %(W/"#{Digest::MD5.hexdigest(file)}")
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
             else
@@ -54,7 +76,10 @@ module LavinMQ
               context.response.headers.add("ETag", etag)
               context.response.content_type = mime_type(file.path)
               context.response.content_length = file.size
-              IO.copy(file, context.response) if context.request.method == "GET"
+              if context.request.method == "GET"
+                file.rewind
+                IO.copy(file, context.response)
+              end
             end
             context
           end
