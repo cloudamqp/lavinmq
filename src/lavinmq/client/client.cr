@@ -122,7 +122,7 @@ module LavinMQ
       loop do
         AMQP::Frame.from_io(socket) do |frame|
           {% unless flag?(:release) %}
-            @log.debug { "Received #{frame.inspect}" }
+            @log.trace { "Received #{frame.inspect}" }
           {% end %}
           if (i += 1) == 8192
             i = 0
@@ -203,7 +203,7 @@ module LavinMQ
         return false
       end
       {% unless flag?(:release) %}
-        @log.debug { "Send #{frame.inspect}" }
+        @log.trace { "Send #{frame.inspect}" }
       {% end %}
       @write_lock.synchronize do
         s = @socket
@@ -246,14 +246,14 @@ module LavinMQ
         socket = @socket
         websocket = socket.is_a? WebSocketIO
         {% unless flag?(:release) %}
-          @log.debug { "Send #{frame.inspect}" }
+          @log.trace { "Send #{frame.inspect}" }
         {% end %}
         socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         socket.flush if websocket
         @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
         {% unless flag?(:release) %}
-          @log.debug { "Send #{header.inspect}" }
+          @log.trace { "Send #{header.inspect}" }
         {% end %}
         socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         socket.flush if websocket
@@ -262,7 +262,7 @@ module LavinMQ
         while pos < msg.bodysize
           length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
           {% unless flag?(:release) %}
-            @log.debug { "Send BodyFrame (pos #{pos}, length #{length})" }
+            @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
           {% end %}
           body = case msg
                  in BytesMessage
@@ -308,20 +308,20 @@ module LavinMQ
         else
           case frame
           when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
-            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           when AMQP::Frame::Body
-            @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             frame.body.skip(frame.body_size)
           else
-            @log.debug { "Discarding #{frame.inspect}, waiting for Close(Ok)" }
+            @log.trace { "Discarding #{frame.inspect}, waiting for Close(Ok)" }
           end
         end
       else
         case frame
         when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
-          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+          @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
         when AMQP::Frame::Body
-          @log.debug { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+          @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           frame.body.skip(frame.body_size)
         else
           @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
