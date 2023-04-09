@@ -159,7 +159,7 @@ module LavinMQ
       end
 
       private def access_refused(context, message = "Access refused")
-        halt(context, 401, {error: "access_refused", reason: message})
+        halt(context, 403, {error: "access_refused", reason: message})
       end
 
       private def forbidden(context, message = "Forbidden")
