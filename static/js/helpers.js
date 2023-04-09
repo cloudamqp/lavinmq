@@ -114,7 +114,7 @@ let loadedVhosts
 
 function fetch() {
   const vhost = window.sessionStorage.getItem('vhost')
-  const url = 'api/vhosts'
+  const url = 'api/vhosts?columns=name'
   if (!loadedVhosts) {
     loadedVhosts = HTTP.request('GET', url).then(function (vhosts) {
       if (vhost !== '_all' && !vhosts.some(vh => vh.name === vhost)) {
