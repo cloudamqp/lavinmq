@@ -105,8 +105,9 @@ function renderTable (id, options = {}, renderRow) {
     }
   }
 
-  function buildQuery (page) {
+  function buildQuery (page, clean = false) {
     let q = `page=${page}&page_size=${pageSize}`
+    if (clean) return q
     if (searchTerm) {
       q += `&name=${searchTerm}&use_regex=true`
     }
@@ -117,7 +118,9 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   function getData () {
-    return JSON.parse(window.sessionStorage.getItem(`${url}#${buildQuery(currentPage)}`)).items
+    const key = `${url}#${buildQuery(currentPage, true)}`
+    const json = window.sessionStorage.getItem(key)
+    return JSON.parse(json)
   }
 
   function fetchAndUpdate () {

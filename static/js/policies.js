@@ -7,9 +7,6 @@ import * as Form from './form.js'
 // this module is only included from /policies and /operator-policies
 const base_url = `api${document.location.pathname}`
 let url = base_url
-Helpers.addVhostOptions('createPolicy').then(() => {
-  autofill_editpolicy(policiesTable.getData())
-})
 
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
@@ -104,3 +101,8 @@ function autofill_editpolicy(policies, otherOrigin = true) {
   document.getElementsByName('definition')[0].value = JSON.stringify(policy.definition)
   document.getElementsByName('priority')[0].value = policy.priority
 }
+
+Helpers.addVhostOptions('createPolicy').then(() => {
+  const data = policiesTable.getData()
+  autofill_editpolicy(data)
+})
