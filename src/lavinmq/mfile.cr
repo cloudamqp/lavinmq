@@ -26,7 +26,7 @@ class MFile < IO
   getter capacity : Int64 = 0i64
   getter path : String
   getter fd : Int32
-  @buffer : Pointer(UInt8)
+  @buffer = Pointer(UInt8).null
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
@@ -40,7 +40,6 @@ class MFile < IO
       code = LibC.ftruncate(@fd, @capacity)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     end
-    @buffer = mmap
   end
 
   # Opens an existing file in readonly mode
