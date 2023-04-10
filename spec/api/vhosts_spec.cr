@@ -11,11 +11,12 @@ describe LavinMQ::HTTP::VHostsController do
       body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     end
 
-    it "should require management access" do
-      Server.users.create("arnold", "pw", [] of LavinMQ::Tag)
+    it "only return vhosts user has access to if mangement tag" do
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::Management])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/vhosts", headers: hdrs)
-      response.status_code.should eq 401
+      response.status_code.should eq 200
+      JSON.parse(response.body).as_a.size.should eq 0
     end
 
     it "should list vhosts for monitoring users" do
@@ -59,7 +60,7 @@ describe LavinMQ::HTTP::VHostsController do
       Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = put("/api/vhosts/test", headers: hdrs)
-      response.status_code.should eq 401
+      response.status_code.should eq 403
     end
 
     it "should create a vhost with full permissions to user" do
@@ -88,7 +89,7 @@ describe LavinMQ::HTTP::VHostsController do
       Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = delete("/api/vhosts/test", headers: hdrs)
-      response.status_code.should eq 401
+      response.status_code.should eq 403
     end
   end
 

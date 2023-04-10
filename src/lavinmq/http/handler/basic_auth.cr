@@ -23,7 +23,7 @@ module LavinMQ
           end
         end
 
-        forbidden(context)
+        unauthenticated(context)
       end
 
       private def basic_auth(context)
@@ -58,10 +58,10 @@ module LavinMQ
       private def valid_auth?(username, password, remote_address) : Bool
         return false if password.empty?
         if user = @server.users[username]?
-          return false if user.tags.empty?
           if user_password = user.password
             if user_password.verify(password)
               if guest_only_loopback?(remote_address, username)
+                return false if user.tags.empty?
                 return true
               end
             end
@@ -77,10 +77,10 @@ module LavinMQ
         false
       end
 
-      private def forbidden(context)
+      private def unauthenticated(context)
         context.response.status_code = 401
         unless context.request.path.starts_with?("/api/whoami")
-          context.response.headers["WWW-Authenticate"] = %(Basic realm="Login Required")
+          context.response.headers["WWW-Authenticate"] = "Basic"
         end
       end
 

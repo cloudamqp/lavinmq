@@ -81,7 +81,7 @@ describe LavinMQ::HTTP::BindingsController do
         "arguments": {}
       })
       response = post("/api/bindings/%2f/e/amq.default/q/bindings_q2", body: body)
-      response.status_code.should eq 401
+      response.status_code.should eq 403
     end
   end
 
@@ -142,7 +142,7 @@ describe LavinMQ::HTTP::BindingsController do
         "arguments": {}
       })
       response = post("/api/bindings/%2f/e/amq.default/e/amq.direct", body: body)
-      response.status_code.should eq 401
+      response.status_code.should eq 403
     end
   end
 

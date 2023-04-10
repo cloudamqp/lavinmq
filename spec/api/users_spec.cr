@@ -15,7 +15,7 @@ describe LavinMQ::HTTP::UsersController do
       Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/users", headers: hdrs)
-      response.status_code.should eq 401
+      response.status_code.should eq 403
     end
   end
 

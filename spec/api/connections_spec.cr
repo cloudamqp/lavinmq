@@ -71,7 +71,7 @@ describe LavinMQ::HTTP::ConnectionsController do
       response.status_code.should eq 404
     end
 
-    it "should return 401 if user doesn't have access" do
+    it "should return 403 if user doesn't have access" do
       Server.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
@@ -79,7 +79,7 @@ describe LavinMQ::HTTP::ConnectionsController do
         body = JSON.parse(response.body)
         name = URI.encode_www_form(body.as_a.last["name"].as_s)
         response = get("/api/connections/#{name}", headers: hdrs)
-        response.status_code.should eq 401
+        response.status_code.should eq 403
       end
     end
   end

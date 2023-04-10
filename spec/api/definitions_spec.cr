@@ -364,7 +364,7 @@ describe LavinMQ::HTTP::Server do
         Server.vhosts.create("new")
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         response = get("/api/definitions/new", headers: headers)
-        response.status_code.should eq 401
+        response.status_code.should eq 403
         body = JSON.parse(response.body)
         body["reason"].should eq "Access refused"
       end
@@ -476,7 +476,7 @@ describe LavinMQ::HTTP::Server do
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = post("/api/definitions/new", headers: headers, body: body)
-        response.status_code.should eq 401
+        response.status_code.should eq 403
         body = JSON.parse(response.body)
         body["reason"].should eq "Access refused"
       end
@@ -489,7 +489,7 @@ describe LavinMQ::HTTP::Server do
         headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
         body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = post("/api/definitions/new", headers: headers, body: body)
-        response.status_code.should eq 401
+        response.status_code.should eq 403
         body = JSON.parse(response.body)
         body["reason"].should eq "Access refused"
       end

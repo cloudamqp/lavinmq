@@ -21,7 +21,7 @@ describe LavinMQ::HTTP::ParametersController do
       Server.users.rm_permission("arnold", "/")
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       response = get("/api/parameters", headers: hdrs)
-      response.status_code.should eq 401
+      response.status_code.should eq 403
     end
   end
 
