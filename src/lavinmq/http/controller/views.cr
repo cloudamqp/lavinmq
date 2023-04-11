@@ -11,8 +11,6 @@ module LavinMQ
       def initialize
         static_view "/", "overview"
         static_view "/login"
-        static_view "/401"
-        static_view "/404"
         static_view "/federation"
         static_view "/shovels"
         static_view "/connections"
