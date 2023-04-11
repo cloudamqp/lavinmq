@@ -1,7 +1,5 @@
-import * as Auth from './auth.js'
-
 let shouldAutoScroll = true
-const evtSource = new EventSource("api/livelog", { withCredentials: true })
+const evtSource = new EventSource("api/livelog")
 const livelog = document.getElementById('livelog')
 const tbody = document.getElementById("livelog-body")
 
@@ -28,10 +26,19 @@ evtSource.onmessage = (event) => {
 }
 
 evtSource.onerror = (err) => {
-  console.error("EventSource error", err)
-  //document.getElementById("table-error").textContent = `Lost connection to server`
-  //document.getElementById("table-error").style.display = "block"
-  //document.getElementById("table-error").style.position = "fixed"
+  window.fetch("api/whoami")
+    .then(response => response.json())
+    .then(whoami => {
+      if (!whoami.tags.includes("administrator")) {
+        forbidden()
+      }
+    })
+}
+
+function forbidden() {
+  const tblError = document.getElementById("table-error")
+  tblError.textContent = "Access denied, administator access required"
+  tblError.style.display = "block"
 }
 
 let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
@@ -46,4 +53,4 @@ livelog.addEventListener('scroll', event => {
   lastScrollTop = st <= 0 ? 0 : st
 })
 
-livelog.addEventListener("beforeunload", (e) => livelog.close())
+livelog.addEventListener("beforeunload", () => livelog.close())
