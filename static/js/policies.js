@@ -3,6 +3,7 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Form from './form.js'
+import { UrlDataSource} from './datasource.js'
 
 // this module is only included from /policies and /operator-policies
 const base_url = `api${document.location.pathname}`
@@ -12,8 +13,9 @@ const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
   url += '/' + encodeURIComponent(vhost)
 }
+const policiesDataSource = new UrlDataSource(url)
 const tableOptions = {
-  url,
+  dataSource: policiesDataSource,
   keyColumns: ['vhost', 'name'],
   pagination: true,
   columnSelector: true,
@@ -22,8 +24,6 @@ const tableOptions = {
 const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
-  tr.cells[1].classList.add('self-link')
-  tr.cells[1].onclick = () => { autofill_editpolicy(item, false) }
   Table.renderCell(tr, 2, item.pattern)
   Table.renderCell(tr, 3, item['apply-to'])
   Table.renderCell(tr, 4, JSON.stringify(item.definition))
@@ -78,31 +78,4 @@ document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelperJSON('createPolicy', 'definition', e)
 }
 
-function autofill_editpolicy(policies, otherOrigin = true) {
-  let policy = null
-  if (otherOrigin) {
-    const urlParams = new URLSearchParams(window.location.hash.substring(1));
-    const pname = urlParams.get('name')
-    const pvhost = urlParams.get('vhost');
-    if (!(pname && pvhost)) {
-      return
-    }
-    policy = policies.filter(item => {
-      return item.name === pname && item.vhost === pvhost
-    })[0]
-  } else {
-    policy = policies
-  }
-
-  document.getElementById('addPolicyVhost').value = policy.vhost
-  document.getElementsByName('name')[0].value = policy.name
-  document.getElementById('addPolicyApplyTo').value = policy["apply-to"]
-  document.getElementsByName('pattern')[0].value = policy.pattern
-  document.getElementsByName('definition')[0].value = JSON.stringify(policy.definition)
-  document.getElementsByName('priority')[0].value = policy.priority
-}
-
-Helpers.addVhostOptions('createPolicy').then(() => {
-  const data = policiesTable.getData()
-  autofill_editpolicy(data)
-})
+Helpers.addVhostOptions('createPolicy');

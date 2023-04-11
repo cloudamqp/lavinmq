@@ -46,10 +46,6 @@ function renderTable (id, options = {}, renderRow) {
     events.on(event, ...args)
   }
 
-  function getData () {
-    throw "must be fixed"
-  }
-
   function reload () {
     dataSource.reload()
   }
@@ -136,7 +132,7 @@ function renderTable (id, options = {}, renderRow) {
     })
   }
 
-  return { updateTable, reload, getData, on }
+  return { updateTable, reload, on }
 }
 
 function renderCell (tr, column, value, classList = '') {
