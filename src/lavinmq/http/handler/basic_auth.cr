@@ -15,7 +15,7 @@ module LavinMQ
           return call_next(context)
         end
 
-        if auth = basic_auth(context) || cookie_auth(context)
+        if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if valid_auth?(username, password, context.request.remote_address)
             context.authenticated_username = username
@@ -37,10 +37,9 @@ module LavinMQ
 
       private def cookie_auth(context)
         if m = context.request.cookies["m"]?
-          if idx = m.value.index(':')
-            base64 = m.value[idx + 1..]
-            base64 = URI.decode(base64)
-            return decode(base64)
+          if idx = m.value.rindex(':')
+            auth = URI.decode(m.value[idx + 1..])
+            return decode(auth)
           end
         end
       end
@@ -79,7 +78,7 @@ module LavinMQ
 
       private def unauthenticated(context)
         context.response.status_code = 401
-        unless context.request.path.starts_with?("/api/whoami")
+        unless context.request.path == "/api/whoami"
           context.response.headers["WWW-Authenticate"] = "Basic"
         end
       end

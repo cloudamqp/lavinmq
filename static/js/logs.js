@@ -1,9 +1,7 @@
 import * as Auth from './auth.js'
 
-const url = new URL(window.location.pathname.replace(/\/logs$/, "/api/livelog"), window.location.origin)
-
 let shouldAutoScroll = true
-const evtSource = new EventSource(url.href, {withcredentials : true})
+const evtSource = new EventSource("api/livelog", { withCredentials: true })
 const livelog = document.getElementById('livelog')
 const tbody = document.getElementById("livelog-body")
 
