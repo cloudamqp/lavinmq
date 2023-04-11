@@ -49,12 +49,6 @@ function create(container, dataSource) {
         links.push(makeLink(p, p, active))
       }
     } else {
-      if (page > 2) {
-        links.push(makeLink(1, 1))
-        if (page > 3) {
-          links.push(makeLink(page - 2, '…', {class: 'out-of-range'}))
-        }
-      }
       if (page === 1) {
         pageCutHigh += 2
       } else if (page === 2) {
@@ -64,6 +58,12 @@ function create(container, dataSource) {
         pageCutLow -= 2
       } else if (page === pages - 1) {
         pageCutLow -= 1
+      }
+      if (page > 2) {
+        links.push(makeLink(1))
+        if (page > 3) {
+          links.push(makeLink(2, '…', {class: 'out-of-range'}))
+        }
       }
       for (let p = pageCutLow; p <= pageCutHigh; p++) {
         if (p === 0) {
@@ -77,9 +77,9 @@ function create(container, dataSource) {
       }
       if (page < pages - 1) {
         if (page < pages - 2) {
-          links.push(makeLink(page + 2, '…', {class: 'out-of-range'}))
+          links.push(makeLink(pages - 1, '…', {class: 'out-of-range'}))
         }
-        links.push(makeLink(pages, '…', ''))
+        links.push(makeLink(pages))
       }
     }
     const nextLink = makeLink(page + 1, 'Next', {class: 'next', disabled: (page === pages)})
