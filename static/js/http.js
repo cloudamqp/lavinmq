@@ -1,25 +1,9 @@
-import * as Auth from './auth.js'
-
-function loginUsingHash () {
-  if (window.location.hash.startsWith('#/login')) {
-    const arr = window.location.hash.split('/')
-    Auth.setAuth(arr[2] + ':' + arr[3])
-    window.location.hash = ''
-  }
-}
-loginUsingHash()
-
 function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
-  const hdr = Auth.header()
-  headers.append('Authorization', hdr)
   const opts = {
     method: method,
     headers: headers,
-    credentials: 'include',
-    mode: 'cors',
-    redirect: 'follow'
   }
   if (body instanceof window.FormData) {
     headers.delete('Content-Type') // browser will set to multipart with boundary
