@@ -237,15 +237,15 @@ footer .logo {
     border-radius: 4px 4px 0px 0px;
   }
 
-  .open-menu::before {
+  #menu-button.open-menu::before {
     content: "\2715";
   }
 
-  .open-menu {
+  #menu-button.open-menu {
     background-color: #2b2c2d !important;
   }
 
-  .closed-menu::before {
+  #menu-button::before {
     content: "\2630";
   }
 
