@@ -31,30 +31,32 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
-  let srcEndpoint = ''
-  let srcEndpointType = ''
+  const srcDiv = document.createElement("span")
   if (item.value['src-queue']) {
-    srcEndpoint = escapeHTML(item.value['src-queue'])
-    srcEndpointType = 'queue'
+    srcDiv.textContent = item.value['src-queue']
+    srcDiv.appendChild(document.createElement("br"))
+    srcDiv.appendChild(document.createElement("small")).textContent = "queue"
   } else {
-    srcEndpoint = escapeHTML(item.value['src-exchange'])
-    srcEndpointType = 'exchange'
+    srcDiv.textContent = item.value['src-queue']
+    srcDiv.appendChild(document.createElement("br"))
+    srcDiv.appendChild(document.createElement("small")).textContent = "queue"
   }
-  Table.renderHtmlCell(tr, 3, srcEndpoint + '<br><small>' + srcEndpointType + '</small>')
+  Table.renderCell(tr, 3, srcDiv)
   Table.renderCell(tr, 4, item.value['src-prefetch-count'])
   Table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
-  let destEndpoint = ''
-  let destEndpointType = ''
+  const dest = document.createElement("span")
   if (item.value['dest-queue']) {
-    destEndpoint = escapeHTML(item.value['dest-queue'])
-    destEndpointType = 'queue'
+    dest.textContent = item.value['dest-queue']
+    dest.appendChild(document.createElement("br"))
+    dest.appendChild(document.createElement("small")).textContent = "queue"
   } else if (item.value['dest-exchange']) {
-    destEndpoint = escapeHTML(item.value['dest-exchange'])
-    destEndpointType = 'exchange'
+    dest.textContent = item.value['dest-exchange']
+    dest.appendChild(document.createElement("br"))
+    dest.appendChild(document.createElement("small")).textContent = "exchange"
   } else {
-    destEndpoint = 'http'
+    dest.textContent = 'http'
   }
-  Table.renderHtmlCell(tr, 6, destEndpoint + '<br><small>' + destEndpointType + '</small>')
+  Table.renderCell(tr, 6, dest)
   Table.renderCell(tr, 7, item.value['reconnect-delay'])
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])

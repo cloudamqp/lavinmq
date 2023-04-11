@@ -19,16 +19,12 @@ const tableOptions = {
 
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
-    let client = ''
-    if (item.client_properties.product) {
-      client = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
-    }
-    const clientVersion = item.client_properties.version || ''
     const connectionLink = document.createElement('a')
     connectionLink.href = `connection#name=${encodeURIComponent(item.name)}`
     if (item.client_properties.connection_name) {
-      connectionLink.innerHTML = `<span>${item.name}</span>
-              <br><small>${escapeHTML(item.client_properties.connection_name)}</small>`
+      connectionLink.appendChild(document.createElement("span")).textContent = item.name
+      connectionLink.appendChild(document.createElement("br"))
+      connectionLink.appendChild(document.createElement("small")).textContent = item.client_properties.connection_name
     } else {
       connectionLink.textContent = item.name
     }
@@ -42,7 +38,11 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 9, item.channel_max, 'right')
     Table.renderCell(tr, 10, item.timeout, 'right')
     // Table.renderCell(tr, 8, item.auth_mechanism)
-    Table.renderHtmlCell(tr, 11, `${escapeHTML(client)}<br><small>${escapeHTML(clientVersion)}</small>`)
+    const clientDiv = document.createElement("span")
+    clientDiv.textContent = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
+    clientDiv.appendChild(document.createElement("br"))
+    clientDiv.appendChild(document.createElement("small")).textContent = item.client_properties.version
+    Table.renderCell(tr, 11, clientDiv)
     Table.renderCell(tr, 12, new Date(item.connected_at).toLocaleString(), 'center')
   }
   Table.renderCell(tr, 3, null, `center state-${item.state}`)

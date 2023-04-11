@@ -57,11 +57,16 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
 })
 
 const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000, countId: 'links-count' }
+
 Table.renderTable('linksTable', linksOpts, (tr, item) => {
+  const resourceDiv = document.createElement("span")
+  resourceDiv.textContent = item.resource
+  resourceDiv.appendChild(document.createElement("br"))
+  resourceDiv.appendChild(document.createElement("small")).textContent = item.type
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   Table.renderCell(tr, 2, decodeURI(item.uri))
-  Table.renderHtmlCell(tr, 3, escapeHTML(item.resource) + '<br><small>' + escapeHTML(item.type) + '</small>')
+  Table.renderCell(tr, 3, resourceDiv)
   Table.renderCell(tr, 4, item.timestamp)
 })
 

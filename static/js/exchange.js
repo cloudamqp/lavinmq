@@ -68,12 +68,16 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
           DOM.removeNodes(tr)
         }).catch(HTTP.standardErrorHandler)
     }
-    const d = encodeURIComponent(item.destination)
-    const destinationLink = `<a href="${escapeHTML(item.destination_type)}#vhost=${urlEncodedVhost}&name=${escapeHTML(d)}">${escapeHTML(item.destination)}</a>`
+
+    const destinationLink = document.createElement('a')
+    destinationLink.href = `${item.destination_type}#vhost=${urlEncodedVhost}&name=${encodeURIComponent(item.destination)}`
+    destinationLink.textContent = item.destination
+    const argsPre = document.createElement('pre')
+    argsPre.textContent = JSON.stringify(item.arguments || {})
     Table.renderCell(tr, 0, item.destination_type)
-    Table.renderHtmlCell(tr, 1, destinationLink, 'left')
+    Table.renderCell(tr, 1, destinationLink, 'left')
     Table.renderCell(tr, 2, item.routing_key, 'left')
-    Table.renderHtmlCell(tr, 3, '<pre>' + JSON.stringify(item.arguments || {}) + '</pre>', 'left')
+    Table.renderCell(tr, 3, argsPre, 'left')
     Table.renderCell(tr, 4, btn, 'right')
   }
 })
