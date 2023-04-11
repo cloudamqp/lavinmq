@@ -120,11 +120,9 @@ function updateQueue (all) {
           document.getElementById("q-effective-policy-definition").textContent = DOM.jsonToText(item.effective_policy_definition)
         }
         const qArgs = document.getElementById('q-arguments')
-        let args = ''
         for (const arg in item.arguments) {
-          args += `<div>${arg}: ${item.arguments[arg]}</div>`
+          qArgs.appendChild(document.createElement("div")).textContent = `${arg}: ${item.arguments[arg]}`
         }
-        qArgs.innerHTML = args
       }
     }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(qTimer))
 }

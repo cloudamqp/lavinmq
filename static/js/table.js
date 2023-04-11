@@ -158,7 +158,12 @@ function renderTable (id, options = {}, renderRow) {
     }
     const t = document.getElementById(id).tBodies[0]
     if (!Array.isArray(data) || data.length === 0) {
-      t.innerHTML = '<tr><td colspan="100" class="center">Nope, nothing to see here.</td></tr>'
+      t.textContent = ""
+      const tr = t.appendChild(document.createElement("tr"))
+      const td = tr.appendChild(document.createElement("td"))
+      td.colSpan = 100
+      td.classList.add("center")
+      td.textContent = "Nope, nothing to see here."
       return
     }
 
@@ -313,14 +318,6 @@ function renderCell (tr, column, value, classList = '') {
   return cell
 }
 
-function renderHtmlCell (tr, column, innerHTML) {
-  const cell = tr.cells[column] || buildCells(tr, column)
-  if (cell.innerHTML !== innerHTML) {
-    cell.innerHTML = innerHTML
-  }
-  return cell
-}
-
 function buildCells (tr, index) {
   const target = index + 1
   while (index >= 0) {
@@ -448,4 +445,4 @@ function toggleDisplayError (tableID, message = null) {
   }
 }
 
-export { renderCell, renderTable, renderHtmlCell, toggleDisplayError }
+export { renderCell, renderTable, toggleDisplayError }

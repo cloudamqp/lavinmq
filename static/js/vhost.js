@@ -36,7 +36,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
   if (all) {
     const btn = document.createElement('button')
     btn.classList.add('btn-secondary')
-    btn.innerHTML = 'Clear'
+    btn.textContent = 'Clear'
     btn.onclick = function () {
       const url = 'api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
       HTTP.request('DELETE', url)
