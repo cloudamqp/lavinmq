@@ -72,7 +72,7 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
     if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
       HTTP.request('DELETE', url)
         .then(() => {
-          DOM.removeNodes(tr)
+          tr.parentNode.removeChild(tr)
           DOM.toast(`Shovel ${item.name} deleted`)
         }).catch(HTTP.standardErrorHandler)
     }

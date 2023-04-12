@@ -44,7 +44,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
       const url = 'api/permissions/' + vhost + '/' + username
       HTTP.request('DELETE', url)
         .then(() => {
-          DOM.removeNodes(tr)
+          tr.parentNode.removeChild(tr)
         }).catch(HTTP.standardErrorHandler)
     }
     const editBtn = document.createElement('button')

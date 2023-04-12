@@ -40,7 +40,7 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
     const url = `${base_url}/${vhost}/${name}`
     if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
       HTTP.request('DELETE', url)
-        .then(() => DOM.removeNodes(tr))
+        .then(() => tr.parentNode.removeChild(tr))
         .catch(HTTP.standardErrorHandler)
     }
   }

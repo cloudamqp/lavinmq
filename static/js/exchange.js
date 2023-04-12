@@ -34,12 +34,12 @@ function updateExchange () {
       el.textContent = key + " = " + item.arguments[key];
       argList.appendChild(el)
     })
-    DOM.setChild('#e-arguments', argList)
+    document.getElementById("e-arguments").appendChild(argList)
     if (item.policy) {
       const policyLink = document.createElement('a')
       policyLink.href = 'policies#name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
       policyLink.textContent = item.policy
-      DOM.setChild('#e-policy', policyLink)
+      document.getElementById("e-policy").appendChild(policyLink)
     }
   }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(eTimer))
 }
@@ -63,9 +63,8 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       const t = item.destination_type == "exchange" ? "e" : "q"
       const url = 'api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
       HTTP.request('DELETE', url)
-        .then(() => {
-          DOM.removeNodes(tr)
-        }).catch(HTTP.standardErrorHandler)
+        .then(() => { tr.parentNode.removeChild(tr) })
+        .catch(HTTP.standardErrorHandler)
     }
 
     const destinationLink = document.createElement('a')

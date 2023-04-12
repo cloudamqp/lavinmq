@@ -38,7 +38,7 @@ function updateConnection (all) {
         const infoLink = document.createElement('a')
         infoLink.textContent = cp.information
         infoLink.href = cp.information
-        DOM.setChild(infoEl, infoLink)
+        infoEl.appendChild(infoLink)
       } else {
         infoEl.textContent = cp.information || ''
       }

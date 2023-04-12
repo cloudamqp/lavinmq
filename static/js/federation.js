@@ -41,7 +41,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
     if (!window.confirm(`Delete federation upstream ${item.name} ?`)) return
     HTTP.request('DELETE', url)
       .then(() => {
-        DOM.removeNodes(tr)
+        tr.parentNode.removeChild(tr)
         DOM.toast(`Upstream ${item.name} deleted`)
       }).catch(HTTP.standardErrorHandler)
   }

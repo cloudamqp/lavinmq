@@ -1,31 +1,3 @@
-function setChild (selector, element) {
-  const els = elements(selector)
-  els.forEach(el => {
-    while (el.lastChild) {
-      el.removeChild(el.lastChild)
-    }
-    el.appendChild(element)
-  })
-}
-
-function removeNodes (selector) {
-  const els = elements(selector)
-  if (!els[0]) return
-  const parent = els[0].parentNode
-  els.forEach(node => {
-    parent.removeChild(node)
-  })
-}
-
-function removeChildren (selector) {
-  const els = elements(selector)
-  els.forEach(el => {
-    while (el.lastChild) {
-      el.removeChild(el.lastChild)
-    }
-  })
-}
-
 function parseJSON (data) {
   try {
     if (data.length) {
@@ -41,27 +13,15 @@ function parseJSON (data) {
   }
 }
 
-function elements (selector) {
-  let els = null
-  if (typeof selector === 'string') {
-    els = document.querySelectorAll(selector)
-  } else if (selector instanceof window.NodeList) {
-    els = selector
-  } else if (selector instanceof window.Node) {
-    els = [selector]
-  } else {
-    els = []
-  }
-  return els
-}
-
 function jsonToText (obj) {
   if (obj == null) return ''
   return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '').trim()
 }
 
 function toast (text, type = "success") {
-  removeNodes('.toast')
+  // Delete all previous toasts
+  document.querySelectorAll(".toast").forEach(t => t.parentNode.removeChild(t))
+
   const d = document.createElement('div')
   d.classList.add(type)
   d.classList.add('toast')
@@ -77,10 +37,7 @@ function toast (text, type = "success") {
 }
 
 export {
-  setChild,
-  removeNodes,
   jsonToText,
-  removeChildren,
   parseJSON,
   toast
 }

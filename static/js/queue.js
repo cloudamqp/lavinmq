@@ -148,7 +148,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       const p = encodeURIComponent(item.properties_key)
       const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
       HTTP.request('DELETE', url)
-        .then(() => { DOM.removeNodes(tr) })
+        .then(() => { tr.parentNode.removeChild(tr) })
         .catch(HTTP.standardErrorHandler)
     }
     const exchangeLink = document.createElement('a')
@@ -219,7 +219,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
       }
       updateQueue(false)
       const messagesContainer = document.getElementById('messages')
-      DOM.removeChildren(messagesContainer)
+      messagesContainer.textContent = ""
       const template = document.getElementById('message-template')
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i]
