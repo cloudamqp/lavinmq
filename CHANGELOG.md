@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Only mmap message store files on-demand, decreasing memory usage for arbitrary long queues to 0
 - CSP rules in the UI, forbids inline js etc.
 - Support `?columns=` query for all API endpoints
 - The HTTP API now supports cookie authentication, in addition to basic auth
