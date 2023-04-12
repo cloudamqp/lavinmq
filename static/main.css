@@ -1040,7 +1040,7 @@ pre.arguments > div {
   grid-column: 1 / span 12;
   position: fixed;
   margin-left: 50px;
-  border: 3px solid blue;
+  border: 3px solid darkgrey;
   z-index: 1001;
   padding: 8px;
 }
