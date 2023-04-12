@@ -1,6 +1,5 @@
 import * as Table from './table.js'
 import * as HTTP from './http.js'
-import * as DOM from './dom.js'
 import * as Chart from './chart.js'
 
 const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
@@ -39,16 +38,14 @@ function updateChannel (all) {
     document.getElementById('ch-unacked').textContent = item.messages_unacknowledged
     consumersTable.updateTable(item.consumer_details)
     if (all) {
-      document.querySelector('#pagename-label').textContent = channel + ' in virtual host ' + item.vhost
+      document.getElementById('pagename-label').textContent = `${channel} in virtual host ${item.vhost}`
       document.getElementById('ch-username').textContent = item.user
       const connectionLink = document.createElement('a')
       connectionLink.href = `connection#name=${encodeURIComponent(item.connection_details.name)}`
       connectionLink.textContent = item.connection_details.name
-      DOM.setChild('#ch-connection', connectionLink)
+      document.getElementById("ch-connection").appendChild(connectionLink)
       document.getElementById('ch-prefetch').textContent = item.prefetch_count
-      let mode = ''
-      mode += item.confirm ? ' C' : ''
-      document.getElementById('ch-mode').textContent = mode
+      document.getElementById('ch-mode').textContent = `${item.confirm ? 'C' : ''}`
       document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
     }
   }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(cTimer))
