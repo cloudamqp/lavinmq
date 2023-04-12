@@ -18,10 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Precompress static assets (inflate on-demand if client don't accept deflate)
 - Don't include historic message stats when listing queues via the API
 - New favicon (that works both in dark and light mode)
-- Autocomplete queues/vhosts is now correct in the UI (selecting only from the vhost in question)
 - Return 403 rather than 401 for access refused in /api (401 only if unauthenticated)
 - Cleaning up JS in UI
-- Error message in UI when lacking access to Logs
+
+### Fixed
+
+- Error message in UI when lacking access to Logs/Vhosts/Users/shovels/federation
+- Autocomplete queues/vhosts is now correct in the UI (selecting only from the vhost in question)
 
 ## [1.0.1] - 2023-04-06
 
