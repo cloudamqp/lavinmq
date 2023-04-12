@@ -27,7 +27,7 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
     Table.renderCell(tr, 3, hasPassword, 'center')
   })
 }).catch(e => {
-  Table.toggleDisplayError(e.status === 401 ? 'Access refused: You need administrator role to see this view' : e.body)
+  Table.toggleDisplayError('users', e.status === 403 ? 'You need administrator role to see this view' : e.body)
 })
 
 document.querySelector('#createUser').addEventListener('submit', function (evt) {

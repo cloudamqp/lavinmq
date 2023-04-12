@@ -113,6 +113,8 @@ function updateShovelsTable () {
       return item
     })
     shovelsTable.updateTable(shovels)
+  }).catch(e => {
+    Table.toggleDisplayError("table", e.status === 403 ? "Permission denied" : e)
   })
 }
 updateShovelsTable()

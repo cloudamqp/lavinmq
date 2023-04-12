@@ -132,11 +132,11 @@ function renderTable (id, options = {}, renderRow) {
         console.error('Saving sessionStorage', e)
       }
       updateTable(response)
-    }).catch(function (e) {
+    }).catch((e) => {
       if (e.body) {
-        toggleDisplayError(id, 'Error fetching data: ' + e.body)
+        toggleDisplayError(id, e.body)
       } else {
-        toggleDisplayError(id, "Error fetching data: Can't reach server, please try to refresh the page.")
+        toggleDisplayError(id, "Can't reach server, please try to refresh the page.")
         console.error(e)
       }
       if (timer) {
