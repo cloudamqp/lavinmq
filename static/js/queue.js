@@ -10,7 +10,6 @@ const queue = search.get('name')
 const vhost = search.get('vhost')
 const urlEncodedQueue = encodeURIComponent(queue)
 const urlEncodedVhost = encodeURIComponent(vhost)
-const escapeHTML = DOM.escapeHTML
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
 const messageSnapshotForm = document.querySelector('#messageSnapshot')
@@ -154,7 +153,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     }
     const exchangeLink = document.createElement('a')
     exchangeLink.href = `exchange#vhost=${urlEncodedVhost}&name=${e}`
-    exchangeLink.textContent = escapeHTML(item.source)
+    exchangeLink.textContent = item.source
     Table.renderCell(tr, 0, exchangeLink)
     Table.renderCell(tr, 1, item.routing_key)
     const pre = document.createElement("pre")

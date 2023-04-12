@@ -76,16 +76,11 @@ function toast (text, type = "success") {
   }, 7000)
 }
 
-function escapeHTML (str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
 export {
   setChild,
   removeNodes,
   jsonToText,
   removeChildren,
   parseJSON,
-  toast,
-  escapeHTML
+  toast
 }

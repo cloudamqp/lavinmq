@@ -4,7 +4,6 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Form from './form.js'
 
-const escapeHTML = DOM.escapeHTML
 Helpers.addVhostOptions('createShovel')
 
 function renderState(item) {

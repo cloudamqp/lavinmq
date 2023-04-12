@@ -1,5 +1,4 @@
 import * as HTTP from './http.js'
-import * as Dom from './dom.js'
 
 function renderTable (id, options = {}, renderRow) {
   const search = new URLSearchParams(window.location.hash.substring(1))
@@ -310,7 +309,7 @@ function renderCell (tr, column, value, classList = '') {
   } else {
     const text = value == null ? '' : value.toString()
     if (cell.textContent !== text) {
-      cell.textContent = Dom.escapeHTML(text)
+      cell.textContent = text
     }
   }
   if (cell.classList.contains('hide')) return

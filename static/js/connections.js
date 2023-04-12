@@ -1,8 +1,6 @@
-import * as DOM from './dom.js'
 import * as Table from './table.js'
 
 const vhost = window.sessionStorage.getItem('vhost')
-const escapeHTML = DOM.escapeHTML
 const numFormatter = new Intl.NumberFormat()
 let url = 'api/connections'
 if (vhost && vhost !== '_all') {
