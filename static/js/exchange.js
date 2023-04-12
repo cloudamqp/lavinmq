@@ -10,7 +10,6 @@ const vhost = search.get('vhost')
 const urlEncodedExchange = encodeURIComponent(exchange)
 const urlEncodedVhost = encodeURIComponent(vhost)
 const chart = Chart.render('chart', 'msgs/s')
-const escapeHTML = DOM.escapeHTML
 
 document.title = exchange + ' | LavinMQ'
 
