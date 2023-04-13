@@ -1,5 +1,4 @@
 import * as HTTP from './http.js'
-import EventEmitter from './eventemitter.js'
 
 class DataSource {
   static DEFAULT_STATE = {
@@ -16,7 +15,7 @@ class DataSource {
         useQueryState: true
       }, opts)
     this._reloadTimer = null
-    this._events = new EventEmitter()
+    this._events = new EventTarget()
     this._items = []
     this._filteredCount = 0
     this._itemCount = 0
@@ -127,12 +126,12 @@ class DataSource {
     clearTimeout(this._reloadTimer)
   }
 
-  emit(eventName, ...args) {
-    this._events.emit(eventName, ...args)
+  emit(eventName, args) {
+    this._events.dispatchEvent(new CustomEvent(eventName, args))
   }
 
   on(eventName, listener) {
-    this._events.on(eventName, listener)
+    this._events.addEventListener(eventName, listener)
   }
 
   queryParams(params) {

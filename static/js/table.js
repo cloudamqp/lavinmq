@@ -1,6 +1,5 @@
 import * as Pagination from './pagination.js'
 import * as TableHeaderSort from './tableheadersort.js'
-import EventEmitter from './eventemitter.js'
 import { UrlDataSource } from './datasource.js'
 
 function renderTable (id, options = {}, renderRow) {
@@ -10,7 +9,7 @@ function renderTable (id, options = {}, renderRow) {
   const table = document.getElementById(id)
   const container = table.parentElement
   const keyColumns = options.keyColumns
-  const events = new EventEmitter()
+  const events = new EventTarget()
 
   if (options.columnSelector) {
     renderColumnSelector(table)
@@ -42,8 +41,8 @@ function renderTable (id, options = {}, renderRow) {
     return str === 'true' ? true : false
   }
 
-  function on(event, ...args) {
-    events.on(event, ...args)
+  function on(event, args) {
+    events.addEventListener(event, args)
   }
 
   function reload () {
@@ -94,7 +93,7 @@ function renderTable (id, options = {}, renderRow) {
     while (rowsToDelete-- > 0) {
       t.deleteRow(t.rows.length - 1)
     }
-    events.emit('updated')
+    events.dispatchEvent(new CustomEvent('updated'))
   }
 
   function findRow (rows, item) {
