@@ -17,12 +17,12 @@ const messageSnapshotForm = document.querySelector('#messageSnapshot')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
-const consumersDataSource = new (class extends DataSource {
+class ConsumersDataSource extends DataSource {
   constructor() { super({autoReloadTimeout: 0, useQueryState: false}) }
   setConsumers(consumers) { this.items = consumers }
   reload() { }
-})
-
+}
+const consumersDataSource = new ConsumersDataSource()
 const consumersTableOpts = {
   keyColumns: [],
   countId: 'consumer-count',
