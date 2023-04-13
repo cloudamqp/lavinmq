@@ -1,10 +1,51 @@
 import * as HTTP from './http.js'
 
+class QueryState {
+  constructor() {
+    this._state = {
+      page: 1,
+      page_size: 100,
+      sort: '',
+      sort_reverse: false,
+      name: ''
+    }
+  }
+
+  get name() { return this._state.name }
+  set name(value) { this._state.name = value }
+  get page() { return this._state.page }
+  set page(value) { this._state.page = parseInt(value) }
+  get page_size() { return this._state.page_size }
+  set page_size(value) { this._state.page_size = parseInt(value) }
+  get sort() { return this._state.sort }
+  set sort(value) { this._state.sort = value }
+  get sort_reverse() { return this._state.sort_reverse }
+  set sort_reverse(value) {
+    if (typeof value === 'boolean') {
+      this._state.sort_reverse = value
+    } else {
+      this._state.sort_reverse = (value === 'true' || value === 1)
+    }
+  }
+
+  update(values) {
+    Object.getOwnPropertyNames(values).forEach(key => {
+      if (Object.hasOwn(this._state, key)) {
+        this[key] = values[key]
+      }
+    })
+  }
+
+  toJSON() {
+    return this._state
+  }
+}
+
 class DataSource {
   static DEFAULT_STATE = {
     page: 1,
     page_size: 100,
-    sort_key: '',
+    sort: '',
     sort_reverse: false,
     name: ''
   }
@@ -30,43 +71,35 @@ class DataSource {
           cachedState = JSON.parse(cachedState)
           this._setState(cachedState)
         } catch(e) {
-          console.error(`Failed to load cached query state: ${e}`)
+          console.error(`Failed to load cached query state: ${e}`, cachedState)
         }
       }
-      this._setStateFromQuery()
-      window.addEventListener('hashchange', evt => this._setStateFromQuery())
+      this._setStateFromHash()
+      window.addEventListener('hashchange', evt => {
+        this._setStateFromHash()
+        this.reload({updateState: false})
+      })
     }
   }
 
-  _setStateFromQuery() {
+  _setStateFromHash() {
     const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
+    console.log('_setStateFromHash', urlParams)
     this._setState(urlParams)
   }
 
   _setState(properties = {}) {
-    // clone default
-    const state = Object.assign({}, DataSource.DEFAULT_STATE)
-    for (const key of Object.keys(properties)) {
-      if (Object.hasOwn(state, key)) {
-        state[key] = properties[key]
-      }
-    }
-    this._queryState = state
+    this._queryState = new QueryState()
+    this._queryState.update(properties)
   }
 
   get page() { return this._queryState.page }
-  set page(value) { this._queryState.page = parseInt(value) }
+  set page(value) { this._queryState.page = value }
   get pageSize() { return this._queryState.page_size }
-  set pageSize(value) { this._queryState.page_size = parseInt(value) }
-  set sortKey(value) { this._queryState.sort_key = value }
-  get sortKey() { return this._queryState.sort_key }
-  set reverseOrder(value) { 
-    if (typeof value === 'boolean') {
-      this._queryState.sort_reverse = value
-    } else {
-      this._queryState.sort_reverse = value === 'true' || value === 1
-    }
-  }
+  set pageSize(value) { this._queryState.page_size = value }
+  set sortKey(value) { this._queryState.sort = value }
+  get sortKey() { return this._queryState.sort }
+  set reverseOrder(value) {  this._queryState.sort_reverse = value }
   get reverseOrder() { return this._queryState.sort_reverse }
   set searchTerm(value) { this._queryState.name = value }
   get searchTerm() { return this._queryState.name }
@@ -99,10 +132,10 @@ class DataSource {
     throw "Not implemented"
   }
 
-  reload() {
+  reload(args) {
     clearTimeout(this._reloadTimer)
     return new Promise((resolve, reject) => {
-      this._reload().then(resp => {
+      this._reload(args).then(resp => {
         if (this._opts.autoReloadTimeout > 0) {
           clearTimeout(this._reloadTimer)
           this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
@@ -185,17 +218,20 @@ class UrlDataSource extends DataSource {
     return url
   }
 
-  _reload() {
+  _reload(opts = {}) {
     const url = this._fullApiUrl()
     if (this._opts.useQueryState) {
-      const documentUrl = new URL(window.location)
-      const query = new URLSearchParams(documentUrl.hash.substring(1))
-      this.queryParams(query)
-      documentUrl.hash = query
-      if (window.location.hash.length <= 1 || this._lastLoadedUrl == '') {
-        window.history.replaceState(this._queryState, '', documentUrl)
-      } else if (this._lastLoadedUrl != url.toString()) {
-        window.history.pushState(this._queryState, '', documentUrl)
+      if (opts.updateState !== false) {
+        const documentUrl = new URL(window.location)
+        const query = new URLSearchParams(documentUrl.hash.substring(1))
+        this.queryParams(query)
+        documentUrl.hash = query
+        if (window.location.hash.length <= 1 || this._lastLoadedUrl == '') {
+          window.history.replaceState(null, '', documentUrl)
+        } else if (this._lastLoadedUrl != url.toString()) {
+          console.log('push state', documentUrl)
+          window.history.pushState(null, '', documentUrl)
+        }
       }
       window.sessionStorage.setItem(this._cacheKey, JSON.stringify(this._queryState))
     }
