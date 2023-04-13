@@ -1,35 +1,29 @@
 function create(table, dataSource) {
   let sortKey = dataSource.sortKey
-  let reverseOrder = dataSource.reverseOrder
-  const sortHeader = table.querySelector(`th[data-sort-key="${sortKey}"]`)
-  if (sortHeader) {
-    const sortClass = dataSource.sortOrder === 'desc' ? 'sorting_desc' : 'sorting_asc'
-    sortHeader.classList.add(sortClass)
+  function update() {
+    console.log('UPDATE SORT', dataSource.sortKey, dataSource.reverseOrder)
+    table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
+      cell.classList.remove('sorting_asc', 'sorting_desc')
+      if (cell.dataset.sortKey == dataSource.sortKey) {
+        console.log(dataSource.reverseOrder ? 'sorting_desc' : 'sorting_asc')
+        cell.classList.add(dataSource.reverseOrder ? 'sorting_desc' : 'sorting_asc')
+      }
+    })
   }
   table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
-    cell.addEventListener('click', function (e) {
-      table.querySelectorAll('th[data-sort-key]').forEach(th => {
-        if (th === e.target) return
-        th.classList.remove('sorting_desc')
-        th.classList.remove('sorting_asc')
-      })
-      const newSortKey = e.target.getAttribute('data-sort-key')
-      if (newSortKey === sortKey) {
-        reverseOrder = !reverseOrder
-        e.target.classList.toggle('sorting_asc')
-        e.target.classList.toggle('sorting_desc')
+    cell.addEventListener('click', e => {
+      const newSortKey = e.target.dataset.sortKey
+      if (sortKey === newSortKey) {
+        dataSource.reverseOrder = !dataSource.reverseOrder
       } else {
-        sortKey = newSortKey
-        reverseOrder = false
-        e.target.classList.add('sorting_desc')
-        e.target.classList.remove('sorting_asc')
+        dataSource.reverseOrder = false
       }
-      dataSource.sortKey = sortKey
-      dataSource.reverseOrder = reverseOrder
+      sortKey = newSortKey
+      dataSource.sortKey = newSortKey
       dataSource.reload()
     })
   })
+  dataSource.on('update', update)
 }
-
 
 export { create }
