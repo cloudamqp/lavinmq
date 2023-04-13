@@ -84,7 +84,6 @@ class DataSource {
 
   _setStateFromHash() {
     const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
-    console.log('_setStateFromHash', urlParams)
     this._setState(urlParams)
   }
 
@@ -229,7 +228,6 @@ class UrlDataSource extends DataSource {
         if (window.location.hash.length <= 1 || this._lastLoadedUrl == '') {
           window.history.replaceState(null, '', documentUrl)
         } else if (this._lastLoadedUrl != url.toString()) {
-          console.log('push state', documentUrl)
           window.history.pushState(null, '', documentUrl)
         }
       }
