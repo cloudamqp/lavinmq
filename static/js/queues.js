@@ -133,7 +133,6 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
 })
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll("input[data-name]:checked")
-  console.log(checked)
   toggleMultiActionControls(true, checked.length)
 })
 
