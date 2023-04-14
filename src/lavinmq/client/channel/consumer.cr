@@ -45,6 +45,7 @@ module LavinMQ
         private def deliver_loop
           queue = @queue
           no_ack = @no_ack
+          i = 0
           loop do
             wait_for_capacity
             loop do
@@ -62,6 +63,7 @@ module LavinMQ
             queue.consume_get(no_ack) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
+            Fiber.yield if (i &+= 1) % 131072 == 0
           end
         rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
           @log.debug { "deliver loop exiting: #{ex.inspect}" }
