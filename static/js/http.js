@@ -15,10 +15,7 @@ function request (method, path, options = {}) {
   return window.fetch(path, opts)
     .then(response => {
       if (!response.ok) {
-        return response.json().then(json => { throw new HTTPError(response.status, json.reason) })
-      }
-      if (!response.headers.has('content-length') || parseInt(response.headers.get('content-length')) === 0) {
-        return null
+        return response.json().then(json => { console.log(json); throw new HTTPError(response.status, json.reason) })
       }
       return response.json()
     })
