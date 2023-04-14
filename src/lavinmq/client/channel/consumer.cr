@@ -62,6 +62,7 @@ module LavinMQ
             queue.consume_get(no_ack) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
+            Fiber.yield
           end
         rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
           @log.debug { "deliver loop exiting: #{ex.inspect}" }
