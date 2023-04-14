@@ -24,7 +24,7 @@ class ConsumersDataSource extends DataSource {
 }
 const consumersDataSource = new ConsumersDataSource()
 const consumersTableOpts = {
-  keyColumns: [],
+  keyColumns: ["channel_details"],
   countId: 'consumer-count',
   dataSource: consumersDataSource
 }
