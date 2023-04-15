@@ -2,7 +2,7 @@ BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js
 DOCS := static/docs/index.html
-CRYSTAL_FLAGS := --release -Duse_pcre2
+CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
 .PHONY: all
@@ -77,7 +77,7 @@ lint: lib
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color) -Duse_pcre2
+	crystal spec --order random $(if $(nocolor),--no-color)
 
 .PHONY: format
 format:
