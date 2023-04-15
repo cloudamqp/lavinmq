@@ -5,11 +5,12 @@ module LavinMQ
   module HTTP
     module ConnectionsHelper
       private def connections(user : User)
-        @amqp_server.connections.select { |c| !c.closed? && can_access_connection?(c, user) }
-      end
-
-      private def can_access_connection?(c, user)
-        c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
+        if user.tags.any? { |t| t.administrator? || t.monitoring? }
+          @amqp_server.connections
+        else
+          vhosts = user.permissions.keys
+          @amqp_server.connections.select &.vhost.name.in?(vhosts)
+        end
       end
     end
 
@@ -57,6 +58,10 @@ module LavinMQ
         access_refused(context) unless can_access_connection?(connection, user)
         yield connection
         context
+      end
+
+      private def can_access_connection?(c : Client, user : User) : Bool
+        c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
       end
     end
   end
