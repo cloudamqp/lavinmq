@@ -12,14 +12,16 @@ function request (method, path, options = {}) {
     headers.append('Content-Type', 'application/json')
     opts.body = JSON.stringify(body)
   }
-  return new Promise((resolv, reject) => {
-    window.fetch(path, opts)
-      .then(response => {
-        if (!response.ok)
-          return response.json().then(json => reject(new HTTPError(response.status, json.reason)))
-        return resolv(response.json())
-      })
-  })
+  return window.fetch(path, opts)
+    .then(response => {
+      if (!response.ok) {
+        return response.json()
+          .then(json => { throw new HTTPError(response.status, json.reason) } )
+          .catch(resp => { throw new HTTPError(response.status) } )
+      } else {
+        return response.json().catch(() => null)
+      }
+    })
 }
 
 function alertErrorHandler (e) {
