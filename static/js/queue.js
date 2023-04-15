@@ -33,9 +33,10 @@ const consumersTable = Table.renderTable('table', { keyColumns: ["channel_detail
   const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
   cancelForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
+    if (!confirm("Are you sure?")) return false
     HTTP.request('DELETE', actionPath)
       .then(() => {
-        DOM.toast(`Consumer canceled ${item.consumer_tag}`)
+        DOM.toast(`Consumer cancelled`)
         updateQueue(false)
       }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(qTimer))
   })
