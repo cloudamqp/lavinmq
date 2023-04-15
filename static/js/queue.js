@@ -15,7 +15,7 @@ const resumeQueueForm = document.querySelector('#resumeQueue')
 const messageSnapshotForm = document.querySelector('#messageSnapshot')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
-const consumersTable = Table.renderTable('table', { keyColumns: [], countId: "consumer-count" }, function (tr, item) {
+const consumersTable = Table.renderTable('table', { keyColumns: ["channel_details"], countId: "consumer-count" }, function (tr, item) {
   const channelLink = document.createElement('a')
   channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
