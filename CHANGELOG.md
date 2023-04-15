@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Error message in UI when lacking access to Logs/Vhosts/Users/shovels/federation
 - Autocomplete queues/vhosts is now correct in the UI (selecting only from the vhost in question)
+- Deliveries of messages larger than socket_buffer_size (16KB) on x86_64 fixed in Crystal 1.8.0 due to faulty LibC bindings
+- Responsiveness in cases with very fast consumers
+- UI: Consumers listing on Queue page
 
 ## [1.0.1] - 2023-04-06
 
