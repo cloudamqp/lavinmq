@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2023-04-15
+
 ### Added
 
 - Only mmap message store files on-demand, decreasing memory usage for arbitrary long queues to 0
