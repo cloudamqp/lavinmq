@@ -1,6 +1,7 @@
 require "./lavinmq/version"
 require "./lavinmq/config"
 require "./lavinmq/http/constants"
+require "./lavinmq/definitions_generator"
 require "http/client"
 require "json"
 require "option_parser"
@@ -136,6 +137,9 @@ class LavinMQCtl
     @parser.on("status", "Display server status") do
       @cmd = "status"
     end
+    @parser.on("definitions", "Generate definitions json from a data directory") do
+      @cmd = "definitions"
+    end
     @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -180,6 +184,7 @@ class LavinMQCtl
     when "status"                then status
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
+    when "definitions"           then definitions
     when "stop_app"
     when "start_app"
     else
@@ -650,6 +655,11 @@ class LavinMQCtl
     }
     resp = http.put url, @headers, body.to_json
     handle_response(resp, 204)
+  end
+
+  private def definitions
+    data_dir = ARGV.shift? || abort "definitions <datadir>"
+    DefinitionsGenerator.new(data_dir).generate(STDOUT)
   end
 end
 
