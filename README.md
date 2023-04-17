@@ -232,7 +232,6 @@ Currently missing features
 
 - Stream queues
 - Clustering
-- Plugins
 
 ### Known differences to other AMQP servers
 
