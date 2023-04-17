@@ -43,10 +43,10 @@ function updateConnection (all) {
         infoEl.textContent = cp.information || ''
       }
     }
-  }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(cTimer))
+  }).catch(HTTP.standardErrorHandler)
 }
 updateConnection(true)
-const cTimer = setInterval(updateConnection, 5000)
+setInterval(updateConnection, 5000)
 const channelsUrl = connectionUrl + '/channels'
 const tableOptions = {
   url: channelsUrl,

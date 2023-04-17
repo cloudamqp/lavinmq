@@ -3,7 +3,6 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-let updateTimer = null
 let data = null
 
 const msgChart = Chart.render('msgChart', 'msgs', true)
@@ -101,7 +100,7 @@ function update (cb) {
     if (cb) {
       cb(response)
     }
-  }).catch(HTTP.standardErrorHandler).catch(stop)
+  }).catch(HTTP.standardErrorHandler)
 }
 
 function render (data) {
@@ -116,12 +115,5 @@ function render (data) {
 
 function start (cb) {
   update(cb)
-  updateTimer = setInterval(update, 5000, cb)
-}
-
-// Show that we're offline in the UI
-function stop () {
-  if (updateTimer) {
-    clearInterval(updateTimer)
-  }
+  setInterval(update, 5000, cb)
 }

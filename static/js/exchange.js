@@ -41,10 +41,9 @@ function updateExchange () {
       policyLink.textContent = item.policy
       document.getElementById("e-policy").appendChild(policyLink)
     }
-  }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(eTimer))
+  }).catch(HTTP.standardErrorHandler)
 }
 updateExchange()
-const eTimer = setInterval(updateExchange, 5000)
 
 const tableOptions = { url: exchangeUrl + '/bindings/source', keyColumns: ['properties_key'], interval: 5000 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {

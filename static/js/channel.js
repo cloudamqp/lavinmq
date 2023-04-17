@@ -48,7 +48,7 @@ function updateChannel (all) {
       document.getElementById('ch-mode').textContent = `${item.confirm ? 'C' : ''}`
       document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
     }
-  }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(cTimer))
+  }).catch(HTTP.standardErrorHandler)
 }
 updateChannel(true)
-const cTimer = setInterval(updateChannel, 5000)
+setInterval(updateChannel, 5000)
