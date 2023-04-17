@@ -38,7 +38,7 @@ const consumersTable = Table.renderTable('table', { keyColumns: ["channel_detail
       .then(() => {
         DOM.toast(`Consumer cancelled`)
         updateQueue(false)
-      }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(qTimer))
+      }).catch(HTTP.standardErrorHandler)
   })
   Table.renderCell(tr, 0, channelLink)
   Table.renderCell(tr, 1, item.consumer_tag)
@@ -124,10 +124,10 @@ function updateQueue (all) {
           qArgs.appendChild(document.createElement("div")).textContent = `${arg}: ${item.arguments[arg]}`
         }
       }
-    }).catch(HTTP.standardErrorHandler).catch(e => clearInterval(qTimer))
+    }).catch(HTTP.standardErrorHandler)
 }
 updateQueue(true)
-const qTimer = setInterval(updateQueue, 5000)
+setInterval(updateQueue, 5000)
 
 const tableOptions = {
   url: queueUrl + '/bindings',

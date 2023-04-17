@@ -8,7 +8,6 @@ const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
   url += '?vhost=' + encodeURIComponent(vhost)
 }
-let updateTimer = null
 let data = null
 
 if (data === null) {
@@ -35,14 +34,7 @@ function render (data) {
 
 function start (cb) {
   update(cb)
-  updateTimer = setInterval(() => update(cb), 5000)
-}
-
-// Show that we're offline in the UI
-function stop () {
-  if (updateTimer) {
-    clearInterval(updateTimer)
-  }
+  setInterval(() => update(cb), 5000)
 }
 
 function get (key) {

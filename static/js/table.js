@@ -15,7 +15,6 @@ function renderTable (id, options = {}, renderRow) {
   const container = table.parentElement
   const keyColumns = options.keyColumns
   const interval = options.interval
-  let timer = null
   let searchTerm = null
   const currentPage = search.get('page') || 1
   let pageSize = search.get('page_size') || 100
@@ -56,7 +55,7 @@ function renderTable (id, options = {}, renderRow) {
     }
     fetchAndUpdate()
     if (interval) {
-      timer = setInterval(fetchAndUpdate, interval)
+      setInterval(fetchAndUpdate, interval)
     }
   }
 
@@ -138,9 +137,6 @@ function renderTable (id, options = {}, renderRow) {
       } else {
         toggleDisplayError(id, "Can't reach server, please try to refresh the page.")
         console.error(e)
-      }
-      if (timer) {
-        clearInterval(timer)
       }
     })
   }
