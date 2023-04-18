@@ -4,6 +4,7 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
+import { UrlDataSource, DataSource } from './datasource.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
@@ -15,7 +16,19 @@ const resumeQueueForm = document.querySelector('#resumeQueue')
 const messageSnapshotForm = document.querySelector('#messageSnapshot')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
-const consumersTable = Table.renderTable('table', { keyColumns: ["channel_details"], countId: "consumer-count" }, function (tr, item) {
+
+class ConsumersDataSource extends DataSource {
+  constructor() { super({autoReloadTimeout: 0, useQueryState: false}) }
+  setConsumers(consumers) { this.items = consumers }
+  reload() { }
+}
+const consumersDataSource = new ConsumersDataSource()
+const consumersTableOpts = {
+  keyColumns: ["channel_details"],
+  countId: 'consumer-count',
+  dataSource: consumersDataSource
+}
+const consumersTable = Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const channelLink = document.createElement('a')
   channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
@@ -90,7 +103,7 @@ function updateQueue (all) {
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
       item.consumer_details.filtered_count = item.consumers
-      consumersTable.updateTable(item.consumer_details)
+      consumersDataSource.setConsumers(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
       loadMoreConsumersBtn.classList.toggle("visible", hasMoreConsumers)
       if(hasMoreConsumers) {
@@ -130,9 +143,8 @@ updateQueue(true)
 setInterval(updateQueue, 5000)
 
 const tableOptions = {
-  url: queueUrl + '/bindings',
+  dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
   keyColumns: ['properties_key'],
-  interval: 5000,
   countId: 'bindings-count'
 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
@@ -176,7 +188,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
   }
   HTTP.request('POST', url, { body })
     .then(() => {
-      bindingsTable.fetchAndUpdate()
+      bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
     }).catch(HTTP.alertErrorHandler)

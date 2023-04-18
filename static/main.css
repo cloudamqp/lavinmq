@@ -943,17 +943,21 @@ fieldset.inline {
   grid-column: 1 / span 1;
 }
 
-#pagination {
+.pagination {
   margin: -1px 0;
   display: grid;
   grid-template-columns: repeat(10, fit-content(100px))
 }
-#pagination .page-item {
+.pagination .page-item {
   border-bottom: 1px solid #ddd;
   border-right: 1px solid #ddd;;
   box-sizing: content-box;
 }
-#pagination .page-item a {
+.pagination .page-item.disabled {
+  opacity: 0.8
+}
+.pagination .page-item a,
+.pagination .page-item span {
   padding: 0 15px;
   height: 32px;
   line-height: 32px;
@@ -963,15 +967,19 @@ fieldset.inline {
   text-align: center;
   font-weight: bold;
 }
-#pagination .page-item.active a {
+
+.pagination .page-item.disabled a {
+  cursor: default;
+}
+.pagination .page-item.active a {
   background-color: var(--theme-color-link);
   color: white;
 }
-#pagination .page-item:first-child {
+.pagination .page-item:first-child {
   border-left: 1px solid #ddd;
   border-bottom-left-radius: 3px;
 }
-#pagination .page-item:last-child {
+.pagination .page-item:last-child {
   border-right: 1px solid #ddd;
   border-bottom-right-radius: 3px;
 }

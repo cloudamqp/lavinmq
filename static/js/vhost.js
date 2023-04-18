@@ -91,7 +91,7 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      permissionsTable.fetchAndUpdate()
+      permissionsTable.reload()
       evt.target.reset()
     }).catch(HTTP.standardErrorHandler)
 })

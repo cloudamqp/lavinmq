@@ -52,7 +52,7 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      usersTable.fetchAndUpdate()
+      usersTable.reload()
       DOM.toast(toastText)
       evt.target.reset()
     }).catch(HTTP.standardErrorHandler)

@@ -39,7 +39,7 @@ document.querySelector('#createVhost').addEventListener('submit', function (evt)
   const url = 'api/vhosts/' + name
   HTTP.request('PUT', url)
     .then(() => {
-      vhostTable.fetchAndUpdate()
+      vhostTable.reload()
       evt.target.reset()
     }).catch(HTTP.standardErrorHandler)
 })

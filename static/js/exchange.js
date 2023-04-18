@@ -3,6 +3,7 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
+import { UrlDataSource } from './datasource.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const exchange = search.get('name')
@@ -45,7 +46,11 @@ function updateExchange () {
 }
 updateExchange()
 
-const tableOptions = { url: exchangeUrl + '/bindings/source', keyColumns: ['properties_key'], interval: 5000 }
+const tableOptions = {
+  dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
+  pagination: true,
+  keyColumns: ['properties_key']
+}
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {
@@ -92,7 +97,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
   }
   HTTP.request('POST', url, { body })
     .then(() => {
-      bindingsTable.fetchAndUpdate()
+      bindingsTable.reload()
       evt.target.reset()
     }).catch(HTTP.alertErrorHandler)
 })

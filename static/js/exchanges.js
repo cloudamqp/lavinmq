@@ -71,7 +71,7 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      exchangeTable.fetchAndUpdate()
+      exchangeTable.reload()
       DOM.toast('Exchange ' + exchange + ' created')
       evt.target.reset()
     }).catch(HTTP.standardErrorHandler)

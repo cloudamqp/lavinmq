@@ -91,7 +91,7 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
-      upstreamsTable.fetchAndUpdate()
+      upstreamsTable.reload()
       evt.target.reset()
       DOM.toast(`Upstream ${name} saved`)
     }).catch(HTTP.standardErrorHandler)
