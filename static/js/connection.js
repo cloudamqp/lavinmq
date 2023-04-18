@@ -2,6 +2,7 @@ import * as HTTP from './http.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
+import { UrlDataSource } from './datasource.js'
 
 const chart = Chart.render('chart', 'bytes/s')
 
@@ -47,9 +48,9 @@ function updateConnection (all) {
 }
 updateConnection(true)
 setInterval(updateConnection, 5000)
-const channelsUrl = connectionUrl + '/channels'
+const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQueryState: false })
 const tableOptions = {
-  url: channelsUrl,
+  dataSource: channelsDataSource,
   keyColumns: ['name'],
   interval: 5000,
   countId: 'table-count'
