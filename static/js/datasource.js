@@ -143,10 +143,9 @@ class DataSource {
         resolve(resp)
       }).catch(err => {
         console.log(err)
-        this.stopAutoReload()
         this.emit('error', err)
         reject(err)
-      });
+      })
     })
   }
 
