@@ -139,7 +139,7 @@ can sustain about 700.000 messages/s (16 byte msg body, single queue, single pro
 single consumer). A single producer can push 1.600.000 msgs/s and if there's no producers
 auto-ack consumers can receive 1.200.000 msgs/s.
 
-Enqueueing 10 million messages only uses 80 MB RAM. 8000
+Enqueueing 100M messages only uses 25 MB RAM. 8000
 connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
 MB RAM. About 1.600 bindings per second can be made to non-durable queues,
 and about 1000 bindings/second to durable queues.
