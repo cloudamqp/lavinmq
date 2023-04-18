@@ -133,19 +133,17 @@ class DataSource {
 
   reload(args) {
     clearTimeout(this._reloadTimer)
-    return new Promise((resolve, reject) => {
-      this._reload(args).then(resp => {
-        if (this._opts.autoReloadTimeout > 0) {
-          clearTimeout(this._reloadTimer)
-          this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
-        }
-        this.items = resp
-        resolve(resp)
-      }).catch(err => {
-        console.log(err)
+    return this._reload(args).then(resp => {
+      this._enqueueReload()
+      this.items = resp
+      return resp
+    }).catch(err => {
+      this._enqueueReload()
+      if (err.message) {
+        this.emit('error', err.message)
+      } else {
         this.emit('error', err)
-        reject(err)
-      })
+      }
     })
   }
 
@@ -153,12 +151,15 @@ class DataSource {
     this._setState()
   }
 
-  stopAutoReload() {
-    clearTimeout(this._reloadTimer)
+  _enqueueReload() {
+    if (this._opts.autoReloadTimeout > 0) {
+      clearTimeout(this._reloadTimer)
+      this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
+    }
   }
 
   emit(eventName, args) {
-    this._events.dispatchEvent(new CustomEvent(eventName, args))
+    this._events.dispatchEvent(new CustomEvent(eventName, { detail: args }))
   }
 
   on(eventName, listener) {

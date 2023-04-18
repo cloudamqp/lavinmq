@@ -33,7 +33,7 @@ function renderTable (id, options = {}, renderRow) {
   dataSource.on('update', updateTable)
   dataSource.on('error', error => {
     console.log(error)
-    toggleDisplayError(id, 'Error fetching data: ' + error)
+    toggleDisplayError(id, 'Error fetching data: ' + error.detail)
   })
   dataSource.reload()
 
