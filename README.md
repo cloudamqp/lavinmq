@@ -155,9 +155,13 @@ to a single binary. You can liken it to Go, but with a nicer syntax.
 Instead of trying to cache messages in RAM, we write all messages as fast as we can to
 disk and let the OS cache do the caching.
 
-Each queues is backed by a message store on disk, it's just a series of files (segments),
-by default 8MB each. Each incoming message is appended to the last segment,
-prefixed with a timestamp, its exchange name, routing key and message headers.
+Each queues is backed by a message store on disk, which is just a series of files (segments),
+by default 8MB each. Message segments are memory-mapped files allocated using the mmap syscall. 
+However, to prevent unnecessary memory usage, we unmap these files and free up the allocated 
+memory when they are not in use. When a file needs to be written or read, we re-map it
+and use only the memory needed for that specific segment. Each incoming message 
+is appended to the last segment, prefixed with a timestamp, its exchange name, routing key 
+and message headers. 
 
 When a message is being consumed it reads sequentially from the segments.
 Each acknowledged (or rejected) message position in the segment is written to an "ack" file
