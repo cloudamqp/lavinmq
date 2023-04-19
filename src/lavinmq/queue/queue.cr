@@ -8,6 +8,7 @@ require "../client/channel/consumer"
 require "../message"
 require "../error"
 require "./message_store"
+require "../logging"
 
 module LavinMQ
   enum QueueState
@@ -28,7 +29,10 @@ module LavinMQ
     include Stats
     include SortableJSON
 
-    @log : Log
+    Log = ::Log.for("lavinmq.queue")
+
+    @durable = false
+    @log : Logging::EntityLog
     @message_ttl : Int64?
     @max_length : Int64?
     @max_length_bytes : Int64?
@@ -135,7 +139,7 @@ module LavinMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = RoughTime.monotonic
-      @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
+      @log = Logging::EntityLog.new(Log, vhost: @vhost.name, name: @name)
       @data_dir = make_data_dir
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
