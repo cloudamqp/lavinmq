@@ -4,6 +4,10 @@ require "../src/lavinmq/config"
 require "http/client"
 require "amqp-client"
 
+module LavinMQ
+  Log = ::Log.for "lmq_specs"
+end
+
 Log.setup_from_env
 
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
