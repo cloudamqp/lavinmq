@@ -36,7 +36,10 @@ module LavinMQ
       {% for method in %w(trace debug info notice warn error fatal) %}
         def {{method.id}}(*, exception : Exception? = nil, &)
           @log.{{method.id}}(exception: exception) do |emitter|
-            emitter.emit yield, @metadata
+            result = yield
+            unless result.nil?
+              emitter.emit result, @metadata
+            end
           end
         end
       {% end %}
