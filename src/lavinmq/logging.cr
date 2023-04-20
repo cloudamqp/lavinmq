@@ -10,10 +10,6 @@ module LavinMQ
       getter log : ::Log
       getter metadata : ::Log::Metadata
 
-      macro for(**kwargs)
-        ::LavinMQ::Logging::EntityLog.new(Log, {{**kwargs}})
-      end
-
       def self.new(log : ::Log, **metadata)
         new(log, metadata)
       end
