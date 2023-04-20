@@ -9,8 +9,11 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 
 module LavinMQ
+  Log = ::Log.for "lavinmq"
+
   class Launcher
-    Log = ::Log.for "launcher"
+    Log = LavinMQ::Log.for "launcher"
+
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?

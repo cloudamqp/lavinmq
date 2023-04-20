@@ -6,10 +6,10 @@ module LavinMQ
       include Enumerable(Upstream)
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
-      @log : Log
+      @log : ::Log
 
       def initialize(@vhost : VHost)
-        @log = Log.for "UpstreamStore[vhost=#{@vhost}]"
+        @log = ::Log.for "UpstreamStore[vhost=#{@vhost}]"
       end
 
       def each(&)

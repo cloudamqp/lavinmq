@@ -44,12 +44,12 @@ module LavinMQ
         parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| config.tls_ciphers = v }
         parser.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| config.tls_min_version = v }
         parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-          level = Log::Severity.parse?(v.to_s)
+          level = ::Log::Severity.parse?(v.to_s)
           config.log_level = level if level
         end
         parser.on("--raise-gc-warn", "Raise on GC warnings") { config.raise_gc_warn = true }
         parser.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { config.data_dir_lock = false }
-        parser.on("-d", "--debug", "Verbose logging") { config.log_level = Log::Severity::Debug }
+        parser.on("-d", "--debug", "Verbose logging") { config.log_level = ::Log::Severity::Debug }
         parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
         parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
         parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }

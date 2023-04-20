@@ -36,7 +36,7 @@ module LavinMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
-    @log : Log
+    @log : ::Log
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String

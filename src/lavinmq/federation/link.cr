@@ -18,7 +18,7 @@ module LavinMQ
         @upstream_connection : ::AMQP::Client::Connection?
         @downstream_connection : ::AMQP::Client::Connection?
 
-        def initialize(@upstream : Upstream, @log : Log)
+        def initialize(@upstream : Upstream, @log : ::Log)
           user = @upstream.vhost.users.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
           port = Config.instance.amqp_port
@@ -157,8 +157,8 @@ module LavinMQ
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
           @federated_q.register_observer(self)
           consumer_available if @federated_q.immediate_delivery?
-          log = Log.for "QueueLink[vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
-                        "link=#{@federated_q.name}]"
+          log = ::Log.for "QueueLink[vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
+                          "link=#{@federated_q.name}]"
           super(@upstream, log)
         end
 
@@ -247,8 +247,8 @@ module LavinMQ
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
-          log = Log.for "ExchangeLink[vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
-                        "link=#{@federated_ex.name}]"
+          log = ::Log.for "ExchangeLink[vhost=#{@upstream.vhost.name} upstream=#{@upstream.name} " \
+                          "link=#{@federated_ex.name}]"
           super(@upstream, log)
         end
 

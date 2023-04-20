@@ -16,7 +16,7 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter log : Log
+      getter log : ::Log
       getter consumers = Array(Consumer).new
       getter prefetch_count = 0_u16
       getter global_prefetch_count = 0_u16
@@ -40,7 +40,7 @@ module LavinMQ
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
 
       def initialize(@client : Client, @id : UInt16)
-        @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
+        @log = ::Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
       end
 

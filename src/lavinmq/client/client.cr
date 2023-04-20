@@ -56,7 +56,7 @@ module LavinMQ
       connection_name = if name = @client_properties["connection_name"]?.try(&.as?(String))
                           " name=#{name}"
                         end
-      @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
+      @log = ::Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"

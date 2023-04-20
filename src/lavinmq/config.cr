@@ -3,12 +3,12 @@ require "uri"
 
 module LavinMQ
   class Config
-    DEFAULT_LOG_LEVEL = Log::Severity::Info
+    DEFAULT_LOG_LEVEL = ::Log::Severity::Info
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
     property log_file : String? = nil
-    property log_level : Log::Severity = DEFAULT_LOG_LEVEL
+    property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1

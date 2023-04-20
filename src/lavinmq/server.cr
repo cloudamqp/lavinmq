@@ -27,7 +27,7 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
 
     def initialize(@data_dir : String)
-      @log = Log.for "amqpserver"
+      @log = ::Log.for "amqpserver"
       Dir.mkdir_p @data_dir
       @replicator = Replication::Server.new
       Schema.migrate(@data_dir, @replicator)

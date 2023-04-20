@@ -8,17 +8,22 @@ module LavinMQ
     #
     struct EntityLog
       getter log : ::Log
+      getter metadata : ::Log::Metadata
 
-      # This is syntax suger so one doesn't have to pass a NamedTuple
-      # (and splats can't be used in constructor?)
+      macro for(**kwargs)
+        ::LavinMQ::Logging::EntityLog.new(Log, {{**kwargs}})
+      end
+
       def self.new(log : ::Log, **metadata)
         new(log, metadata)
       end
 
-      @metadata : ::Log::Metadata
-
       private def initialize(@log : ::Log, metadata : NamedTuple = NamedTuple.new)
         @metadata = ::Log::Metadata.build(metadata)
+      end
+
+      def extend(**kwargs)
+        new(self.log, self.metadata.extend(kwargs))
       end
 
       {% for method in %w(trace debug info notice warn error fatal) %}

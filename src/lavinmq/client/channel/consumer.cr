@@ -15,7 +15,7 @@ module LavinMQ
         getter prefetch_count = 0u16
         getter unacked = 0_u32
         getter? closed = false
-        @log : Log
+        @log : ::Log
         @flow : Bool
 
         def initialize(@channel : Client::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
