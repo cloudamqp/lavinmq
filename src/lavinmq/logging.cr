@@ -14,12 +14,23 @@ module LavinMQ
         new(log, metadata)
       end
 
-      private def initialize(@log : ::Log, metadata : NamedTuple = NamedTuple.new)
+      def self.new(log : ::Log, metadata : ::Log::Metadata)
+        new(log, metadata)
+      end
+
+      protected def initialize(@log : ::Log, metadata : NamedTuple = NamedTuple.new)
         @metadata = ::Log::Metadata.build(metadata)
       end
 
+      protected def initialize(@log : ::Log, @metadata : ::Log::Metadata)
+      end
+
       def extend(**kwargs)
-        new(self.log, self.metadata.extend(kwargs))
+        EntityLog.new(self.log, self.metadata.extend(kwargs))
+      end
+
+      def for(source, **kwargs)
+        EntityLog.new(self.log.for(source), self.metadata.extend(kwargs))
       end
 
       {% for method in %w(trace debug info notice warn error fatal) %}
