@@ -25,12 +25,28 @@ module LavinMQ
       protected def initialize(@log : ::Log, @metadata : ::Log::Metadata)
       end
 
+      # Create a new EntityLog with the same Log, but with extended metadata
       def extend(**kwargs)
-        EntityLog.new(self.log, self.metadata.extend(kwargs))
+        data = self.metadata.to_h
+        unless kwargs.empty?
+          kwhash = kwargs.to_h.transform_values do |v|
+            ::Log::Metadata::Value.new(v).as(::Log::Metadata::Value)
+          end
+          data.merge!(kwhash)
+        end
+        EntityLog.new(self.log, ::Log::Metadata.build(data))
       end
 
-      def for(source, **kwargs)
-        EntityLog.new(self.log.for(source), self.metadata.extend(kwargs))
+      # Create a new EntityLog with another Log, but with extended metadata
+      def extend(log : ::Log, **kwargs)
+        data = self.metadata.to_h
+        unless kwargs.empty?
+          kwhash = kwargs.to_h.transform_values do |v|
+            ::Log::Metadata::Value.new(v).as(::Log::Metadata::Value)
+          end
+          data.merge!(kwhash)
+        end
+        EntityLog.new(log, ::Log::Metadata.build(data))
       end
 
       {% for method in %w(trace debug info notice warn error fatal) %}
