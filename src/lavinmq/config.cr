@@ -48,6 +48,7 @@ module LavinMQ
     property replication_bind : String? = nil
     property replication_port = 5679
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
+    property log_sources : Hash(String, ::Log::Severity)?
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -67,6 +68,7 @@ module LavinMQ
         when "amqp"         then parse_amqp(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "replication"  then parse_replication(settings)
+        when "log_sources"  then parse_log_sources(settings)
         else
           raise "Unrecognized config section: #{section}"
         end
@@ -158,6 +160,10 @@ module LavinMQ
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
         end
       end
+    end
+
+    private def parse_log_sources(settings)
+      @log_sources = settings.transform_values { |v| ::Log::Severity.parse(v) }
     end
 
     private def true?(str : String?)
