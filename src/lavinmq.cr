@@ -3,6 +3,7 @@ require "./stdlib/*"
 require "./lavinmq/config"
 require "./lavinmq/server_cli"
 
+Log.setup_from_env
 config = LavinMQ::Config.instance
 LavinMQ::ServerCLI.new(config).parse
 
