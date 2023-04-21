@@ -1,15 +1,19 @@
 require "./upstream"
+require "../logging"
 
 module LavinMQ
   module Federation
     class UpstreamStore
       include Enumerable(Upstream)
+
+      Log = LavinMQ::Log.for "federation.upstream_store"
+
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
-      @log : ::Log
+      @log : Logging::EntityLog
 
       def initialize(@vhost : VHost)
-        @log = ::Log.for "UpstreamStore[vhost=#{@vhost}]"
+        @log = @vhost.log.extend(Log)
       end
 
       def each(&)

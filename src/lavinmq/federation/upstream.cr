@@ -1,8 +1,11 @@
 require "uri"
 require "./link"
+require "../logging"
 
 module LavinMQ
   module Federation
+    Log = VHost::Log.for("federation")
+
     enum AckMode
       OnConfirm
       OnPublish
@@ -10,6 +13,8 @@ module LavinMQ
     end
 
     class Upstream
+      Log = Federation::Log.for "upstream"
+
       DEFAULT_PREFETCH        = 1000_u16
       DEFAULT_RECONNECT_DELAY =        1
       DEFAULT_ACK_MODE        = AckMode::OnConfirm

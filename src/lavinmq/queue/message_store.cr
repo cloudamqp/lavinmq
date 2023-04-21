@@ -15,7 +15,7 @@ module LavinMQ
     # Messages are refered to as SegmentPositions
     # Deleted messages are written to acks.#{segment}
     class MessageStore
-      Log = ::Log.for("MessageStore")
+      Log = Queue::Log.for "MessageStore"
       @segments = Hash(UInt32, MFile).new
       @deleted = Hash(UInt32, Array(UInt32)).new
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)

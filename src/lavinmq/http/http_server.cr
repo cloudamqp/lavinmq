@@ -12,9 +12,11 @@ end
 
 module LavinMQ
   module HTTP
-    Log = ::Log.for "http"
+    Log = LavinMQ::Log.for "http"
 
     class Server
+      Log = HTTP::Log.for "server"
+
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,

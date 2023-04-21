@@ -13,11 +13,14 @@ require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
+require "./logging"
 
 module LavinMQ
   class VHost
     include SortableJSON
     include Stats
+
+    Log = LavinMQ::Log.for "vhost"
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm",
@@ -36,14 +39,16 @@ module LavinMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
-    @log : ::Log
+    @log : Logging::EntityLog
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
 
+    getter log
+
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Server)
-      @log = Log.for "vhost[name=#{@name}]"
+      @log = Logging::EntityLog.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)

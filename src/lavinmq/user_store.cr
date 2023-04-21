@@ -4,8 +4,9 @@ require "./user"
 module LavinMQ
   class UserStore
     include Enumerable({String, User})
+    Log = LavinMQ::Log.for "userstore"
+
     DIRECT_USER = "__direct"
-    Log         = ::Log.for("userstore")
 
     def self.hidden?(name)
       DIRECT_USER == name

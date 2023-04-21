@@ -1,13 +1,21 @@
 require "json"
 require "./parameter"
+require "./logging"
 
 module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 
-    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Server, @log : ::Log)
+    @log : Logging::EntityLog
+
+    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Server, log : Logging::EntityLog)
+      @log = log.extend(t: T.name)
       @parameters = Hash(ParameterId?, T).new
       load!
+    end
+
+    def initialize(data_dir : String, file_name : String, replicator : Replication::Server, log : ::Log)
+      initialize(data_dir, file_name, replicator, Logging::EntityLog.new(log))
     end
 
     forward_missing_to @parameters

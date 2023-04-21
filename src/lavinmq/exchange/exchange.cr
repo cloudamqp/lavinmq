@@ -4,6 +4,7 @@ require "../amqp"
 require "../sortable_json"
 require "../observable"
 require "../queue"
+require "../logging"
 
 module LavinMQ
   alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
@@ -14,6 +15,8 @@ module LavinMQ
     include Stats
     include SortableJSON
     include Observable
+
+    Log = LavinMQ::Log.for "exchange"
 
     getter name, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter? durable, internal, auto_delete

@@ -17,6 +17,8 @@ module LavinMQ
     include Stats
     include SortableJSON
 
+    Log = LavinMQ::Log.for "client"
+
     getter vhost, channels, log, name
     getter user
     getter max_frame_size : UInt32
@@ -54,9 +56,9 @@ module LavinMQ
       @name = "#{@remote_address} -> #{@local_address}"
       @client_properties = start_ok.client_properties
       connection_name = if name = @client_properties["connection_name"]?.try(&.as?(String))
-                          " name=#{name}"
+                          " conn=#{name}"
                         end
-      @log = ::Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
+      @log = Logging::EntityLog.new Log, vhost: @vhost.name, client: "#{@remote_address}#{connection_name}"
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"

@@ -17,9 +17,12 @@ require "./stats"
 
 module LavinMQ
   class Server
+    include ParameterTarget
+
+    Log = LavinMQ::Log.for "server"
+
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
-    include ParameterTarget
 
     @start = Time.monotonic
     @closed = false
@@ -27,13 +30,12 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
 
     def initialize(@data_dir : String)
-      @log = ::Log.for "amqpserver"
       Dir.mkdir_p @data_dir
       @replicator = Replication::Server.new
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, Log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -56,7 +58,7 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, Log)
       apply_parameter
       @closed = false
       Fiber.yield
@@ -68,7 +70,7 @@ module LavinMQ
 
     def listen(s : TCPServer)
       @listeners[s] = :amqp
-      @log.info { "Listening on #{s.local_address}" }
+      Log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
         next client.close if @closed
@@ -84,7 +86,7 @@ module LavinMQ
             end
           handle_connection(client, conn_info)
         rescue ex
-          @log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+          Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
           client.close rescue nil
         end
       end
@@ -96,7 +98,7 @@ module LavinMQ
 
     def listen(s : UNIXServer)
       @listeners[s] = :amqp
-      @log.info { "Listening on #{s.local_address}" }
+      Log.info { "Listening on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
@@ -111,7 +113,7 @@ module LavinMQ
             end
           handle_connection(client, conn_info)
         rescue ex
-          @log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+          Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
           client.close rescue nil
         end
       end
@@ -129,7 +131,7 @@ module LavinMQ
     def listen_tls(bind, port, context)
       s = TCPServer.new(bind, port)
       @listeners[s] = :amqps
-      @log.info { "Listening on #{s.local_address} (TLS)" }
+      Log.info { "Listening on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
@@ -138,14 +140,14 @@ module LavinMQ
           set_socket_options(client)
           ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
           set_buffer_size(ssl_client)
-          @log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+          Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
           conn_info = ConnectionInfo.new(remote_addr, client.local_address)
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
           handle_connection(ssl_client, conn_info)
         rescue ex
-          @log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
+          Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
           client.close rescue nil
         end
       end
@@ -168,9 +170,9 @@ module LavinMQ
 
     def close
       @closed = true
-      @log.debug { "Closing listeners" }
+      Log.debug { "Closing listeners" }
       @listeners.each_key &.close
-      @log.debug { "Closing vhosts" }
+      Log.debug { "Closing vhosts" }
       @vhosts.close
       @replicator.close
     end
@@ -207,7 +209,7 @@ module LavinMQ
 
     private def apply_parameter(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
-        @log.warn { "No action when applying parameter #{p.parameter_name}" }
+        Log.warn { "No action when applying parameter #{p.parameter_name}" }
       end
     end
 
@@ -338,7 +340,7 @@ module LavinMQ
           return output[idx..idx2].to_i64 * PAGE_SIZE
         end
       end
-      @log.warn { "Could not parse /proc/self/statm: #{output}" }
+      Log.warn { "Could not parse /proc/self/statm: #{output}" }
     end
 
     # used on non linux systems
@@ -387,14 +389,14 @@ module LavinMQ
     private def control_flow!
       if @disk_free < 2_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_min
         if flow?
-          @log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
+          Log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
           flow(false)
         end
       elsif !flow?
-        @log.info { "Not low on disk space, starting flow" }
+        Log.info { "Not low on disk space, starting flow" }
         flow(true)
       elsif @disk_free < 3_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_warn
-        @log.info { "Low on disk space: #{@disk_free.humanize}B" }
+        Log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
 

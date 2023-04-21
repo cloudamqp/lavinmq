@@ -1,12 +1,15 @@
 require "log"
 require "../../sortable_json"
 require "../../error"
+require "../../logging"
 
 module LavinMQ
   class Client
     class Channel
       class Consumer
         include SortableJSON
+        Log = Channel::Log
+
         getter tag : String
         getter priority : Int32
         getter? exclusive : Bool
@@ -15,7 +18,7 @@ module LavinMQ
         getter prefetch_count = 0u16
         getter unacked = 0_u32
         getter? closed = false
-        @log : ::Log
+        @log : Logging::EntityLog
         @flow : Bool
 
         def initialize(@channel : Client::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
@@ -25,7 +28,7 @@ module LavinMQ
           @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
-          @log = @channel.log.for "consumer=#{@tag}"
+          @log = @channel.log.extend Log, consumer: @tag
           spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
         end
 
