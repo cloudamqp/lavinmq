@@ -1,0 +1,36 @@
+version: '3'
+services:
+  lavinmq:
+    build: .
+    environment:
+      # LAVINMQ_CONF: /etc/lavinmq/config.ini
+      # LAVINMQ_DATADIR: /var/lib/lavinmq/
+      LAVINMQ_BIND: 0.0.0.0
+      # LAVINMQ_PORT: 5672
+      # LAVINMQ_AMQPS_PORT: 5671
+      # LAVINMQ_AMQP_BIND: 0.0.0.0
+      # LAVINMQ_HTTP_PORT: 15672
+      # LAVINMQ_HTTPS_PORT: 15671
+      # LAVINMQ_HTTP_BIND: 0.0.0.0
+      # LAVINMQ_AMQP_UNIX_PATH: /tmp/lavinmq.sock
+      # LAVINMQ_HTTP_UNIX_PATH: /tmp/lavinmq-http.sock
+      # LAVINMQ_CERT: /etc/lavinmq/cert.pem
+      # LAVINMQ_KEY: /etc/lavinmq/key.pem
+      # LAVINMQ_CIPHERS:
+      # LAVINMQ_TLS_MIN_VERSION: 1.2
+      # LAVINMQ_LOG_LEVEL: info
+      # LAVINMQ_RAISE_GC_WARN: true
+      # LAVINMQ_NO_DATA_DIR_LOCK: true
+      # LAVINMQ_DEBUG: false
+      LAVINMQ_GUEST_ONLY_LOOPBACK: false
+    volumes:
+      - ./lavinmq/data/:/var/lib/lavinmq/
+      # - ./extras/config.ini:/etc/lavinmq/config.ini
+      - ./lavinmq/logs/:/var/log/
+      - ./lavinmq/tls/cert.pem:/etc/lavinmq/cert.pem
+      - ./lavinmq/tls/key.pem:/etc/lavinmq/key.pem
+    ports:
+      - 5672:5672
+      - 15672:15672
+      - 5671:5671
+      - 15671:15671
