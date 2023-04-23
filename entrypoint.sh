@@ -46,15 +46,15 @@ if [ -n "${LAVINMQ_HTTP_UNIX_PATH}" ]; then
 fi
 
 if [ -n "${LAVINMQ_CERT}" ]; then
-  ENV_ARGS="$ENV_ARGS --cert $LAVINMQ_CERT"
+  ENV_ARGS="$ENV_ARGS --cert=$LAVINMQ_CERT"
 fi
 
 if [ -n "${LAVINMQ_KEY}" ]; then
-  ENV_ARGS="$ENV_ARGS --key $LAVINMQ_KEY"
+  ENV_ARGS="$ENV_ARGS --key=$LAVINMQ_KEY"
 fi
 
 if [ -n "${LAVINMQ_CIPHERS}" ]; then
-  ENV_ARGS="$ENV_ARGS --ciphers $LAVINMQ_CIPHERS"
+  ENV_ARGS="$ENV_ARGS --ciphers=$LAVINMQ_CIPHERS"
 fi
 
 if [ -n "${LAVINMQ_TLS_MIN_VERSION}" ]; then
@@ -87,4 +87,5 @@ if [ -n "${LAVINMQ_GUEST_ONLY_LOOPBACK}" ]; then
     ENV_ARGS="$ENV_ARGS --guest-only-loopback=$LAVINMQ_GUEST_ONLY_LOOPBACK"
 fi
 
-exec lavinmq "$@ $ENV_ARGS"
+ARGS="$@ $ENV_ARGS"
+exec lavinmq $ARGS
