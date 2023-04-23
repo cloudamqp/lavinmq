@@ -50,4 +50,4 @@ WORKDIR /var/lib/lavinmq
 ENV GC_UNMAP_THRESHOLD=1
 HEALTHCHECK CMD ["/usr/bin/lavinmqctl", "status"]
 ENTRYPOINT ["entrypoint.sh"]
-CMD ["-b", "0.0.0.0", "--guest-only-loopback", "false"]
+CMD ["-b", "0.0.0.0", "--guest-only-loopback=false"]
