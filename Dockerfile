@@ -43,9 +43,11 @@ RUN apt-get update && \
     apt-get install -y libssl3 libevent-2.1-7 libevent-pthreads-2.1-7 ca-certificates && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 COPY --from=builder /tmp/bin/* /usr/bin/
-EXPOSE 5672 15672
+COPY entrypoint.sh /usr/bin/
+EXPOSE 5672 15672 5671 15671
 VOLUME /var/lib/lavinmq
 WORKDIR /var/lib/lavinmq
 ENV GC_UNMAP_THRESHOLD=1
 HEALTHCHECK CMD ["/usr/bin/lavinmqctl", "status"]
-ENTRYPOINT ["/usr/bin/lavinmq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["-b", "0.0.0.0", "--guest-only-loopback", "false"]
