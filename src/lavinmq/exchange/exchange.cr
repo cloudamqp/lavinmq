@@ -84,7 +84,7 @@ module LavinMQ
         policy: @policy.try &.name,
         operator_policy: @operator_policy.try &.name,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
-        message_stats: stats_details,
+        message_stats: current_stats_details,
       }
     end
 
