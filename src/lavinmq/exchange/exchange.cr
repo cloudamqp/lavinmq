@@ -198,6 +198,14 @@ module LavinMQ
       return if should_delay_message?(headers)
       do_exchange_matches(routing_key, headers, &blk)
     end
+
+    def to_json(json : JSON::Builder)
+      json.object do
+        details_tuple.merge(message_stats: stats_details).each do |k, v|
+          json.field(k, v) unless v.nil?
+        end
+      end
+    end
   end
 
   struct BindingDetails
