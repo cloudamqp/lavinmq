@@ -503,7 +503,7 @@ module LavinMQ
       itr = if resources
               resources.each
             else
-              @queues.each_value.chain(@exchanges.each_value)
+              Iterator.chain({@queues.each_value, @exchanges.each_value})
             end
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse

@@ -110,7 +110,7 @@ module LavinMQ
     end
 
     def bindings_details
-      @queue_bindings.each.chain(@exchange_bindings.each).flat_map do |(key, destinations)|
+      Iterator.chain({@queue_bindings.each, @exchange_bindings.each}).flat_map do |(key, destinations)|
         destinations.map { |destination| binding_details(key, destination) }
       end
     end
