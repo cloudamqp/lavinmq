@@ -78,9 +78,6 @@ module LavinMQ
 
       private def unauthenticated(context)
         context.response.status_code = 401
-        unless context.request.path == "/api/whoami"
-          context.response.headers["WWW-Authenticate"] = "Basic"
-        end
       end
 
       private def guest_only_loopback?(remote_address, username) : Bool
