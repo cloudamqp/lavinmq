@@ -1,4 +1,5 @@
 require "log"
+require "./logging"
 
 module LavinMQ
   struct JournalLogFormat < ::Log::StaticFormatter
@@ -15,14 +16,19 @@ module LavinMQ
       timestamp
       severity
       string " "
-      source
-      data
-      string " "
+      source(after: " ")
+      data(before: "[", after: "] ")
+      fiber(before: "[", after: "] ")
       message
       exception
     end
 
-    def data(before = "[", after = "]", seperator = " ")
+    def fiber(before = "", after = "")
+      return if @entry.fiber.nil?
+      @io << before << @entry.fiber << after
+    end
+
+    def data(before = "", after = "", seperator = " ")
       return if @entry.data.empty?
       @io << before
       found = false
