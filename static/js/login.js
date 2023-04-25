@@ -15,12 +15,13 @@ document.getElementById('login').addEventListener('submit', (e) => {
 
 function tryLogin(user, pass) {
   const auth = window.btoa(`${user}:${pass}`)
-  window.fetch("api/whoami", { method: "GET", headers: { Authorization: `Basic ${auth}` } })
+  document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
+  window.fetch("api/whoami")
     .then(resp => {
       if (resp.ok) {
-        document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
         window.location.assign(".")
       } else {
+        document.cookie = `m=; max-age=0`
         alert("Authentication failure")
       }
     })
