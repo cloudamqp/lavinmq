@@ -17,7 +17,7 @@ module LavinMQ
     include Stats
     include SortableJSON
 
-    Log = LavinMQ::Log.for "client"
+    Log = VHost::Log.for "client"
 
     getter vhost, channels, log, name
     getter user
@@ -31,6 +31,7 @@ module LavinMQ
     @connected_at = RoughTime.unix_ms
     @channels = Hash(UInt16, Client::Channel).new
     @exclusive_queues = Array(Queue).new
+    @log : Logging::EntityLog
     @heartbeat_interval_ms : Int64?
     @local_address : Socket::IPAddress
     @running = true
@@ -58,7 +59,7 @@ module LavinMQ
       connection_name = if name = @client_properties["connection_name"]?.try(&.as?(String))
                           " conn=#{name}"
                         end
-      @log = Logging::EntityLog.new Log, vhost: @vhost.name, client: "#{@remote_address}#{connection_name}"
+      @log = @vhost.log.extend(Log, client: "#{@remote_address}#{connection_name}")
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"

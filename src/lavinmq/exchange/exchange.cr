@@ -16,7 +16,7 @@ module LavinMQ
     include SortableJSON
     include Observable
 
-    Log = LavinMQ::Log.for "exchange"
+    Log = VHost::Log.for "exchange"
 
     getter name, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter? durable, internal, auto_delete

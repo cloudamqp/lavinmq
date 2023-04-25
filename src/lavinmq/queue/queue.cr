@@ -30,7 +30,7 @@ module LavinMQ
     include SortableJSON
     include Logging
 
-    Log = LavinMQ::Log.for "queue"
+    Log = VHost::Log.for "queue"
 
     @durable = false
     @log : Logging::EntityLog
@@ -140,7 +140,7 @@ module LavinMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = RoughTime.monotonic
-      @log = Logging::EntityLog.new(Log, vhost: @vhost.name, queue: @name)
+      @log = @vhost.log.extend(Log, queue: @name)
       @data_dir = make_data_dir
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
