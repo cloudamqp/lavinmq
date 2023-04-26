@@ -22,6 +22,7 @@ module LavinMQ
       DEFAULT_EXPIRES         = nil
       DEFAULT_MSG_TTL         = nil
 
+      @log : Logging::EntityLog
       @q_links = Hash(String, QueueLink).new
       @ex_links = Hash(String, ExchangeLink).new
       @queue : String?
@@ -40,6 +41,7 @@ module LavinMQ
                      consumer_tag = nil)
         @consumer_tag = "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
+        @log = @vhost.log.extend(Log, upstream: @name)
       end
 
       # delete x-federation-upstream exchange on upstream

@@ -3,7 +3,7 @@ require "../version"
 
 module LavinMQ
   class AMQPConnection
-    Log = ::Log.for "AMQPConnection"
+    Log = LavinMQ::Log.for "amqpconnection"
 
     def self.start(socket, connection_info, vhosts, users) : Client?
       remote_address = connection_info.src

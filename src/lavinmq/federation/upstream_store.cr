@@ -6,7 +6,7 @@ module LavinMQ
     class UpstreamStore
       include Enumerable(Upstream)
 
-      Log = LavinMQ::Log.for "federation.upstream_store"
+      Log = Federation::Log.for "upstreamstore"
 
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new

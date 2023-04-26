@@ -5,7 +5,7 @@ require "../logging"
 
 module LavinMQ
   module Shovel
-    Log = ::LavinMQ::Log.for "shovel"
+    Log = VHost::Log.for "shovel"
 
     DEFAULT_ACK_MODE        = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER    = DeleteAfter::Never
