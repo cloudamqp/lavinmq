@@ -17,6 +17,7 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
+    @log_setup = false
 
     def initialize(@config : LavinMQ::Config)
       reload_logger
@@ -82,7 +83,18 @@ module LavinMQ
     end
 
     private def reload_logger
-      log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
+      ::Log.setup_from_env unless @log_setup
+      @log_setup = true
+
+      log_target = "stdout"
+
+      log_file = if path = @config.log_file
+                   log_target = @config.log_file
+                   File.open(path, "a")
+                 else
+                   STDOUT
+                 end
+
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
@@ -95,12 +107,21 @@ module LavinMQ
       in_memory_backend = ::Log::InMemoryBackend.instance
       broadcast_backend.append(in_memory_backend, @config.log_level)
 
-      ::Log.setup(@config.log_level, broadcast_backend)
-      # ::Log.setup do |c|
-      #   c.bind "*", , backend
-      # end
-      target = (path = @config.log_file) ? path : "stdout"
-      Log.info &.emit("logger settings", level: @config.log_level.to_s, target: target)
+      logger = Log.dup
+      ::Log.setup do |builder|
+        logger.info { "Configuring logging:" }
+        if (log_levels = @config.log_levels) && !log_levels.empty?
+          log_levels.try &.each do |(source, level)|
+            logger.info { " #{source} = #{level}" }
+            builder.bind(source, level, broadcast_backend)
+          end
+        else
+          logger.info { " lavinmq.* = #{@config.log_level}" }
+          builder.bind("lavinmq.*", @config.log_level, broadcast_backend)
+        end
+      end
+
+      Log.info { "Logging to #{log_target}" }
     end
 
     private def setup_log_exchange
