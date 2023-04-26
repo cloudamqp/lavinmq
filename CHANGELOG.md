@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2023-04-26
+
 ### Fixed
 
 - Segmentation fault bug with Crystal 1.8 for exchange to exchange binding listing in API
