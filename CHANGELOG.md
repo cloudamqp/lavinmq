@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Segmentation fault bug with Crystal 1.8 for exchange to exchange binding listing in API
+- Consistent login handling in UI (use cookie, not basic auth)
+- Shovel/federation clients now support negotiating frame_max with upstream server
+
+### Changed
+
+- Remove signal handler for SEGV (segmentation fault) in release mode so that a coredump is generated
+- Don't include stat history when listing exchanges
+- UI table refactoring so that multiple tables can have pagination for instance
+- UI keeps trying to load data while server is offline
+
+### Added
+
+- `lavinmqctl definitions <datadir>` to generate definitions json from an existing data dir for emergency recovery
+
 ## [1.1.0] - 2023-04-15
 
 ### Added
