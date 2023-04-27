@@ -94,32 +94,33 @@ module LavinMQ
                    STDOUT
                  end
 
-      broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
-                else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
-                end
+      file_backend = if ENV.has_key?("JOURNAL_STREAM")
+                       ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                     else
+                       ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                     end
+      in_memory_backend = ::Log::InMemoryBackend.new
 
-      broadcast_backend.append(backend, @config.log_level)
+      backend = ::Log::BroadcastBackend.new
+      backend.append(file_backend, :trace)
+      backend.append(in_memory_backend, :trace)
 
-      in_memory_backend = ::Log::InMemoryBackend.instance
-      broadcast_backend.append(in_memory_backend, @config.log_level)
-
+      # Dup since we're using it in the setup block
       logger = Log.dup
       ::Log.setup do |builder|
+        # This bind is a workaround for https://github.com/crystal-lang/crystal/issues/13404
+        builder.bind("*", :trace, ::Log::BroadcastBackend.new)
         logger.info { "Configuring logging:" }
         if (log_levels = @config.log_levels) && !log_levels.empty?
           log_levels.try &.each do |(source, level)|
             logger.info { " #{source} = #{level}" }
-            builder.bind(source, level, broadcast_backend)
+            builder.bind(source, level, backend)
           end
         else
           logger.info { " lavinmq.* = #{@config.log_level}" }
-          builder.bind("lavinmq.*", @config.log_level, broadcast_backend)
+          builder.bind("lavinmq.*", @config.log_level, backend)
         end
       end
-
       Log.info { "Logging to #{log_target}" }
     end
 
