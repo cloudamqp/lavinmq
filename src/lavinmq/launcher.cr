@@ -8,6 +8,9 @@ require "./log_formatter"
 require "./in_memory_backend"
 require "./data_dir_lock"
 
+# Setup from env early so we have a logger
+::Log.setup_from_env(backend: Log::IOBackend.new(formatter: LavinMQ::StdoutLogFormat))
+
 module LavinMQ
   Log = ::Log.for "lavinmq"
 
@@ -83,11 +86,7 @@ module LavinMQ
     end
 
     private def reload_logger
-      ::Log.setup_from_env unless @log_setup
-      @log_setup = true
-
       log_target = "stdout"
-
       log_file = if path = @config.log_file
                    log_target = @config.log_file
                    File.open(path, "a")
