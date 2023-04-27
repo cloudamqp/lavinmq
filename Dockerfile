@@ -1,5 +1,5 @@
 # Base layer
-FROM 84codes/crystal:1.8.1-ubuntu-22.04 AS base
+FROM 84codes/crystal:1.8.0-ubuntu-20.04 AS base
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production
@@ -38,9 +38,9 @@ ARG MAKEFLAGS=-j2
 RUN make all bin/lavinmq-debug
 
 # Resulting image with minimal layers
-FROM ubuntu:22.04
+FROM ubuntu:20.04
 RUN apt-get update && \
-    apt-get install -y libssl3 libevent-2.1-7 libevent-pthreads-2.1-7 ca-certificates && \
+    apt-get install -y libssl1.1 libevent-2.1-7 libevent-pthreads-2.1-7 ca-certificates && \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
 COPY --from=builder /tmp/bin/* /usr/bin/
 EXPOSE 5672 15672
