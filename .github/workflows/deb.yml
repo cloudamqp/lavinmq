@@ -58,6 +58,7 @@ jobs:
         with:
           file: Dockerfile.deb
           platforms: linux/amd64,linux/arm64
+          pull: true
           build-args: |
             build_image=84codes/crystal:1.8.1-${{ matrix.os }}
             version=${{ env.version }}

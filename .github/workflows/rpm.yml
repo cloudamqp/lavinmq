@@ -65,12 +65,12 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_ENV
 
-      # The depot CLI still needs to be available in your workflow
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
           file: Dockerfile.rpm
           platforms: linux/amd64,linux/arm64
+          pull: true
           build-args: |
             build_image=84codes/crystal:1.8.1-${{ matrix.os }}
             version=${{ env.version }}
