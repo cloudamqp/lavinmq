@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2023-04-27
+
+### Fixed
+
+- Seg fault issues with Crystal 1.8.0 and LLVM 12, so this version just rebuild of 1.1.1 using crystal 1.8.1 and LLVM 15
+
 ## [1.1.1] - 2023-04-26
 
 ### Fixed
