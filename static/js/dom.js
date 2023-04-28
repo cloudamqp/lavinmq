@@ -5,11 +5,8 @@ function parseJSON (data) {
     }
     return {}
   } catch (e) {
-    if (e instanceof SyntaxError) {
-      window.alert('Input must be JSON')
-    } else {
-      throw e
-    }
+    if (e instanceof SyntaxError) { window.alert('Input must be JSON') }
+    throw e
   }
 }
 
