@@ -15,12 +15,11 @@ function request (method, path, options = {}) {
   return window.fetch(path, opts)
     .then(response => {
       if (!response.ok) {
+        var error = { status: response.status, reason: response.statusText }
         return response.json()
-          .then(json => { throw new HTTPError(response.status, json.reason) } )
-          .catch(resp => { throw new HTTPError(response.status) } )
-      } else {
-        return response.json().catch(() => null)
-      }
+          .then(json => { error.reason = json.reason })
+          .finally(() => { throw new HTTPError(error.status, error.reason) })
+      } else { return response.json().catch(() => null) }
     })
 }
 
