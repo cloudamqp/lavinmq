@@ -37,12 +37,12 @@ module LavinMQ
         @io << before << @entry.fiber << after
       end
 
-      def data(before = nil, after = nil, seperator = " ")
+      def data(before = nil, after = nil, separator = " ")
         return if @entry.data.empty?
         @io << before
         found = false
         @entry.data.each do |k, v|
-          @io << seperator if found
+          @io << separator if found
           @io << k << "=" << v
           found = true
         end
