@@ -2,6 +2,8 @@ require "../stdlib/log_entry"
 require "./logging/*"
 
 module LavinMQ
+  Log = ::Log.for "lavinmq"
+
   module Logging
     #
     # Wraps a ::Log instance and appends metadata to all

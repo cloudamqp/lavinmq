@@ -13,8 +13,6 @@ require "./logging"
     formatter: LavinMQ::Logging::StdoutLogFormat))
 
 module LavinMQ
-  Log = ::Log.for "lavinmq"
-
   class Launcher
     Log = LavinMQ::Log.for "launcher"
 
