@@ -16,15 +16,3 @@ lib LibC
     SC_PHYS_PAGES = 500
   {% end %}
 end
-
-lib LibC
-  fun pwrite(fd : Int, buf : Void*, n : SizeT, offset : OffT) : SSizeT
-
-  struct IoVec
-    iov_base : Void*
-    iov_len : SizeT
-  end
-
-  fun writev(fd : Int, iovec : IoVec*, n : SizeT) : SSizeT
-  fun readv(fd : Int, iovec : IoVec*, n : SizeT) : SSizeT
-end

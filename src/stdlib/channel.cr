@@ -33,4 +33,34 @@ class Channel(T)
   ensure
     @lock.unlock
   end
+
+  def try_receive : T?
+    @lock.lock
+    state, value = receive_internal
+    case state
+    in .delivered?
+      raise "BUG: Unexpected UseDefault value for delivered receive" if value.is_a?(UseDefault)
+      value
+    in .closed?
+      raise ClosedError.new
+    in .none?
+      nil
+    end
+  ensure
+    @lock.unlock
+  end
+
+  def try_receive? : T?
+    @lock.lock
+    state, value = receive_internal
+    case state
+    in .delivered?
+      raise "BUG: Unexpected UseDefault value for delivered receive" if value.is_a?(UseDefault)
+      value
+    in .none?, .closed?
+      nil
+    end
+  ensure
+    @lock.unlock
+  end
 end

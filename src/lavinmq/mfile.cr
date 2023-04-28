@@ -57,6 +57,10 @@ class MFile < IO
     end
   end
 
+  def inspect(io : IO)
+    io << "#<" << self.class << ": " << "@path=" << @path << " @size=" << @size << ">"
+  end
+
   private def open_fd
     flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
     perms = 0o644

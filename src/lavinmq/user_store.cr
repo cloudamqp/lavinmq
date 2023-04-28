@@ -10,7 +10,7 @@ module LavinMQ
       DIRECT_USER == name
     end
 
-    def initialize(@data_dir : String)
+    def initialize(@data_dir : String, @replicator : Replication::Server)
       @log = Log.for("userstore")
       @users = Hash(String, User).new
       load!
@@ -136,9 +136,11 @@ module LavinMQ
 
     def save!
       @log.debug { "Saving users to file" }
-      tmpfile = File.join(@data_dir, "users.json.tmp")
+      path = File.join(@data_dir, "users.json")
+      tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename tmpfile, File.join(@data_dir, "users.json")
+      File.rename tmpfile, path
+      @replicator.add_file path
     end
   end
 end

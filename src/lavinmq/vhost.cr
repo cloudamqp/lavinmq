@@ -42,18 +42,21 @@ module LavinMQ
     @log : Log
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
+    @definitions_file_path : String
 
-    def initialize(@name : String, @server_data_dir : String, @users : UserStore)
+    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)
-      @definitions_file = File.open(File.join(@data_dir, "definitions.amqp"), "a+")
+      @definitions_file_path = File.join(@data_dir, "definitions.amqp")
+      @definitions_file = File.open(@definitions_file_path, "a+")
+      @replicator.add_file(@definitions_file_path)
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
-      @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
-      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @log)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, @log)
+      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, @log)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
@@ -573,27 +576,23 @@ module LavinMQ
       @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
     end
 
-    private def compact!(include_transient = false)
+    private def compact!
       @definitions_lock.synchronize do
         @log.info { "Compacting definitions" }
-        tmp_path = File.join(@data_dir, "definitions.amqp.tmp")
-        io = File.open(tmp_path, "a+")
+        io = File.open("#{@definitions_file_path}.tmp", "a+")
         SchemaVersion.prefix(io, :definition)
-        @exchanges.each_value do |e|
-          next if !include_transient && !e.durable
+        @exchanges.each_value.select(&.durable).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable, e.auto_delete, e.internal,
             false, AMQP::Table.new(e.arguments))
           io.write_bytes f
         end
-        @queues.each_value do |q|
-          next if !include_transient && !q.durable
+        @queues.each_value.select(&.durable).each do |q|
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable, q.exclusive,
             q.auto_delete, false, AMQP::Table.new(q.arguments))
           io.write_bytes f
         end
-        @exchanges.each_value do |e|
-          next if !include_transient && !e.durable
+        @exchanges.each_value.select(&.durable).each do |e|
           e.queue_bindings.each do |bt, queues|
             args = AMQP::Table.new(bt[1]) || AMQP::Table.new
             queues.each do |q|
@@ -610,7 +609,8 @@ module LavinMQ
           end
         end
         io.fsync
-        File.rename tmp_path, File.join(@data_dir, "definitions.amqp")
+        File.rename io.path, @definitions_file_path
+        @replicator.add_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
       end
@@ -618,7 +618,9 @@ module LavinMQ
 
     private def store_definition(frame)
       @log.debug { "Storing definition: #{frame.inspect}" }
-      @definitions_file.write_bytes frame
+      bytes = frame.to_slice
+      @definitions_file.write bytes
+      @replicator.append @definitions_file_path, bytes
       @definitions_file.fsync
     end
 

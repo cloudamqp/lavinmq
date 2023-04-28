@@ -74,6 +74,26 @@
         <h3>Queue churn</h3>
         <div class="chart-container" id="queueChurnChart"></div>
       </section>
+      <section class="card">
+        <h3>
+          Followers
+          <small id="followers-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="followers-error"></div>
+          <table id="followers" class="table">
+            <thead>
+              <tr>
+                <th>Remote address</th>
+                <th class="right">Sent bytes</th>
+                <th class="right">Acked bytes</th>
+                <th class="right">Lag</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
     </main>
     <% render "footer" %>
   </body>

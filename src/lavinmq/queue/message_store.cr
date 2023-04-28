@@ -2,6 +2,7 @@ require "../mfile"
 require "../segment_position"
 require "log"
 require "file_utils"
+require "../replication/server"
 
 module LavinMQ
   class Queue
@@ -25,12 +26,11 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@data_dir : String)
+      def initialize(@data_dir : String, @replicator : Replication::Server?)
         load_segments_from_disk
         load_deleted_from_disk
         load_stats_from_segments
         delete_unused_segments
-        unmap_segments
         @wfile_id = @segments.last_key
         @wfile = @segments.last_value
         @rfile_id = @segments.first_key
@@ -148,6 +148,7 @@ module LavinMQ
         afile = @acks[sp.segment]
         begin
           afile.write_bytes sp.position
+          @replicator.try &.append(afile.path, sp.position)
 
           # if all msgs in a segment are deleted then delete the segment
           return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -156,8 +157,14 @@ module LavinMQ
           if ack_count == msg_count
             Log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
-            @acks.delete(sp.segment).try &.delete.close
-            @segments.delete(sp.segment).try &.delete.close
+            if a = @acks.delete(sp.segment)
+              a.delete.close
+              @replicator.try &.delete_file(a)
+            end
+            if seg = @segments.delete(sp.segment)
+              seg.delete.close
+              @replicator.try &.delete_file(seg)
+            end
             @segment_msg_count.delete(sp.segment)
             @deleted.delete(sp.segment)
           end
@@ -181,6 +188,8 @@ module LavinMQ
       def delete
         close
         FileUtils.rm_rf @data_dir
+        @segments.each_value { |f| @replicator.try &.delete_file(f) }
+        @acks.each_value { |f| @replicator.try &.delete_file(f) }
       end
 
       def empty?
@@ -210,34 +219,40 @@ module LavinMQ
       private def write_to_disk(msg) : SegmentPosition
         wfile = @wfile
         if wfile.capacity < wfile.size + msg.bytesize
-          wfile.truncate(wfile.size) # won't write more to this, so truncate/unmap the remainder
           wfile = open_new_segment(msg.bytesize)
         end
-        sp = SegmentPosition.make(@wfile_id, wfile.size.to_u32, msg)
+        wfile_id = @wfile_id
+        sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
         wfile.write_bytes msg
-        @segment_msg_count[@wfile_id] += 1
+        fr = Replication::Server::Follower::FileRange.new(wfile, sp.position.to_i32, (wfile.size - sp.position).to_i32)
+        @replicator.try &.append(wfile.path, fr)
+        @segment_msg_count[wfile_id] += 1
         sp
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        @wfile.unmap if @segments.size > 1 # unmap last mfile to save mmap's, if reader is further behind
+        @wfile.truncate(@wfile.size) # won't write more to this, so truncate
         next_id = @wfile_id + 1
         path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
         wfile = MFile.new(path, capacity)
-        SchemaVersion.prefix(wfile, :message)
+        wfile.write_bytes Schema::VERSION
         wfile.pos = 4
+        @replicator.try &.append wfile.path, Schema::VERSION
         @wfile_id = next_id
         @segment_msg_count[next_id] = 0u32
         @acks[next_id] = open_ack_file(next_id, capacity)
         @wfile = @segments[next_id] = wfile
+        unmap_segments
+        wfile
       end
 
       private def open_ack_file(id, segment_capacity) : MFile
         max_msgs_per_segment = segment_capacity // BytesMessage::MIN_BYTESIZE
         capacity = (max_msgs_per_segment + 1) * sizeof(UInt32)
         path = File.join(@data_dir, "acks.#{id.to_s.rjust(10, '0')}")
-        @acks[id] = MFile.new(path, capacity)
+        ack = MFile.new(path, capacity)
+        @acks[id] = ack
       end
 
       private def load_deleted_from_disk
@@ -254,6 +269,7 @@ module LavinMQ
             break
           end
           @deleted[seg] = acked.sort! unless acked.empty?
+          afile.unmap # will be mmap on demand
         end
       end
 
@@ -283,6 +299,7 @@ module LavinMQ
             SchemaVersion.verify(file, :message)
           end
           file.pos = 4
+          @replicator.try &.add_file file
           @segments[seg] = file
           @acks[seg] = open_ack_file(seg, file.capacity)
         end
@@ -314,6 +331,7 @@ module LavinMQ
             raise Error.new(mfile, cause: ex)
           end
           mfile.pos = 4
+          mfile.unmap # will be mmap on demand
           @segment_msg_count[seg] = count
         end
       end
@@ -325,16 +343,29 @@ module LavinMQ
 
           if @segment_msg_count[seg] == @deleted[seg]?.try(&.size)
             Log.info { "Deleting unused segment #{seg}" }
-            @acks.delete(seg).try &.delete.close
+            if ack = @acks.delete(seg)
+              ack.delete.close
+              @replicator.try &.delete_file(ack)
+            end
             mfile.delete.close
+            @replicator.try &.delete_file(mfile)
             true
           end
         end
       end
 
       # Unmap to save mmap's, will be remapped on demand
+      # mfiles should be unmapped as soon as possible
+      # last and first segments are most likley being used, but not if queue is idle
+      # second to first segment might be used too by the replicator, potentially even older
+      # unmap_if_idle/unmap_idle_files
+      # when is a file idle? when a it isn't read from or written to
+      # should avoid unmap and then remap soon again
       private def unmap_segments
-        @segments.values.each &.unmap
+        if @segments.size > 2
+          @segments.each_value.first(@segments.size - 2).skip(1).reject(@rfile).each &.unmap
+          @acks.each_value.first(@acks.size - 2).skip(1).each &.unmap
+        end
       end
 
       private def deleted?(seg, pos) : Bool

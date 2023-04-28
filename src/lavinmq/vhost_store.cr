@@ -7,7 +7,7 @@ module LavinMQ
     include Enumerable({String, VHost})
     @log = Log.for "vhoststore"
 
-    def initialize(@data_dir : String, @users : UserStore)
+    def initialize(@data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -24,7 +24,7 @@ module LavinMQ
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @users)
+      vhost = VHost.new(name, @data_dir, @users, @replicator)
       @log.info { "vhost=#{name} created" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
@@ -62,12 +62,13 @@ module LavinMQ
           JSON.parse(f).as_a.each do |vhost|
             next unless vhost.as_h?
             name = vhost["name"].as_s
-            @vhosts[name] = VHost.new(name, @data_dir, @users)
+            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
         rescue JSON::ParseException
-          @log.warn { "#{path} is not vaild json" }
+          @log.warn { "#{path} is not valid json" }
         end
+        @replicator.add_file(path)
       else
         @log.debug { "Loading default vhosts" }
         create("/")
@@ -77,9 +78,10 @@ module LavinMQ
 
     private def save!
       @log.debug { "Saving vhosts to file" }
-      file = File.join(@data_dir, "vhosts.json")
-      File.open("#{file}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename "#{file}.tmp", file
+      path = File.join(@data_dir, "vhosts.json")
+      File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
+      File.rename "#{path}.tmp", path
+      @replicator.add_file path
     end
   end
 end

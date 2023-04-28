@@ -3,11 +3,12 @@ require "./durable_queue"
 module LavinMQ
   class PriorityQueue < Queue
     private def init_msg_store(data_dir)
-      PriorityMessageStore.new(data_dir)
+      replicator = @durable ? @vhost.@replicator : nil
+      PriorityMessageStore.new(data_dir, replicator)
     end
 
     class PriorityMessageStore < MessageStore
-      def initialize(@data_dir : String)
+      def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
         order_messages
       end

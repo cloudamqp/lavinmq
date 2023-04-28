@@ -247,6 +247,41 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 - TTL of queues and messages are correct to the 0.1 second, not to the millisecond
 - Newlines are not removed from Queue or Exchange names, they are forbidden
 
+## Replication
+
+LavinMQ supports replication between a leader server and one or more followers. All changes on the leader is replicated to followers.
+
+### Replication configuration
+
+A shared secret is used to allow nodes in a cluster to communicate, make sure to that the `.replication_secret` file is the same in all data directores of all nodes.
+
+Then enable the replication listener on the leader:
+
+```ini
+[replication]
+bind = 0.0.0.0
+port = 5679
+```
+
+or start LavinMQ with:
+
+```sh
+lavinmq --data-dir /var/lib/lavinmq --replication-bind 0.0.0.0 --replication-port 5679
+```
+
+Configure the follower(s) to connect to the leader:
+
+```ini
+[replication]
+follow = tcp://hostname:port
+```
+
+or start LavinMQ with:
+
+```sh
+lavinmq --data-dir /var/lib/lavinmq-follower --follow tcp://leader.example.com:5679
+```
+
 ## Contributors
 
 - [Carl Hörberg](mailto:carl@84codes.com)
