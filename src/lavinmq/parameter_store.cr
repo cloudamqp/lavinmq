@@ -5,7 +5,7 @@ module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 
-    def initialize(@data_dir : String, @file_name : String, @log : Log)
+    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Server, @log : Log)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
@@ -64,9 +64,11 @@ module LavinMQ
 
     private def save!
       @log.debug { "Saving #{@file_name}" }
-      tmpfile = File.join(@data_dir, "#{@file_name}.tmp")
+      path = File.join(@data_dir, @file_name)
+      tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
-      File.rename tmpfile, File.join(@data_dir, @file_name)
+      File.rename tmpfile, path
+      @replicator.add_file path
     end
 
     private def load!

@@ -6,9 +6,9 @@ module LavinMQ
 
     Log = ::Log.for("Schema")
 
-    def self.migrate(data_dir)
+    def self.migrate(data_dir, replicator) : Nil
       case v = version(data_dir)
-      when 4 then return
+      when 4
       when nil # before version 4 there was no schema_version file
         backup_dir = backup(data_dir)
         begin
@@ -21,6 +21,7 @@ module LavinMQ
       else
         raise UnsupportedSchemaVersion.new(v, data_dir)
       end
+      replicator.add_file(File.join(data_dir, "schema_version"))
     end
 
     private def self.version(data_dir) : Int32?

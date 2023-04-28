@@ -1,4 +1,5 @@
 require "log"
+require "uri"
 
 module LavinMQ
   class Config
@@ -43,6 +44,9 @@ module LavinMQ
     property? log_exchange : Bool = false
     property free_disk_min : Int64 = 0  # bytes
     property free_disk_warn : Int64 = 0 # bytes
+    property replication_follow : URI? = nil
+    property replication_bind : String? = nil
+    property replication_port = 5679
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -58,12 +62,10 @@ module LavinMQ
       ini = INI.parse(File.read(file))
       ini.each do |section, settings|
         case section
-        when "main"
-          parse_main(settings)
-        when "amqp"
-          parse_amqp(settings)
-        when "mgmt", "http"
-          parse_mgmt(settings)
+        when "main"         then parse_main(settings)
+        when "amqp"         then parse_amqp(settings)
+        when "mgmt", "http" then parse_mgmt(settings)
+        when "replication"  then parse_replication(settings)
         else
           raise "Unrecognized config section: #{section}"
         end
@@ -101,6 +103,18 @@ module LavinMQ
         when "free_disk_warn"       then @free_disk_warn = v.to_i64
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
+        end
+      end
+    end
+
+    private def parse_replication(settings)
+      settings.each do |config, v|
+        case config
+        when "follow" then @replication_follow = URI.parse(v)
+        when "bind"   then @replication_bind = v
+        when "port"   then @replication_port = v.to_i32
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'replication/#{config}'"
         end
       end
     end

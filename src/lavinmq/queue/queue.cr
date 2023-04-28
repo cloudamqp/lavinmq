@@ -148,7 +148,8 @@ module LavinMQ
 
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
-      MessageStore.new(data_dir)
+      replicator = @durable ? @vhost.@replicator : nil
+      MessageStore.new(data_dir, replicator)
     end
 
     private def make_data_dir : String

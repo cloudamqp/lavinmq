@@ -29,27 +29,34 @@ module LavinMQ
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
-      Schema.migrate(@data_dir)
-      @users = UserStore.new(@data_dir)
-      @vhosts = VHostStore.new(@data_dir, @users)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @replicator = Replication::Server.new
+      Schema.migrate(@data_dir, @replicator)
+      @users = UserStore.new(@data_dir, @replicator)
+      @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+    end
+
+    def followers
+      @replicator.followers
     end
 
     def stop
       return if @closed
       @closed = true
       @vhosts.each_value &.close
+      @replicator.clear
       Fiber.yield
     end
 
     def restart
       stop
       Dir.mkdir_p @data_dir
-      @users = UserStore.new(@data_dir)
-      @vhosts = VHostStore.new(@data_dir, @users)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      Schema.migrate(@data_dir, @replicator)
+      @users = UserStore.new(@data_dir, @replicator)
+      @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
       apply_parameter
       @closed = false
       Fiber.yield
@@ -155,12 +162,17 @@ module LavinMQ
       listen(s)
     end
 
+    def listen_replication(bind, port)
+      @replicator.bind(bind, port).listen
+    end
+
     def close
       @closed = true
       @log.debug { "Closing listeners" }
       @listeners.each_key &.close
       @log.debug { "Closing vhosts" }
       @vhosts.close
+      @replicator.close
     end
 
     def add_parameter(parameter : Parameter)

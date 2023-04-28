@@ -16,4 +16,13 @@ LavinMQ::ServerCLI.new(config).parse
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./lavinmq/launcher"
-LavinMQ::Launcher.new(config).run # will block
+require "./lavinmq/replication/client"
+if uri = config.replication_follow
+  begin
+    LavinMQ::Replication::Client.new(config.data_dir).follow(uri)
+  rescue ex : ArgumentError
+    abort ex.message
+  end
+else
+  LavinMQ::Launcher.new(config).run # will block
+end
