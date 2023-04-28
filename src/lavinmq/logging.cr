@@ -1,8 +1,5 @@
-require "log"
-
-struct Log::Entry
-  getter fiber : String? = Fiber.current.name
-end
+require "../stdlib/log_entry"
+require "./logging/*"
 
 module LavinMQ
   module Logging

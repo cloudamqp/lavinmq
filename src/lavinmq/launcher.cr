@@ -4,12 +4,13 @@ require "systemd"
 require "./reporter"
 require "./server"
 require "./http/http_server"
-require "./log_formatter"
-require "./in_memory_backend"
 require "./data_dir_lock"
+require "./logging"
 
 # Setup from env early so we have a logger
-::Log.setup_from_env(backend: Log::IOBackend.new(formatter: LavinMQ::StdoutLogFormat))
+::Log.setup_from_env(
+  backend: Log::IOBackend.new(
+    formatter: LavinMQ::Logging::StdoutLogFormat))
 
 module LavinMQ
   Log = ::Log.for "lavinmq"
@@ -95,11 +96,13 @@ module LavinMQ
                  end
 
       file_backend = if ENV.has_key?("JOURNAL_STREAM")
-                       ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                       ::Log::IOBackend.new(io: log_file,
+                         formatter: Logging::JournalLogFormat)
                      else
-                       ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                       ::Log::IOBackend.new(io: log_file,
+                         formatter: Logging::StdoutLogFormat)
                      end
-      in_memory_backend = ::Log::InMemoryBackend.new
+      in_memory_backend = Logging::InMemoryBackend.instance
 
       backend = ::Log::BroadcastBackend.new
       backend.append(file_backend, :trace)
@@ -126,19 +129,27 @@ module LavinMQ
 
     private def setup_log_exchange
       return unless @config.log_exchange?
+      Log.info { "Log exchange: enabled" }
       exchange_name = "amq.lavinmq.log"
       vhost = @amqp_server.vhosts["/"]
       vhost.declare_exchange(exchange_name, "topic", true, false, true)
       spawn(name: "Log Exchange") do
-        log_channel = ::Log::InMemoryBackend.instance.add_channel
+        log_channel = Logging::InMemoryBackend.instance.add_channel
         while entry = log_channel.receive
-          vhost.publish(msg: Message.new(
+          body = IO::Memory.new(192)
+          Logging::ExchangeLogFormat.new(entry, body).run
+          msg = Message.new(
+            entry.timestamp.to_unix_ms,
             exchange_name,
             entry.severity.to_s,
-            "#{entry.source} - #{entry.message}",
-            AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
-          ))
+            AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain"),
+            body.bytesize.to_u64,
+            body
+          )
+          vhost.publish(msg: msg)
         end
+      ensure
+        Logging::InMemoryBackend.instance.remove_channel(log_channel) if log_channel
       end
     end
 

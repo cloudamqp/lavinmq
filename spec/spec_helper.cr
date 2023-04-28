@@ -1,8 +1,13 @@
 require "spec"
 require "file_utils"
-require "../src/lavinmq/config"
-require "http/client"
 require "amqp-client"
+require "http/client"
+require "socket"
+require "uri"
+require "../src/lavinmq/config"
+require "../src/lavinmq/server"
+require "../src/lavinmq/logging"
+require "../src/lavinmq/http/http_server"
 
 Log.setup_from_env
 

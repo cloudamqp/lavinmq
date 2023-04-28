@@ -1,11 +1,11 @@
 require "../controller"
 require "../../config"
-require "../../in_memory_backend"
+require "../../logging/in_memory_backend"
 
 module LavinMQ
   module HTTP
     class LogsController < Controller
-      LogBackend = ::Log::InMemoryBackend.instance
+      LogBackend = Logging::InMemoryBackend.instance
 
       private def register_routes
         get "/api/livelog" do |context, _params|
