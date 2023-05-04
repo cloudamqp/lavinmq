@@ -28,6 +28,22 @@ describe LavinMQ::Queue do
     end
   end
 
+  it "should delete the queue when the last consumer disconnects" do
+    with_channel do |ch|
+      x = ch.exchange("x", "fanout")
+      q = ch.queue("q", auto_delete: true)
+      q.bind(x.name, q.name)
+      pp "before subscribe"
+      sub = q.subscribe(no_ack: true) { |_| }
+      pp "before unsubscribe"
+      q.unsubscribe(sub)
+      pp "after unsubscribe"
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      system "ls -l #{data_dir}"
+
+    end
+  end
+
   it "Should dead letter messages to it self only if rejected" do
     queue_name = Random::Secure.hex
     with_channel do |ch|
