@@ -350,7 +350,6 @@ module LavinMQ
     end
 
     def delete : Bool
-      pp "deleting"
       return false if @deleted
       @deleted = true
       close
