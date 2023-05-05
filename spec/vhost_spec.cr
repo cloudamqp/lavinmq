@@ -34,6 +34,19 @@ describe LavinMQ::VHost do
     Server.vhosts["test"].queues["q"].should_not be_nil
   end
 
+  it "should be able to declaue queue as paused" do
+    Server.vhosts.create("/")
+    v = Server.vhosts["/"].not_nil!
+    v.declare_queue("q", true, false)
+    data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+    Server.vhosts["/"].queues["q"].pause!
+    File.exists?(File.join(data_dir, ".paused")).should be_true
+    Server.restart
+    Server.vhosts["/"].queues["q"].state.paused?.should be_true
+    Server.vhosts["/"].queues["q"].resume!
+    File.exists?(File.join(data_dir, ".paused")).should be_false
+  end
+
   it "should be able to persist bindings" do
     Server.vhosts.create("test")
     v = Server.vhosts["test"].not_nil!

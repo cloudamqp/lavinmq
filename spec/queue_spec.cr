@@ -60,6 +60,20 @@ describe LavinMQ::Queue do
       end
     end
 
+    it "should be able to declaue queue as paused" do
+      Server.vhosts.create("/")
+      v = Server.vhosts["/"].not_nil!
+      v.declare_queue("q", true, false)
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      Server.vhosts["/"].queues["q"].pause!
+      File.exists?(File.join(data_dir, ".paused")).should be_true
+      Server.restart
+      Server.vhosts["/"].queues["q"].state.paused?.should be_true
+      Server.vhosts["/"].queues["q"].resume!
+      File.exists?(File.join(data_dir, ".paused")).should be_false
+    end
+
+
     it "should paused the queue by setting it in flow (consume)" do
       with_channel do |ch|
         x = ch.exchange(x_name, "direct")
