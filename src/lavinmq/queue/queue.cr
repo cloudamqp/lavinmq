@@ -125,15 +125,17 @@ module LavinMQ
     getter? closed = false
     getter state = QueueState::Running
     getter empty_change : Channel(Bool)
+    @data_dir : String
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)
       @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
-      data_dir = make_data_dir
-      File.write(File.join(data_dir, ".queue"), @name)
-      @msg_store = init_msg_store(data_dir)
+      @data_dir = make_data_dir
+      File.write(File.join(@data_dir, ".queue"), @name)
+      @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
+      @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
@@ -301,6 +303,7 @@ module LavinMQ
       @paused = true
       while @paused_change.try_send? true
       end
+      File.touch(File.join(@data_dir, ".paused"))
     end
 
     def resume!
@@ -310,6 +313,7 @@ module LavinMQ
       @paused = false
       while @paused_change.try_send? false
       end
+      File.delete(File.join(@data_dir, ".paused"))
     end
 
     @queue_expiration_ttl_change = Channel(Nil).new
