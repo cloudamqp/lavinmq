@@ -60,7 +60,7 @@ describe LavinMQ::Queue do
       end
     end
 
-    it "should be able to declaue queue as paused" do
+    it "should be able to declare queue as paused" do
       Server.vhosts.create("/")
       v = Server.vhosts["/"].not_nil!
       v.declare_queue("q", true, false)
