@@ -290,4 +290,16 @@ describe LavinMQ::Queue do
       q[:message_count].should eq 0
     end
   end
+
+  it "should delete queue with auto_delete when the last consumer disconnects" do
+    with_channel do |ch|
+      q = ch.queue("q", auto_delete: true)
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      sub = q.subscribe(no_ack: true) { |_| }
+      Dir.exists?(data_dir).should be_true
+      q.unsubscribe(sub)
+      sleep 0.1
+      Dir.exists?(data_dir).should be_false
+    end
+  end
 end
