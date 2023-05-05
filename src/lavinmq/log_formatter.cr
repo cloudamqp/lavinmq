@@ -3,7 +3,9 @@ require "log"
 module LavinMQ
   struct JournalLogFormat < Log::StaticFormatter
     def run
-      source(after: " ")
+      source
+      context(before: '[', after: ']')
+      string ' '
       message
       exception
     end
@@ -13,8 +15,9 @@ module LavinMQ
     def run
       timestamp
       severity
-      string " "
-      source(after: " ")
+      source(before: ' ')
+      context(before: '[', after: ']')
+      string ' '
       message
       exception
     end
