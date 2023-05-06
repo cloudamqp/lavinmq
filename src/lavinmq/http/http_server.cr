@@ -22,7 +22,7 @@ module LavinMQ
           StaticController.new,
           ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log),
-          BasicAuthHandler.new(@amqp_server, @log),
+          AuthHandler.new(@amqp_server, @log),
           MainController.new(@amqp_server, @log).route_handler,
           DefinitionsController.new(@amqp_server, @log).route_handler,
           ConnectionsController.new(@amqp_server, @log).route_handler,

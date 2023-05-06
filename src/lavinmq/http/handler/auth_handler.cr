@@ -3,7 +3,7 @@ require "base64"
 
 module LavinMQ
   module HTTP
-    class BasicAuthHandler
+    class AuthHandler
       include ::HTTP::Handler
 
       def initialize(@server : LavinMQ::Server, @log : Log)
