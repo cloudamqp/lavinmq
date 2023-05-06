@@ -138,7 +138,9 @@ module LavinMQ
       @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      if queue_expiration_ttl
+        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      end
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
     end
 
