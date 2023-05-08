@@ -58,6 +58,7 @@ module LavinMQ
 
     private def queue_expire_loop
       loop do
+        break unless @expires
         if @consumers.empty? && (ttl = queue_expiration_ttl)
           @log.debug { "Queue expires in #{ttl}" }
           select
@@ -138,9 +139,7 @@ module LavinMQ
       @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
       handle_arguments
-      if queue_expiration_ttl
-        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
-      end
+      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
     end
 
@@ -208,6 +207,7 @@ module LavinMQ
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
             @last_get_time = RoughTime.monotonic
+            spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
             @queue_expiration_ttl_change.try_send? nil
           end
         when "overflow"
