@@ -203,6 +203,26 @@ describe LavinMQ::Server do
     end
   end
 
+  it "expires messages with TTL on requeue" do
+    with_channel do |ch|
+      args = AMQP::Client::Arguments.new
+      args["x-message-ttl"] = 500
+      args["x-dead-letter-exchange"] = ""
+      args["x-dead-letter-routing-key"] = "dlq"
+
+      q = ch.queue("ttl", args: args)
+      dlq = ch.queue("dlq")
+
+      q.publish_confirm "requeue msg"
+      msg = q.get(no_ack: false).not_nil!
+      msg.reject(requeue: true)
+
+      msg = wait_for { dlq.get(no_ack: true) }
+      msg.not_nil!.body_io.to_s.should eq("requeue msg")
+      Server.vhosts["/"].queues["ttl"].empty?.should be_true
+    end
+  end
+
   it "dead-letter expired messages" do
     with_channel do |ch|
       dlq = ch.queue
