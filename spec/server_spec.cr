@@ -223,6 +223,27 @@ describe LavinMQ::Server do
     end
   end
 
+  it "can publish and consume messages larger than 128kb" do
+    lmsg = "a" * 5_00_000
+    spawn do
+      with_channel do |ch|
+        q = ch.queue "lmsg_q"
+        q.publish_confirm lmsg
+      end
+    end
+
+    spawn do
+      with_channel do |ch|
+        q = ch.queue "lmsg_q"
+        q.subscribe(no_ack: true, block: true) do |msg|
+          msg.should_not be_nil
+          msg.body_io.to_s.should eq(lmsg)
+        end
+      end
+    end
+    sleep 0.1
+  end 
+
   it "dead-letter expired messages" do
     with_channel do |ch|
       dlq = ch.queue
