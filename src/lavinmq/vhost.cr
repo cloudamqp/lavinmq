@@ -41,7 +41,6 @@ module LavinMQ
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
-    @segment_id : UInt32
     @last_activity = Time.utc
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore)
