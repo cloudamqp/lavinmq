@@ -91,10 +91,13 @@ module LavinMQ
       end
     end
 
+    def p_update
+      pp @connections.size
+    end
+
     def update_no_activity_since
-      #when a connection is clused, check if it was the last connection on the vhost
-      #update value if connections.empty?
-      @no_activity_since = Time.utc unless @connections.empty?
+      @no_activity_since = nil if !@connections.empty?
+      @no_activity_since = Time.utc unless !@connections.empty?
     end
 
     def inspect(io : IO)
@@ -247,7 +250,7 @@ module LavinMQ
         dir:           @dir,
         tracing:       false,
         cluster_state: NamedTuple.new,
-        last_activity: @last_activity,
+        no_activity_since: @no_activity_since,
       }
     end
 
@@ -438,6 +441,7 @@ module LavinMQ
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
       @connections << client
+      update_no_activity_since
     end
 
     def rm_connection(client : Client)
