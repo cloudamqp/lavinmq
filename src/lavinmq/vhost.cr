@@ -41,7 +41,7 @@ module LavinMQ
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
-    @last_activity = Time.utc
+    @no_activity_since = Time.utc
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore)
       @log = Log.for "vhost[name=#{@name}]"
@@ -91,8 +91,10 @@ module LavinMQ
       end
     end
 
-    def update_last_activity
-      @last_activity = Time.utc unless @connections.empty?
+    def update_no_activity_since
+      #when a connection is clused, check if it was the last connection on the vhost
+      #update value if connections.empty?
+      @no_activity_since = Time.utc unless @connections.empty?
     end
 
     def inspect(io : IO)
@@ -441,6 +443,7 @@ module LavinMQ
     def rm_connection(client : Client)
       event_tick(EventType::ConnectionClosed)
       @connections.delete client
+      update_no_activity_since
     end
 
     SHOVEL                  = "shovel"
