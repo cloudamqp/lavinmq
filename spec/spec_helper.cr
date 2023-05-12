@@ -103,6 +103,17 @@ def start_http_server
   h
 end
 
+# Helper function for creating a queue with ttl and an associated dlq
+def create_ttl_and_dl_queues(channel, queue_ttl = 1)
+    args = AMQP::Client::Arguments.new
+    args["x-message-ttl"] = queue_ttl
+    args["x-dead-letter-exchange"] = ""
+    args["x-dead-letter-routing-key"] = "dlq"
+    q = channel.queue("ttl", args: args)
+    dlq = channel.queue("dlq")
+    {q, dlq}
+end
+
 def get(path, headers = nil)
   HTTP::Client.get("#{BASE_URL}#{path}", headers: test_headers(headers))
 end
