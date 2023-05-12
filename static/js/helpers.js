@@ -52,19 +52,21 @@ function duration (seconds) {
 }
 
 function argumentHelper (formID, name, e) {
-  const key = e.target.getAttribute('data-tag')
+  const key = e.target.dataset.tag
   const form = document.getElementById(formID)
-  const currentValue = form.elements[name].value
+  const currentValue = form.elements[name].value.split(/,+\s*/).map(s => s.trim()).filter(s => s.length > 0)
   if (key && !currentValue.includes(key)) {
-    form.elements[name].value = currentValue ? currentValue + ', ' + key : key
+    currentValue.push(key)
+    form.elements[name].value = currentValue.join(', ')
   } else if (key === '') {
-    form.elements[name].value = ''
+    const defaultValue = e.target.datalist ? e.target.datalist.value : ''
+    form.elements[name].value = defaultValue
   }
 }
 
 function argumentHelperJSON (formID, name, e) {
-  const key = e.target.getAttribute('data-tag')
-  const value = e.target.getAttribute('value') || 'value'
+  const key = e.target.dataset.tag
+  const value = JSON.parse(e.target.dataset.value || '')
   const form = document.getElementById(formID)
   try {
     let currentValue = form.elements[name].value.trim()

@@ -44,7 +44,7 @@ describe LavinMQ::Queue do
   describe "Paused" do
     x_name = "paused"
     q_name = "paused"
-    it "should paused the queue by setting it in flow (get)" do
+    it "should pause the queue by setting it in flow (get)" do
       with_channel do |ch|
         x = ch.exchange(x_name, "direct")
         q = ch.queue(q_name)
@@ -60,7 +60,20 @@ describe LavinMQ::Queue do
       end
     end
 
-    it "should paused the queue by setting it in flow (consume)" do
+    it "should be able to declare queue as paused" do
+      Server.vhosts.create("/")
+      v = Server.vhosts["/"].not_nil!
+      v.declare_queue("q", true, false)
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      Server.vhosts["/"].queues["q"].pause!
+      File.exists?(File.join(data_dir, ".paused")).should be_true
+      Server.restart
+      Server.vhosts["/"].queues["q"].state.paused?.should be_true
+      Server.vhosts["/"].queues["q"].resume!
+      File.exists?(File.join(data_dir, ".paused")).should be_false
+    end
+
+    it "should pause the queue by setting it in flow (consume)" do
       with_channel do |ch|
         x = ch.exchange(x_name, "direct")
         q = ch.queue(q_name)
@@ -288,6 +301,18 @@ describe LavinMQ::Queue do
       q[:message_count].should eq 0
       q = ch.queue_declare "transient", passive: true
       q[:message_count].should eq 0
+    end
+  end
+
+  it "should delete queue with auto_delete when the last consumer disconnects" do
+    with_channel do |ch|
+      q = ch.queue("q", auto_delete: true)
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      sub = q.subscribe(no_ack: true) { |_| }
+      Dir.exists?(data_dir).should be_true
+      q.unsubscribe(sub)
+      sleep 0.1
+      Dir.exists?(data_dir).should be_false
     end
   end
 end

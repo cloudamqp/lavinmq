@@ -20,9 +20,10 @@ module LavinMQ
           AMQPWebsocket.new(@amqp_server),
           ViewsController.new.route_handler,
           StaticController.new,
-          ApiDefaultsHandler.new,
           ApiErrorHandler.new(@log),
-          BasicAuthHandler.new(@amqp_server, @log),
+          AuthHandler.new(@amqp_server, @log),
+          PrometheusController.new(@amqp_server, @log).route_handler,
+          ApiDefaultsHandler.new,
           MainController.new(@amqp_server, @log).route_handler,
           DefinitionsController.new(@amqp_server, @log).route_handler,
           ConnectionsController.new(@amqp_server, @log).route_handler,
@@ -37,7 +38,6 @@ module LavinMQ
           PermissionsController.new(@amqp_server, @log).route_handler,
           ParametersController.new(@amqp_server, @log).route_handler,
           NodesController.new(@amqp_server, @log).route_handler,
-          PrometheusController.new(@amqp_server, @log).route_handler,
           LogsController.new(@amqp_server, @log).route_handler,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(@log)) if @log.level == Log::Severity::Debug

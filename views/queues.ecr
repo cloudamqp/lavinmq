@@ -63,19 +63,19 @@
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
-            <a class="arg-tooltip" data-tag="x-expires">Auto Expire
+            <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire
               <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-max-length">Max Length
+            <a class="arg-tooltip" data-tag="x-max-length" data-value="0">Max Length
               <span class="tooltiptext">How many (ready) messages a queue can contain before it starts to drop them from
                 its head.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-message-ttl">Message TTL
+            <a class="arg-tooltip" data-tag="x-message-ttl" data-value="0">Message TTL
               <span class="tooltiptext">How long a message published to a queue can live before it is discarded
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-delivery-limit">Delivery limit
+            <a class="arg-tooltip" data-tag="x-delivery-limit" data-value="0">Delivery limit
               <span class="tooltiptext">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
             </a> |
@@ -91,7 +91,7 @@
               <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
                 set, the message's original routing key will be used.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-max-priority">Max Priority
+            <a class="arg-tooltip" data-tag="x-max-priority" data-value="0">Max Priority
               <span class="tooltiptext">Make the queue a priority queue, with a fixed level of different priorities (max 255)</span>
             </a>
           </div>

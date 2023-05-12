@@ -17,7 +17,7 @@ module LavinMQ
                      NamedTuple(name: String, value: MetricValue, help: String, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, type: String, help: String, labels: MetricLabels)
 
-      getter :prefix
+      getter prefix
 
       def initialize(@io : IO, @prefix : String)
       end
@@ -62,6 +62,7 @@ module LavinMQ
 
       private def register_routes
         get "/metrics" do |context, _|
+          context.response.content_type = "text/plain"
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
           vhosts = target_vhosts(context)
@@ -75,6 +76,7 @@ module LavinMQ
         end
 
         get "/metrics/detailed" do |context, _|
+          context.response.content_type = "text/plain"
           prefix = context.request.query_params["prefix"]? || "lavinmq"
           bad_request(context, "prefix to long") if prefix.size > 20
           families = context.request.query_params.fetch_all("family")

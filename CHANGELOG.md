@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Don't include stat history when listing exchanges
 - UI table refactoring so that multiple tables can have pagination for instance
 - UI keeps trying to load data while server is offline
+- Paused queues will no longer resume on restart, instead they will stay paused untill manually resumed [#511](https://github.com/cloudamqp/lavinmq/pull/511)
 
 ### Added
 
