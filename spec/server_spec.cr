@@ -209,14 +209,11 @@ describe LavinMQ::Server do
       args["x-message-ttl"] = 500
       args["x-dead-letter-exchange"] = ""
       args["x-dead-letter-routing-key"] = "dlq"
-
       q = ch.queue("ttl", args: args)
       dlq = ch.queue("dlq")
-
       q.publish_confirm "requeue msg"
       msg = q.get(no_ack: false).not_nil!
       msg.reject(requeue: true)
-
       msg = wait_for { dlq.get(no_ack: true) }
       msg.not_nil!.body_io.to_s.should eq("requeue msg")
       Server.vhosts["/"].queues["ttl"].empty?.should be_true
@@ -225,23 +222,17 @@ describe LavinMQ::Server do
 
   it "can publish and consume messages larger than 128kb" do
     lmsg = "a" * 5_00_000
-    spawn do
-      with_channel do |ch|
-        q = ch.queue "lmsg_q"
-        q.publish_confirm lmsg
+    with_channel do |ch|
+      q = ch.queue "lmsg_q"
+      q.publish_confirm lmsg
+    end
+    with_channel do |ch|
+      q = ch.queue "lmsg_q"
+      q.subscribe(no_ack: true) do |msg|
+        msg.should_not be_nil
+        msg.body_io.to_s.should eq(lmsg)
       end
     end
-
-    spawn do
-      with_channel do |ch|
-        q = ch.queue "lmsg_q"
-        q.subscribe(no_ack: true, block: true) do |msg|
-          msg.should_not be_nil
-          msg.body_io.to_s.should eq(lmsg)
-        end
-      end
-    end
-    sleep 0.1
   end 
 
   it "dead-letter expired messages" do
