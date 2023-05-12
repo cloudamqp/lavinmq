@@ -235,6 +235,19 @@ describe LavinMQ::Server do
     end
   end 
 
+  it "does not requeue messages on consumer close" do
+    with_channel do |ch|
+      q = ch.queue "msg_q"
+      q.publish_confirm "no requeue"
+      consumed = 0
+      tag = q.subscribe(no_ack: false) { |msg| consumed += 1 }
+      sleep 0.05
+      q.unsubscribe(tag)
+      sleep 0.05
+      Server.vhosts["/"].queues["msg_q"].empty?.should be_true
+    end
+  end 
+
   it "dead-letter expired messages" do
     with_channel do |ch|
       dlq = ch.queue
