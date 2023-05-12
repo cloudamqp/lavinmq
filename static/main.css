@@ -1027,6 +1027,7 @@ fieldset.inline {
 .prop-tooltip .prop-tooltiptext {
   margin-left: -65px;
   width: 200px;
+  margin-bottom: 5px;
 }
 
 .arg-tooltip:hover .tooltiptext, .prop-tooltip:hover .prop-tooltiptext {
