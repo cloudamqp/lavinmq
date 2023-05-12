@@ -44,7 +44,7 @@ describe LavinMQ::Queue do
   describe "Paused" do
     x_name = "paused"
     q_name = "paused"
-    it "should paused the queue by setting it in flow (get)" do
+    it "should pause the queue by setting it in flow (get)" do
       with_channel do |ch|
         x = ch.exchange(x_name, "direct")
         q = ch.queue(q_name)
@@ -73,8 +73,7 @@ describe LavinMQ::Queue do
       File.exists?(File.join(data_dir, ".paused")).should be_false
     end
 
-
-    it "should paused the queue by setting it in flow (consume)" do
+    it "should pause the queue by setting it in flow (consume)" do
       with_channel do |ch|
         x = ch.exchange(x_name, "direct")
         q = ch.queue(q_name)
