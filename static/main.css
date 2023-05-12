@@ -1030,6 +1030,7 @@ fieldset.inline {
 }
 
 .arg-tooltip:hover .tooltiptext, .prop-tooltip:hover .prop-tooltiptext {
+  transition-delay: 0.3s;
   visibility: visible;
   pointer-events: none;
 }
