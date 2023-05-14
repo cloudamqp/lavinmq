@@ -206,6 +206,11 @@ When `Client#read_loop` receives a Basic.Consume frame it will create a `Consume
 the queue's list of consumers. Each consumer has a `deliver_loop` fiber that will be notified
 by an internal `Channel` when new messages are available in the queue.
 
+## Getting help
+For questions or suggestions:
+- We are on [Slack](lavinmq.slack.com). 
+- You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
+
 ## Features
 
 - AMQP 0-9-1 compatible
