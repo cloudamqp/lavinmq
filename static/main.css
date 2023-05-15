@@ -1002,18 +1002,17 @@ fieldset.inline {
   right: 5px;
 }
 
-.arg-tooltip {
+.arg-tooltip, .prop-tooltip {
   position: relative;
   display: inline-block;
 }
 
-.arg-tooltip .tooltiptext {
+.arg-tooltip .tooltiptext, .prop-tooltip .prop-tooltiptext {
   visibility: hidden;
   width: 150px;
   background-color: rgba(0, 0, 0, 0.8);
   color: #fff;
-  text-align: center;
-  padding: 5px 2px;
+  padding: 10px 10px;
   border-radius: 6px;
 
   width: 150px;
@@ -1025,8 +1024,16 @@ fieldset.inline {
   white-space: normal;
 }
 
-.arg-tooltip:hover .tooltiptext {
+.prop-tooltip .prop-tooltiptext {
+  margin-left: -65px;
+  width: 200px;
+  margin-bottom: 5px;
+}
+
+.arg-tooltip:hover .tooltiptext, .prop-tooltip:hover .prop-tooltiptext {
+  transition-delay: 0.3s;
   visibility: visible;
+  pointer-events: none;
 }
 
 pre.arguments > div {

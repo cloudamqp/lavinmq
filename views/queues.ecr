@@ -52,11 +52,21 @@
           <input type="text" name="name" required>
         </label>
         <label>
-          <span>Durable</span>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Durable
+          <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
+          ensuring their availability and preventing data loss.</span>
+          </a>
+          </span>
           <input type="checkbox" name="durable" value="1">
         </label>
         <label>
-          <span>Auto-delete</span>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
+          <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
+          last consumer disconnects, freeing up system resources.</span>
+          </a>
+          </span>
           <input type="checkbox" name="auto_delete" value="1">
         </label>
         <label>
