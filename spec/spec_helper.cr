@@ -86,11 +86,9 @@ end
 def start_amqp_server
   s = LavinMQ::Server.new(DATA_DIR)
   spawn { s.listen(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqp_port) }
-  cert = Dir.current + "/spec/resources/server_certificate.pem"
-  key = Dir.current + "/spec/resources/server_key.pem"
   ctx = OpenSSL::SSL::Context::Server.new
-  ctx.certificate_chain = cert
-  ctx.private_key = key
+  ctx.certificate_chain = "spec/resources/server_certificate.pem"
+  ctx.private_key = "spec/resources/server_key.pem"
   spawn { s.listen_tls(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqps_port, ctx) }
   s
 end
