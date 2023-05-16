@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Improve RAM usage by only spawning queue_expiration loop when it's needed
+- Better handling of JSON arguments in UI [#513](https://github.com/cloudamqp/lavinmq/pull/513)
+
 ## [1.1.2] - 2023-04-27
 
 ### Fixed
