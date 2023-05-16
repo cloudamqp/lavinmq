@@ -5,7 +5,7 @@ Right now, you can contribute to LavinMQ in one of two ways:
 2. [Non-code contributions](#non-code-contributions)
 
 ## Code contributions
-The first step to making a code contribution, is starting a conversation around what you'd like to work on. You can start a cconversation around an existing [issue](https://github.com/cloudamqp/lavinmq/issues) or a new one that you've created - refer to [reporting an issue](#report-an-issue). Next:
+The first step to making a code contribution, is starting a conversation around what you'd like to work on. You can start a conversation around an existing [issue](https://github.com/cloudamqp/lavinmq/issues) or a new one that you've created - refer to [reporting an issue](#report-an-issue). Next:
 
 1. Fork, create feature branch
 1. Build with `make -j`
@@ -29,7 +29,7 @@ Your schedule won't allow you make code contributions? Still fine, you can:
 
 ### [Report an issue](https://github.com/cloudamqp/lavinmq/issues/new)
 - This could be an easily reproducible bug or even a feature request.
-- If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](lavinmq.slack.com). This would allow us to interactively figure out what is going on. 
+- If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). This would allow us to interactively figure out what is going on. 
 
 ### [Give us some feedback](https://github.com/cloudamqp/lavinmq/issues/new)
 We are also curious and happy to hear about your experience with LavinMQ. You can email us via contact@cloudamqp.com or reach us on Slack. Not sure what to write to us?
