@@ -47,5 +47,6 @@ EXPOSE 5672 15672
 VOLUME /var/lib/lavinmq
 WORKDIR /var/lib/lavinmq
 ENV GC_UNMAP_THRESHOLD=1
+ENV CRYSTAL_LOAD_DEBUG_INFO=1
 HEALTHCHECK CMD ["/usr/bin/lavinmqctl", "status"]
 ENTRYPOINT ["/usr/bin/lavinmq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
