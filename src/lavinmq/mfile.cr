@@ -205,10 +205,12 @@ class MFile < IO
   end
 
   def to_slice
+    raise IO::Error.new("MFile closed") if @closed
     Bytes.new(buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
+    raise IO::Error.new("MFile closed") if @closed
     raise IO::EOFError.new if pos + size > @size
     Bytes.new(buffer + pos, size, read_only: true)
   end
