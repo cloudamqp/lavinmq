@@ -918,6 +918,7 @@ describe LavinMQ::Server do
     server.stats_system_collection_duration_seconds.should_not eq Time::Span.zero
   ensure
     LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
+    server.try &.close
   end
 
   it "should requeue messages correctly on channel close" do
