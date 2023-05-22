@@ -27,6 +27,8 @@ module LavinMQ
 
       OVERVIEW_STATS = {"ack", "deliver", "get", "publish", "confirm", "redeliver", "reject"}
       EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
+      CHURN_STATS    = {"connection_created", "connection_closed", "channel_created", "channel_closed",
+                        "queue_declared", "queue_deleted"}
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -41,6 +43,10 @@ module LavinMQ
           {{name.id}}_count = 0_u64
           {{name.id}}_rate = 0_f64
           {{name.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {% end %}
+          {% for name in CHURN_STATS %}
+          {{name.id}} = 0_u64
+          {{name.id}}_rate = 0_f64
           {% end %}
 
           vhosts(user(context)).each do |vhost|
@@ -67,6 +73,10 @@ module LavinMQ
               {{sm.id}}_count += vhost_stats_details[:{{sm.id}}]
               {{sm.id}}_rate += vhost_stats_details[:{{sm.id}}_details][:rate]
               add_logs!({{sm.id}}_log, vhost_stats_details[:{{sm.id}}_details][:log])
+            {% end %}
+            {% for sm in CHURN_STATS %}
+            {{sm.id}} += vhost.stats_details[:{{sm.id}}]
+            {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
             {% end %}
           end
           {
@@ -102,6 +112,13 @@ module LavinMQ
               {{name.id}}_details: {
                 rate: {{name.id}}_rate,
                 log: {{name.id}}_log,
+              },
+            {% end %} } {% end %},
+            churn_rates: {% begin %} {
+              {% for name in CHURN_STATS %}
+              {{name.id}}: {{name.id}},
+              {{name.id}}_details: {
+                rate: {{name.id}}_rate
               },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
