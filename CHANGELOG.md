@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2023-05-22
+
 ### Added
 
 - Added churn_rates to /api/overview call [#517](https://github.com/cloudamqp/lavinmq/pull/517)
