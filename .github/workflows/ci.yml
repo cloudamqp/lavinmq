@@ -143,13 +143,10 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.34.0-jammy
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-
-      - name: Install playwright/test
-        run: npm install -g '@playwright/test'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make libevent-2.1-7
 
       - uses: actions/download-artifact@v3
         with:
@@ -160,6 +157,11 @@ jobs:
         run: |
           chmod +x bin/*
           bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
+
+      - uses: actions/checkout@v3
+
+      - name: Install playwright/test
+        run: npm install -g '@playwright/test'
 
       - name: Run your tests
         run: npx playwright test
