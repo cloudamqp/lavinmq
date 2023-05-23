@@ -15,17 +15,17 @@ on:
     branches:
       - main
       - add-playwright-for-frontend-spec
-    paths:
-      - Makefile
-      - 'src/**'
-      - 'spec/**'
-      - 'playwright.config.js'
-      - 'shard.*'
-      - 'static/**'
-      - 'views/**'
-      - '.github/workflows/ci.yml'
-      - 'build/build_docs_in_ci'
-      - 'openapi/**'
+        #    paths:
+        #      - Makefile
+        #      - 'src/**'
+        #      - 'spec/**'
+        #      - 'playwright.config.js'
+        #      - 'shard.*'
+        #      - 'static/**'
+        #      - 'views/**'
+        #      - '.github/workflows/ci.yml'
+        #      - 'build/build_docs_in_ci'
+        #      - 'openapi/**'
 
 jobs:
   format:
