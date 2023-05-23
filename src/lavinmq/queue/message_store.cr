@@ -308,8 +308,10 @@ module LavinMQ
               @size += 1
             end
           rescue ex : IO::EOFError
-            Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
-            mfile.truncate(mfile.pos)
+            if  mfile.pos < mfile.size
+              Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
+              mfile.truncate(mfile.pos)
+            end
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             raise Error.new(mfile, cause: ex)
