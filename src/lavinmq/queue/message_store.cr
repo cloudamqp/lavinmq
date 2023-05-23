@@ -308,7 +308,7 @@ module LavinMQ
               @size += 1
             end
           rescue ex : IO::EOFError
-            if  mfile.pos < mfile.size
+            if mfile.pos < mfile.size
               Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
               mfile.truncate(mfile.pos)
             end
