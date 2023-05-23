@@ -143,8 +143,8 @@ jobs:
     steps:
       - name: Install LavinMQ dependencies
         run: |
-          apt-get update
-          apt-get install -y make libevent-2.1-7 openssl
+          sudo apt-get update
+          sudo apt-get install -y make libevent-2.1-7 openssl
 
       - uses: actions/download-artifact@v3
         with:
