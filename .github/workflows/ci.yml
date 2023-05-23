@@ -161,11 +161,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install browsers
-        run: npx playwright install --with-deps
-
       - name: Install @playwright/test
         run: npm install @playwright/test
+
+      - name: Install browsers
+        run: npx playwright install --with-deps
 
       - name: Run your tests
         run: npx playwright test
