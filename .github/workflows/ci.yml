@@ -1,5 +1,7 @@
 name: CI
 on:
+  # Temporary while adding playwright
+  push
   pull_request:
     paths:
       - Makefile
