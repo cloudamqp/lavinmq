@@ -148,8 +148,8 @@ jobs:
         with:
           node-version: 18
 
-            #      - name: Install dependencies
-            #        run: npm ci
+      - name: Install playwright/test
+        run: npm install -g '@playwright/test'
 
       - uses: actions/download-artifact@v3
         with:
