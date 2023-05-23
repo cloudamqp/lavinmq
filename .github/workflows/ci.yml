@@ -1,8 +1,5 @@
 name: CI
 on:
-  push:
-    branches:
-      - add-playwright-for-frontend-spec
   pull_request:
     paths:
       - Makefile
@@ -17,10 +14,12 @@ on:
   push:
     branches:
       - main
+      - add-playwright-for-frontend-spec
     paths:
       - Makefile
       - 'src/**'
       - 'spec/**'
+      - 'playwright.config.js'
       - 'shard.*'
       - 'static/**'
       - 'views/**'
@@ -149,6 +148,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: 18
+
       - name: Install dependencies
         run: npm ci
 
