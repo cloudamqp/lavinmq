@@ -137,11 +137,11 @@ jobs:
 
   spec_frontend:
     name: Fronted specs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     needs: compile
     continue-on-error: true
     container:
-      image: mcr.microsoft.com/playwright:v1.34.0-jammy
+      image: mcr.microsoft.com/playwright:next-focal
     steps:
       - name: Install dependencies
         run: |
