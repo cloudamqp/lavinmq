@@ -1,7 +1,8 @@
 name: CI
 on:
   # Temporary while adding playwright
-  push
+  push:
+    branches: add-playwright-for-frontend-spec
   pull_request:
     paths:
       - Makefile
