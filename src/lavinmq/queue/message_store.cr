@@ -296,7 +296,10 @@ module LavinMQ
             pos = mfile.pos
             raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
             ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
-            raise IO::EOFError.new if ts.zero? # This means that the rest of the file is zero, so truncate it
+            if ts.zero? # This means that the rest of the file is zero, so resize it
+              mfile.resize(mfile.pos)
+              break
+            end
 
             bytesize = BytesMessage.skip(mfile)
             count += 1
@@ -305,6 +308,8 @@ module LavinMQ
               @size += 1
             end
           rescue ex : IO::EOFError
+            Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
+            mfile.truncate(mfile.pos)
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             raise Error.new(mfile, cause: ex)
