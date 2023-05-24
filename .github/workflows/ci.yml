@@ -168,7 +168,7 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run your tests
-        run: npx playwright test
+        run: npx playwright test --reporter=list
 
   java-client-test:
     name: RabbitMQ java client test
