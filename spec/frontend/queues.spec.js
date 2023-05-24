@@ -61,7 +61,30 @@ test.describe("queues", _ => {
     })
   })
 
-  //
+  test.describe('sorting', _ => {
+    const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
+    const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
+
+    test('updates url when a table header is clicked', async ({ page }) => {
+      const apiQueuesRequest = waitForPathRequest(page, '/api/queues', queues_response)
+      await page.goto('/queues')
+      await apiQueuesRequest
+      await page.locator('#table thead').getByText('Name').click()
+      await expect(page).toHaveURL(/sort=name/)
+    })
+
+    test('is reversed when click on the same header', async ({ page }) => {
+      const apiQueuesRequest = waitForPathRequest(page, '/api/queues', queues_response)
+      await page.goto('/queues')
+      await apiQueuesRequest
+      await page.locator('#table thead').getByText('Name').click()
+      await expect(page).toHaveURL(/sort=name/)
+      const sort_reverse = (new URL(page.url())).searchParams.get('sort_reverse') == 'true'
+      await page.locator('#table thead').getByText('Name').click()
+      await expect(page).toHaveURL(new RegExp(`sort_reverse=${!sort_reverse}`))
+    })
+  })
+
   test.describe('pagination', _ => {
     const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
     const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
