@@ -139,14 +139,14 @@ jobs:
     name: Fronted specs
     runs-on: ubuntu-latest
     needs: compile
-    continue-on-error: true
     steps:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y make libevent-2.1-7
 
-      - uses: actions/download-artifact@v3
+      - name: Download lavinmq
+        uses: actions/download-artifact@v3
         with:
           name: bin
           path: bin
@@ -167,7 +167,7 @@ jobs:
       - name: Install browsers
         run: npx playwright install --with-deps
 
-      - name: Run your tests
+      - name: Run tests
         run: npx playwright test --reporter=list
 
   java-client-test:
