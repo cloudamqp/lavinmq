@@ -296,10 +296,7 @@ module LavinMQ
             pos = mfile.pos
             raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
             ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
-            if ts.zero? # This means that the rest of the file is zero, so resize it
-              mfile.resize(mfile.pos)
-              break
-            end
+            break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
 
             bytesize = BytesMessage.skip(mfile)
             count += 1
