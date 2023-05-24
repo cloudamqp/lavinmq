@@ -82,4 +82,13 @@ test.describe("queues", _ => {
     })
   })
 
+  test.describe('search', _ => {
+    test('updates url when value is entered and Enter is hit', async ({ page })=> {
+      await page.goto('/queues')
+      const searchField = page.locator('.filter-table')
+      await searchField.fill('my filter')
+      await searchField.press('Enter')
+      await expect(page).toHaveURL(/name=my(\+|%20)filter/)
+    })
+  })
 })
