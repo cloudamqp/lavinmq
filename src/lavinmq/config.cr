@@ -41,6 +41,7 @@ module LavinMQ
     property? guest_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
     property? log_exchange : Bool = false
+    property roughtime_timer : Float64 = 0.1
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -95,6 +96,7 @@ module LavinMQ
         when "tls_min_version"      then @tls_min_version = v
         when "guest_only_loopback"  then @guest_only_loopback = true?(v)
         when "log_exchange"         then @log_exchange = true?(v)
+        when "roughtime_timer"      then @roughtime_timer = v.to_f
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end

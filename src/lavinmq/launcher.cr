@@ -28,6 +28,7 @@ module LavinMQ
       reload_tls_context
       setup_signal_traps
       setup_log_exchange
+      RoughTime.update_timer(@config.roughtime_timer)
     end
 
     def run

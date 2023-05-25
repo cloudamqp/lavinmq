@@ -39,6 +39,9 @@ module LavinMQ
         parser.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
           config.http_unix_path = v
         end
+        parser.on("--roughtime-timer=TIME", "Time in seconds for RoughTime updates") do |v|
+          config.roughtime_timer = v.to_f
+        end
         parser.on("--cert FILE", "TLS certificate (including chain)") { |v| config.tls_cert_path = v }
         parser.on("--key FILE", "Private key for the TLS certificate") { |v| config.tls_key_path = v }
         parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| config.tls_ciphers = v }
