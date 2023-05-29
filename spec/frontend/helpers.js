@@ -1,8 +1,9 @@
 function waitForPathRequest(page, path, response_data = {}) {
+  const matchUrl = new URL(path, 'http://example.com')
   return new Promise((resolve, reject) => {
     page.route('**/*', (route, request) => {
       const requestedUrl = new URL(request.url())
-      if (requestedUrl.pathname !== path) {
+      if (requestedUrl.pathname !== matchUrl.pathname) {
         return route.fallback()
       }
       page.unroute('**/*')
@@ -18,13 +19,10 @@ function waitForPathRequest(page, path, response_data = {}) {
 
 function setupVhostResponse(test) {
   const vhosts = ['foo', 'bar']
-
   test.beforeEach(async ({ page }) => {
     const vhostResponse = vhosts.map(x => { return {name: x} })
     await page.route(/\/api\/vhosts/, route => route.fulfill({ json: vhostResponse }))
   })
 }
-
-
 
 export { waitForPathRequest, setupVhostResponse }

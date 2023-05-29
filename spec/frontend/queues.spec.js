@@ -55,11 +55,15 @@ test.describe("queues", _ => {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
       await page.goto('/queues')
       await apiQueuesRequest
+      const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues', queues_response)
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(/sort=name/)
+      await apiQueuesRequest2
       const sort_reverse = (new URL(page.url())).searchParams.get('sort_reverse') == 'true'
+      const apiQueuesRequest3 = helpers.waitForPathRequest(page, '/api/queues', queues_response)
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(new RegExp(`sort_reverse=${!sort_reverse}`))
+      await expect(apiQueuesRequest3).toHaveQueryParams(`sort_reverse=${!sort_reverse}`)
     })
   })
 
@@ -78,8 +82,10 @@ test.describe("queues", _ => {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
       await page.goto('/queues')
       await apiQueuesRequest
+      const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues')
       await page.locator('#table .pagination .page-item').getByText('Next').click()
       await expect(page).toHaveURL(/page=2/)
+      await expect(apiQueuesRequest2).toHaveQueryParams('page=2')
     })
   })
 
@@ -88,8 +94,10 @@ test.describe("queues", _ => {
       await page.goto('/queues')
       const searchField = page.locator('.filter-table')
       await searchField.fill('my filter')
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
       await searchField.press('Enter')
       await expect(page).toHaveURL(/name=my(\+|%20)filter/)
+      await expect(apiQueuesRequest).toHaveQueryParams('name=my filter&use_regex=true')
     })
   })
 })
