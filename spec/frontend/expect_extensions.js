@@ -3,7 +3,7 @@ import { expect } from '@playwright/test';
 expect.extend(
   {
     async toBeRequested(received, params) {
-      return received.then(req => {
+      return received.then(reqs => {
         return {
           message: _ => 'requested',
           pass: true

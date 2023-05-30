@@ -4,7 +4,7 @@ function waitForPathRequest(page, path, response_data = {}) {
     const handler = (route, request) => {
       const requestedUrl = new URL(request.url())
       if (requestedUrl.pathname !== matchUrl.pathname) {
-        return route.fallback()
+        return route.continue()
       }
       page.unroute('**/*', handler)
       route.fulfill({ json: response_data })

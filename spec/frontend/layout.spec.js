@@ -11,7 +11,7 @@ test.describe("vhosts", _ => {
 
   test('remember selection', async ({ page }) => {
     await page.goto('/')
-    await page.locator('#userMenuVhost').selectOption('foo')
+    await page.locator('#userMenuVhost').selectOption('foo') // selectOption trigger page load
     await expect(page.locator('#userMenuVhost option:checked')).toHaveText(['foo'])
   })
 })
