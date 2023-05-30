@@ -18,12 +18,5 @@ function waitForPathRequest(page, path, response_data = {}) {
   }, { timeout: 1000 })
 }
 
-function setupVhostResponse(test) {
-  const vhosts = ['foo', 'bar']
-  test.beforeEach(async ({ page }) => {
-    const vhostResponse = vhosts.map(x => { return {name: x} })
-    await page.route(/\/api\/vhosts/, route => route.fulfill({ json: vhostResponse }))
-  })
-}
 
-export { waitForPathRequest, setupVhostResponse }
+export { waitForPathRequest }

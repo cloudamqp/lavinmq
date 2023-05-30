@@ -1,10 +1,8 @@
 import * as helpers from './helpers.js'
 import * as qHelpers from './queues_helpers.js'
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 
 test.describe("queues", _ => {
-  helpers.setupVhostResponse(test)
-
   // Test that different combination of hash params are sent in the request
   test.describe('are loaded with params when hash params', _ => {
     test('are empty', async ({ page, baseURL }) => {
