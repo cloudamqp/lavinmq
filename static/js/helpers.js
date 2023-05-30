@@ -66,7 +66,7 @@ function argumentHelper (formID, name, e) {
 
 function argumentHelperJSON (formID, name, e) {
   const key = e.target.dataset.tag
-  const value = JSON.parse(e.target.dataset.value || '')
+  const value = JSON.parse(e.target.dataset.value || '""')
   const form = document.getElementById(formID)
   try {
     let currentValue = form.elements[name].value.trim()
