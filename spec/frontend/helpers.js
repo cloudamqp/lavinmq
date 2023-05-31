@@ -3,7 +3,7 @@ function waitForPathRequest(page, path, response_data = {}) {
   return new Promise((resolve, reject) => {
     const handler = (route, request) => {
       const requestedUrl = new URL(request.url())
-      if (requestedUrl.pathname !== matchUrl.pathname) {
+      if (decodeURIComponent(requestedUrl.pathname) !== decodeURIComponent(matchUrl.pathname)) {
         return route.continue()
       }
       page.unroute('**/*', handler)
