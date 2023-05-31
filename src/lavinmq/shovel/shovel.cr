@@ -334,11 +334,9 @@ module LavinMQ
 
       def exponential_reconnect_delay
         @retries += 1
+        sleep @delay.seconds
         if @retries > 5
-          sleep @delay.seconds
-          @delay = [@delay * 2, 300].min unless @delay > 300
-        else
-          sleep @delay.seconds
+          @delay = [@delay * 2, 300].min
         end
       end
 
