@@ -162,6 +162,14 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
+            definition.keys.all? do |k|
+              case k
+              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
+                bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
+              else
+                bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
+              end
+            end
             is_update = @amqp_server.vhosts[vhost].policies[name]?
             @amqp_server.vhosts[vhost]
               .add_policy(name, pattern, apply_to, definition, priority.to_i8)

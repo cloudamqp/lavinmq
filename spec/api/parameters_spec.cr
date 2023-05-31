@@ -271,6 +271,17 @@ describe LavinMQ::HTTP::ParametersController do
       body = JSON.parse(response.body)
       body["reason"].as_s.should eq("Malformed JSON.")
     end
+
+    it "should handle invalid definition types" do
+      body = %({
+        "apply-to": "queues",
+        "priority": 0,
+        "definition": { "max-length": "String" },
+        "pattern": ".*"
+      })
+      response = put("/api/policies/%2f/name", body: body)
+      response.status_code.should eq 400
+    end
   end
 
   describe "DELETE /api/policies/vhost/name" do
