@@ -276,6 +276,8 @@ module LavinMQ
       @error : String?
       @message_count : UInt64 = 0
       @retries : Int64 = 0
+      @retry_threshold : Int64 = 10
+      @max_delay : Int64 = 300
 
       getter name, vhost
 
@@ -335,8 +337,8 @@ module LavinMQ
       def exponential_reconnect_delay
         @retries += 1
         sleep @delay.seconds
-        if @retries > 5
-          @delay = [@delay * 2, 300].min
+        if @retries > @retry_threshold
+          @delay = [@delay * 2, @max_delay].min
         end
       end
 
