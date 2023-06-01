@@ -275,12 +275,16 @@ module LavinMQ
       @state = State::Stopped
       @error : String?
       @message_count : UInt64 = 0
+      @retries : Int64 = 0
+      @retry_threshold : Int64 = 10
+      @max_delay : Int64 = 300
 
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
         @log = @vhost.log.for "shovel=#{@name}"
+        @delay = @reconnect_delay
       end
 
       def state
@@ -301,6 +305,8 @@ module LavinMQ
           break if terminated?
           @log.info { "started" }
           @state = State::Running
+          @retries = 0
+          @delay = @reconnect_delay
           @source.each do |msg|
             @message_count += 1
             @destination.push(msg, @source)
@@ -316,16 +322,24 @@ module LavinMQ
           end
           @log.error(exception: ex) { ex.message }
           @error = ex.message
-          sleep @reconnect_delay.seconds
+          exponential_reconnect_delay
         rescue ex
           break if terminated?
           @state = State::Error
           @log.error(exception: ex) { ex.message }
           @error = ex.message
-          sleep @reconnect_delay.seconds
+          exponential_reconnect_delay
         end
       ensure
         terminate
+      end
+
+      def exponential_reconnect_delay
+        @retries += 1
+        sleep @delay.seconds
+        if @retries > @retry_threshold
+          @delay = [@delay * 2, @max_delay].min
+        end
       end
 
       def details_tuple
