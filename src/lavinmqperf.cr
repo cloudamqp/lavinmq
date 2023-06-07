@@ -252,7 +252,7 @@ class Throughput < Perf
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
-        ch.queue @queue, args: @queue_args
+        ch.queue @queue, durable: !@queue.empty?, auto_delete: @queue.empty?, args: @queue_args
       rescue
         ch = a.channel
         ch.queue(@queue, passive: true)
