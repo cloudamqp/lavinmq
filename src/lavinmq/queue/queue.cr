@@ -817,6 +817,7 @@ module LavinMQ
       @exclusive_consumer = true if consumer.exclusive
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
+      @vhost.event_tick(EventType::ConsumerAdded)
       notify_observers(:add_consumer, consumer)
     end
 
@@ -839,6 +840,7 @@ module LavinMQ
               end
             end
           end
+          @vhost.event_tick(EventType::ConsumerRemoved)
           notify_observers(:rm_consumer, consumer)
         end
       end
