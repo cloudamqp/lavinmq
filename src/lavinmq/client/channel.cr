@@ -355,13 +355,35 @@ module LavinMQ
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
+
+          offset = stream_offset(frame)
+          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
           @consumers.push(c)
           q.add_consumer(c)
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
+      end
+
+      private def stream_offset(frame)
+        offset = 0
+        if frame.arguments.has_key? "x-stream-offset"
+          offset_arg = frame.arguments["x-stream-offset"]
+          case offset_arg
+          when "first", "next" # same as offset = 0
+          when "last"
+            offset = -1 # FIX ME!
+          when offset_arg.as?(Int)  # FIX ME!
+            offset_int = offset_arg.as?(Int) || 0 # FIX ME!
+            offset = offset_int.to_i # FIX ME!
+          else
+            raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
+          end
+          offset
+        else
+          Nil
+        end
       end
 
       private def consumer_priority(frame) : Int32

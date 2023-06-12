@@ -122,6 +122,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',
+    stream_queue: data.get('stream_queue') === '1',
     arguments: Dom.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })

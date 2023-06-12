@@ -8,7 +8,7 @@ module LavinMQ
       class Consumer
         include SortableJSON
 
-        getter channel, tag, queue, no_ack, exclusive, priority
+        getter channel, tag, queue, no_ack, exclusive, priority, offset
         getter prefetch_count = 0u16
         getter unacked = 0_u32
         getter? closed = false
@@ -16,7 +16,7 @@ module LavinMQ
         @flow : Bool
 
         def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
+                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : Int32 | Nil.class)
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"

@@ -1,6 +1,7 @@
 require "./queue"
 require "./priority_queue"
 require "./durable_queue"
+require "./stream_queue"
 
 module LavinMQ
   class QueueFactory
@@ -15,6 +16,8 @@ module LavinMQ
     private def self.make_durable(vhost, frame)
       if prio_queue? frame
         DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+      elsif stream_queue? frame
+        StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
       else
         DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
       end
@@ -35,6 +38,13 @@ module LavinMQ
       else
         false
       end
+    end
+
+    private def self.stream_queue?(frame) : Bool
+      if value = frame.arguments["x-queue-type"]?
+        return value == "stream"
+      end
+      false
     end
   end
 end
