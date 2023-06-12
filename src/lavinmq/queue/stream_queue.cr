@@ -6,17 +6,16 @@ module LavinMQ
     @exclusive_consumer = false
     @no_ack = true
 
-
     private def init_msg_store(data_dir)
       @msg_store = StreamQueueMessageStore.new(data_dir)
     end
 
     class StreamQueueMessageStore < MessageStore
-
       def initialize(@data_dir : String)
         super
         # message id? segment position?
       end
+
       def shift? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         if sp = @requeued.shift?
@@ -31,7 +30,7 @@ module LavinMQ
             raise Error.new(segment, cause: ex)
           end
         end
-  
+
         loop do
           rfile = @rfile
           seg = @rfile_id
@@ -57,7 +56,7 @@ module LavinMQ
         end
       end
 
-      #should delete without ack
+      # should delete without ack
       def delete(sp) : Nil
       end
     end
@@ -69,12 +68,12 @@ module LavinMQ
       msg
     end
 
-    #save message id / segment position
+    # save message id / segment position
     def publish(msg : Message) : Bool
       return false if @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
-        msg=add_offset_header(msg, message_count) #save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
+        msg = add_offset_header(msg, message_count) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
         @msg_store.push(msg)
         @publish_count += 1
       end
@@ -138,7 +137,7 @@ module LavinMQ
       raise ClosedError.new(cause: ex)
     end
 
-    #handle offset
+    # handle offset
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @last_get_time = RoughTime.monotonic
@@ -174,17 +173,15 @@ module LavinMQ
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
     end
 
-    #do nothing
+    # do nothing
     def reject(sp : SegmentPosition, requeue : Bool)
     end
 
-    #do nothing
+    # do nothing
     def ack(sp : SegmentPosition) : Nil
     end
 
-    
     protected def delete_message(sp : SegmentPosition) : Nil
     end
   end
 end
-
