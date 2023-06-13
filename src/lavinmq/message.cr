@@ -29,8 +29,8 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
     end
 
-    def offset : Int32?
-      @properties.headers.try(&.fetch("x-stream-offset", nil).as?(Int32))
+    def offset : UInt64?
+      @properties.headers.try(&.fetch("x-stream-offset", nil).as?(UInt64))
     end
 
     def dlrk : String?

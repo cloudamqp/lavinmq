@@ -5,6 +5,7 @@ module LavinMQ
     @durable = true
     @exclusive_consumer = false
     @no_ack = true
+    @last_offset = 0
 
     private def init_msg_store(data_dir)
       @msg_store = StreamQueueMessageStore.new(data_dir)
@@ -14,6 +15,7 @@ module LavinMQ
       def initialize(@data_dir : String)
         super
         # message id? segment position?
+        # @last_offset = last message offset
       end
 
       def shift? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
@@ -45,6 +47,9 @@ module LavinMQ
             next
           end
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+          puts "-------------"
+          puts msg.inspect
+          puts "-----------------"
           sp = SegmentPosition.make(seg, pos, msg)
           rfile.seek(sp.bytesize, IO::Seek::Current)
           @bytesize -= sp.bytesize
@@ -61,9 +66,9 @@ module LavinMQ
       end
     end
 
-    def add_offset_header(msg, pos)
+    def add_offset_header(msg, offset)
       headers = msg.properties.headers || ::AMQP::Client::Arguments.new
-      headers["x-stream-offset"] = pos.as(AMQ::Protocol::Field)
+      headers["x-stream-offset"] = offset.as(AMQ::Protocol::Field)
       msg.properties.headers = headers
       msg
     end
@@ -73,7 +78,8 @@ module LavinMQ
       return false if @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
-        msg = add_offset_header(msg, message_count) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
+        offset = @last_offset += 1
+        msg = add_offset_header(msg, offset) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
         @msg_store.push(msg)
         @publish_count += 1
       end
@@ -96,8 +102,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, & : Envelope -> Nil) : Bool
-      get(true) do |env|
+    def consume_get(no_ack, offset, & : Envelope -> Nil) : Bool
+      get(no_ack, offset) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -106,12 +112,30 @@ module LavinMQ
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack, & : Envelope -> Nil) : Bool
+    private def get(no_ack, offset,  & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift? } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
+          next
+        end
+        puts "::::get::::"
+        puts "env.message.offset: #{env.message.offset}"
+        puts "offset: #{offset}"
+        headers = env.message.properties.headers
+
+        msg_offset=0
+        if ht = headers.as?(AMQ::Protocol::Table)
+          msg_offset = ht["x-stream-offset"].as(Int64)
+          puts "msg_offset: #{msg_offset}"
+        end
+
+        # some testing for finding the right message by offset, should be per consumer
+        # and we should probably also save segment/position per consumer
+        # but we also need a "seek" if the offset is changed or a new consumer is added
+        if offset && msg_offset < offset.as(UInt64)
+          puts "env.message.offset #{env.message.offset} < offset #{offset}}"
           next
         end
         sp = env.segment_position

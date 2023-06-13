@@ -16,7 +16,7 @@ module LavinMQ
         @flow : Bool
 
         def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : Int32 | Nil.class)
+                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : UInt64?)
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"
@@ -48,6 +48,7 @@ module LavinMQ
           wait_for_single_active_consumer
           queue = @queue
           no_ack = @no_ack
+          offset = @offset
           i = 0
           loop do
             wait_for_capacity
@@ -63,7 +64,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.debug { "Getting a new message" }
             {% end %}
-            queue.consume_get(no_ack) do |env|
+            queue.consume_get(no_ack, offset) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
             Fiber.yield if (i &+= 1) % 32768 == 0

@@ -41,10 +41,7 @@ module LavinMQ
     end
 
     private def self.stream_queue?(frame) : Bool
-      if value = frame.arguments["x-queue-type"]?
-        return value == "stream"
-      end
-      false
+      frame.arguments["x-queue-type"]? == "stream"
     end
   end
 end

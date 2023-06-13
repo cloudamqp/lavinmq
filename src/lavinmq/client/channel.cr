@@ -366,23 +366,22 @@ module LavinMQ
         Fiber.yield # Notify :add_consumer observers
       end
 
-      private def stream_offset(frame)
-        offset = 0
-        if frame.arguments.has_key? "x-stream-offset"
-          offset_arg = frame.arguments["x-stream-offset"]
+      private def stream_offset(frame) : UInt64?
+        offset = 0_u64
+        if offset_arg = frame.arguments["x-stream-offset"]?
           case offset_arg
           when "first", "next" # same as offset = 0
           when "last"
-            offset = -1                           # FIX ME!
+            offset = -1.as?(UInt64)               # FIX ME!
           when offset_arg.as?(Int)                # FIX ME!
             offset_int = offset_arg.as?(Int) || 0 # FIX ME!
-            offset = offset_int.to_i              # FIX ME!
+            offset = offset_int.as?(UInt64)       # FIX ME!
           else
             raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
           end
           offset
         else
-          Nil
+          nil
         end
       end
 
