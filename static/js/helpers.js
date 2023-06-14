@@ -164,19 +164,6 @@ function addVhostOptions (formId, options) {
   })
 }
 
-addVhostOptions('user-vhost', {addAll: true}).then(() => {
-  const vhost = window.sessionStorage.getItem('vhost')
-  if (vhost) {
-    const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
-    if (opt) {
-      document.querySelector('#userMenuVhost').value = vhost
-      window.sessionStorage.setItem('vhost', vhost)
-    }
-  } else {
-    window.sessionStorage.setItem('vhost', '_all')
-  }
-})
-
 export {
   addVhostOptions,
   formatNumber,
