@@ -1,4 +1,5 @@
 require "./durable_queue"
+require "../client/channel/consumer"
 
 module LavinMQ
   class StreamQueue < Queue
@@ -6,9 +7,45 @@ module LavinMQ
     @exclusive_consumer = false
     @no_ack = true
     @last_offset = 0
+    @consumers = [] of Client::Channel::Consumer
 
     private def init_msg_store(data_dir)
       @msg_store = StreamQueueMessageStore.new(data_dir)
+    end
+
+    class StreamConsumer < LavinMQ::Client::Channel::Consumer
+      @offset = 0_u64
+      @last_offset = 0_u64
+      @current_segment = MFile
+      @pos = 0_u64
+
+      private def deliver_loop
+        queue = @queue
+        no_ack = @no_ack
+        offset = @offset
+        i = 0
+        loop do
+          wait_for_capacity
+          loop do
+            raise ClosedError.new if @closed
+            next if wait_for_global_capacity
+            next if wait_for_priority_consumers
+            next if wait_for_queue_ready
+            next if wait_for_paused_queue
+            next if wait_for_flow
+            break
+          end
+          {% unless flag?(:release) %}
+            @log.debug { "Getting a new message" }
+          {% end %}
+          queue.consume_get(no_ack, offset, @current_segment) do |env|
+            deliver(env.message, env.segment_position, env.redelivered)
+          end
+          Fiber.yield if (i &+= 1) % 32768 == 0
+        end
+      rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
+        @log.debug { "deliver loop exiting: #{ex.inspect}" }
+      end
     end
 
     class StreamQueueMessageStore < MessageStore
@@ -102,8 +139,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, offset, & : Envelope -> Nil) : Bool
-      get(no_ack, offset) do |env|
+    def consume_get(no_ack, offset, current_segment, & : Envelope -> Nil) : Bool
+      get(no_ack, offset, current_segment) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -112,10 +149,10 @@ module LavinMQ
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack, offset,  & : Envelope -> Nil) : Bool
+    private def get(no_ack, offset, current_segment,   & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
-        env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+        env = @msg_store_lock.synchronize { @msg_store.shift?(offset, current_segment) } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
