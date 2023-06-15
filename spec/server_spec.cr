@@ -943,4 +943,35 @@ describe LavinMQ::Server do
       q.message_count.should eq 9
     end
   end
+
+  it "supports single active consumer" do
+    with_channel do |ch|
+      ch.prefetch 1
+      q = ch.queue("sac", args: AMQ::Protocol::Table.new({"x-single-active-consumer": true}))
+      begin
+        msgs = Channel(Tuple(String, AMQP::Client::DeliverMessage)).new
+        q.subscribe(no_ack: false, tag: "1") do |msg|
+          msgs.send({"1", msg})
+        end
+        q.subscribe(no_ack: false, tag: "2") do |msg|
+          msgs.send({"2", msg})
+        end
+        4.times { q.publish "" }
+        2.times do
+          tag, msg = msgs.receive
+          tag.should eq "1"
+          msg.ack
+        end
+        tag, msg = msgs.receive
+        tag.should eq "1"
+        q.unsubscribe "1"
+        msg.ack
+        tag, msg = msgs.receive
+        tag.should eq "2"
+        msg.ack
+      ensure
+        q.delete
+      end
+    end
+  end
 end

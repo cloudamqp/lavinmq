@@ -126,6 +126,9 @@ module LavinMQ
     getter? closed = false
     getter state = QueueState::Running
     getter empty_change : Channel(Bool)
+    getter single_active_consumer : Client::Channel::Consumer? = nil
+    getter single_active_consumer_change = Channel(Client::Channel::Consumer).new
+    @single_active_consumer_queue = false
     @data_dir : String
 
     def initialize(@vhost : VHost, @name : String,
@@ -256,6 +259,7 @@ module LavinMQ
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+      @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
     end
 
     private macro parse_header(header, type)
@@ -389,6 +393,7 @@ module LavinMQ
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
         exclusive_consumer_tag:      @exclusive ? @consumers_lock.synchronize { @consumers.first?.try(&.tag) } : nil,
+        single_active_consumer_tag:  @single_active_consumer.try &.tag,
         state:                       @state.to_s,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
@@ -804,7 +809,10 @@ module LavinMQ
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
-        notify_consumers_empty(false) if was_empty
+        if was_empty
+          @single_active_consumer = consumer if @single_active_consumer_queue
+          notify_consumers_empty(false)
+        end
       end
       @exclusive_consumer = true if consumer.exclusive
       @has_priority_consumers = true unless consumer.priority.zero?
@@ -814,7 +822,7 @@ module LavinMQ
 
     getter? has_priority_consumers = false
 
-    def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
+    def rm_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
@@ -824,6 +832,13 @@ module LavinMQ
           @log.debug { "Removing consumer with #{consumer.unacked} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
+          if @single_active_consumer == consumer
+            @single_active_consumer = @consumers.first?
+            if new_consumer = @single_active_consumer
+              while @single_active_consumer_change.try_send? new_consumer
+              end
+            end
+          end
           notify_observers(:rm_consumer, consumer)
         end
       end

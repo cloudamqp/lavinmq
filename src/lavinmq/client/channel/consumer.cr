@@ -51,6 +51,7 @@ module LavinMQ
             loop do
               raise ClosedError.new if @closed
               next if wait_for_global_capacity
+              next if wait_for_single_active_consumer
               next if wait_for_priority_consumers
               next if wait_for_queue_ready
               next if wait_for_paused_queue
@@ -75,6 +76,21 @@ module LavinMQ
           @log.debug { "Waiting for global prefetch capacity" }
           ch.has_capacity.receive
           true
+        end
+
+        private def wait_for_single_active_consumer
+          case @queue.single_active_consumer
+          when self
+            @log.debug { "This consumer is already the single active consumer" }
+          when nil
+            @log.debug { "The queue isn't a single active consumer queue" }
+          else
+            @log.debug { "Waiting for this consumer to become the single active consumer" }
+            until @queue.single_active_consumer_change.receive == self
+              @log.debug { "New single active consumer, but not me" }
+            end
+            true
+          end
         end
 
         private def wait_for_priority_consumers

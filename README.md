@@ -231,8 +231,9 @@ by an internal `Channel` when new messages are available in the queue.
 - Priority queues
 - Delayed exchanges
 - AMQP WebSocket
+- Single active consumer
 
-Currently missing features
+Currently missing but planned features
 
 - Stream queues
 - Clustering
