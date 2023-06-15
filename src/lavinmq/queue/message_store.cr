@@ -93,7 +93,7 @@ module LavinMQ
         end
       end
 
-      def shift? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer = Nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         if sp = @requeued.shift?
           segment = @segments[sp.segment]

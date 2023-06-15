@@ -8,7 +8,7 @@ module LavinMQ
       class Consumer
         include SortableJSON
 
-        getter channel, tag, queue, no_ack, exclusive, priority, offset
+        getter channel, tag, queue, no_ack, exclusive, priority
         getter prefetch_count = 0u16
         getter unacked = 0_u32
         getter? closed = false
@@ -64,7 +64,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.debug { "Getting a new message" }
             {% end %}
-            queue.consume_get(no_ack, offset) do |env|
+            queue.consume_get(no_ack, offset, self) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
             Fiber.yield if (i &+= 1) % 32768 == 0
@@ -241,6 +241,33 @@ module LavinMQ
         end
 
         class ClosedError < Error; end
+      end
+
+      class StreamConsumer < LavinMQ::Client::Channel::Consumer
+        @segment = 0_u32
+        @offset = 0_u64
+        @pos = 0_u32
+        @requeued = Deque(SegmentPosition).new
+        getter offset, segment, pos, requeued
+
+        def initialize(@channel : Client::Channel, @tag : String,
+                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : UInt64?)
+          @offset = @offset || 0_u64
+          super
+        end
+
+        def update_segment(segment, pos)
+          @segment = segment
+          @pos = pos
+        end
+
+        def update_offset(offset)
+          @offset = offset
+        end
+
+        def requeue(sp)
+          @requeued.push sp
+        end
       end
     end
   end

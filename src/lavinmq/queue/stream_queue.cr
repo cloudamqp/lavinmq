@@ -7,58 +7,23 @@ module LavinMQ
     @exclusive_consumer = false
     @no_ack = true
     @last_offset = 0
-    @consumers = [] of Client::Channel::Consumer
 
     private def init_msg_store(data_dir)
       @msg_store = StreamQueueMessageStore.new(data_dir)
     end
 
-    class StreamConsumer < LavinMQ::Client::Channel::Consumer
-      @offset = 0_u64
-      @last_offset = 0_u64
-      @current_segment = MFile
-      @pos = 0_u64
-
-      private def deliver_loop
-        queue = @queue
-        no_ack = @no_ack
-        offset = @offset
-        i = 0
-        loop do
-          wait_for_capacity
-          loop do
-            raise ClosedError.new if @closed
-            next if wait_for_global_capacity
-            next if wait_for_priority_consumers
-            next if wait_for_queue_ready
-            next if wait_for_paused_queue
-            next if wait_for_flow
-            break
-          end
-          {% unless flag?(:release) %}
-            @log.debug { "Getting a new message" }
-          {% end %}
-          queue.consume_get(no_ack, offset, @current_segment) do |env|
-            deliver(env.message, env.segment_position, env.redelivered)
-          end
-          Fiber.yield if (i &+= 1) % 32768 == 0
-        end
-      rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
-        @log.debug { "deliver loop exiting: #{ex.inspect}" }
-      end
-    end
-
     class StreamQueueMessageStore < MessageStore
       def initialize(@data_dir : String)
         super
-        # message id? segment position?
-        # @last_offset = last message offset
       end
 
-      def shift? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+        seg = consumer.segment || @segments.first_value
+        pos = consumer.pos || 0_u32
+        requeued = consumer.requeued || Deque(SegmentPosition).new
         raise ClosedError.new if @closed
-        if sp = @requeued.shift?
-          segment = @segments[sp.segment]
+        if sp = requeued.shift?           # handle requeued per consumer
+          segment = @segments[sp.segment] #
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             @bytesize -= sp.bytesize
@@ -71,9 +36,21 @@ module LavinMQ
         end
 
         loop do
-          rfile = @rfile
-          seg = @rfile_id
-          pos = rfile.pos.to_u32
+          seg = if consumer.segment && consumer.segment != 0
+                  consumer.segment
+                else
+                  @rfile_id
+                end
+          rfile = @segments[seg]
+          pos = if consumer.pos && consumer.pos != 0
+                  consumer.pos
+                else
+                  rfile.pos.to_u32
+                end
+
+          pos ||= 0_u32
+          seg ||= 0_u32
+
           if pos == rfile.size # EOF?
             select_next_read_segment && next
             return if @size.zero?
@@ -139,8 +116,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, offset, current_segment, & : Envelope -> Nil) : Bool
-      get(no_ack, offset, current_segment) do |env|
+    def consume_get(no_ack, offset, consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
+      get(no_ack, consumer) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -149,33 +126,36 @@ module LavinMQ
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack, offset, current_segment,   & : Envelope -> Nil) : Bool
+    private def get(no_ack, consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
-        env = @msg_store_lock.synchronize { @msg_store.shift?(offset, current_segment) } || break
+        env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
         end
+        offset = consumer.offset || 0_u64
         puts "::::get::::"
         puts "env.message.offset: #{env.message.offset}"
         puts "offset: #{offset}"
         headers = env.message.properties.headers
 
-        msg_offset=0
+        msg_offset = 0
         if ht = headers.as?(AMQ::Protocol::Table)
-          msg_offset = ht["x-stream-offset"].as(Int64)
+          msg_offset = ht["x-stream-offset"].as(Int32)
           puts "msg_offset: #{msg_offset}"
         end
 
         # some testing for finding the right message by offset, should be per consumer
         # and we should probably also save segment/position per consumer
         # but we also need a "seek" if the offset is changed or a new consumer is added
-        if offset && msg_offset < offset.as(UInt64)
-          puts "env.message.offset #{env.message.offset} < offset #{offset}}"
+        if msg_offset < offset
+          puts "env.message.offset #{msg_offset} < offset #{offset}}"
           next
         end
         sp = env.segment_position
+        consumer.update_offset(msg_offset.to_u64)
+        consumer.update_segment(env.segment_position.segment, env.segment_position.position)
         if no_ack
           begin
             yield env # deliver the message
@@ -199,7 +179,7 @@ module LavinMQ
     end
 
     # handle offset
-    def add_consumer(consumer : Client::Channel::Consumer)
+    def add_consumer(consumer : Client::Channel::StreamConsumer)
       return if @closed
       @last_get_time = RoughTime.monotonic
       @consumers_lock.synchronize do
@@ -211,35 +191,6 @@ module LavinMQ
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       notify_observers(:add_consumer, consumer)
-    end
-
-    private def handle_arguments
-      @dlx = parse_header("x-dead-letter-exchange", String)
-      @dlrk = parse_header("x-dead-letter-routing-key", String)
-      if @dlrk && @dlx.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
-      end
-      @expires = parse_header("x-expires", Int).try &.to_i64
-      validate_gt_zero("x-expires", @expires)
-      @queue_expiration_ttl_change.try_send? nil
-      @max_length = parse_header("x-max-length", Int).try &.to_i64
-      validate_positive("x-max-length", @max_length)
-      @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      validate_positive("x-max-length-bytes", @max_length_bytes)
-      @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      validate_positive("x-message-ttl", @message_ttl)
-      @message_ttl_change.try_send? nil
-      @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      validate_positive("x-delivery-limit", @delivery_limit)
-      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
-    end
-
-    # do nothing
-    def reject(sp : SegmentPosition, requeue : Bool)
-    end
-
-    # do nothing
-    def ack(sp : SegmentPosition) : Nil
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil

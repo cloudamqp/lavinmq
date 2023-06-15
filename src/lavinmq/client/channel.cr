@@ -357,7 +357,11 @@ module LavinMQ
           end
 
           offset = stream_offset(frame)
-          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
+          c = if offset
+                StreamConsumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
+              else
+                Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
+              end
           @consumers.push(c)
           q.add_consumer(c)
         else
@@ -372,10 +376,10 @@ module LavinMQ
           case offset_arg
           when "first", "next" # same as offset = 0
           when "last"
-            offset = -1.as?(UInt64)               # FIX ME!
-          when offset_arg.as?(Int)                # FIX ME!
-            offset_int = offset_arg.as?(Int) || 0 # FIX ME!
-            offset = offset_int.as?(UInt64)       # FIX ME!
+            offset = -1.as?(UInt64) # FIX ME!
+          when offset_arg.as?(Int)  # FIX ME!
+            offset_int = offset_arg.as?(Int) || 0
+            offset = offset_int.to_i.to_u64 # FIX ME!
           else
             raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
           end
