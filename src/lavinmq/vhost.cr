@@ -37,7 +37,6 @@ module LavinMQ
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
-    @fsync = false
     @connections = Array(Client).new(512)
     @gc_runs = 0
     @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
@@ -95,43 +94,6 @@ module LavinMQ
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    @awaiting_confirm_lock = Mutex.new(:checked)
-    @awaiting_confirm = Set(Client::Channel).new
-
-    def waiting4confirm(channel)
-      @awaiting_confirm_lock.synchronize do
-        @awaiting_confirm.add channel
-        unless @fsync
-          @fsync = true
-          spawn(fsync, name: "VHost/#{@name}#fsync")
-        end
-      end
-    end
-
-    @queues_to_fsync_lock = Mutex.new(:checked)
-    @queues_to_fsync = Set(DurableQueue).new
-
-    def fsync
-      unless @queues_to_fsync.empty?
-        @log.debug { "fsync segment file" }
-        @queues_to_fsync_lock.synchronize do
-          @log.debug { "fsyncing #{@queues_to_fsync.size} queues" }
-          @queues_to_fsync.each &.fsync_enq
-          @queues_to_fsync.clear
-        end
-      end
-      @awaiting_confirm_lock.synchronize do
-        @log.debug { "send confirm to #{@awaiting_confirm.size} channels" }
-        @awaiting_confirm.each do |ch|
-          ch.confirm_ack(multiple: true)
-        rescue ex
-          @log.warn { "Could not send confirm to #{ch.name}: #{ex.inspect}" }
-        end
-        @awaiting_confirm.clear
-        @fsync = false
-      end
-    end
-
     # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
     # should be Acks, apart from Exceptions.
     # As long as at least one queue reject the publish due to overflow a Nack should be sent,
@@ -140,7 +102,7 @@ module LavinMQ
     # False if no queue was able to receive the message because they're
     # closed
     def publish(msg : Message, immediate = false,
-                visited = Set(Exchange).new, found_queues = Set(Queue).new, confirm = false) : Bool
+                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
       properties = msg.properties
@@ -153,16 +115,10 @@ module LavinMQ
         return false
       end
       return false if immediate && !found_queues.any? &.immediate_delivery?
-      flush = properties.delivery_mode == 2_u8
       ok = 0
       found_queues.each do |q|
         if q.publish(msg)
           ex.publish_out_count += 1
-          if confirm && q.is_a?(DurableQueue) && flush
-            @queues_to_fsync_lock.synchronize do
-              @queues_to_fsync << q
-            end
-          end
           ok += 1
         end
       end
@@ -476,7 +432,6 @@ module LavinMQ
       @closed = true
       stop_shovels
       stop_upstream_links
-      fsync
       Fiber.yield
       @log.debug { "Closing connections" }
       @connections.each &.close(reason)

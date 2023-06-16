@@ -893,12 +893,6 @@ module LavinMQ
       !(empty? && @consumers.empty?)
     end
 
-    def fsync_enq
-    end
-
-    def fsync_ack
-    end
-
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
       json.object do
         details_tuple.merge(message_stats: stats_details).each do |k, v|
