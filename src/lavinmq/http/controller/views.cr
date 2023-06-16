@@ -14,6 +14,7 @@ module LavinMQ
         static_view "/federation"
         static_view "/shovels"
         static_view "/connections"
+        static_view "/consumers"
         static_view "/connection"
         static_view "/channels"
         static_view "/channel"
