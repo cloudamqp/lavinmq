@@ -24,7 +24,7 @@ module LavinMQ
         end
       end
 
-      private def match_value(value)
+      protected def match_value(value)
         value[:name]? || value["name"]?
       end
 
