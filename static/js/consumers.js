@@ -17,7 +17,8 @@ const tableOptions = {
   search: true
 }
 
-Table.renderTable('table', tableOptions, function (tr, item, all) {
+Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
+  if (!firstRender) return
   const channelLink = document.createElement('a')
   channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
