@@ -7,6 +7,10 @@ module LavinMQ
     class ConsumersController < Controller
       include ConnectionsHelper
 
+      protected def match_value(value)
+        value[:consumer_tag]? || value["consumer_tag"]?
+      end
+
       private def register_routes
         get "/api/consumers" do |context, _params|
           page(context, all_consumers(user(context)))
