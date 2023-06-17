@@ -18,7 +18,6 @@ const tableOptions = {
 }
 
 Table.renderTable('table', tableOptions, function (tr, item, all) {
-  console.log(item)
   const channelLink = document.createElement('a')
   channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
