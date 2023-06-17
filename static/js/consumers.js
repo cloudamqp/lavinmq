@@ -31,7 +31,6 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
 
   cancelForm.appendChild(btn)
   const urlEncodedVhost = encodeURIComponent(item.queue.vhost)
-  console.log(urlEncodedVhost)
   const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
   const conn = encodeURIComponent(item.channel_details.connection_name)
   const ch = encodeURIComponent(item.channel_details.number)
