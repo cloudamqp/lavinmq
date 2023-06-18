@@ -251,10 +251,12 @@ module LavinMQ
         confirm do
           ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
+        rescue e : Error::PreconditionFailed
+          msg.body_io.skip(msg.bodysize)
+          send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
         end
-      rescue e : Error::PreconditionFailed
-        msg.body_io.skip(msg.bodysize)
-        send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
+      rescue Queue::RejectOverFlow
+        # nack but then do nothing
       end
 
       private def confirm(&)
