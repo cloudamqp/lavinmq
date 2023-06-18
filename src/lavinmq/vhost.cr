@@ -46,8 +46,8 @@ module LavinMQ
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
+      Dir.mkdir_p File.join(@data_dir)
       @data_dir_fd = LibC.dirfd(Dir.new(@data_dir).@dir)
-      Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
