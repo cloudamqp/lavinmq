@@ -248,51 +248,57 @@ module LavinMQ
           return
         end
 
-        @confirm_total += 1 if @confirm
-        ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
-        basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
-        confirm_ack if @confirm # should always ack, also when returning
-
-
+        confirm do
+          ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
+        end
       rescue e : Error::PreconditionFailed
         msg.body_io.skip(msg.bodysize)
         send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
-      rescue Queue::RejectOverFlow
-        confirm_nack if @confirm
-      rescue ex : IO::Error
-        @log.warn { "Error when publishing message #{ex.inspect}" }
-      rescue ex
-        confirm_nack if @confirm
-        raise ex
       end
 
-      private def confirm_nack(multiple = false)
+      private def confirm(&)
+        if @confirm
+          msgid = @confirm_total += 1
+          begin
+            yield
+            confirm_ack(msgid)
+          rescue ex
+            confirm_nack(msgid)
+            raise ex
+          end
+        else
+          yield
+        end
+      end
+
+      private def confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count += 1 # Stats
-        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple, requeue: false)
+        send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
+      end
+
+      private def confirm_nack(msgid, multiple = false)
+        @client.vhost.event_tick(EventType::ClientPublishConfirm)
+        @confirm_count += 1 # Stats
+        send AMQP::Frame::Basic::Nack.new(@id, msgid, multiple, requeue: false)
       end
 
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
         if ch = @client.vhost.direct_reply_consumers[consumer_tag]?
-          @confirm_total += 1 if @confirm
-          deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
-            1_u64, false,
-            msg.exchange_name,
-            msg.routing_key)
-          ch.deliver(deliver, msg)
-          confirm_ack if @confirm
+          confirm do
+            deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
+              1_u64, false,
+              msg.exchange_name,
+              msg.routing_key)
+            ch.deliver(deliver, msg)
+          end
           true
         else
           false
         end
-      end
-
-      def confirm_ack(multiple = false)
-        @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count += 1 # Stats
-        send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
       end
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
