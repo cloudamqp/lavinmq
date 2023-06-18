@@ -116,8 +116,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
-      get(no_ack, consumer) do |env|
+    def consume_get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
+      get(consumer) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -126,7 +126,7 @@ module LavinMQ
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(no_ack, consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
+    private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || break
@@ -156,7 +156,7 @@ module LavinMQ
         sp = env.segment_position
         consumer.update_offset(msg_offset.to_u64)
         consumer.update_segment(env.segment_position.segment, env.segment_position.position)
-        if no_ack
+        if consumer.no_ack
           begin
             yield env # deliver the message
           rescue ex   # requeue failed delivery

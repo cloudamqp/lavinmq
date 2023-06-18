@@ -63,7 +63,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.debug { "Getting a new message" }
             {% end %}
-            queue.consume_get(no_ack, self) do |env|
+            queue.consume_get(self) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
             Fiber.yield if (i &+= 1) % 32768 == 0
