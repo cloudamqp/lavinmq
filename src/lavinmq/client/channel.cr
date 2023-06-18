@@ -732,6 +732,7 @@ module LavinMQ
         return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         process_tx_acks
         process_tx_publishes
+        @client.vhost.sync
         send AMQP::Frame::Tx::CommitOk.new(frame.channel)
       end
 

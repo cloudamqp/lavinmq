@@ -46,6 +46,7 @@ module LavinMQ
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
+      @data_dir_fd = LibC.dirfd(Dir.new(@data_dir).@dir)
       Dir.mkdir_p File.join(@data_dir, "tmp")
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
@@ -688,6 +689,15 @@ module LavinMQ
       in EventType::ConsumerAdded        then @consumer_added_count += 1
       in EventType::ConsumerRemoved      then @consumer_removed_count += 1
       end
+    end
+
+    def sync
+      {% if flag?(:linux) %}
+        ret = LibC.syncfs(@data_dir_fd)
+        raise IO::Error.from_errno("syncfs") if ret != 0
+      {% else %}
+        LibC.sync
+      {% end %}
     end
   end
 end
