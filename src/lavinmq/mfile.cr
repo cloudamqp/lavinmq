@@ -117,8 +117,13 @@ class MFile < IO
     msync(buffer, @size, LibC::MS_ASYNC)
   end
 
-  def fsync
+  def msync
     msync(buffer, @size, LibC::MS_SYNC)
+  end
+
+  def fsync : Nil
+    ret = LibC.fsync(@fd)
+    raise IO::Error.from_errno("Error syncing file") if ret != 0
   end
 
   # unload the memory mapping, will be remapped on demand
