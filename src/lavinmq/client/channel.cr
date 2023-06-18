@@ -360,7 +360,7 @@ module LavinMQ
           c = if offset
                 StreamConsumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
               else
-                Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
+                Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
               end
           @consumers.push(c)
           q.add_consumer(c)
