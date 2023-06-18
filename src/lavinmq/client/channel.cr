@@ -711,8 +711,7 @@ module LavinMQ
       private def next_msg_body_file
         @next_msg_body_file ||=
           begin
-            tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
-            File.open(tmp_path, "w+").tap do |f|
+            File.tempfile("channel.", nil, dir: @client.vhost.data_dir).tap do |f|
               f.sync = true
               f.read_buffering = false
               f.delete
