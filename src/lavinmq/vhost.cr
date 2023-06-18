@@ -611,8 +611,7 @@ module LavinMQ
     end
 
     private def save!
-      File.open(File.join(@data_dir, "definitions.amqp"), "W") do |f|
-        f.seek(0, IO::Seek::End)
+      File.open(File.join(@data_dir, "definitions.amqp"), "a") do |f|
         while frame = @save.receive?
           @log.debug { "Storing definition: #{frame.inspect}" }
           f.write_bytes frame
