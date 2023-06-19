@@ -1,5 +1,6 @@
 require "uri"
 require "../controller"
+require "../../vhost"
 
 module LavinMQ
   module HTTP
@@ -332,7 +333,10 @@ module LavinMQ
       class VHostDefinitions < Definitions
         def initialize(@amqp_server, @vhost : VHost)
           super(@amqp_server)
+          @vhosts = {@vhost.name => @vhost}
         end
+
+        getter vhosts : Hash(String, VHost)
 
         def import(body)
           import_queues(body)
@@ -350,16 +354,13 @@ module LavinMQ
               json.field("exchanges") { export_exchanges(json) }
               json.field("bindings") { export_bindings(json) }
               json.field("policies") { export_policies(json) }
+              json.field("parameters") { export_vhost_parameters(json) }
             end
           end
         end
 
         def fetch_vhost?(json) # ignore vhost property, always use the specified one
           @vhost
-        end
-
-        def vhosts
-          {@vhost.name => @vhost}
         end
       end
 
