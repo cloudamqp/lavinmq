@@ -99,7 +99,7 @@ A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.
 
 In OS X the app, [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
 
-Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/doc/README.environment).
+Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/docs/README.environment).
 
 ## Contributing
 
