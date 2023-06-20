@@ -76,7 +76,10 @@ module LavinMQ
           ch = @channel
           return if ch.has_capacity?
           @log.debug { "Waiting for global prefetch capacity" }
-          ch.has_capacity.receive
+          select
+          when ch.has_capacity.receive
+          when @close_chan.receive
+          end
           true
         end
 
