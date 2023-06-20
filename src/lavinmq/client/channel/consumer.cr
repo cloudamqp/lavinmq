@@ -26,12 +26,12 @@ module LavinMQ
         def close
           @closed = true
           @queue.rm_consumer(self)
-          @close_chan.close
+          @notify_closed.close
           @has_capacity.close
           @flow_change.close
         end
 
-        @close_chan = ::Channel(Nil).new
+        @notify_closed = ::Channel(Nil).new
         @flow_change = ::Channel(Bool).new
 
         def flow(active : Bool)
@@ -78,7 +78,7 @@ module LavinMQ
           @log.debug { "Waiting for global prefetch capacity" }
           select
           when ch.has_capacity.receive
-          when @close_chan.receive
+          when @notify_closed.receive
           end
           true
         end
@@ -99,7 +99,7 @@ module LavinMQ
                 else
                   @log.debug { "New single active consumer, but not me" }
                 end
-              when @close_chan.receive
+              when @notify_closed.receive
                 break
               end
             end
@@ -126,7 +126,7 @@ module LavinMQ
             select
             when is_empty = @queue.empty_change.receive
               @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
-            when @close_chan.receive
+            when @notify_closed.receive
             end
             return true
           end
@@ -138,7 +138,7 @@ module LavinMQ
             select
             when is_paused = @queue.paused_change.receive
               @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
-            when @close_chan.receive
+            when @notify_closed.receive
             end
             return true
           end
