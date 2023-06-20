@@ -26,10 +26,12 @@ module LavinMQ
         def close
           @closed = true
           @queue.rm_consumer(self)
+          @close_chan.close
           @has_capacity.close
           @flow_change.close
         end
 
+        @close_chan = ::Channel(Nil).new
         @flow_change = ::Channel(Bool).new
 
         def flow(active : Bool)
@@ -86,8 +88,17 @@ module LavinMQ
             @log.debug { "The queue isn't a single active consumer queue" }
           else
             @log.debug { "Waiting for this consumer to become the single active consumer" }
-            until @queue.single_active_consumer_change.receive == self
-              @log.debug { "New single active consumer, but not me" }
+            loop do
+              select
+              when sca = @queue.single_active_consumer_change.receive
+                if sca == self
+                  break
+                else
+                  @log.debug { "New single active consumer, but not me" }
+                end
+              when @close_chan.receive
+                break
+              end
             end
             true
           end
@@ -109,8 +120,11 @@ module LavinMQ
         private def wait_for_queue_ready
           if @queue.empty?
             @log.debug { "Waiting for queue not to be empty" }
-            is_empty = @queue.empty_change.receive
-            @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            select
+            when is_empty = @queue.empty_change.receive
+              @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            when @close_chan.receive
+            end
             return true
           end
         end
@@ -118,8 +132,11 @@ module LavinMQ
         private def wait_for_paused_queue
           if @queue.paused?
             @log.debug { "Waiting for queue not to be paused" }
-            is_paused = @queue.paused_change.receive
-            @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+            select
+            when is_paused = @queue.paused_change.receive
+              @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+            when @close_chan.receive
+            end
             return true
           end
         end
