@@ -49,7 +49,8 @@ class DataSource {
     sort_reverse: false,
     name: ''
   }
-  constructor(opts) {
+
+  constructor (opts) {
     this._opts = Object.assign(
       {
         autoReloadTimeout: 5000,
@@ -70,14 +71,14 @@ class DataSource {
         try {
           cachedState = JSON.parse(cachedState)
           this._setState(cachedState)
-        } catch(e) {
+        } catch (e) {
           console.error(`Failed to load cached query state: ${e}`, cachedState)
         }
       }
       this._setStateFromHash()
       window.addEventListener('hashchange', evt => {
         this._setStateFromHash()
-        this.reload({updateState: false})
+        this.reload({ updateState: false })
       })
     }
   }
@@ -131,7 +132,7 @@ class DataSource {
     throw "Not implemented"
   }
 
-  reload(args) {
+  reload (args) {
     clearTimeout(this._reloadTimer)
     return this._reload(args).then(resp => {
       this._enqueueReload()
@@ -139,6 +140,7 @@ class DataSource {
       return resp
     }).catch(err => {
       this._enqueueReload()
+      if (err.status === 401) { return }
       if (err.message) {
         this.emit('error', err.message)
       } else {
