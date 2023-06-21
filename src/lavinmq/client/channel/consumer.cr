@@ -43,6 +43,7 @@ module LavinMQ
         end
 
         private def deliver_loop
+          wait_for_single_active_consumer
           queue = @queue
           no_ack = @no_ack
           i = 0
@@ -51,7 +52,6 @@ module LavinMQ
             loop do
               raise ClosedError.new if @closed
               next if wait_for_global_capacity
-              next if wait_for_single_active_consumer
               next if wait_for_priority_consumers
               next if wait_for_queue_ready
               next if wait_for_paused_queue
@@ -81,7 +81,7 @@ module LavinMQ
         private def wait_for_single_active_consumer
           case @queue.single_active_consumer
           when self
-            @log.debug { "This consumer is already the single active consumer" }
+            @log.debug { "This consumer is the single active consumer" }
           when nil
             @log.debug { "The queue isn't a single active consumer queue" }
           else
