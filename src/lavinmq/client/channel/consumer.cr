@@ -94,7 +94,8 @@ module LavinMQ
         end
 
         private def wait_for_priority_consumers
-          if @queue.has_priority_consumers?
+          # single active consumer queues can't have priority consumers
+          if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
             if @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
               @log.debug { "Waiting for higher priority consumers to not have capacity" }
               begin
