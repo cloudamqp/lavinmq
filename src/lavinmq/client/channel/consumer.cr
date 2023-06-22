@@ -26,10 +26,12 @@ module LavinMQ
         def close
           @closed = true
           @queue.rm_consumer(self)
+          @notify_closed.close
           @has_capacity.close
           @flow_change.close
         end
 
+        @notify_closed = ::Channel(Nil).new
         @flow_change = ::Channel(Bool).new
 
         def flow(active : Bool)
@@ -39,7 +41,7 @@ module LavinMQ
 
         def prefetch_count=(prefetch_count : UInt16)
           @prefetch_count = prefetch_count
-          notiy_has_capacity(@prefetch_count > @unacked)
+          notify_hash_capacity(@prefetch_count > @unacked)
         end
 
         private def deliver_loop
@@ -74,7 +76,10 @@ module LavinMQ
           ch = @channel
           return if ch.has_capacity?
           @log.debug { "Waiting for global prefetch capacity" }
-          ch.has_capacity.receive
+          select
+          when ch.has_capacity.receive
+          when @notify_closed.receive
+          end
           true
         end
 
@@ -86,8 +91,17 @@ module LavinMQ
             @log.debug { "The queue isn't a single active consumer queue" }
           else
             @log.debug { "Waiting for this consumer to become the single active consumer" }
-            until @queue.single_active_consumer_change.receive == self
-              @log.debug { "New single active consumer, but not me" }
+            loop do
+              select
+              when sca = @queue.single_active_consumer_change.receive
+                if sca == self
+                  break
+                else
+                  @log.debug { "New single active consumer, but not me" }
+                end
+              when @notify_closed.receive
+                break
+              end
             end
             true
           end
@@ -110,8 +124,11 @@ module LavinMQ
         private def wait_for_queue_ready
           if @queue.empty?
             @log.debug { "Waiting for queue not to be empty" }
-            is_empty = @queue.empty_change.receive
-            @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            select
+            when is_empty = @queue.empty_change.receive
+              @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            when @notify_closed.receive
+            end
             return true
           end
         end
@@ -119,8 +136,11 @@ module LavinMQ
         private def wait_for_paused_queue
           if @queue.paused?
             @log.debug { "Waiting for queue not to be paused" }
-            is_paused = @queue.paused_change.receive
-            @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+            select
+            when is_paused = @queue.paused_change.receive
+              @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+            when @notify_closed.receive
+            end
             return true
           end
         end
@@ -157,7 +177,7 @@ module LavinMQ
 
         getter has_capacity = ::Channel(Bool).new
 
-        private def notiy_has_capacity(value)
+        private def notify_hash_capacity(value)
           while @has_capacity.try_send? value
           end
         end
@@ -165,7 +185,7 @@ module LavinMQ
         def deliver(msg, sp, redelivered = false, recover = false)
           unless @no_ack || recover
             @unacked += 1
-            notiy_has_capacity(false) if @unacked == @prefetch_count
+            notify_hash_capacity(false) if @unacked == @prefetch_count
           end
           persistent = msg.properties.delivery_mode == 2_u8
           # @log.debug { "Getting delivery tag" }
@@ -181,13 +201,13 @@ module LavinMQ
         def ack(sp)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notiy_has_capacity(true) if was_full
+          notify_hash_capacity(true) if was_full
         end
 
         def reject(sp)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notiy_has_capacity(true) if was_full
+          notify_hash_capacity(true) if was_full
         end
 
         def cancel
