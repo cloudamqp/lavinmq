@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2023-06-23
+
+### Fixed
+
+- Prevent memory leaks from consumer fibers which are waiting for empty queues etc.
+
 ## [1.1.4] - 2023-06-22
 
 ### Changed
