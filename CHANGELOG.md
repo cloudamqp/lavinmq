@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2023-06-22
+
 ### Changed
 
 - fsync on transaction commit, but not on publish confirm
