@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- fsync on transaction commit, but not on publish confirm
+
+### Fixed
+
+- Don't allow creating policies with wrongly typed defintions
+- Javascript bugs in the UI
+- Allow importing definitions where entities lacks the vhost property
+- Export vhost parameters when exporting a single vhost
+- Redirect to login page when cookie expires in UI
+
+### Added
+
+- Single Active Consumer queue support
+- Exponential backoff for shovel reconnects
+- Consumer churn rate metrics
+- Quicker boot time after crash
+- UI view for consumers
+
 ## [1.1.3] - 2023-05-22
 
 ### Added
