@@ -208,9 +208,7 @@ module LavinMQ
       Signal::HUP.trap { reload_server }
       Signal::INT.trap { shutdown_server }
       Signal::TERM.trap { shutdown_server }
-      {% if flag?(:release) %}
-        Signal::SEGV.reset # Let the OS gnerate a coredump in release mode
-      {% end %}
+      Signal::SEGV.reset # Let the OS generate a coredump
     end
 
     # Make sure that only one instance is using the data directory
