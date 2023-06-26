@@ -356,8 +356,8 @@ module LavinMQ
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
 
-          offset = stream_offset(frame)
-          c = if offset
+          c = if q.is_stream_queue?
+                offset = stream_offset(frame)
                 StreamConsumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
               else
                 Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
@@ -370,15 +370,15 @@ module LavinMQ
         Fiber.yield # Notify :add_consumer observers
       end
 
-      private def stream_offset(frame) : UInt64?
-        offset = 0_u64
+      private def stream_offset(frame) : Int64?
+        offset = nil
         if offset_arg = frame.arguments["x-stream-offset"]?
-          case offset_arg
-          when "first", "next" # same as offset = 0
-          when "last"
-            offset = -1.as?(UInt64) # FIX ME!
+          case offset_arg # TODO: support timestamps
+          when "first" # offset = 0
+            offset = 0_i64
+          when "next", "last" # last should be last "chunk", but we don't support that yet
           when offset_int = offset_arg.as?(Int)
-            offset = (offset_int || 0).to_u64 # FIX ME!
+            offset = (offset_int || 0).to_i64 # FIX ME!
           else
             raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
           end

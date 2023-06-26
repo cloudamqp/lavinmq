@@ -43,6 +43,7 @@ module LavinMQ
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = Channel(Nil).new
+    @queue_type = "standard"
 
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
@@ -187,6 +188,10 @@ module LavinMQ
       @exclusive_consumer
     end
 
+    def is_stream_queue?
+      @queue_type == "stream"
+    end
+
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?) # ameba:disable Metrics/CyclomaticComplexity
       clear_policy
       Policy.merge_definitions(policy, operator_policy).each do |k, v|
@@ -261,6 +266,7 @@ module LavinMQ
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
+      @queue_type = parse_header("x-queue-type", String) || "standard"
     end
 
     private macro parse_header(header, type)

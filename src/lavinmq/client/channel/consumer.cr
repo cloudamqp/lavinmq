@@ -244,14 +244,13 @@ module LavinMQ
 
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
         @segment = 1_u32
-        @offset = 0_u64
+        @offset = nil
         @pos = 4_u32
         @requeued = Deque(SegmentPosition).new
         getter offset, segment, pos, requeued
 
         def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : UInt64?)
-          @offset = @offset || 0_u64
+                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : Int64?)
           super(@channel, @tag, @queue, @no_ack, @exclusive, @priority)
         end
 

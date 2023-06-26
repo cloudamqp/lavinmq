@@ -6,7 +6,7 @@ module LavinMQ
     @durable = true
     @exclusive_consumer = false
     @no_ack = true
-    @last_offset = 0
+    @last_offset = 0_i64
 
     private def init_msg_store(data_dir)
       @msg_store = StreamQueueMessageStore.new(data_dir)
@@ -70,7 +70,7 @@ module LavinMQ
           rfile.seek(msg.bytesize, IO::Seek::Current)
           @bytesize -= msg.bytesize
 
-          offset = consumer.offset || 0_u64
+          offset = consumer.offset || 0_i64
           msg_offset = 0
           headers = msg.properties.headers
           if ht = headers.as?(AMQ::Protocol::Table)
@@ -146,25 +146,25 @@ module LavinMQ
     private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
+        consumer.update_offset(@last_offset) unless consumer.offset # if no offset provided, use offset of last published message
+        # TODO: @last_offset is 0 when starting lavin, we need to set it to last message offset in queue
+
         env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
         end
-        offset = consumer.offset || 0_u64
-        puts "::::get::::"
-        puts "env.message.offset: #{env.message.offset}"
-        puts "offset: #{offset}"
-        headers = env.message.properties.headers
 
+        puts "env.message.offset: #{env.message.offset}"
+        headers = env.message.properties.headers
         msg_offset = 0
         if ht = headers.as?(AMQ::Protocol::Table)
-          msg_offset = ht["x-stream-offset"].as(Int32)
+          msg_offset = ht["x-stream-offset"].as(Int32).to_i64 # TODO: should not be i32, but cast fails
           puts "msg_offset: #{msg_offset}"
+          consumer.update_offset(msg_offset)
         end
 
         sp = env.segment_position
-        consumer.update_offset(msg_offset.to_u64)
         if consumer.no_ack
           begin
             yield env # deliver the message
@@ -187,7 +187,6 @@ module LavinMQ
       raise ClosedError.new(cause: ex)
     end
 
-    # handle offset
     def add_consumer(consumer : Client::Channel::StreamConsumer)
       return if @closed
       @last_get_time = RoughTime.monotonic
