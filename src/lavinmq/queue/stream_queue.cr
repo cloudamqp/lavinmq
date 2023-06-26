@@ -23,7 +23,7 @@ module LavinMQ
         requeued = consumer.requeued || Deque(SegmentPosition).new
         raise ClosedError.new if @closed
         if sp = requeued.shift?
-          segment = @segments[sp.segment] 
+          segment = @segments[sp.segment]
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             @bytesize -= sp.bytesize
@@ -59,14 +59,14 @@ module LavinMQ
             seg = @rfile_id
             next unless @size.zero?
             return if @size.zero?
-            #raise IO::EOFError.new("EOF but @size=#{@size}")
+            # raise IO::EOFError.new("EOF but @size=#{@size}")
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
             next
           end
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-          
+
           rfile.seek(msg.bytesize, IO::Seek::Current)
           @bytesize -= msg.bytesize
 
