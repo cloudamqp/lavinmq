@@ -69,6 +69,8 @@ module LavinMQ
         STDERR.puts @parser
         exit 2
       end
+    rescue ex
+      abort ex.message
     end
   end
 end
