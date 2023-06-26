@@ -146,6 +146,7 @@ module LavinMQ
     private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
+
         consumer.update_offset(@last_offset) unless consumer.offset # if no offset provided, use offset of last published message
         # TODO: @last_offset is 0 when starting lavin, we need to set it to last message offset in queue
 

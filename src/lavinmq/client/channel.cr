@@ -374,7 +374,7 @@ module LavinMQ
         offset = nil
         if offset_arg = frame.arguments["x-stream-offset"]?
           case offset_arg # TODO: support timestamps
-          when "first" # offset = 0
+          when "first"    # offset = 0
             offset = 0_i64
           when "next", "last" # last should be last "chunk", but we don't support that yet
           when offset_int = offset_arg.as?(Int)
