@@ -22,8 +22,8 @@ module LavinMQ
         pos = consumer.pos || 0_u32
         requeued = consumer.requeued || Deque(SegmentPosition).new
         raise ClosedError.new if @closed
-        if sp = requeued.shift?           # handle requeued per consumer
-          segment = @segments[sp.segment] #
+        if sp = requeued.shift?
+          segment = @segments[sp.segment] 
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             @bytesize -= sp.bytesize
@@ -36,13 +36,13 @@ module LavinMQ
         end
 
         loop do
-          seg = if consumer.segment && consumer.segment != 0
+          seg = if consumer.segment
                   consumer.segment
                 else
                   @rfile_id
                 end
           rfile = @segments[seg]
-          pos = if consumer.pos && consumer.pos != 0
+          pos = if consumer.pos
                   consumer.pos
                 else
                   rfile.pos.to_u32
@@ -52,21 +52,38 @@ module LavinMQ
           seg ||= 0_u32
 
           if pos == rfile.size # EOF?
-            select_next_read_segment && next
+            select_next_read_segment
+            puts "consumer  #{consumer.segment} #{consumer.pos}"
+            consumer.update_segment(@rfile_id, 0_u32)
+            pos = 0_u32
+            seg = @rfile_id
+            next unless @size.zero?
             return if @size.zero?
-            raise IO::EOFError.new("EOF but @size=#{@size}")
+            #raise IO::EOFError.new("EOF but @size=#{@size}")
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
             next
           end
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-          puts "-------------"
-          puts msg.inspect
-          puts "-----------------"
+          
+          rfile.seek(msg.bytesize, IO::Seek::Current)
+          @bytesize -= msg.bytesize
+
+          offset = consumer.offset || 0_u64
+          msg_offset = 0
+          headers = msg.properties.headers
+          if ht = headers.as?(AMQ::Protocol::Table)
+            msg_offset = ht["x-stream-offset"].as(Int32)
+          end
+          if msg_offset < offset
+            puts "message.offset #{msg_offset} < offset #{offset}, next"
+            next_pos = pos + msg.bytesize
+            consumer.update_segment(@rfile_id, next_pos)
+            next unless next_pos >= rfile.size
+          end
+
           sp = SegmentPosition.make(seg, pos, msg)
-          rfile.seek(sp.bytesize, IO::Seek::Current)
-          @bytesize -= sp.bytesize
           @size -= 1
           notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
@@ -146,21 +163,13 @@ module LavinMQ
           puts "msg_offset: #{msg_offset}"
         end
 
-        # some testing for finding the right message by offset, should be per consumer
-        # and we should probably also save segment/position per consumer
-        # but we also need a "seek" if the offset is changed or a new consumer is added
-        if msg_offset < offset
-          puts "env.message.offset #{msg_offset} < offset #{offset}}"
-          next
-        end
         sp = env.segment_position
         consumer.update_offset(msg_offset.to_u64)
-        consumer.update_segment(env.segment_position.segment, env.segment_position.position)
         if consumer.no_ack
           begin
             yield env # deliver the message
           rescue ex   # requeue failed delivery
-            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            consumer.requeue(sp)
             raise ex
           end
           delete_message(sp)
