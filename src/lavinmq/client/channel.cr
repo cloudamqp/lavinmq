@@ -602,7 +602,7 @@ module LavinMQ
         if c = unack.consumer
           c.reject(unack.sp)
         end
-        unack.queue.reject(unack.sp, requeue)
+        unack.queue.reject(unack.sp, requeue) # send consumer here for stream queues?
         @reject_count += 1
         @client.vhost.event_tick(EventType::ClientReject)
       end

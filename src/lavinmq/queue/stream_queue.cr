@@ -6,18 +6,61 @@ module LavinMQ
     @durable = true
     @exclusive_consumer = false
     @no_ack = true
-    @last_offset = 0_i64
 
     private def init_msg_store(data_dir)
       @msg_store = StreamQueueMessageStore.new(data_dir)
     end
 
     class StreamQueueMessageStore < MessageStore
+      @last_offset = 0_i64
+
       def initialize(@data_dir : String)
         super
       end
 
-      def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      # Populate bytesize, size and segment_msg_count
+      private def load_stats_from_segments : Nil
+        last_bytesize = 0_u32
+        @segments.each do |seg, mfile|
+          count = 0u32
+          loop do
+            pos = mfile.pos
+            raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
+            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
+            break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+
+            last_bytesize = bytesize = BytesMessage.skip(mfile)
+            count += 1
+            unless deleted?(seg, pos)
+              @bytesize += bytesize
+              @size += 1
+            end
+          rescue ex : IO::EOFError
+            if mfile.pos < mfile.size
+              Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
+              mfile.truncate(mfile.pos)
+            end
+            break
+          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+            raise Error.new(mfile, cause: ex)
+          end
+
+          begin # sets @last_offset to last message offset
+            mfile.seek(mfile.pos - last_bytesize, IO::Seek::Set)
+            msg = BytesMessage.from_bytes(mfile.to_slice + mfile.pos)
+            @last_offset = offset_from_headers(msg.properties.headers)
+            # do we seek to the end of the file here?
+          rescue IndexError
+          end
+
+          mfile.pos = 4
+          @segment_msg_count[seg] = count
+        end
+      end
+
+      def shift?(consumer) : Envelope?                              # ameba:disable Metrics/CyclomaticComplexity
+        consumer.update_offset(@last_offset) unless consumer.offset # if no offset provided, use offset of last published message
+
         seg = consumer.segment || @segments.first_value
         pos = consumer.pos || 0_u32
         requeued = consumer.requeued || Deque(SegmentPosition).new
@@ -26,7 +69,6 @@ module LavinMQ
           segment = @segments[sp.segment]
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-            @bytesize -= sp.bytesize
             @size -= 1
             notify_empty(true) if @size.zero?
             return Envelope.new(sp, msg, redelivered: true)
@@ -53,7 +95,6 @@ module LavinMQ
 
           if pos == rfile.size # EOF?
             select_next_read_segment
-            puts "consumer  #{consumer.segment} #{consumer.pos}"
             consumer.update_segment(@rfile_id, 0_u32)
             pos = 0_u32
             seg = @rfile_id
@@ -65,23 +106,22 @@ module LavinMQ
             BytesMessage.skip(rfile)
             next
           end
-          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
 
-          rfile.seek(msg.bytesize, IO::Seek::Current)
-          @bytesize -= msg.bytesize
+          rfile.seek(pos, IO::Seek::Set) unless rfile.pos == pos # seek to message pos if not already there
+          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+          rfile.seek(msg.bytesize, IO::Seek::Current) # seek to next message
+
+          next_pos = pos + msg.bytesize
+          consumer.update_segment(@rfile_id, next_pos)
 
           offset = consumer.offset || 0_i64
-          msg_offset = 0
-          headers = msg.properties.headers
-          if ht = headers.as?(AMQ::Protocol::Table)
-            msg_offset = ht["x-stream-offset"].as(Int32)
-          end
+          msg_offset = offset_from_headers(msg.properties.headers)
+
           if msg_offset < offset
             puts "message.offset #{msg_offset} < offset #{offset}, next"
-            next_pos = pos + msg.bytesize
-            consumer.update_segment(@rfile_id, next_pos)
             next unless next_pos >= rfile.size
           end
+          consumer.update_offset(msg_offset)
 
           sp = SegmentPosition.make(seg, pos, msg)
           @size -= 1
@@ -92,16 +132,36 @@ module LavinMQ
         end
       end
 
+      def push(msg) : SegmentPosition
+        raise ClosedError.new if @closed
+        offset = @last_offset += 1
+        msg = add_offset_header(msg, offset) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
+        sp = write_to_disk(msg)
+        was_empty = @size.zero?
+        @bytesize += sp.bytesize
+        @size += 1
+        notify_empty(false) if was_empty
+        sp
+      end
+
       # should delete without ack
       def delete(sp) : Nil
       end
-    end
 
-    def add_offset_header(msg, offset)
-      headers = msg.properties.headers || ::AMQP::Client::Arguments.new
-      headers["x-stream-offset"] = offset.as(AMQ::Protocol::Field)
-      msg.properties.headers = headers
-      msg
+      def add_offset_header(msg, offset)
+        headers = msg.properties.headers || ::AMQP::Client::Arguments.new
+        headers["x-stream-offset"] = offset.as(AMQ::Protocol::Field)
+        msg.properties.headers = headers
+        msg
+      end
+
+      def offset_from_headers(headers)
+        if ht = headers.as?(AMQ::Protocol::Table)
+          ht["x-stream-offset"].as(Int64) # TODO: should not be i32, but cast fails
+        else
+          0_i64
+        end
+      end
     end
 
     # save message id / segment position
@@ -109,8 +169,6 @@ module LavinMQ
       return false if @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
-        offset = @last_offset += 1
-        msg = add_offset_header(msg, offset) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
         @msg_store.push(msg)
         @publish_count += 1
       end
@@ -146,23 +204,10 @@ module LavinMQ
     private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
-
-        consumer.update_offset(@last_offset) unless consumer.offset # if no offset provided, use offset of last published message
-        # TODO: @last_offset is 0 when starting lavin, we need to set it to last message offset in queue
-
         env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
-        end
-
-        puts "env.message.offset: #{env.message.offset}"
-        headers = env.message.properties.headers
-        msg_offset = 0
-        if ht = headers.as?(AMQ::Protocol::Table)
-          msg_offset = ht["x-stream-offset"].as(Int32).to_i64 # TODO: should not be i32, but cast fails
-          puts "msg_offset: #{msg_offset}"
-          consumer.update_offset(msg_offset)
         end
 
         sp = env.segment_position
@@ -188,6 +233,31 @@ module LavinMQ
       raise ClosedError.new(cause: ex)
     end
 
+    def ack(sp : SegmentPosition) : Nil
+      return if @deleted
+      puts "'Acking' #{sp}"
+      true # TODO: what do we need to do here?
+    end
+
+    def reject(sp : SegmentPosition, requeue : Bool)
+      return if @deleted || @closed
+      @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
+      if requeue
+        if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
+          expire_msg(sp, :expired)
+        else
+          # consumer.requeue(sp)
+          # TODO: requeue per consumer
+          drop_overflow unless immediate_delivery?
+        end
+      else
+        expire_msg(sp, :rejected)
+      end
+    rescue ex : MessageStore::Error
+      close
+      raise ex
+    end
+
     def add_consumer(consumer : Client::Channel::StreamConsumer)
       return if @closed
       @last_get_time = RoughTime.monotonic
@@ -196,8 +266,7 @@ module LavinMQ
         @consumers << consumer
         notify_consumers_empty(false) if was_empty
       end
-      @exclusive_consumer = true if consumer.exclusive
-      @has_priority_consumers = true unless consumer.priority.zero?
+
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       notify_observers(:add_consumer, consumer)
     end
