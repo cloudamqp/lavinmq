@@ -216,7 +216,7 @@ describe LavinMQ::Federation::Upstream do
         upstream_ex.publish_confirm "msg1", "rk1"
         msgs.receive.should eq "msg1"
         sleep 0.01 # allow the downstream federation to ack the msg
-        upstream_vhost.connections.each do |conn|
+        upstream_vhost.each_connection do |conn|
           next unless conn.client_name.starts_with?("Federation link")
           conn.close
         end
