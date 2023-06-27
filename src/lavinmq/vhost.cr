@@ -49,7 +49,6 @@ module LavinMQ
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)
       @definitions_file = File.open(File.join(@data_dir, "definitions.amqp"), "a+")
-      @data_dir_fd = LibC.dirfd(Dir.new(@data_dir).@dir)
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @log)
@@ -691,9 +690,9 @@ module LavinMQ
       end
     end
 
-    def sync
+    def sync : Nil
       {% if flag?(:linux) %}
-        ret = LibC.syncfs(@data_dir_fd)
+        ret = LibC.syncfs(@definitions_file.fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
       {% else %}
         LibC.sync
