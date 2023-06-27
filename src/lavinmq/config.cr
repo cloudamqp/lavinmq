@@ -41,6 +41,8 @@ module LavinMQ
     property? guest_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
     property? log_exchange : Bool = false
+    property free_disk_min : Int64 = 0  # bytes
+    property free_disk_warn : Int64 = 0 # bytes
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -95,6 +97,8 @@ module LavinMQ
         when "tls_min_version"      then @tls_min_version = v
         when "guest_only_loopback"  then @guest_only_loopback = true?(v)
         when "log_exchange"         then @log_exchange = true?(v)
+        when "free_disk_min"        then @free_disk_min = v.to_i64
+        when "free_disk_warn"       then @free_disk_warn = v.to_i64
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
