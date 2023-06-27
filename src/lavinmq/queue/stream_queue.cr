@@ -107,7 +107,7 @@ module LavinMQ
             next
           end
 
-          rfile.seek(pos, IO::Seek::Set) unless rfile.pos == pos # seek to message pos if not already there
+          rfile.pos = pos
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
           rfile.seek(msg.bytesize, IO::Seek::Current) # seek to next message
 
