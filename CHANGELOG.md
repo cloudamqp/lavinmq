@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Replication support, followers can connect and stream data from a leader in real time, enabling hot-standby use-cases
+- Config variables for free_disk_min and free_disk_warn
+
+### Changed
+
+- Temporary message files (per channel) are not truncated on publish, so performance for transactions are up 10x, and publishing messages larger than frame_max too
+- Modifying defintions (declaring/deleting queues/exchanges etc) is now synchrous and thread safe.
+
 ## [1.1.5] - 2023-06-23
 
 ### Fixed
