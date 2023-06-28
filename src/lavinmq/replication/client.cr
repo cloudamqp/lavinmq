@@ -1,5 +1,8 @@
 require "../replication"
 require "../data_dir_lock"
+{% unless flag?(:without_lz4) %}
+  require "lz4"
+{% end %}
 
 module LavinMQ
   class Replication
@@ -8,10 +11,17 @@ module LavinMQ
       @password : String
       @data_dir_lock : DataDirLock?
       @closed = false
+      @lz4 : IO
 
       def initialize(@data_dir : String)
         System.maximize_fd_limit
         @socket = TCPSocket.new
+        @socket.sync = true
+        @lz4 = @socket
+        {% unless flag?(:without_lz4) %}
+          @socket.read_buffering = false
+          @lz4 = Compress::LZ4::Reader.new(@socket)
+        {% end %}
         @password = password
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
@@ -41,36 +51,35 @@ module LavinMQ
 
       def follow(host, port)
         loop do
-          @socket.connect(host, port)
-          Log.info { "Connected" }
-          @socket.write Start
-          authenticate
-          Log.info { "Authenticated" }
-          sync_files
-          Log.info { "Files synced" }
-          notify_in_sync
+          sync(host, port, notify_in_sync: true)
           Log.info { "Streaming changes" }
           stream_changes
         rescue ex : IO::Error
-          break @socket.close if @closed
-          Log.info { "Disconnected from server (#{ex}), retrying..." }
+          @lz4.close
           @socket.close
+          break if @closed
+          Log.info { "Disconnected from server (#{ex}), retrying..." }
           sleep 5
           @socket = TCPSocket.new
+          @socket.sync = true
+          @lz4 = @socket
+          {% unless flag?(:without_lz4) %}
+            @socket.read_buffering = false
+            @lz4 = Compress::LZ4::Reader.new(@socket)
+          {% end %}
         end
       end
 
-      def sync(host, port)
+      def sync(host, port, notify_in_sync = false)
         @socket.connect(host, port)
         Log.info { "Connected" }
-        @socket.write Start
         authenticate
         Log.info { "Authenticated" }
-        sync_files
+        sync_files(notify_in_sync)
         Log.info { "Synchronised" }
       end
 
-      private def sync_files
+      private def sync_files(notify_in_sync = false, socket = @lz4)
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
@@ -78,11 +87,11 @@ module LavinMQ
         files_to_delete = ls_r(@data_dir)
         missing_files = Array(String).new
         loop do
-          filename_len = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
-          filename = @socket.read_string(filename_len)
-          @socket.read_fully(remote_hash)
+          filename = socket.read_string(filename_len)
+          socket.read_fully(remote_hash)
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
@@ -98,14 +107,18 @@ module LavinMQ
             missing_files << filename
           end
         end
+        Log.info { "List of files received" }
         files_to_delete.each do |path|
           Log.info { "File not on leader: #{path}" }
           move_to_backup path
         end
-        missing_files.each do |filename|
-          request_file(filename)
+        spawn do
+          missing_files.each do |filename|
+            request_file(filename)
+          end
+          @socket.write_bytes 0i32 if notify_in_sync
+          @socket.flush
         end
-        @socket.flush
         missing_files.each do |filename|
           file_from_socket(filename)
         end
@@ -138,10 +151,6 @@ module LavinMQ
         end
       end
 
-      private def notify_in_sync
-        @socket.write_bytes 0i32, IO::ByteFormat::LittleEndian
-      end
-
       private def request_file(filename)
         Log.info { "Requesting #{filename}" }
         @socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
@@ -151,24 +160,25 @@ module LavinMQ
       private def file_from_socket(filename)
         path = File.join(@data_dir, filename)
         Dir.mkdir_p File.dirname(path)
-        length = @socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+        length = @lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         File.open(path, "w") do |f|
-          IO.copy(@socket, f, length) == length || raise IO::EOFError.new
+          IO.copy(@lz4, f, length) == length || raise IO::EOFError.new
         end
+        Log.info { "Received #{filename}, #{length} bytes" }
       end
 
-      private def stream_changes
+      private def stream_changes(socket = @lz4)
         loop do
-          filename_len = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
-          filename = @socket.read_string(filename_len)
+          filename = socket.read_string(filename_len)
 
-          len = @socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+          len = socket.read_bytes Int64, IO::ByteFormat::LittleEndian
           case len
           when .negative? # append bytes to file
             Log.debug { "Appending #{len.abs} bytes to #{filename}" }
             f = @files[filename]
-            IO.copy(@socket, f, len.abs) == len.abs || raise IO::EOFError.new
+            IO.copy(socket, f, len.abs) == len.abs || raise IO::EOFError.new
           when .zero? # file is deleted
             Log.info { "Deleting #{filename}" }
             if f = @files.delete(filename)
@@ -181,21 +191,40 @@ module LavinMQ
             Log.info { "Getting full file #{filename} (#{len} bytes)" }
             f = @files[filename]
             f.truncate
-            IO.copy(@socket, f, len) == len || raise IO::EOFError.new
+            IO.copy(socket, f, len) == len || raise IO::EOFError.new
           end
           @socket.write_bytes len.abs, IO::ByteFormat::LittleEndian # ack
+          @socket.flush
         end
       end
 
       private def authenticate
+        @socket.write Start
         @socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         @socket.write @password.to_slice
+        @socket.flush
+        case @socket.read_byte
+        when 0 # ok
+        when 1   then raise AuthenticationError.new
+        when nil then raise IO::EOFError.new
+        else
+          raise Error.new("Unknown response from authentication")
+        end
       end
 
       def close
         @closed = true
+        @lz4.close
         @socket.close
         @files.each_value &.close
+      end
+
+      class Error < Exception; end
+
+      class AuthenticationError < Error
+        def initialize
+          super("Authentication error")
+        end
       end
     end
   end

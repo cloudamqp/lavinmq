@@ -3,6 +3,9 @@ require "../config"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
+{% unless flag?(:without_lz4) %}
+  require "lz4"
+{% end %}
 
 module LavinMQ
   class Replication
@@ -63,7 +66,9 @@ module LavinMQ
         hash = Bytes.new(sha1.digest_size)
         @files.each do |path, mfile|
           if mfile
+            was_unmapped = mfile.unmapped?
             sha1.update mfile.to_slice
+            mfile.unmap if was_unmapped
           else
             sha1.file path
           end
@@ -80,6 +85,7 @@ module LavinMQ
             yield mfile
           else
             File.open(path) do |f|
+              f.read_buffering = false
               yield f
             end
           end
@@ -138,8 +144,8 @@ module LavinMQ
             @followers.delete(follower)
           end
         end
-      rescue ex : RuntimeError
-        Log.warn(exception: ex) { "Follower negotiation error" }
+      rescue ex : AuthenticationError
+        Log.warn { "Follower negotiation error" }
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
@@ -174,11 +180,17 @@ module LavinMQ
         @acked_bytes = 0_i64
         @sent_bytes = 0_i64
         @actions = Channel(Action).new(4096)
+        @lz4 : IO
 
         def initialize(@socket : TCPSocket, @server : Server)
           Log.context.set(address: @socket.remote_address.to_s)
           @socket.write_timeout = 5
           @socket.read_timeout = 5
+          @socket.buffer_size = 64 * 1024
+          @lz4 = @socket
+          {% unless flag?(:without_lz4) %}
+            @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
+          {% end %}
         end
 
         def negotiate!(password) : Nil
@@ -205,7 +217,7 @@ module LavinMQ
         rescue IO::Error
         end
 
-        private def action_loop(socket = @socket)
+        private def action_loop(socket = @lz4)
           while action = @actions.receive?
             @sent_bytes += action.send(socket)
             while action2 = @actions.try_receive?
@@ -232,49 +244,53 @@ module LavinMQ
           len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
           client_password = @socket.read_string(len)
           if Crypto::Subtle.constant_time_compare(password, client_password)
+            @socket.write_byte 0u8
           else
-            raise "Authentication failed"
+            @socket.write_byte 1u8
+            raise AuthenticationError.new
           end
-        end
-
-        private def send_file_list
-          @server.files_with_hash do |path, hash|
-            path = path[Config.instance.data_dir.bytesize + 1..]
-            @socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
-            @socket.write path.to_slice
-            @socket.write hash
-          end
-          @socket.write_bytes 0i32
+        ensure
           @socket.flush
         end
 
-        private def send_requested_files
+        private def send_file_list(socket = @lz4)
+          @server.files_with_hash do |path, hash|
+            path = path[Config.instance.data_dir.bytesize + 1..]
+            socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
+            socket.write path.to_slice
+            socket.write hash
+          end
+          socket.write_bytes 0i32
+          socket.flush
+        end
+
+        private def send_requested_files(socket = @socket)
           loop do
-            filename_len = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+            filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
             break if filename_len.zero?
 
-            filename = @socket.read_string(filename_len)
+            filename = socket.read_string(filename_len)
             send_requested_file(filename)
           end
+          @lz4.flush
         end
 
         private def send_requested_file(filename)
-          Log.debug { "#{filename} requested" }
+          Log.info { "#{filename} requested" }
           @server.with_file(filename) do |f|
             case f
             when MFile
               size = f.size.to_i64
-              @socket.write_bytes size, IO::ByteFormat::LittleEndian
-              f.copy_to(@socket, size)
+              @lz4.write_bytes size, IO::ByteFormat::LittleEndian
+              f.copy_to(@lz4, size)
             when File
               size = f.size.to_i64
-              @socket.write_bytes size, IO::ByteFormat::LittleEndian
-              IO.copy(f, @socket, size) == size || raise IO::EOFError.new
+              @lz4.write_bytes size, IO::ByteFormat::LittleEndian
+              IO.copy(f, @lz4, size) == size || raise IO::EOFError.new
             when nil
-              @socket.write_bytes 0i64
+              @lz4.write_bytes 0i64
             else raise "unexpected file type #{f.class}"
             end
-            @socket.flush
           end
         end
 
@@ -300,9 +316,9 @@ module LavinMQ
           def initialize(@path : String)
           end
 
-          abstract def send(socket : Socket) : Int64
+          abstract def send(socket : IO) : Int64
 
-          private def send_filename(socket : Socket)
+          private def send_filename(socket : IO)
             filename = @path[Config.instance.data_dir.bytesize + 1..]
             socket.write_bytes filename.bytesize.to_i32, IO::ByteFormat::LittleEndian
             socket.write filename.to_slice
@@ -370,21 +386,41 @@ module LavinMQ
         def close
           Log.info { "Disconnected" }
           @actions.close
+          @lz4.close
           @socket.close
         rescue IO::Error
           # ignore connection errors while closing
         end
 
         def to_json(json : JSON::Builder)
-          {
-            remote_address: @socket.remote_address.to_s,
-            sent_bytes:     @sent_bytes,
-            acked_bytes:    @acked_bytes,
-          }.to_json(json)
+          {% unless flag?(:without_lz4) %}
+            {
+              remote_address:     @socket.remote_address.to_s,
+              sent_bytes:         @sent_bytes,
+              acked_bytes:        @acked_bytes,
+              compression_ratio:  @lz4.as(Compress::LZ4::Writer).compression_ratio,
+              uncompressed_bytes: @lz4.as(Compress::LZ4::Writer).uncompressed_bytes,
+              compressed_bytes:   @lz4.as(Compress::LZ4::Writer).compressed_bytes,
+            }.to_json(json)
+          {% else %}
+            {
+              remote_address: @socket.remote_address.to_s,
+              sent_bytes:     @sent_bytes,
+              acked_bytes:    @acked_bytes,
+            }.to_json(json)
+          {% end %}
         end
 
         def lag : Int64
           @sent_bytes - @acked_bytes
+        end
+      end
+
+      class Error < Exception; end
+
+      class AuthenticationError < Error
+        def initialize
+          super("Authentication error")
         end
       end
     end
