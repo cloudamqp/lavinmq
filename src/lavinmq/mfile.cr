@@ -10,7 +10,6 @@ lib LibC
   fun munmap(addr : Void*, len : SizeT) : Int
   fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   fun msync(addr : Void*, len : SizeT, flags : Int) : Int
-  fun truncate(path : Char*, len : OffT) : Int
 end
 
 # Memory mapped file

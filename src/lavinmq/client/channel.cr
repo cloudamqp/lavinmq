@@ -184,7 +184,6 @@ module LavinMQ
             begin
               finish_publish(next_msg_body_file)
             ensure
-              next_msg_body_file.truncate
               next_msg_body_file.rewind
             end
           end
@@ -747,7 +746,6 @@ module LavinMQ
         end
         @tx_publishes.clear
       ensure
-        next_msg_body_file.truncate
         next_msg_body_file.rewind
       end
 
@@ -788,7 +786,6 @@ module LavinMQ
         return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         @tx_publishes.clear
         @tx_acks.clear
-        next_msg_body_file.truncate # tmp file where all bodies are written to
         next_msg_body_file.rewind
         send AMQP::Frame::Tx::RollbackOk.new(frame.channel)
       end
