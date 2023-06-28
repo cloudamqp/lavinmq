@@ -6,7 +6,9 @@ require "./stream_queue"
 module LavinMQ
   class QueueFactory
     def self.make(vhost : VHost, frame : AMQP::Frame)
-      if frame.durable
+      if prio_queue?(frame) && stream_queue?(frame)
+        raise Error::PreconditionFailed.new("A queue cannot be both a priority queue and a stream queue")
+      elsif frame.durable
         make_durable(vhost, frame)
       else
         make_queue(vhost, frame)
@@ -17,6 +19,11 @@ module LavinMQ
       if prio_queue? frame
         DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
       elsif stream_queue? frame
+        if frame.exclusive
+          raise Error::PreconditionFailed.new("A stream queue cannot be exclusive")
+        elsif frame.auto_delete
+          raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
+        end
         StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
       else
         DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
@@ -26,6 +33,8 @@ module LavinMQ
     private def self.make_queue(vhost, frame)
       if prio_queue? frame
         PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+      elsif stream_queue? frame
+        raise Error::PreconditionFailed.new("A stream queue cannot be non-durable")
       else
         Queue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
       end
