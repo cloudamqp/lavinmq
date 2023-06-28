@@ -1,5 +1,6 @@
 require "../replication"
 require "../data_dir_lock"
+require "zstd/decompress/io"
 
 module LavinMQ
   class Replication
@@ -11,6 +12,7 @@ module LavinMQ
 
       def initialize(@data_dir : String)
         @socket = TCPSocket.new
+        @zstd = Zstd::Decompress::IO.new(@socket)
         @password = password
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
@@ -51,11 +53,13 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes
         rescue ex : IO::Error
-          break @socket.close if @closed
-          Log.info { "Disconnected from server (#{ex}), retrying..." }
+          @zstd.close
           @socket.close
+          break if @closed
+          Log.info { "Disconnected from server (#{ex}), retrying..." }
           sleep 5
           @socket = TCPSocket.new
+          @zstd = Zstd::Decompress::IO.new(@socket)
         end
       end
 
@@ -76,11 +80,11 @@ module LavinMQ
         files_to_delete = ls_r(@data_dir)
         missing_files = Array(String).new
         loop do
-          filename_len = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          filename_len = @zstd.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
-          filename = @socket.read_string(filename_len)
-          @socket.read_fully(remote_hash)
+          filename = @zstd.read_string(filename_len)
+          @zstd.read_fully(remote_hash)
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
@@ -146,25 +150,25 @@ module LavinMQ
       private def file_from_socket(filename)
         path = File.join(@data_dir, filename)
         Dir.mkdir_p File.dirname(path)
-        length = @socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+        length = @zstd.read_bytes Int64, IO::ByteFormat::LittleEndian
         File.open(path, "w") do |f|
-          copied = IO.copy(@socket, f, length)
+          copied = IO.copy(@zstd, f, length)
           raise IO::Error.new("Only received #{copied}/#{length}") if copied != length
         end
       end
 
-      private def stream_changes
+      private def stream_changes(socket = @zstd)
         loop do
-          filename_len = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
-          filename = @socket.read_string(filename_len)
+          filename = socket.read_string(filename_len)
 
-          len = @socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+          len = socket.read_bytes Int64, IO::ByteFormat::LittleEndian
           case len
           when .negative? # append bytes to file
             Log.debug { "Appending #{len.abs} bytes to #{filename}" }
             f = @files[filename]
-            copied = IO.copy(@socket, f, len.abs)
+            copied = IO.copy(socket, f, len.abs)
             raise IO::Error.new("Only received #{copied}/#{len.abs}") if copied != len.abs
           when .zero? # file is deleted
             Log.info { "Deleting #{filename}" }
@@ -178,7 +182,7 @@ module LavinMQ
             Log.info { "Getting full file #{filename}" }
             f = @files[filename]
             f.truncate
-            copied = IO.copy(@socket, f, len)
+            copied = IO.copy(socket, f, len)
             raise IO::Error.new("Only received #{copied}/#{len}") if copied != len
           end
           @socket.write_bytes len.abs, IO::ByteFormat::LittleEndian # ack
@@ -192,6 +196,7 @@ module LavinMQ
 
       def close
         @closed = true
+        @zstd.close
         @socket.close
       end
     end

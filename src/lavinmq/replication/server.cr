@@ -3,6 +3,7 @@ require "../config"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
+require "zstd/compress/io"
 
 module LavinMQ
   class Replication
@@ -183,6 +184,7 @@ module LavinMQ
           Log.context.set(address: @socket.remote_address.to_s)
           @socket.write_timeout = 5
           @socket.read_timeout = 5
+          @zstd = Zstd::Compress::IO.new(@socket, level: 1)
           spawn action_loop, name: "Follower#action_loop"
         end
 
@@ -207,13 +209,13 @@ module LavinMQ
         rescue IO::Error
         end
 
-        private def action_loop(socket = @socket)
+        private def action_loop(socket = @zstd)
           while action = @actions.receive?
             @sent_bytes += action.send(socket)
             while action2 = @actions.try_receive?
               @sent_bytes += action2.send(socket)
             end
-            socket.flush
+            @socket.flush
           end
         rescue IO::Error
         ensure
@@ -242,11 +244,11 @@ module LavinMQ
         private def send_file_list
           @server.files_with_hash do |path, hash|
             path = path[Config.instance.data_dir.bytesize + 1..]
-            @socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
-            @socket.write path.to_slice
-            @socket.write hash
+            @zstd.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
+            @zstd.write path.to_slice
+            @zstd.write hash
           end
-          @socket.write_bytes 0i32
+          @zstd.write_bytes 0i32
           @socket.flush
         end
 
@@ -266,12 +268,12 @@ module LavinMQ
             case f
             when MFile
               size = f.size.to_i64
-              @socket.write_bytes size, IO::ByteFormat::LittleEndian
-              @socket.write f.to_slice(0, size)
+              @zstd.write_bytes size, IO::ByteFormat::LittleEndian
+              @zstd.write f.to_slice(0, size)
             when File
               size = f.size.to_i64
-              @socket.write_bytes size, IO::ByteFormat::LittleEndian
-              IO.copy f, @socket, size
+              @zstd.write_bytes size, IO::ByteFormat::LittleEndian
+              IO.copy f, @zstd, size
             when nil
               @socket.write_bytes 0i64
             else raise "unexpected file type #{f.class}"
@@ -298,9 +300,9 @@ module LavinMQ
           def initialize(@path : String)
           end
 
-          abstract def send(socket : Socket) : Int64
+          abstract def send(socket : IO) : Int64
 
-          private def send_filename(socket : Socket)
+          private def send_filename(socket : IO)
             filename = @path[Config.instance.data_dir.bytesize + 1..]
             socket.write_bytes filename.bytesize.to_i32, IO::ByteFormat::LittleEndian
             socket.write filename.to_slice
@@ -370,6 +372,7 @@ module LavinMQ
         def close
           Log.info { "Disconnected" }
           @actions.close
+          @zstd.close
           @socket.close
         rescue IO::Error
           # ignore connection errors while closing

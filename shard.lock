@@ -24,3 +24,7 @@ shards:
     git: https://github.com/84codes/systemd.cr.git
     version: 2.0.0
 
+  zstd:
+    git: https://github.com/didactic-drunk/zstd.cr.git
+    version: 1.2.0
+

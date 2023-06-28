@@ -32,6 +32,8 @@ dependencies:
     github: tbrand/router.cr
   systemd:
     github: 84codes/systemd.cr
+  zstd:
+    github: didactic-drunk/zstd.cr
 
 development_dependencies:
   ameba:
