@@ -123,8 +123,6 @@ module LavinMQ
         sp
       end
 
-
-
       def add_offset_header(msg, offset)
         headers = msg.properties.headers || ::AMQP::Client::Arguments.new
         headers["x-stream-offset"] = offset.as(AMQ::Protocol::Field)
