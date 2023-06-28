@@ -207,12 +207,11 @@ module LavinMQ
       true
     end
 
-    #do nothing?
+    # do nothing?
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       true
     end
-
 
     def add_consumer(consumer : Client::Channel::StreamConsumer)
       return if @closed
