@@ -49,7 +49,6 @@ module LavinMQ
             mfile.seek(mfile.pos - last_bytesize, IO::Seek::Set)
             msg = BytesMessage.from_bytes(mfile.to_slice + mfile.pos)
             @last_offset = offset_from_headers(msg.properties.headers)
-            # do we seek to the end of the file here?
           rescue IndexError
           end
 
@@ -60,6 +59,8 @@ module LavinMQ
 
       def shift?(consumer) : Envelope?                              # ameba:disable Metrics/CyclomaticComplexity
         consumer.update_offset(@last_offset) unless consumer.offset # if no offset provided, use offset of last published message
+        consumer_offset = consumer.offset || 0_i64
+        return if @last_offset <= consumer_offset # don't consume unless there's something to consume
 
         seg = consumer.segment || @segments.first_value
         pos = consumer.pos || 0_u32
@@ -69,7 +70,6 @@ module LavinMQ
           segment = @segments[sp.segment]
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-            @size -= 1
             notify_empty(true) if @size.zero?
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
@@ -78,54 +78,30 @@ module LavinMQ
         end
 
         loop do
-          seg = if consumer.segment
-                  consumer.segment
-                else
-                  @rfile_id
-                end
+          seg = consumer.segment
           rfile = @segments[seg]
-          pos = if consumer.pos
-                  consumer.pos
-                else
-                  rfile.pos.to_u32
-                end
-
-          pos ||= 0_u32
-          seg ||= 0_u32
+          pos = consumer.pos
 
           if pos == rfile.size # EOF?
             select_next_read_segment
-            consumer.update_segment(@rfile_id, 0_u32)
-            pos = 0_u32
-            seg = @rfile_id
-            next unless @size.zero?
-            return if @size.zero?
-            # raise IO::EOFError.new("EOF but @size=#{@size}")
+            consumer.update_segment(@rfile_id, 4_u32)
+            next
           end
           if deleted?(seg, pos)
             BytesMessage.skip(rfile)
             next
           end
-
           rfile.pos = pos
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
           rfile.seek(msg.bytesize, IO::Seek::Current) # seek to next message
 
           next_pos = pos + msg.bytesize
           consumer.update_segment(@rfile_id, next_pos)
-
-          offset = consumer.offset || 0_i64
           msg_offset = offset_from_headers(msg.properties.headers)
-
-          if msg_offset < offset
-            puts "message.offset #{msg_offset} < offset #{offset}, next"
-            next unless next_pos >= rfile.size
-          end
+          next if msg_offset < consumer_offset && next_pos < rfile.size
           consumer.update_offset(msg_offset)
 
           sp = SegmentPosition.make(seg, pos, msg)
-          @size -= 1
-          notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(@rfile, cause: ex)
@@ -211,18 +187,11 @@ module LavinMQ
         end
 
         sp = env.segment_position
-        if consumer.no_ack
-          begin
-            yield env # deliver the message
-          rescue ex   # requeue failed delivery
-            consumer.requeue(sp)
-            raise ex
-          end
-          delete_message(sp)
-        else
-          mark_unacked(sp) do
-            yield env # deliver the message
-          end
+        begin
+          yield env # deliver the message
+        rescue ex   # requeue failed delivery
+          consumer.requeue(sp)
+          raise ex
         end
         return true
       end
@@ -235,28 +204,15 @@ module LavinMQ
 
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
-      puts "'Acking' #{sp}"
-      true # TODO: what do we need to do here?
+      true
     end
 
+    #do nothing?
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
-      @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      if requeue
-        if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
-          expire_msg(sp, :expired)
-        else
-          # consumer.requeue(sp)
-          # TODO: requeue per consumer
-          drop_overflow unless immediate_delivery?
-        end
-      else
-        expire_msg(sp, :rejected)
-      end
-    rescue ex : MessageStore::Error
-      close
-      raise ex
+      true
     end
+
 
     def add_consumer(consumer : Client::Channel::StreamConsumer)
       return if @closed
@@ -269,9 +225,6 @@ module LavinMQ
 
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       notify_observers(:add_consumer, consumer)
-    end
-
-    protected def delete_message(sp : SegmentPosition) : Nil
     end
   end
 end
