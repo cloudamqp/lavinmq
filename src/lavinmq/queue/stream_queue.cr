@@ -8,13 +8,14 @@ module LavinMQ
     @no_ack = true
 
     private def init_msg_store(data_dir)
-      @msg_store = StreamQueueMessageStore.new(data_dir)
+      replicator = @vhost.@replicator
+      @msg_store = StreamQueueMessageStore.new(data_dir, replicator)
     end
 
     class StreamQueueMessageStore < MessageStore
       @last_offset = 0_i64
 
-      def initialize(@data_dir : String)
+      def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
       end
 
@@ -85,6 +86,7 @@ module LavinMQ
           if pos == rfile.size # EOF?
             select_next_read_segment
             consumer.update_segment(@rfile_id, 4_u32)
+            rfile = @segments[@rfile_id]
             next
           end
           if deleted?(seg, pos)
@@ -92,13 +94,14 @@ module LavinMQ
             next
           end
           rfile.pos = pos
+
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
           rfile.seek(msg.bytesize, IO::Seek::Current) # seek to next message
 
           next_pos = pos + msg.bytesize
-          consumer.update_segment(@rfile_id, next_pos)
+          consumer.update_segment(seg, next_pos)
           msg_offset = offset_from_headers(msg.properties.headers)
-          next if msg_offset < consumer_offset && next_pos < rfile.size
+          next if msg_offset < consumer_offset
           consumer.update_offset(msg_offset)
 
           sp = SegmentPosition.make(seg, pos, msg)
@@ -120,9 +123,7 @@ module LavinMQ
         sp
       end
 
-      # should delete without ack
-      def delete(sp) : Nil
-      end
+
 
       def add_offset_header(msg, offset)
         headers = msg.properties.headers || ::AMQP::Client::Arguments.new

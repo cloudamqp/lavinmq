@@ -266,7 +266,7 @@ module LavinMQ
         def reject(unack, requeue)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notiy_has_capacity(true) if was_full
+          notify_hash_capacity(true) if was_full
           requeue(unack.sp) if requeue
         end
 
