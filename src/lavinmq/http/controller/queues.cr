@@ -50,9 +50,7 @@ module LavinMQ
             body = parse_body(context)
             durable = body["durable"]?.try(&.as_bool?) || false
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
-            stream_queue = body["stream_queue"]?.try(&.as_bool?) || false
             tbl = (args = body["arguments"]?.try(&.as_h?)) ? AMQP::Table.new(args) : AMQP::Table.new
-            tbl["x-queue-type"] = "stream" if stream_queue
             dlx = tbl["x-dead-letter-exchange"]?.try &.as?(String)
             dlx_ok = dlx.nil? || (user.can_write?(vhost, dlx) && user.can_read?(vhost, name))
             unless user.can_config?(vhost, name) && dlx_ok
