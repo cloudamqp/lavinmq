@@ -6,6 +6,7 @@ module LavinMQ
     class StreamQueueMessageStore < MessageStore
       @last_offset = 0_i64
       getter last_offset
+
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
         last_bytesize = 0_u32
@@ -54,7 +55,7 @@ module LavinMQ
         false
       end
 
-      def shift?(consumer) : Envelope?                              # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         if @last_offset <= consumer.offset
           notify_empty(true, consumer)
           return
@@ -114,16 +115,16 @@ module LavinMQ
         offset = @last_offset += 1
         msg = add_offset_header(msg, offset) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
         sp = write_to_disk(msg)
-        was_empty = @size.zero? #TODO - per consumer?
+        was_empty = @size.zero? # TODO - per consumer?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty #TODO - per consumer?
-        #TODO - push to channel new_messages
+        notify_empty(false) if was_empty # TODO - per consumer?
+        # TODO - push to channel new_messages
         sp
       end
 
       private def notify_empty(is_empty, consumer = nil)
-        #puts "notify empty!"
+        # puts "notify empty!"
         if consumer
           while consumer.empty_change.try_send? is_empty
           end

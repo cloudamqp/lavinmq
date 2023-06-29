@@ -62,7 +62,7 @@ module LavinMQ
         sp = env.segment_position
         begin
           yield env # deliver the message
-        end
+end
         return true
       end
       false
@@ -80,7 +80,6 @@ module LavinMQ
       return if @deleted || @closed
       true
     end
-
 
     def empty?(consumer) : Bool
       puts "empty? (queue)"

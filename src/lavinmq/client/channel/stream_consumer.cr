@@ -6,7 +6,7 @@ module LavinMQ
   class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        #@offset : Int64
+        # @offset : Int64
         @segment = 1_u32
         @offset = 0_i64
         @pos = 4_u32
@@ -14,7 +14,6 @@ module LavinMQ
         getter requeued
         getter empty_change = ::Channel(Bool).new
         property segment, pos, offset
-        
 
         def initialize(@channel : Client::Channel, @queue : Queue, @frame : AMQP::Frame::Basic::Consume)
           @offset = stream_offset(@frame)
@@ -59,14 +58,14 @@ module LavinMQ
           end
         end
 
-        #def update_segment(segment, pos)
+        # def update_segment(segment, pos)
         #  @segment = segment
         #  @pos = pos
-        #end
+        # end
 
-        #def update_offset(offset)
+        # def update_offset(offset)
         #  @offset = offset
-        #end
+        # end
 
         def reject(unack, requeue)
           @requeued.push(unack.sp) if requeue
@@ -79,8 +78,8 @@ module LavinMQ
         private def stream_offset(frame) : Int64?
           offset = 0_i64
           if offset_arg = frame.arguments["x-stream-offset"]?
-            case offset_arg # TODO: support timestamps
-            when "first"    # offset = 0
+            case offset_arg     # TODO: support timestamps
+            when "first"        # offset = 0
             when "next", "last" # last should be last "chunk", but we don't support that yet
               offset = queue.as(StreamQueue).last_offset
             when offset_int = offset_arg.as?(Int)
