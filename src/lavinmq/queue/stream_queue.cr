@@ -13,12 +13,16 @@ module LavinMQ
       @exclusive = false, @auto_delete = false,
       @arguments = Hash(String, AMQP::Field).new)
       super
-      @new_messages = @msg_store.as(StreamQueueMessageStore).new_messages
+      @new_messages = stream_queue_msg_store.new_messages
     end
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
       @msg_store = StreamQueueMessageStore.new(data_dir, replicator)
+    end
+
+    def stream_queue_msg_store : StreamQueueMessageStore
+      @msg_store.as(StreamQueueMessageStore)
     end
 
     # save message id / segment position
@@ -90,11 +94,11 @@ end
     end
 
     def empty?(consumer) : Bool
-      @msg_store.as(StreamQueueMessageStore).empty?(consumer)
+      stream_queue_msg_store.empty?(consumer)
     end
 
     def last_offset : Int64
-      @msg_store.as(StreamQueueMessageStore).last_offset
+      stream_queue_msg_store.last_offset
     end
   end
 end

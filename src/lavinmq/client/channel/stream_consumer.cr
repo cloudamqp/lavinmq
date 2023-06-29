@@ -20,7 +20,6 @@ module LavinMQ
         end
 
         private def deliver_loop
-          queue = @queue
           i = 0
           loop do
             wait_for_capacity
@@ -35,7 +34,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.debug { "Getting a new message" }
             {% end %}
-            queue.consume_get(self) do |env|
+            stream_queue.consume_get(self) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
             Fiber.yield if (i &+= 1) % 32768 == 0
@@ -45,15 +44,19 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if queue.as(StreamQueue).empty?(self)
+          if stream_queue.empty?(self)
             @log.debug { "Waiting for queue not to be empty" }
             select
-            when @queue.as(StreamQueue).new_messages.receive
+            when stream_queue.new_messages.receive
               @log.debug { "Queue is not empty" }
             when @notify_closed.receive
             end
             return true
           end
+        end
+
+        def stream_queue : StreamQueue
+          @queue.as(StreamQueue)
         end
 
         def reject(unack, requeue)
@@ -70,14 +73,14 @@ module LavinMQ
             case offset_arg     # TODO: support timestamps
             when "first"        # offset = 0
             when "next", "last" # last should be last "chunk", but we don't support that yet
-              offset = queue.as(StreamQueue).last_offset
+              offset = stream_queue.last_offset
             when offset_int = offset_arg.as?(Int)
               offset = (offset_int || 0).to_i64 # FIX ME!
             else
               raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
             end
           else
-            offset = queue.as(StreamQueue).last_offset
+            offset = stream_queue.last_offset
           end
           offset
         end
