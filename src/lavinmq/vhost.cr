@@ -31,7 +31,7 @@ module LavinMQ
     property max_queues : Int32?
 
     @exchanges = Hash(String, Exchange).new
-    @queues = Hash(String, Queue).new
+    @queues = Hash(String, Queue | StreamQueue).new
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?

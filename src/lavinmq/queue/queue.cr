@@ -188,10 +188,6 @@ module LavinMQ
       @exclusive_consumer
     end
 
-    def is_stream_queue?
-      @queue_type == "stream"
-    end
-
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?) # ameba:disable Metrics/CyclomaticComplexity
       clear_policy
       Policy.merge_definitions(policy, operator_policy).each do |k, v|

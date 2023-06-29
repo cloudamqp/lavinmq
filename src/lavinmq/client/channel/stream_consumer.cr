@@ -15,7 +15,7 @@ module LavinMQ
         getter empty_change = ::Channel(Bool).new
         property segment, pos, offset
 
-        def initialize(@channel : Client::Channel, @queue : Queue, @frame : AMQP::Frame::Basic::Consume)
+        def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
           @offset = stream_offset(@frame)
           super
         end

@@ -355,8 +355,7 @@ module LavinMQ
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-
-          c = if q.is_stream_queue?
+          c = if q.is_a? StreamQueue
                 StreamConsumer.new(self, q, frame)
               else
                 Consumer.new(self, q, frame)
