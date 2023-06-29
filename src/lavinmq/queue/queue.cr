@@ -43,7 +43,6 @@ module LavinMQ
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = Channel(Nil).new
-    @queue_type = "standard"
 
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
@@ -262,7 +261,6 @@ module LavinMQ
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
-      @queue_type = parse_header("x-queue-type", String) || "standard"
     end
 
     private macro parse_header(header, type)
