@@ -12,7 +12,6 @@ module LavinMQ
         @pos = 4_u32
         @requeued = Deque(SegmentPosition).new
         getter requeued
-        getter empty_change = ::Channel(Bool).new
         property segment, pos, offset
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
@@ -46,25 +45,16 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if queue.empty?
+          if queue.as(StreamQueue).empty?(self)
             @log.debug { "Waiting for queue not to be empty" }
             select
-            when is_empty = empty_change.receive
-              @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+            when @queue.as(StreamQueue).new_messages.receive
+              @log.debug { "Queue is not empty" }
             when @notify_closed.receive
             end
             return true
           end
         end
-
-        # def update_segment(segment, pos)
-        #  @segment = segment
-        #  @pos = pos
-        # end
-
-        # def update_offset(offset)
-        #  @offset = offset
-        # end
 
         def reject(unack, requeue)
           @requeued.push(unack.sp) if requeue

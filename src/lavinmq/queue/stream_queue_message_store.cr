@@ -6,6 +6,8 @@ module LavinMQ
     class StreamQueueMessageStore < MessageStore
       @last_offset = 0_i64
       getter last_offset
+      @new_messages = Channel(Bool).new
+      getter new_messages
 
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
@@ -48,18 +50,11 @@ module LavinMQ
 
       def empty?(consumer)
         return true if @size.zero?
-        if consumer
-          puts "is empty" if @last_offset <= consumer.offset
-          @last_offset <= consumer.offset
-        end
-        false
+        @last_offset <= consumer.offset
       end
 
       def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
-        if @last_offset <= consumer.offset
-          notify_empty(true, consumer)
-          return
-        end
+        return if @last_offset <= consumer.offset
 
         seg = consumer.segment || @segments.first_value
         pos = consumer.pos || 0_u32
@@ -69,7 +64,6 @@ module LavinMQ
           segment = @segments[sp.segment]
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-            notify_empty(true, consumer) if @last_offset == consumer.offset
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
             raise Error.new(segment, cause: ex)
@@ -113,23 +107,12 @@ module LavinMQ
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
         offset = @last_offset += 1
-        msg = add_offset_header(msg, offset) # save last_index in RAM and update and set it as offset? #how to set first offset on startup/new queue?
+        msg = add_offset_header(msg, offset)
         sp = write_to_disk(msg)
-        was_empty = @size.zero? # TODO - per consumer?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty # TODO - per consumer?
-        # TODO - push to channel new_messages
+        @new_messages.try_send? true # push to queue for all consumers
         sp
-      end
-
-      private def notify_empty(is_empty, consumer = nil)
-        # puts "notify empty!"
-        if consumer
-          while consumer.empty_change.try_send? is_empty
-          end
-        else
-        end
       end
 
       def add_offset_header(msg, offset)
@@ -141,7 +124,7 @@ module LavinMQ
 
       def offset_from_headers(headers)
         if ht = headers.as?(AMQ::Protocol::Table)
-          ht["x-stream-offset"].as(Int64) # TODO: should not be i32, but cast fails
+          ht["x-stream-offset"].as(Int64)
         else
           0_i64
         end

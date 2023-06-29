@@ -7,6 +7,14 @@ module LavinMQ
     @durable = true
     @exclusive_consumer = false
     @no_ack = true
+    getter new_messages : Channel(Bool)
+
+    def initialize(@vhost : VHost, @name : String,
+      @exclusive = false, @auto_delete = false,
+      @arguments = Hash(String, AMQP::Field).new)
+      super
+      @new_messages = @msg_store.as(StreamQueueMessageStore).new_messages
+    end
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
@@ -82,8 +90,7 @@ end
     end
 
     def empty?(consumer) : Bool
-      puts "empty? (queue)"
-      @msg_store.empty?(consumer)
+      @msg_store.as(StreamQueueMessageStore).empty?(consumer)
     end
 
     def last_offset : Int64
