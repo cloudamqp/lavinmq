@@ -7,7 +7,10 @@ module LavinMQ
     class Channel
       class Consumer
         include SortableJSON
-
+        @tag : String
+        @priority : Int32
+        @exclusive : Bool
+        @no_ack : Bool
         getter channel, tag, queue, no_ack, exclusive, priority
         getter prefetch_count = 0u16
         getter unacked = 0_u32
@@ -15,8 +18,11 @@ module LavinMQ
         @log : Log
         @flow : Bool
 
-        def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
+        def initialize(@channel : Client::Channel, @queue : Queue, @frame : AMQP::Frame::Basic::Consume)
+          @tag = @frame.consumer_tag
+          @no_ack = @frame.no_ack
+          @exclusive = @frame.exclusive
+          @priority = consumer_priority(@frame) # Must be before ConsumeOk, can close channel
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"
@@ -216,6 +222,20 @@ module LavinMQ
           close
         end
 
+        private def consumer_priority(frame) : Int32
+          priority = 0
+          if frame.arguments.has_key? "x-priority"
+            prio_arg = frame.arguments["x-priority"]
+            prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
+            begin
+              priority = prio_int.to_i
+            rescue OverflowError
+              raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
+            end
+          end
+          priority
+        end
+
         def details_tuple
           channel_details = @channel.details_tuple
           {
@@ -240,39 +260,6 @@ module LavinMQ
         end
 
         class ClosedError < Error; end
-      end
-
-      class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        @segment = 1_u32
-        @offset = nil
-        @pos = 4_u32
-        @requeued = Deque(SegmentPosition).new
-        getter offset, segment, pos, requeued
-
-        def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32, @offset : Int64?)
-          super(@channel, @tag, @queue, @no_ack, @exclusive, @priority)
-        end
-
-        def update_segment(segment, pos)
-          @segment = segment
-          @pos = pos
-        end
-
-        def update_offset(offset)
-          @offset = offset
-        end
-
-        def reject(unack, requeue)
-          was_full = @unacked == @prefetch_count
-          @unacked -= 1
-          notify_hash_capacity(true) if was_full
-          requeue(unack.sp) if requeue
-        end
-
-        def requeue(sp)
-          @requeued.push sp
-        end
       end
     end
   end

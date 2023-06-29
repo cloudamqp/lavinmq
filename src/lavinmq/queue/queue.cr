@@ -297,7 +297,7 @@ module LavinMQ
       @msg_store.size.to_u32
     end
 
-    def empty? : Bool
+    def empty?: Bool
       @msg_store.empty?
     end
 

@@ -1,4 +1,5 @@
 require "./channel/consumer"
+require "./channel/stream_consumer"
 require "../queue"
 require "../exchange"
 require "../amqp"
@@ -351,16 +352,14 @@ module LavinMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
 
           c = if q.is_stream_queue?
-                offset = stream_offset(frame)
-                StreamConsumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority, offset)
+                StreamConsumer.new(self, q, frame)
               else
-                Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
+                Consumer.new(self, q, frame)
               end
           @consumers.push(c)
           q.add_consumer(c)
@@ -368,38 +367,6 @@ module LavinMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
-      end
-
-      private def stream_offset(frame) : Int64?
-        offset = nil
-        if offset_arg = frame.arguments["x-stream-offset"]?
-          case offset_arg # TODO: support timestamps
-          when "first"    # offset = 0
-            offset = 0_i64
-          when "next", "last" # last should be last "chunk", but we don't support that yet
-          when offset_int = offset_arg.as?(Int)
-            offset = (offset_int || 0).to_i64 # FIX ME!
-          else
-            raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
-          end
-          offset
-        else
-          nil
-        end
-      end
-
-      private def consumer_priority(frame) : Int32
-        priority = 0
-        if frame.arguments.has_key? "x-priority"
-          prio_arg = frame.arguments["x-priority"]
-          prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
-          begin
-            priority = prio_int.to_i
-          rescue OverflowError
-            raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
-          end
-        end
-        priority
       end
 
       def basic_get(frame)
