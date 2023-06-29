@@ -21,7 +21,6 @@ module LavinMQ
         end
 
         private def deliver_loop
-          puts "deliver_loop"
           queue = @queue
           i = 0
           loop do
