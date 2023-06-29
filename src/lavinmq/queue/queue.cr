@@ -401,22 +401,6 @@ module LavinMQ
       }
     end
 
-    def size_details_tuple
-      {
-        messages:          @msg_store.size + @unacked_count,
-        ready:             @msg_store.size,
-        ready_bytes:       @msg_store.bytesize,
-        ready_avg_bytes:   @msg_store.avg_bytesize,
-        ready_max_bytes:   0,
-        ready_min_bytes:   0,
-        unacked:           @unacked_count,
-        unacked_bytes:     @unacked_bytesize,
-        unacked_avg_bytes: unacked_avg_bytes,
-        unacked_max_bytes: 0,
-        unacked_min_bytes: 0,
-      }
-    end
-
     private def unacked_avg_bytes : UInt64
       return 0u64 if @unacked_count.zero?
       @unacked_bytesize // @unacked_count
@@ -909,14 +893,6 @@ module LavinMQ
               end
             end
           end
-        end
-      end
-    end
-
-    def size_details_to_json(json : JSON::Builder)
-      json.object do
-        size_details_tuple.each do |k, v|
-          json.field(k, v) unless v.nil?
         end
       end
     end

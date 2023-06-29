@@ -110,8 +110,6 @@ components:
       "$ref": "./schemas/queues.yaml#/PutQueueRequestBody"
     queues-GetQueueMessagesRequestBody:
       "$ref": "./schemas/queues.yaml#/GetQueueMessagesRequestBody"
-    size-details:
-      "$ref": "./schemas/queues.yaml#/size-details"
     user:
       "$ref": "./schemas/users.yaml#/user"
     users:
@@ -235,8 +233,6 @@ paths:
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1contents"
   "/queues/{vhost}/{name}/get":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1get"
-  "/queues/{vhost}/{name}/size-details":
-    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1size-details"
   "/users":
     "$ref": "./paths/users.yaml#/~1users"
   "/users/without-permissions":

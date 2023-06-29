@@ -305,49 +305,6 @@
           </label>
         </form>
       </section>
-      <section class="card cols-6">
-        <h3>Message size snapshot</h3>
-        <form method="get" id="messageSnapshot" class="form">
-          <label>
-            <button type="submit" class="btn-warn">Size Snapshot</button>
-          </label>
-        </form>
-        <p>Snapshot taken at: <span id="ms-date-time">-</span></p>
-        <table class="details-table cols-6" id="snapshotTable" hidden>
-          <tr>
-            <th></th>
-            <th>Count</th>
-            <th>Bytesize</th>
-            <th>Average</th>
-            <th>Max</th>
-            <th>Min</th>
-          </tr>
-          <tr>
-            <th>Total</th>
-            <td id="ms-q-total">-</td>
-            <td id="ms-q-total-bytes">-</td>
-            <td id="ms-q-total-avg-bytes">-</td>
-            <td id="ms-q-total-max-bytes"> - </td>
-            <td id="ms-q-total-min-bytes"> - </td>
-          </tr>
-          <tr>
-            <th>Ready</th>
-            <td id="ms-q-ready">-</td>
-            <td id="ms-q-ready-bytes">-</td>
-            <td id="ms-q-ready-avg-bytes">-</td>
-            <td id="ms-q-ready-max-bytes">-</td>
-            <td id="ms-q-ready-min-bytes">-</td>
-          </tr>
-          <tr>
-            <th>Unacked</th>
-            <td id="ms-q-unacked">-</td>
-            <td id="ms-q-unacked-bytes">-</td>
-            <td id="ms-q-unacked-avg-bytes">-</td>
-            <td id="ms-q-unacked-max-bytes">-</td>
-            <td id="ms-q-unacked-min-bytes">-</td>
-          </tr>
-        </table>
-      </section>
     </main>
     <% render "footer" %>
   </body>
