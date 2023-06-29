@@ -1,6 +1,3 @@
-### WHY are these changes introduced?
-Please fill me in.
-
 ### WHAT is this pull request doing?
 Please fill me in.
 
