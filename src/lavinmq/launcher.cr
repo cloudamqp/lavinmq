@@ -20,7 +20,12 @@ module LavinMQ
 
       print_environment_info
       print_max_map_count
-      Launcher.maximize_fd_limit
+      fd_limit = System.maximize_fd_limit
+      Log.info { "FD limit: #{fd_limit}" }
+      if fd_limit < 1025
+        Log.warn { "The file descriptor limit is very low, consider raising it." }
+        Log.warn { "You need one for each connection and two for each durable queue, and some more." }
+      end
       Dir.mkdir_p @config.data_dir
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
@@ -151,17 +156,6 @@ module LavinMQ
       @http_server.bind_internal_unix
       spawn(name: "HTTP listener") do
         @http_server.not_nil!.listen
-      end
-    end
-
-    def self.maximize_fd_limit
-      _, fd_limit_max = System.file_descriptor_limit
-      System.file_descriptor_limit = fd_limit_max
-      fd_limit_current, _ = System.file_descriptor_limit
-      Log.info { "FD limit: #{fd_limit_current}" }
-      if fd_limit_current < 1025
-        Log.warn { "The file descriptor limit is very low, consider raising it." }
-        Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
     end
 

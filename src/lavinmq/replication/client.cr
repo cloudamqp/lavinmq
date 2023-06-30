@@ -10,6 +10,7 @@ module LavinMQ
       @closed = false
 
       def initialize(@data_dir : String)
+        System.maximize_fd_limit
         @socket = TCPSocket.new
         @password = password
         @files = Hash(String, File).new do |h, k|

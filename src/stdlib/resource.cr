@@ -98,6 +98,13 @@ module System
     -1
   end
 
+  def self.maximize_fd_limit
+    _, fd_limit_max = System.file_descriptor_limit
+    System.file_descriptor_limit = fd_limit_max
+    fd_limit_current, _ = System.file_descriptor_limit
+    fd_limit_current
+  end
+
   class Error < Exception
     include SystemError
   end

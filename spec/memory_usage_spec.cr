@@ -9,7 +9,7 @@ describe LavinMQ::Server do
   around_each do |spec|
     dir = "/tmp/lavinmq-spec-#{rand}"
     server = LavinMQ::Server.new(dir)
-    LavinMQ::Launcher.maximize_fd_limit
+    System.maximize_fd_limit
     tcp_server = TCPServer.new("::1", 55672)
     spawn server.listen(tcp_server)
     spec.run

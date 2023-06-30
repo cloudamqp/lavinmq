@@ -448,7 +448,7 @@ class ConnectionCount < Perf
     @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive=IDLE:COUNT:INTERVAL", "TCP keepalive values") do |v|
       @uri.query_params["tcp_keepalive"] = v
     end
-    maximize_fd_limit
+    puts "FD limit: #{System.maximize_fd_limit}"
   end
 
   private def connect(i)
@@ -506,13 +506,6 @@ class ConnectionCount < Perf
     else
       0
     end
-  end
-
-  private def maximize_fd_limit
-    _, fd_limit_max = System.file_descriptor_limit
-    System.file_descriptor_limit = fd_limit_max
-    fd_limit_current, _ = System.file_descriptor_limit
-    puts "FD limit: #{fd_limit_current}"
   end
 end
 
