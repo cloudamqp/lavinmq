@@ -109,7 +109,7 @@ describe LavinMQ::Shovel do
         spawn shovel.run
         wait_for { shovel.running? }
         sleep 0.1 # Give time for message to be shoveled
-        Server.vhosts["/"].queues["ap_q1"].message_count.should eq 0
+        ch.queue_declare("ap_q1", passive: true)[:message_count].should eq 0
         q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
       end
     end
@@ -287,8 +287,7 @@ describe LavinMQ::Shovel do
         wait_for { Server.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
         sleep 0.1
         shovel.terminate
-        Server.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
-        Server.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
+        wait_for { Server.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
       end
     end
 

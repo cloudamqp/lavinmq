@@ -25,7 +25,7 @@ module LavinMQ
         get "/api/vhosts/:vhost/connections" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].connections.each)
+            page(context, @amqp_server.vhosts[vhost].each_connection)
           end
         end
 

@@ -225,6 +225,8 @@ describe LavinMQ::Queue do
           ch.basic_ack(msg.delivery_tag)
         end
 
+        sleep 0.02
+
         # 10 messages in total, 5 unacked and 5 ready
         internal_queue.message_count.should eq 5
 

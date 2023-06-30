@@ -18,7 +18,7 @@ module LavinMQ
           puts_size_capacity q.@msg_store.@requeued, 6
         end
         puts_size_capacity vh.@connections
-        vh.connections.each do |c|
+        vh.each_connection do |c|
           puts "  #{c.name}"
           puts_size_capacity c.@channels, 4
           c.channels.each_value do |ch|

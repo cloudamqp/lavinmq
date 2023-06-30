@@ -63,7 +63,7 @@ module LavinMQ
     end
 
     def connections
-      Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
+      Iterator(Client).chain(@vhosts.each_value.map(&.each_connection))
     end
 
     def listen(s : TCPServer)
@@ -243,15 +243,7 @@ module LavinMQ
     end
 
     def update_stats_rates
-      @vhosts.each_value do |vhost|
-        vhost.queues.each_value(&.update_rates)
-        vhost.exchanges.each_value(&.update_rates)
-        vhost.connections.each do |connection|
-          connection.update_rates
-          connection.channels.each_value(&.update_rates)
-        end
-        vhost.update_rates
-      end
+      @vhosts.each_value &.update_stats_rates
     end
 
     def system_metrics(statm)
