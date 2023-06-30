@@ -10,8 +10,7 @@ module LavinMQ
         @segment = 1_u32
         @offset = 0_i64
         @pos = 4_u32
-        @requeued = Deque(SegmentPosition).new
-        getter requeued
+        getter requeued = Deque(SegmentPosition).new
         property segment, pos, offset
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
