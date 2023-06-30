@@ -71,6 +71,7 @@ module LavinMQ
         end
 
         loop do
+          @rfile_id = seg = consumer.segment
           seg = consumer.segment
           rfile = @segments[seg]
           pos = consumer.pos
@@ -89,7 +90,6 @@ module LavinMQ
           rfile.pos = pos
 
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-          rfile.seek(msg.bytesize, IO::Seek::Current) # seek to next message
 
           next_pos = pos + msg.bytesize
           consumer.pos = next_pos
@@ -123,11 +123,7 @@ module LavinMQ
       end
 
       def offset_from_headers(headers)
-        if ht = headers.as?(AMQ::Protocol::Table)
-          ht["x-stream-offset"].as(Int64)
-        else
-          0_i64
-        end
+        headers ? headers["x-stream-offset"].as(Int64) : 0_i64
       end
     end
   end
