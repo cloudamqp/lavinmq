@@ -10,8 +10,8 @@ module LavinMQ
     getter new_messages : Channel(Bool)
 
     def initialize(@vhost : VHost, @name : String,
-      @exclusive = false, @auto_delete = false,
-      @arguments = Hash(String, AMQP::Field).new)
+                   @exclusive = false, @auto_delete = false,
+                   @arguments = Hash(String, AMQP::Field).new)
       super
       @new_messages = stream_queue_msg_store.new_messages
     end
@@ -72,9 +72,7 @@ module LavinMQ
         end
 
         sp = env.segment_position
-        begin
-          yield env # deliver the message
-end
+        yield env # deliver the message
         return true
       end
       false
