@@ -156,7 +156,7 @@ module LavinMQ
       private def stream_changes
         loop do
           filename_len = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
-          break if filename_len.zero?
+          next if filename_len.zero?
           filename = @socket.read_string(filename_len)
 
           len = @socket.read_bytes Int64, IO::ByteFormat::LittleEndian
