@@ -179,7 +179,6 @@ module LavinMQ
           Log.context.set(address: @socket.remote_address.to_s)
           @socket.write_timeout = 5
           @socket.read_timeout = 5
-          spawn action_loop, name: "Follower#action_loop"
         end
 
         def negotiate!(password) : Nil
@@ -195,6 +194,7 @@ module LavinMQ
         end
 
         def read_acks(socket = @socket) : Nil
+          spawn action_loop, name: "Follower#action_loop"
           loop do
             len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes += len
