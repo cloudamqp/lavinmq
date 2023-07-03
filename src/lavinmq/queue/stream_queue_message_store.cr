@@ -4,10 +4,9 @@ require "../client/channel/consumer"
 module LavinMQ
   class StreamQueue < Queue
     class StreamQueueMessageStore < MessageStore
-      @last_offset = 0_i64
-      getter last_offset
-      @new_messages = Channel(Bool).new
-      getter new_messages
+      getter last_offset = 0_i64
+      getter new_messages = Channel(Bool).new
+      @offset_header = ::AMQP::Client::Arguments.new({"x-stream-offset" => 0_i64.as(AMQ::Protocol::Field)})
 
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
@@ -56,11 +55,8 @@ module LavinMQ
       def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         return if @last_offset <= consumer.offset
 
-        seg = consumer.segment || @segments.first_value
-        pos = consumer.pos || 0_u32
-        requeued = consumer.requeued
         raise ClosedError.new if @closed
-        if sp = requeued.shift?
+        if sp = consumer.requeued.shift?
           segment = @segments[sp.segment]
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
@@ -71,33 +67,30 @@ module LavinMQ
         end
 
         loop do
-          @rfile_id = seg = consumer.segment
-          seg = consumer.segment
-          rfile = @segments[seg]
-          pos = consumer.pos
+          @rfile_id = consumer.segment
+          rfile = @segments[consumer.segment]
 
-          if pos == rfile.size # EOF?
+          if consumer.pos == rfile.size # EOF?
             select_next_read_segment
             consumer.segment = @rfile_id
             consumer.pos = 4_u32
             rfile = @segments[@rfile_id]
             next
           end
-          if deleted?(seg, pos)
+          if deleted?(consumer.segment, consumer.pos)
             BytesMessage.skip(rfile)
             next
           end
-          rfile.pos = pos
+          rfile.pos = consumer.pos
 
-          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+          msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
 
-          next_pos = pos + msg.bytesize
-          consumer.pos = next_pos
           msg_offset = offset_from_headers(msg.properties.headers)
           next if msg_offset < consumer.offset
           consumer.offset = msg_offset
 
-          sp = SegmentPosition.make(seg, pos, msg)
+          sp = SegmentPosition.make(consumer.segment, consumer.pos, msg)
+          consumer.pos = consumer.pos + msg.bytesize
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(@rfile, cause: ex)
@@ -116,7 +109,7 @@ module LavinMQ
       end
 
       def add_offset_header(msg, offset)
-        headers = msg.properties.headers || ::AMQP::Client::Arguments.new
+        headers = msg.properties.headers || @offset_header
         headers["x-stream-offset"] = offset.as(AMQ::Protocol::Field)
         msg.properties.headers = headers
         msg

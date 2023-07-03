@@ -6,7 +6,6 @@ module LavinMQ
   class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        # @offset : Int64
         @segment = 1_u32
         @offset = 0_i64
         @pos = 4_u32
