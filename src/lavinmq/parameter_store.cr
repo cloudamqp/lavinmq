@@ -76,8 +76,6 @@ module LavinMQ
       if File.exists?(path)
         File.open(path) do |f|
           Array(T).from_json(f).each { |p| create(p, save: false) }
-        rescue JSON::ParseException
-          @log.warn { "#{@file_name} is not vaild json" }
         end
         @replicator.register_file path
       end

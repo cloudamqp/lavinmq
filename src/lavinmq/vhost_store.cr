@@ -60,13 +60,10 @@ module LavinMQ
         @log.debug { "Loading vhosts from file" }
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
-            next unless vhost.as_h?
             name = vhost["name"].as_s
             @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
-        rescue JSON::ParseException
-          @log.warn { "#{path} is not valid json" }
         end
         @replicator.register_file(path)
       else
