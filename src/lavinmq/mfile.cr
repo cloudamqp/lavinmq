@@ -1,14 +1,13 @@
 lib LibC
-  MS_ASYNC       = 0x0001
-  MREMAP_MAYMOVE =      1
+  MS_ASYNC       = 1
+  MREMAP_MAYMOVE = 1
   {% if flag?(:linux) %}
-    MS_SYNC     = 0x0004
-    MADV_REMOVE =      9
+    MS_SYNC = 0x0004
+    fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   {% else %}
     MS_SYNC = 0x0010
   {% end %}
   fun munmap(addr : Void*, len : SizeT) : Int
-  fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   fun msync(addr : Void*, len : SizeT, flags : Int) : Int
 end
 
@@ -26,6 +25,7 @@ class MFile < IO
   getter path : String
   getter fd : Int32
   @buffer = Pointer(UInt8).null
+  @deleted = false
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
@@ -96,8 +96,6 @@ class MFile < IO
     addr
   end
 
-  @deleted = false
-
   def delete : self
     code = LibC.unlink(@path.check_no_null_byte)
     raise File::Error.from_errno("Error deleting file", file: @path) if code < 0
@@ -157,6 +155,17 @@ class MFile < IO
     return if len.zero?
     code = LibC.msync(addr, len, flag)
     raise RuntimeError.from_errno("msync") if code < 0
+  end
+
+  private def mremap(new_len, addr = @buffer, old_len = @capacity) : Pointer(UInt8)
+    {% if flag?(:linux) %}
+      ptr = LibC.mremap(addr, old_len, new_len, LibC::MREMAP_MAYMOVE)
+      raise IO::Error.from_errno("mremap") if ptr == LibC::MAP_FAILED
+      ptr.as(UInt8*)
+    {% else %}
+      munmap(addr, old_len)
+      mmap(addr, new_len)
+    {% end %}
   end
 
   def finalize
@@ -260,6 +269,16 @@ class MFile < IO
     raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
+  end
+
+  private def expand(new_size) : Pointer(UInt8)
+    raise ArgumentError.new("new size smaller or equal than current") if new_size <= @capacity
+    new_size = new_size.to_i64
+    code = LibC.ftruncate(@fd, new_size)
+    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    @buffer = mremap(new_size, buffer, @capacity).tap do
+      @capacity = new_size
+    end
   end
 
   def rename(new_path)
