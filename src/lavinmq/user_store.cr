@@ -117,6 +117,7 @@ module LavinMQ
         rescue JSON::ParseException
           @log.warn { "#{path} is not vaild json" }
         end
+        @replicator.register_file path
       else
         tags = [Tag::Administrator]
         @log.debug { "Loading default users" }
@@ -140,7 +141,7 @@ module LavinMQ
       tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
       File.rename tmpfile, path
-      @replicator.add_file path
+      @replicator.replace_file path
     end
   end
 end

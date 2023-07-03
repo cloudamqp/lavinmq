@@ -68,7 +68,7 @@ module LavinMQ
         rescue JSON::ParseException
           @log.warn { "#{path} is not valid json" }
         end
-        @replicator.add_file(path)
+        @replicator.register_file(path)
       else
         @log.debug { "Loading default vhosts" }
         create("/")
@@ -81,7 +81,7 @@ module LavinMQ
       path = File.join(@data_dir, "vhosts.json")
       File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
       File.rename "#{path}.tmp", path
-      @replicator.add_file path
+      @replicator.replace_file path
     end
   end
 end

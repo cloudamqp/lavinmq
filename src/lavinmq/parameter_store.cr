@@ -68,17 +68,18 @@ module LavinMQ
       tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
       File.rename tmpfile, path
-      @replicator.add_file path
+      @replicator.replace_file path
     end
 
     private def load!
-      file = File.join(@data_dir, @file_name)
-      if File.exists?(file)
-        File.open(file, "r") do |f|
+      path = File.join(@data_dir, @file_name)
+      if File.exists?(path)
+        File.open(path) do |f|
           Array(T).from_json(f).each { |p| create(p, save: false) }
         rescue JSON::ParseException
           @log.warn { "#{@file_name} is not vaild json" }
         end
+        @replicator.register_file path
       end
       @log.debug { "#{size} items loaded from #{@file_name}" }
     end

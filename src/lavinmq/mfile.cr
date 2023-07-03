@@ -30,8 +30,9 @@ class MFile < IO
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
-  def initialize(@path : String, capacity : Int? = nil)
+  def initialize(@path : String, capacity : Int? = nil, @writeonly = false)
     @readonly = capacity.nil?
+    raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
     @fd = open_fd
     @size = file_size
     @capacity = capacity ? Math.max(capacity.to_i64, @size) : @size
@@ -80,14 +81,19 @@ class MFile < IO
     stat.st_blocks.to_i64 * 512
   end
 
-  private def mmap : Pointer(UInt8)
-    return Pointer(UInt8).null if @capacity.zero?
-    protection = LibC::PROT_READ
-    protection |= LibC::PROT_WRITE unless @readonly
+  private def mmap(length = @capacity) : Pointer(UInt8)
+    return Pointer(UInt8).null if length.zero?
+    protection = case
+                 when @readonly  then LibC::PROT_READ
+                 when @writeonly then LibC::PROT_WRITE
+                 else                 LibC::PROT_READ | LibC::PROT_WRITE
+                 end
     flags = LibC::MAP_SHARED
-    ptr = LibC.mmap(nil, @capacity, protection, flags, @fd, 0)
+    ptr = LibC.mmap(nil, length, protection, flags, @fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
-    ptr.as(UInt8*)
+    addr = ptr.as(UInt8*)
+    advise(MFile::Advice::Sequential, addr, 0, length) unless @writeonly
+    addr
   end
 
   @deleted = false
@@ -223,8 +229,8 @@ class MFile < IO
     Bytes.new(buffer + pos, size, read_only: true)
   end
 
-  def advise(advice : Advice, offset = 0, length = @capacity)
-    if LibC.madvise(buffer + offset, length, advice) != 0
+  def advise(advice : Advice, addr = buffer, offset = 0, length = @capacity) : Nil
+    if LibC.madvise(addr + offset, length, advice) != 0
       raise IO::Error.from_errno("madvise")
     end
   end

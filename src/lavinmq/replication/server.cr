@@ -23,7 +23,6 @@ module LavinMQ
       @followers = Array(Follower).new
       @password : String
       @files = Set(String).new
-      @mfiles = Hash(String, MFile).new
 
       def initialize
         @password = password
@@ -34,31 +33,25 @@ module LavinMQ
 
       def clear
         @files.clear
-        @mfiles.clear
       end
 
-      def add_file(path : String)
+      def register_file(path : String)
         @files << path
-        each_follower &.add(path, nil)
+        each_follower &.add(path)
       end
 
-      def add_file(mfile : MFile)
-        @mfiles[mfile.path] = mfile
-        each_follower &.add(mfile.path, mfile)
+      def replace_file(path : String)
+        @files << path
+        each_follower &.add(path)
       end
 
-      def append(path, obj)
+      def append(path : String, obj)
         each_follower &.append(path, obj)
       end
 
-      def delete_file(path)
+      def delete_file(path : String)
         @files.delete(path)
         each_follower &.delete(path)
-      end
-
-      def delete_file(mfile : MFile)
-        @mfiles.delete(mfile.path)
-        each_follower &.delete(mfile.path)
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
@@ -70,13 +63,6 @@ module LavinMQ
           sha1.reset
           yield({path, hash})
         end
-
-        @mfiles.each_value do |mfile|
-          sha1.update mfile.to_slice
-          sha1.final(hash)
-          sha1.reset
-          yield({mfile.path, hash})
-        end
       end
 
       def with_file(filename, & : MFile | File | Nil -> Nil) : Nil
@@ -85,8 +71,6 @@ module LavinMQ
           File.open(path) do |f|
             yield f
           end
-        elsif mfile = @mfiles[path]?
-          yield mfile
         else
           yield nil
         end
@@ -280,8 +264,8 @@ module LavinMQ
           end
         end
 
-        def add(path, obj)
-          @actions.send AddAction.new(path, obj)
+        def add(path)
+          @actions.send AddAction.new(path)
         end
 
         def append(path, obj)
@@ -292,7 +276,11 @@ module LavinMQ
           @actions.send DeleteAction.new(path)
         end
 
-        record FileRange, mfile : MFile, pos : Int32, len : Int32
+        record FileRange, mfile : MFile, pos : Int32, len : Int32 do
+          def to_slice : Bytes
+            mfile.to_slice(pos, len)
+          end
+        end
 
         abstract struct Action
           def initialize(@path : String)
@@ -308,26 +296,15 @@ module LavinMQ
         end
 
         struct AddAction < Action
-          def initialize(@path : String, @obj : MFile?)
-          end
-
           def send(socket) : Int64
             Log.debug { "Add #{@path}" }
-            case obj = @obj
-            in MFile
+            File.open(@path) do |f|
               send_filename(socket)
-              len = obj.size.to_i64
-              socket.write_bytes len, IO::ByteFormat::LittleEndian
-              socket.write obj.to_slice(0, len)
-              len
-            in Nil
-              File.open(@path) do |f|
-                size = f.size.to_i64
-                send_filename(socket)
-                socket.write_bytes size, IO::ByteFormat::LittleEndian
-                IO.copy(f, socket, size)
-                size
-              end
+              size = f.size.to_i64
+              socket.write_bytes size, IO::ByteFormat::LittleEndian
+              count = IO.copy(f, socket, size)
+              raise IO::Error.new("Could not copy the full file") if count != size
+              size
             end
           end
         end
@@ -347,7 +324,7 @@ module LavinMQ
             in FileRange
               len = obj.len.to_i64
               socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
-              socket.write obj.mfile.to_slice(obj.pos, obj.len)
+              socket.write obj.to_slice
             in UInt32, Int32
               len = 4i64
               socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
