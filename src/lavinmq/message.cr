@@ -5,7 +5,7 @@ module LavinMQ
   struct BytesMessage
     getter timestamp, exchange_name, routing_key, properties, bodysize, body
 
-    MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8
+    MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQ::Protocol::Properties,
