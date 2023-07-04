@@ -30,7 +30,7 @@ jobs:
           ref: 'main'
 
       - name: Build lavinmq
-        run: cd main && make -j bin/lavinmq bin/lavinmqperf DOCS= CRYSTAL_FLAGS=-Dbake_static
+        run: cd main && make -j bin/lavinmq bin/lavinmqperf DOCS=
 
       - name: Perf
         run: cp pr/extras/action_benchmark.sh main/extras/action_benchmark.sh && cd main && ./extras/action_benchmark.sh /tmp/main.log
