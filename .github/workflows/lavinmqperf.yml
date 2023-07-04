@@ -18,7 +18,7 @@ jobs:
           path: 'pr'
 
       - name: Build lavinmq
-        run: cd pr && make -j bin/lavinmq bin/lavinmqperf DOCS= CRYSTAL_FLAGS=-Dbake_static
+        run: cd pr && make -j bin/lavinmq bin/lavinmqperf DOCS=
 
       - name: Perf
         run: cd pr && chmod u+x extras/action_benchmark.sh && ./extras/action_benchmark.sh /tmp/pr.log
