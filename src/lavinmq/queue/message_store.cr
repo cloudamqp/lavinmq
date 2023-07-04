@@ -236,10 +236,10 @@ module LavinMQ
         path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
         wfile = MFile.new(path, capacity)
-        @replicator.try &.register_file path
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
-        @replicator.try &.append wfile.path, Schema::VERSION
+        @replicator.try &.register_file wfile
+        @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
         @segment_msg_count[next_id] = 0u32
@@ -250,7 +250,7 @@ module LavinMQ
         path = File.join(@data_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
         mfile = MFile.new(path, capacity, writeonly: true)
-        @replicator.try &.register_file path
+        @replicator.try &.register_file mfile
         mfile
       end
 
@@ -270,7 +270,7 @@ module LavinMQ
             rescue IO::EOFError
               break
             end
-            @replicator.try &.register_file(file.path)
+            @replicator.try &.register_file(file)
           end
           @deleted[seg] = acked.sort! unless acked.empty?
         end
@@ -296,13 +296,14 @@ module LavinMQ
                  else
                    MFile.new(path)
                  end
+          @replicator.try &.register_file file
           if was_empty
-            SchemaVersion.prefix(file, :message)
+            file.write_bytes Schema::VERSION
+            @replicator.try &.append path, Schema::VERSION
           else
             SchemaVersion.verify(file, :message)
           end
           file.pos = 4
-          @replicator.try &.register_file path
           @segments[seg] = file
         end
       end

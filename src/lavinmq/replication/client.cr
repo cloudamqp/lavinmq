@@ -148,8 +148,7 @@ module LavinMQ
         Dir.mkdir_p File.dirname(path)
         length = @socket.read_bytes Int64, IO::ByteFormat::LittleEndian
         File.open(path, "w") do |f|
-          copied = IO.copy(@socket, f, length)
-          raise IO::Error.new("Only received #{copied}/#{length}") if copied != length
+          IO.copy(@socket, f, length) == length || raise IO::EOFError.new
         end
       end
 
@@ -164,8 +163,7 @@ module LavinMQ
           when .negative? # append bytes to file
             Log.debug { "Appending #{len.abs} bytes to #{filename}" }
             f = @files[filename]
-            copied = IO.copy(@socket, f, len.abs)
-            raise IO::Error.new("Only received #{copied}/#{len.abs}") if copied != len.abs
+            IO.copy(@socket, f, len.abs) == len.abs || raise IO::EOFError.new
           when .zero? # file is deleted
             Log.info { "Deleting #{filename}" }
             if f = @files.delete(filename)
@@ -175,11 +173,10 @@ module LavinMQ
               File.delete? File.join(@data_dir, filename)
             end
           when .positive? # full file is coming
-            Log.info { "Getting full file #{filename}" }
+            Log.info { "Getting full file #{filename} (#{len} bytes)" }
             f = @files[filename]
             f.truncate
-            copied = IO.copy(@socket, f, len)
-            raise IO::Error.new("Only received #{copied}/#{len}") if copied != len
+            IO.copy(@socket, f, len) == len || raise IO::EOFError.new
           end
           @socket.write_bytes len.abs, IO::ByteFormat::LittleEndian # ack
         end
@@ -193,6 +190,7 @@ module LavinMQ
       def close
         @closed = true
         @socket.close
+        @files.each_value &.close
       end
     end
   end

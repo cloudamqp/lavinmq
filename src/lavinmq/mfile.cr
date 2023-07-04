@@ -139,6 +139,23 @@ class MFile < IO
     @buffer = Pointer(UInt8).null
   end
 
+  def unmapped? : Bool
+    @buffer.null?
+  end
+
+  # Copies the file to another IO
+  # Won't mmap the file if it's unmapped already
+  def copy_to(output : IO, size = @size) : Int64
+    if unmapped? # don't remap unmapped files
+      io = IO::FileDescriptor.new(@fd, blocking: false, close_on_finalize: false)
+      io.rewind
+      IO.copy(io, output, size) == size || raise IO::EOFError.new
+    else
+      output.write to_slice(0, size)
+    end
+    size.to_i64
+  end
+
   # mmap on demand
   private def buffer : Pointer(UInt8)
     return @buffer unless @buffer.null?

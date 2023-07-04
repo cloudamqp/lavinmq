@@ -22,7 +22,7 @@ module LavinMQ
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new
       @password : String
-      @files = Set(String).new
+      @files = Hash(String, MFile?).new
 
       def initialize
         @password = password
@@ -35,17 +35,21 @@ module LavinMQ
         @files.clear
       end
 
-      def register_file(path : String)
-        @files << path
-        each_follower &.add(path)
+      def register_file(file : File)
+        @files[file.path] = nil
       end
 
-      def replace_file(path : String)
-        @files << path
+      def register_file(mfile : MFile)
+        @files[mfile.path] = mfile
+      end
+
+      def replace_file(path : String) # only non mfiles are ever replaced
+        @files[path] = nil
         each_follower &.add(path)
       end
 
       def append(path : String, obj)
+        Log.debug { "appending #{obj} to #{path}" }
         each_follower &.append(path, obj)
       end
 
@@ -57,9 +61,13 @@ module LavinMQ
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
         hash = Bytes.new(sha1.digest_size)
-        @files.each do |path|
-          sha1.file path
-          sha1.final(hash)
+        @files.each do |path, mfile|
+          if mfile
+            sha1.update mfile.to_slice
+          else
+            sha1.file path
+          end
+          sha1.final hash
           sha1.reset
           yield({path, hash})
         end
@@ -67,9 +75,13 @@ module LavinMQ
 
       def with_file(filename, & : MFile | File | Nil -> Nil) : Nil
         path = File.join(Config.instance.data_dir, filename)
-        if @files.includes? path
-          File.open(path) do |f|
-            yield f
+        if @files.has_key? path
+          if mfile = @files[path]
+            yield mfile
+          else
+            File.open(path) do |f|
+              yield f
+            end
           end
         else
           yield nil
@@ -251,11 +263,11 @@ module LavinMQ
             when MFile
               size = f.size.to_i64
               @socket.write_bytes size, IO::ByteFormat::LittleEndian
-              @socket.write f.to_slice(0, size)
+              f.copy_to(@socket, size)
             when File
               size = f.size.to_i64
               @socket.write_bytes size, IO::ByteFormat::LittleEndian
-              IO.copy f, @socket, size
+              IO.copy(f, @socket, size) == size || raise IO::EOFError.new
             when nil
               @socket.write_bytes 0i64
             else raise "unexpected file type #{f.class}"
@@ -264,8 +276,8 @@ module LavinMQ
           end
         end
 
-        def add(path)
-          @actions.send AddAction.new(path)
+        def add(path, mfile : MFile? = nil)
+          @actions.send AddAction.new(path, mfile)
         end
 
         def append(path, obj)
@@ -296,15 +308,24 @@ module LavinMQ
         end
 
         struct AddAction < Action
+          def initialize(@path : String, @mfile : MFile? = nil)
+          end
+
           def send(socket) : Int64
             Log.debug { "Add #{@path}" }
-            File.open(@path) do |f|
-              send_filename(socket)
-              size = f.size.to_i64
+            send_filename(socket)
+            if mfile = @mfile
+              size = mfile.size.to_i64
               socket.write_bytes size, IO::ByteFormat::LittleEndian
-              count = IO.copy(f, socket, size)
-              raise IO::Error.new("Could not copy the full file") if count != size
+              mfile.copy_to(socket, size)
               size
+            else
+              File.open(@path) do |f|
+                size = f.size.to_i64
+                socket.write_bytes size, IO::ByteFormat::LittleEndian
+                IO.copy(f, socket, size) == size || raise IO::EOFError.new
+                size
+              end
             end
           end
         end

@@ -21,7 +21,9 @@ module LavinMQ
       else
         raise UnsupportedSchemaVersion.new(v, data_dir)
       end
-      replicator.register_file(File.join(data_dir, "schema_version"))
+      File.open(File.join(data_dir, "schema_version")) do |f|
+        replicator.register_file(f)
+      end
     end
 
     private def self.version(data_dir) : Int32?
@@ -137,7 +139,7 @@ module LavinMQ
             enqs do |sp|
               vseg = @vhost_segments[sp.segment]
               vseg.seek sp.position
-              IO.copy(vseg, wfile, sp.bytesize)
+              IO.copy(vseg, wfile, sp.bytesize) == sp.bytesize || raise IO::EOFError.new
               if wfile.pos >= Config.instance.segment_size
                 wfile.close
                 wfile_id += 1

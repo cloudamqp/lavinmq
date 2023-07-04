@@ -51,6 +51,7 @@ describe LavinMQ::Replication::Client do
     server = LavinMQ::Server.new(data_dir)
     begin
       q = server.vhosts["/"].queues["repli"].as(LavinMQ::DurableQueue)
+      q.message_count.should eq 1
       q.basic_get(true) do |env|
         String.new(env.message.body).to_s.should eq "hello world"
       end.should be_true

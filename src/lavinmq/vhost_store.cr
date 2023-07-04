@@ -64,8 +64,8 @@ module LavinMQ
             @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
+          @replicator.register_file(f)
         end
-        @replicator.register_file(path)
       else
         @log.debug { "Loading default vhosts" }
         create("/")

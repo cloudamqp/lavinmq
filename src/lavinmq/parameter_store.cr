@@ -76,8 +76,8 @@ module LavinMQ
       if File.exists?(path)
         File.open(path) do |f|
           Array(T).from_json(f).each { |p| create(p, save: false) }
+          @replicator.register_file f
         end
-        @replicator.register_file path
       end
       @log.debug { "#{size} items loaded from #{@file_name}" }
     end

@@ -114,8 +114,8 @@ module LavinMQ
           Array(User).from_json(f) do |user|
             @users[user.name] = user
           end
+          @replicator.register_file f
         end
-        @replicator.register_file path
       else
         tags = [Tag::Administrator]
         @log.debug { "Loading default users" }

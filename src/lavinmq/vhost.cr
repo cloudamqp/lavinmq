@@ -51,7 +51,7 @@ module LavinMQ
       Dir.mkdir_p File.join(@data_dir)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
       @definitions_file = File.open(@definitions_file_path, "a+")
-      @replicator.register_file(@definitions_file_path)
+      @replicator.register_file(@definitions_file)
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, @log)
