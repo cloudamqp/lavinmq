@@ -284,6 +284,7 @@ module LavinMQ
 
       @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
 
+      return if closed? # Data dir can be removed already
       fs_stats = Filesystem.info(@data_dir)
       until @disk_free_log.size < log_size
         @disk_free_log.shift
