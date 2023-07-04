@@ -1,8 +1,6 @@
 require "../replication"
 require "../data_dir_lock"
-{% unless flag?(:without_lz4) %}
-  require "lz4"
-{% end %}
+require "lz4"
 
 module LavinMQ
   class Replication
@@ -11,17 +9,13 @@ module LavinMQ
       @password : String
       @data_dir_lock : DataDirLock?
       @closed = false
-      @lz4 : IO
 
       def initialize(@data_dir : String)
         System.maximize_fd_limit
         @socket = TCPSocket.new
         @socket.sync = true
-        @lz4 = @socket
-        {% unless flag?(:without_lz4) %}
-          @socket.read_buffering = false
-          @lz4 = Compress::LZ4::Reader.new(@socket)
-        {% end %}
+        @socket.read_buffering = false
+        @lz4 = Compress::LZ4::Reader.new(@socket)
         @password = password
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
@@ -62,11 +56,8 @@ module LavinMQ
           sleep 5
           @socket = TCPSocket.new
           @socket.sync = true
-          @lz4 = @socket
-          {% unless flag?(:without_lz4) %}
-            @socket.read_buffering = false
-            @lz4 = Compress::LZ4::Reader.new(@socket)
-          {% end %}
+          @socket.read_buffering = false
+          @lz4 = Compress::LZ4::Reader.new(@socket)
         end
       end
 

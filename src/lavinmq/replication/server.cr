@@ -3,9 +3,7 @@ require "../config"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
-{% unless flag?(:without_lz4) %}
-  require "lz4"
-{% end %}
+require "lz4"
 
 module LavinMQ
   class Replication
@@ -180,17 +178,13 @@ module LavinMQ
         @acked_bytes = 0_i64
         @sent_bytes = 0_i64
         @actions = Channel(Action).new(4096)
-        @lz4 : IO
 
         def initialize(@socket : TCPSocket, @server : Server)
           Log.context.set(address: @socket.remote_address.to_s)
           @socket.write_timeout = 5
           @socket.read_timeout = 5
           @socket.buffer_size = 64 * 1024
-          @lz4 = @socket
-          {% unless flag?(:without_lz4) %}
-            @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
-          {% end %}
+          @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
         end
 
         def negotiate!(password) : Nil
@@ -393,22 +387,14 @@ module LavinMQ
         end
 
         def to_json(json : JSON::Builder)
-          {% unless flag?(:without_lz4) %}
-            {
-              remote_address:     @socket.remote_address.to_s,
-              sent_bytes:         @sent_bytes,
-              acked_bytes:        @acked_bytes,
-              compression_ratio:  @lz4.as(Compress::LZ4::Writer).compression_ratio,
-              uncompressed_bytes: @lz4.as(Compress::LZ4::Writer).uncompressed_bytes,
-              compressed_bytes:   @lz4.as(Compress::LZ4::Writer).compressed_bytes,
-            }.to_json(json)
-          {% else %}
-            {
-              remote_address: @socket.remote_address.to_s,
-              sent_bytes:     @sent_bytes,
-              acked_bytes:    @acked_bytes,
-            }.to_json(json)
-          {% end %}
+          {
+            remote_address:     @socket.remote_address.to_s,
+            sent_bytes:         @sent_bytes,
+            acked_bytes:        @acked_bytes,
+            compression_ratio:  @lz4.compression_ratio,
+            uncompressed_bytes: @lz4.uncompressed_bytes,
+            compressed_bytes:   @lz4.compressed_bytes,
+          }.to_json(json)
         end
 
         def lag : Int64
