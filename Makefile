@@ -18,7 +18,7 @@ bin/lavinmqperf: src/lavinmqperf.cr lib | bin
 	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
-	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
 	shards install --production $(if $(nocolor),--no-color)
