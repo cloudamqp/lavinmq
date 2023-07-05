@@ -71,6 +71,7 @@ module LavinMQ
       end
 
       private def sync_files
+        Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
         local_hash = Bytes.new(sha1.digest_size)

@@ -184,13 +184,15 @@ module LavinMQ
         def negotiate!(password) : Nil
           validate_header!
           authenticate!(password)
+          @socket.read_timeout = nil
           Log.info { "Accepted" }
         end
 
         def full_sync : Nil
+          Log.info { "Calculating hashes" }
           send_file_list
+          Log.info { "File list sent" }
           send_requested_files
-          @socket.read_timeout = nil
         end
 
         def read_acks(socket = @socket) : Nil
