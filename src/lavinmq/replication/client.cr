@@ -199,12 +199,12 @@ module LavinMQ
         end
       end
 
-      private def authenticate
-        @socket.write Start
-        @socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-        @socket.write @password.to_slice
-        @socket.flush
-        case @socket.read_byte
+      private def authenticate(socket = @socket)
+        socket.write Start
+        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+        socket.write @password.to_slice
+        socket.flush
+        case socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
