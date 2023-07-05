@@ -52,6 +52,7 @@ class Throughput < Perf
   @cmessages = 0
   @queue_args = AMQP::Client::Arguments.new
   @consumer_args = AMQP::Client::Arguments.new
+  @properties = AMQ::Protocol::Properties.new
   @pub_in_transaction = 0
   @ack_in_transaction = 0
 
@@ -122,12 +123,13 @@ class Throughput < Perf
       @cmessages = v.to_i
     end
     @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
-      args = JSON.parse(v).as_h
-      @queue_args = AMQP::Client::Arguments.new(args)
+      @queue_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
     end
     @parser.on("--consumer-args=JSON", "Consumer arguments as a JSON string") do |v|
-      args = JSON.parse(v).as_h
-      @consumer_args = AMQP::Client::Arguments.new(args)
+      @consumer_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
+    end
+    @parser.on("--properties=JSON", "Properties added to published messages") do |v|
+      @properties = AMQ::Protocol::Properties.from_json(JSON.parse(v))
     end
   end
 
@@ -216,7 +218,8 @@ class Throughput < Perf
 
   private def pub(done)
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-    props = AMQ::Protocol::Properties.new(delivery_mode: @persistent ? 2u8 : nil)
+    props = @properties
+    props.delivery_mode = 2u8 if @persistent
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       ch.tx_select if @pub_in_transaction > 0
