@@ -211,6 +211,7 @@ module LavinMQ
       private def select_next_read_segment : MFile?
         # Expect @segments to be ordered
         if id = @segments.each_key.find { |sid| sid > @rfile_id }
+          @rfile.unmap # unmap current rfile, hopefully won't read much more from it
           @rfile_id = id
           @rfile = @segments[id]
         end
