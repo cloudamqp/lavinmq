@@ -104,6 +104,9 @@ module LavinMQ
         end
         missing_files.each do |filename|
           request_file(filename)
+        end
+        @socket.flush
+        missing_files.each do |filename|
           file_from_socket(filename)
         end
       end
