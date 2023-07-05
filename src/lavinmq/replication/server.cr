@@ -191,6 +191,12 @@ module LavinMQ
           validate_header!
           authenticate!(password)
           @socket.read_timeout = nil
+          if keepalive = Config.instance.tcp_keepalive
+            @socket.keepalive = true
+            @socket.tcp_keepalive_idle = keepalive[0]
+            @socket.tcp_keepalive_interval = keepalive[1]
+            @socket.tcp_keepalive_count = keepalive[2]
+          end
           Log.info { "Accepted" }
         end
 

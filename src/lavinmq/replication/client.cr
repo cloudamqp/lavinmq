@@ -66,8 +66,18 @@ module LavinMQ
         Log.info { "Connected" }
         authenticate
         Log.info { "Authenticated" }
+        set_socket_opts
         sync_files(notify_in_sync)
         Log.info { "Synchronised" }
+      end
+
+      private def set_socket_opts(socket = @socket)
+        if keepalive = Config.instance.tcp_keepalive
+          socket.keepalive = true
+          socket.tcp_keepalive_idle = keepalive[0]
+          socket.tcp_keepalive_interval = keepalive[1]
+          socket.tcp_keepalive_count = keepalive[2]
+        end
       end
 
       private def sync_files(notify_in_sync = false, socket = @lz4)
