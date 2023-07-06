@@ -55,6 +55,7 @@ class Throughput < Perf
   @properties = AMQ::Protocol::Properties.new
   @pub_in_transaction = 0
   @ack_in_transaction = 0
+  @random_bodies = false
 
   def initialize
     super
@@ -130,6 +131,9 @@ class Throughput < Perf
     end
     @parser.on("--properties=JSON", "Properties added to published messages") do |v|
       @properties = AMQ::Protocol::Properties.from_json(JSON.parse(v))
+    end
+    @parser.on("--random-bodies", "Each message body is random") do
+      @random_bodies = true
     end
   end
 
@@ -228,6 +232,7 @@ class Throughput < Perf
       start = Time.monotonic
       pubs_this_second = 0
       until @stopped
+        Random::DEFAULT.random_bytes(data) if @random_bodies
         msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
         ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
         ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
