@@ -18,11 +18,11 @@ module LavinMQ
         @log : Log
         @flow : Bool
 
-        def initialize(@channel : Client::Channel, @queue : Queue, @frame : AMQP::Frame::Basic::Consume)
-          @tag = @frame.consumer_tag
-          @no_ack = @frame.no_ack
-          @exclusive = @frame.exclusive
-          @priority = consumer_priority(@frame) # Must be before ConsumeOk, can close channel
+        def initialize(@channel : Client::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
+          @tag = frame.consumer_tag
+          @no_ack = frame.no_ack
+          @exclusive = frame.exclusive
+          @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"
