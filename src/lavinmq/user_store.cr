@@ -5,13 +5,13 @@ module LavinMQ
   class UserStore
     include Enumerable({String, User})
     DIRECT_USER = "__direct"
+    Log         = ::Log.for("userstore")
 
     def self.hidden?(name)
       DIRECT_USER == name
     end
 
     def initialize(@data_dir : String, @replicator : Replication::Server)
-      @log = Log.for("userstore")
       @users = Hash(String, User).new
       load!
     end
@@ -31,7 +31,7 @@ module LavinMQ
       end
       user = User.create(name, password, "SHA256", tags)
       @users[name] = user
-      @log.info { "user=#{name} Created" }
+      Log.info { "Created user=#{name}" }
       save! if save
       user
     end
@@ -47,7 +47,7 @@ module LavinMQ
       perm = {config: config, read: read, write: write}
       @users[user].permissions[vhost] = perm
       @users[user].invalidate_acl_caches
-      @log.info { "Updated permissions to vhost=#{vhost} for user=#{user}" }
+      Log.info { "Updated permissions for user=#{user} on vhost=#{vhost}" }
       save!
       perm
     end
@@ -55,7 +55,7 @@ module LavinMQ
     def rm_permission(user, vhost)
       if perm = @users[user].permissions.delete vhost
         @users[user].invalidate_acl_caches
-        @log.info { "Removed permissions to vhost=#{vhost} for user=#{user}" }
+        Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
         save!
         perm
       end
@@ -73,7 +73,7 @@ module LavinMQ
     def delete(name, save = true) : User?
       return if name == DIRECT_USER
       if user = @users.delete name
-        @log.info { "user=#{name} Deleted" }
+        Log.info { "Deleted user=#{name}" }
         save! if save
         user
       end
@@ -109,7 +109,7 @@ module LavinMQ
     private def load!
       path = File.join(@data_dir, "users.json")
       if File.exists? path
-        @log.debug { "Loading users from file" }
+        Log.debug { "Loading users from file" }
         File.open(path) do |f|
           Array(User).from_json(f) do |user|
             @users[user.name] = user
@@ -118,13 +118,13 @@ module LavinMQ
         end
       else
         tags = [Tag::Administrator]
-        @log.debug { "Loading default users" }
+        Log.debug { "Loading default users" }
         create("guest", "guest", tags, save: false)
         add_permission("guest", "/", /.*/, /.*/, /.*/)
         save!
       end
       create_direct_user
-      @log.debug { "#{size} users loaded" }
+      Log.debug { "#{size} users loaded" }
     end
 
     private def create_direct_user
@@ -134,7 +134,7 @@ module LavinMQ
     end
 
     def save!
-      @log.debug { "Saving users to file" }
+      Log.debug { "Saving users to file" }
       path = File.join(@data_dir, "users.json")
       tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
