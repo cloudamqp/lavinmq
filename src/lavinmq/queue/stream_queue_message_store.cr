@@ -58,11 +58,12 @@ module LavinMQ
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
 
           msg_offset = offset_from_headers(msg.properties.headers)
+          pos = consumer.pos
+          consumer.pos += msg.bytesize
           next if msg_offset < consumer.offset
           consumer.offset = msg_offset
 
-          sp = SegmentPosition.make(consumer.segment, consumer.pos, msg)
-          consumer.pos = consumer.pos + msg.bytesize
+          sp = SegmentPosition.make(consumer.segment, pos, msg)
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile || @segments[consumer.segment], cause: ex)
