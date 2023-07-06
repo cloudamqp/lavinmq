@@ -7,11 +7,11 @@ module LavinMQ
     class Channel
       class Consumer
         include SortableJSON
-        @tag : String
-        @priority : Int32
-        @exclusive : Bool
-        @no_ack : Bool
-        getter channel, tag, queue, no_ack, exclusive, priority
+        getter tag : String
+        getter priority : Int32
+        getter exclusive : Bool
+        getter no_ack : Bool
+        getter channel, queue
         getter prefetch_count = 0u16
         getter unacked = 0_u32
         getter? closed = false
