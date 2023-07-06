@@ -7,13 +7,9 @@ module LavinMQ
     @durable = true
     @exclusive_consumer = false
     @no_ack = true
-    getter new_messages : Channel(Bool)
 
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = Hash(String, AMQP::Field).new)
-      super
-      @new_messages = stream_queue_msg_store.new_messages
+    def new_messages : Channel(Bool)
+      stream_queue_msg_store.new_messages
     end
 
     private def init_msg_store(data_dir)
