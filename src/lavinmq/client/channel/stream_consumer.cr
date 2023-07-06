@@ -6,9 +6,9 @@ module LavinMQ
   class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        @segment = 1_u32
-        @offset = 0_i64
-        @pos = 4_u32
+        property segment = 1_u32
+        property offset = 0_i64
+        property pos = 4_u32
         getter requeued = Deque(SegmentPosition).new
         property segment, pos, offset
 
