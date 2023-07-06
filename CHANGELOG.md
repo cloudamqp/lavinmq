@@ -11,11 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Replication support, followers can connect and stream data from a leader in real time, enabling hot-standby use-cases
 - Config variables for free_disk_min and free_disk_warn
+- Support for adding custom properties in `lavinmqperf throughput --properties '{"headers": {"a": 1}}'`
 
 ### Changed
 
 - Temporary message files (per channel) are not truncated on publish, so performance for transactions are up 10x, and publishing messages larger than frame_max too
 - Modifying defintions (declaring/deleting queues/exchanges etc) is now synchrous and thread safe.
+- Message segments aren't ftruncated until server is cloded, as it's a slow operation
+- SEGV signal always generate coredumps now (no custom signal handler for SEGV)
+- Boehm GC upgraded to version 8.2.4 (from 8.2.2)
+
+### Fixed
+
+- Message segments are agressivly unmapped to decrease memory usage
+
 
 ## [1.1.5] - 2023-06-23
 
