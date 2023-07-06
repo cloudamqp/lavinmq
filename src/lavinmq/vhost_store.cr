@@ -5,7 +5,7 @@ require "./user"
 module LavinMQ
   class VHostStore
     include Enumerable({String, VHost})
-    @log = Log.for "vhoststore"
+    Log = ::Log.for "vhoststore"
 
     def initialize(@data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @vhosts = Hash(String, VHost).new
@@ -25,7 +25,7 @@ module LavinMQ
         return v
       end
       vhost = VHost.new(name, @data_dir, @users, @replicator)
-      @log.info { "vhost=#{name} created" }
+      Log.info { "Created vhost #{name}" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
@@ -35,7 +35,7 @@ module LavinMQ
 
     def delete(name) : Nil
       if vhost = @vhosts.delete name
-        @log.info { "Deleting vhost=#{name}" }
+        Log.info { "Deleted vhost #{name}" }
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
         save!
@@ -57,7 +57,7 @@ module LavinMQ
     private def load!
       path = File.join(@data_dir, "vhosts.json")
       if File.exists? path
-        @log.debug { "Loading vhosts from file" }
+        Log.debug { "Loading vhosts from file" }
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
             name = vhost["name"].as_s
@@ -67,14 +67,14 @@ module LavinMQ
           @replicator.register_file(f)
         end
       else
-        @log.debug { "Loading default vhosts" }
+        Log.debug { "Loading default vhosts" }
         create("/")
       end
-      @log.debug { "#{size} vhosts loaded" }
+      Log.debug { "#{size} vhosts loaded" }
     end
 
     private def save!
-      @log.debug { "Saving vhosts to file" }
+      Log.debug { "Saving vhosts to file" }
       path = File.join(@data_dir, "vhosts.json")
       File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
       File.rename "#{path}.tmp", path
