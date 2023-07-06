@@ -276,15 +276,14 @@ module LavinMQ
       @error : String?
       @message_count : UInt64 = 0
       @retries : Int64 = 0
-      @retry_threshold : Int64 = 10
-      @max_delay : Int64 = 300
+      RETRY_THRESHOLD =  10
+      MAX_DELAY       = 300
 
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
         @log = @vhost.log.for "shovel=#{@name}"
-        @delay = @reconnect_delay
       end
 
       def state
@@ -306,7 +305,6 @@ module LavinMQ
           @log.info { "started" }
           @state = State::Running
           @retries = 0
-          @delay = @reconnect_delay
           @source.each do |msg|
             @message_count += 1
             @destination.push(msg, @source)
@@ -336,9 +334,10 @@ module LavinMQ
 
       def exponential_reconnect_delay
         @retries += 1
-        sleep @delay.seconds
-        if @retries > @retry_threshold
-          @delay = [@delay * 2, @max_delay].min
+        if @retries > RETRY_THRESHOLD
+          sleep Math.min(MAX_DELAY, @reconnect_delay ** (@retries - RETRY_THRESHOLD))
+        else
+          sleep @reconnect_delay
         end
       end
 
