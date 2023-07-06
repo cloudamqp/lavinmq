@@ -128,7 +128,7 @@ module LavinMQ
           if @running
             process_frame(frame)
           else
-            if (Time.monotonic - @closeok_timer) > 5.seconds
+            if (RoughTime.monotonic - @closeok_timer) > 5.seconds
               cleanup
               close_socket
             end
@@ -426,7 +426,7 @@ module LavinMQ
       @log.info { "Closing, #{reason}" }
       send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
       @running = false
-      @closeok_timer = Time.monotonic
+      @closeok_timer = RoughTime.monotonic
     end
 
     def force_close
@@ -459,7 +459,6 @@ module LavinMQ
       @log.info { "Connection=#{@name} disconnected" }
     ensure
       @running = false
-      pp "running = false 4"
     end
 
     def send_access_refused(frame, text)
