@@ -50,7 +50,6 @@ module LavinMQ
       end
     end
 
-    # If nil is returned it means that the delivery limit is reached
     def consume_get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
@@ -63,7 +62,7 @@ module LavinMQ
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
-      loop do # retry if msg expired or deliver limit hit
+      loop do # retry if msg expired
         env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
