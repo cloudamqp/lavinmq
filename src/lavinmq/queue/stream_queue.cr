@@ -91,10 +91,6 @@ module LavinMQ
       true
     end
 
-    def empty?(consumer) : Bool
-      stream_queue_msg_store.empty?(consumer)
-    end
-
     def last_offset : Int64
       stream_queue_msg_store.last_offset
     end

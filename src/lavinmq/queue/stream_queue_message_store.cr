@@ -47,11 +47,6 @@ module LavinMQ
         end
       end
 
-      def empty?(consumer)
-        return true if @size.zero?
-        @last_offset <= consumer.offset
-      end
-
       def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         return if @last_offset <= consumer.offset
 
