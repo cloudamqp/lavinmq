@@ -4,6 +4,7 @@ require "http/client"
 
 module LavinMQ
   module Shovel
+    Log                     = ::Log.for("shovel")
     DEFAULT_ACK_MODE        = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER    = DeleteAfter::Never
     DEFAULT_PREFETCH        = 1000_u16
@@ -271,7 +272,6 @@ module LavinMQ
 
     class Runner
       include SortableJSON
-      @log : Log
       @state = State::Stopped
       @error : String?
       @message_count : UInt64 = 0
@@ -283,7 +283,6 @@ module LavinMQ
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
-        @log = @vhost.log.for "shovel=#{@name}"
       end
 
       def state
@@ -291,18 +290,19 @@ module LavinMQ
       end
 
       def run
+        Log.context.set(name: @name, vhost: @vhost.name)
         loop do
           break if terminated?
           @state = State::Starting
           unless @source.started?
             if @source.last_unacked
-              @log.error { "Restarted with unacked messages, message duplication possible" }
+              Log.error { "Restarted with unacked messages, message duplication possible" }
             end
             @source.start
           end
           @destination.start unless @destination.started?
           break if terminated?
-          @log.info { "started" }
+          Log.info { "started" }
           @state = State::Running
           @retries = 0
           @source.each do |msg|
@@ -318,13 +318,13 @@ module LavinMQ
           if ex.message.to_s.starts_with?("404")
             break
           end
-          @log.error(exception: ex) { ex.message }
+          Log.error(exception: ex) { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
           break if terminated?
           @state = State::Error
-          @log.error(exception: ex) { ex.message }
+          Log.error(exception: ex) { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         end
@@ -357,7 +357,7 @@ module LavinMQ
         @source.stop
         @destination.stop
         return if terminated?
-        @log.info { "terminated" }
+        Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
       end
 
       def delete
