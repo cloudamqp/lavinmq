@@ -8,42 +8,26 @@ module LavinMQ
       getter new_messages = Channel(Bool).new
       @offset_header = ::AMQP::Client::Arguments.new({"x-stream-offset" => 0_i64.as(AMQ::Protocol::Field)})
 
-      # Populate bytesize, size and segment_msg_count
-      private def load_stats_from_segments : Nil
-        last_bytesize = 0_u32
-        @segments.each do |seg, mfile|
-          count = 0u32
-          loop do
-            pos = mfile.pos
-            raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
-            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
-            break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+      def initialize(@data_dir : String, @replicator : Replication::Server?)
+        super
+        set_last_offset
+      end
 
-            last_bytesize = bytesize = BytesMessage.skip(mfile)
-            count += 1
-            unless deleted?(seg, pos)
-              @bytesize += bytesize
-              @size += 1
-            end
-          rescue ex : IO::EOFError
-            if mfile.pos < mfile.size
-              Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
-              mfile.truncate(mfile.pos)
-            end
-            break
-          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            raise Error.new(mfile, cause: ex)
-          end
+      # Set last_offset to last message offset
+      private def set_last_offset : Nil
+        bytesize = 0_u32
+        mfile = @segments.last_value
+        loop do
+          bytesize = BytesMessage.skip(mfile)
+        rescue IO::EOFError
+          break
+        end
 
-          begin # sets @last_offset to last message offset
-            mfile.seek(mfile.pos - last_bytesize, IO::Seek::Set)
-            msg = BytesMessage.from_bytes(mfile.to_slice + mfile.pos)
-            @last_offset = offset_from_headers(msg.properties.headers)
-          rescue IndexError
-          end
-
-          mfile.pos = 4
-          @segment_msg_count[seg] = count
+        begin
+          mfile.seek(mfile.pos - bytesize, IO::Seek::Set)
+          msg = BytesMessage.from_bytes(mfile.to_slice + mfile.pos)
+          @last_offset = offset_from_headers(msg.properties.headers)
+        rescue IndexError
         end
       end
 
@@ -67,10 +51,6 @@ module LavinMQ
           if consumer.pos == rfile.size # EOF?
             consumer.segment = select_next_read_segment(consumer) || consumer.segment
             consumer.pos = 4_u32
-            next
-          end
-          if deleted?(consumer.segment, consumer.pos)
-            BytesMessage.skip(rfile)
             next
           end
           rfile.pos = consumer.pos
