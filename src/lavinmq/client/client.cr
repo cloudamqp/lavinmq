@@ -36,7 +36,7 @@ module LavinMQ
     @last_sent_frame = RoughTime.monotonic
     rate_stats({"send_oct", "recv_oct"})
     DEFAULT_EX = "amq.default"
-    @closeok_timer : Int64
+    @closeok_timer = 0i64
 
     def initialize(@socket : IO,
                    @connection_info : ConnectionInfo,
