@@ -67,14 +67,11 @@ module LavinMQ
         end
 
         loop do
-          @rfile_id = consumer.segment
-          rfile = @segments[consumer.segment]
+          rfile = @segments[consumer.segment] || @segments.first_value
 
           if consumer.pos == rfile.size # EOF?
-            select_next_read_segment
-            consumer.segment = @rfile_id
+            consumer.segment = select_next_read_segment(consumer) || consumer.segment
             consumer.pos = 4_u32
-            rfile = @segments[@rfile_id]
             next
           end
           if deleted?(consumer.segment, consumer.pos)
@@ -93,8 +90,12 @@ module LavinMQ
           consumer.pos = consumer.pos + msg.bytesize
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
-          raise Error.new(@rfile, cause: ex)
+          raise Error.new(rfile || @segments[consumer.segment] , cause: ex)
         end
+      end
+
+      private def select_next_read_segment(consumer) : UInt32?
+        @segments.each_key.find { |sid| sid > consumer.segment }
       end
 
       def push(msg) : SegmentPosition
