@@ -33,7 +33,7 @@ module LavinMQ
         @msg_store.push(msg)
         @publish_count += 1
       end
-      drop_overflow unless immediate_delivery?
+      drop_overflow
       true
     rescue ex : MessageStore::Error
       @log.error(exception: ex) { "Queue closed due to error" }
