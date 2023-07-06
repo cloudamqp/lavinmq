@@ -65,7 +65,7 @@ module LavinMQ
           consumer.pos = consumer.pos + msg.bytesize
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
-          raise Error.new(rfile || @segments[consumer.segment] , cause: ex)
+          raise Error.new(rfile || @segments[consumer.segment], cause: ex)
         end
       end
 
@@ -93,6 +93,10 @@ module LavinMQ
 
       def offset_from_headers(headers)
         headers ? headers["x-stream-offset"].as(Int64) : 0_i64
+      end
+
+      private def open_ack_file(id, segment_capacity) : MFile?
+        nil
       end
     end
   end
