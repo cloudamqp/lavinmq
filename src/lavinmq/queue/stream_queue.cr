@@ -93,5 +93,27 @@ module LavinMQ
     def last_offset : Int64
       stream_queue_msg_store.last_offset
     end
+
+    private def handle_arguments
+      super
+      if @dlx
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+      end
+      if @dlrk
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+      end
+      if @expires
+        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for stream queues")
+      end
+      if @delivery_limit
+        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for stream queues")
+      end
+      if @reject_on_overflow
+        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for stream queues")
+      end
+      if @single_active_consumer_queue
+        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for stream queues")
+      end
+    end
   end
 end
