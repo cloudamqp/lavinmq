@@ -15,7 +15,7 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter log : Log
+      getter client : Client
       getter consumers = Array(Consumer).new
       getter prefetch_count = 0_u16
       getter global_prefetch_count = 0_u16
