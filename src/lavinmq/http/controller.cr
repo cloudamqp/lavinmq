@@ -5,10 +5,8 @@ module LavinMQ
   module HTTP
     abstract class Controller
       include Router
-      @log : Log
 
-      def initialize(@amqp_server : LavinMQ::Server, log : Log)
-        @log = log.for self.class.name.split("::").last
+      def initialize(@amqp_server : LavinMQ::Server)
         register_routes
       end
 
@@ -68,7 +66,7 @@ module LavinMQ
           JSON.build(context.response) do |json|
             items, total = array_iterator_to_json(json, all_items, columns, 0, MAX_PAGE_SIZE)
             if total > MAX_PAGE_SIZE
-              @log.warn { "Result set truncated: #{items}/#{total}" }
+              Log.warn { "Result set truncated: #{items}/#{total}" }
             end
           end
           return context
@@ -188,7 +186,7 @@ module LavinMQ
           user = @amqp_server.users[username]?
         end
         unless user
-          @log.warn { "Authorized user=#{context.authenticated_username?} not in user store" }
+          Log.warn { "Authorized user=#{context.authenticated_username?} not in user store" }
           access_refused(context)
         end
         user
@@ -205,7 +203,7 @@ module LavinMQ
       private def refuse_unless_vhost_access(context, user, vhost)
         return if user.tags.any? &.administrator?
         unless user.permissions.has_key?(vhost)
-          @log.warn { "user=#{user.name} does not have permissions to access vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have permissions to access vhost=#{vhost}" }
           access_refused(context)
         end
       end
@@ -213,28 +211,28 @@ module LavinMQ
       private def refuse_unless_management(context, user, vhost = nil)
         unless user.tags.any? { |t| t.administrator? || t.monitoring? ||
                t.policy_maker? || t.management? }
-          @log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
           access_refused(context)
         end
       end
 
       private def refuse_unless_policymaker(context, user, vhost = nil)
         unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
-          @log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
           access_refused(context)
         end
       end
 
       private def refuse_unless_monitoring(context, user)
         unless user.tags.any? { |t| t.administrator? || t.monitoring? }
-          @log.warn { "user=#{user.name} does not have monitoring access" }
+          Log.warn { "user=#{user.name} does not have monitoring access" }
           access_refused(context)
         end
       end
 
       private def refuse_unless_administrator(context, user : User)
         unless user.tags.any? &.administrator?
-          @log.warn { "user=#{user.name} does not have administrator access" }
+          Log.warn { "user=#{user.name} does not have administrator access" }
           access_refused(context)
         end
       end
