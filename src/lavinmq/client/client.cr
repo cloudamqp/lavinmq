@@ -59,7 +59,6 @@ module LavinMQ
                         end
       @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
       @connected_at = RoughTime.unix_ms
-      @closeok_timer = 0
       @channels = Hash(UInt16, Client::Channel).new
       @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
