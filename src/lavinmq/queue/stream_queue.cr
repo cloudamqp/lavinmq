@@ -36,14 +36,9 @@ module LavinMQ
       raise ex
     end
 
-    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      return false if !@state.running? && (@state.paused? && !force)
-      @last_get_time = RoughTime.monotonic
-      @queue_expiration_ttl_change.try_send? nil
-      @get_count += 1
-      get(true) do |env|
-        yield env
-      end
+    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool #TODO: does basic_get make sense for stream queues?
+      #raise NotImplementedError.new("Basic get not implemented for stream queues")
+      false
     end
 
     def consume_get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool

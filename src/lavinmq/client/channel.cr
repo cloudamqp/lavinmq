@@ -374,6 +374,8 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          elsif q.is_a? StreamQueue
+            @client.send_not_implemented(frame)
           else
             @get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)
@@ -568,7 +570,7 @@ module LavinMQ
         if c = unack.consumer
           c.reject(unack, requeue)
         end
-        unack.queue.reject(unack.sp, requeue) # Empty method in stream queue
+        unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
         @client.vhost.event_tick(EventType::ClientReject)
       end
