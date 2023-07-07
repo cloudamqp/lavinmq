@@ -114,6 +114,7 @@ module LavinMQ
     end
 
     private def read_loop
+      Log.context.set(vhost: @vhost.name, connection: "#{@remote_address} #{@name}")
       i = 0
       socket = @socket
       loop do

@@ -44,7 +44,7 @@ module LavinMQ
         end
 
         private def deliver_loop
-          Log.context.set(vhost: @channel.client.vhost.name, client: @channel.client.remote_address.to_s, channel: @channel.id.to_s, consumer_tag: @tag)
+          Log.context.set(vhost: @channel.client.vhost.name, queue: @queue.name, client: @channel.client.remote_address.to_s, channel: @channel.id.to_s, consumer_tag: @tag)
           wait_for_single_active_consumer
           queue = @queue
           no_ack = @no_ack
