@@ -92,7 +92,7 @@ module LavinMQ
         msg
       end
 
-      def delete(sp) : Nil
+      def delete(sp) : Nil # TODO: fix this, or replace with something that works. 
         raise ClosedError.new if @closed
         afile = @acks[sp.segment] if @acks.size > 0
         begin
