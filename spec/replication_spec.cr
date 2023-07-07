@@ -5,6 +5,7 @@ describe LavinMQ::Replication::Client do
   data_dir = "/tmp/lavinmq-follower"
 
   before_each do
+    FileUtils.rm_rf data_dir
     Dir.mkdir_p data_dir
     File.write File.join(data_dir, ".replication_secret"), Server.@replicator.@password, 0o400
   end

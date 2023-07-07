@@ -271,8 +271,8 @@ module LavinMQ
 
             filename = socket.read_string(filename_len)
             send_requested_file(filename)
+            @lz4.flush
           end
-          @lz4.flush
         end
 
         private def send_requested_file(filename)
