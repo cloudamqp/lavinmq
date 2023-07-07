@@ -54,9 +54,9 @@ module LavinMQ
       @replicator.register_file(@definitions_file)
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
-      @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, @log)
-      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, @log)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
+      @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator)
+      @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!

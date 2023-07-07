@@ -5,7 +5,9 @@ module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 
-    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Server, @log : Log)
+    Log = ::Log.for("parameter_store")
+
+    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Server)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
@@ -38,7 +40,7 @@ module LavinMQ
       itr.each do |p|
         yield p
       rescue ex : Exception
-        @log.error { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
+        Log.error { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
         delete(p.name)
         raise ex unless parameter.nil?
       end
@@ -63,7 +65,7 @@ module LavinMQ
     end
 
     private def save!
-      @log.debug { "Saving #{@file_name}" }
+      Log.debug { "Saving #{@file_name}" }
       path = File.join(@data_dir, @file_name)
       tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
@@ -79,7 +81,7 @@ module LavinMQ
           @replicator.register_file f
         end
       end
-      @log.debug { "#{size} items loaded from #{@file_name}" }
+      Log.debug { "#{size} items loaded from #{@file_name}" }
     end
   end
 end
