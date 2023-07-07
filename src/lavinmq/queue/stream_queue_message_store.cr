@@ -92,6 +92,36 @@ module LavinMQ
         msg
       end
 
+      def delete(sp) : Nil
+        raise ClosedError.new if @closed
+        afile = @acks[sp.segment] if @acks.size > 0
+        begin
+          afile.write_bytes sp.position if afile
+          @replicator.try &.append(afile.path, sp.position) if afile
+
+          # if all msgs in a segment are deleted then delete the segment
+          return if sp.segment == @wfile_id # don't try to delete a segment we still write to
+          ack_count = afile ? afile.size // sizeof(UInt32) : 0_u32
+          msg_count = @segment_msg_count[sp.segment]
+          if ack_count == msg_count
+            Log.debug { "Deleting segment #{sp.segment}" }
+            select_next_read_segment if sp.segment == @rfile_id #doesn't make sense for streams?
+            if a = @acks.delete(sp.segment)
+              a.delete.close
+              @replicator.try &.delete_file(a)
+            end
+            if seg = @segments.delete(sp.segment)
+              seg.delete.close
+              @replicator.try &.delete_file(seg)
+            end
+            @segment_msg_count.delete(sp.segment)
+            @deleted.delete(sp.segment)
+          end
+        rescue ex
+          raise Error.new(afile || @wfile, cause: ex)
+        end
+      end
+
       def offset_from_headers(headers)
         headers ? headers["x-stream-offset"].as(Int64) : 0_i64
       end
