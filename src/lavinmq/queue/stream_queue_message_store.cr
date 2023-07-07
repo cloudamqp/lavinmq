@@ -6,7 +6,7 @@ module LavinMQ
     class StreamQueueMessageStore < MessageStore
       getter last_offset = 0_i64
       getter new_messages = Channel(Bool).new
-      @offset_header = ::AMQP::Client::Arguments.new({"x-stream-offset" => 0_i64.as(AMQ::Protocol::Field)})
+      @offset_header = ::AMQ::Protocol::Table.new({"x-stream-offset" => 0_i64.as(AMQ::Protocol::Field)})
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
@@ -92,7 +92,7 @@ module LavinMQ
         msg
       end
 
-      def delete(sp) : Nil # TODO: fix this, or replace with something that works. 
+      def delete(sp) : Nil # TODO: fix this, or replace with something that works.
         raise ClosedError.new if @closed
         afile = @acks[sp.segment] if @acks.size > 0
         begin
@@ -105,14 +105,14 @@ module LavinMQ
           msg_count = @segment_msg_count[sp.segment]
           if ack_count == msg_count
             Log.debug { "Deleting segment #{sp.segment}" }
-            select_next_read_segment if sp.segment == @rfile_id #doesn't make sense for streams?
+            select_next_read_segment if sp.segment == @rfile_id # doesn't make sense for streams?
             if a = @acks.delete(sp.segment)
               a.delete.close
-              @replicator.try &.delete_file(a)
+              @replicator.try &.delete_file(a.path)
             end
             if seg = @segments.delete(sp.segment)
               seg.delete.close
-              @replicator.try &.delete_file(seg)
+              @replicator.try &.delete_file(seg.path)
             end
             @segment_msg_count.delete(sp.segment)
             @deleted.delete(sp.segment)
