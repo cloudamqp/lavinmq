@@ -5,6 +5,7 @@ Right now, you can contribute to LavinMQ in one of two ways:
 2. [Non-code contributions](#non-code-contributions)
 
 ## Code contributions
+
 The first step to making a code contribution, is starting a conversation around what you'd like to work on. You can start a conversation around an existing [issue](https://github.com/cloudamqp/lavinmq/issues) or a new one that you've created - refer to [reporting an issue](#report-an-issue). Next:
 
 1. Fork, create feature branch
