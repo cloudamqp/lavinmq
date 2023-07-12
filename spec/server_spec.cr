@@ -187,19 +187,52 @@ describe LavinMQ::Server do
 
   it "expires messages with message TTL on queue declaration" do
     with_channel do |ch|
-      args = AMQP::Client::Arguments.new
-      args["x-message-ttl"] = 1
-      args["x-dead-letter-exchange"] = ""
-      args["x-dead-letter-routing-key"] = "dlq"
-      q = ch.queue("ttl", args: args)
-      dlq = ch.queue("dlq")
-      q.publish_confirm "queue dlx"
+      q, dlq = create_ttl_and_dl_queues(ch)
+      ttl_msg = "queue dlx"
+      q.publish_confirm ttl_msg
       msg = wait_for { dlq.get(no_ack: true) }
-      msg.not_nil!.body_io.to_s.should eq("queue dlx")
-      Server.vhosts["/"].queues["ttl"].empty?.should be_true
-      q.publish_confirm "queue dlx"
+      msg.not_nil!.body_io.to_s.should eq(ttl_msg)
+      Server.vhosts["/"].queues[q.name].empty?.should be_true
+      q.publish_confirm ttl_msg
       msg = wait_for { dlq.get(no_ack: true) }
-      msg.not_nil!.body_io.to_s.should eq("queue dlx")
+      msg.not_nil!.body_io.to_s.should eq(ttl_msg)
+    end
+  end
+
+  it "expires messages with TTL on requeue" do
+    with_channel do |ch|
+      q, dlq = create_ttl_and_dl_queues(ch, queue_ttl: 500)
+      r_msg = "requeue msg"
+      q.publish_confirm r_msg
+      msg = q.get(no_ack: false).not_nil!
+      msg.reject(requeue: true)
+      msg = wait_for { dlq.get(no_ack: true) }
+      msg.not_nil!.body_io.to_s.should eq(r_msg)
+      Server.vhosts["/"].queues[q.name].empty?.should be_true
+    end
+  end
+
+  it "can publish and consume messages larger than 128kb" do
+    with_channel do |ch|
+      lmsg = "a" * 5_00_000
+      q = ch.queue "lmsg_q"
+      q.publish_confirm lmsg
+      q.subscribe(no_ack: true) do |msg|
+        msg.should_not be_nil
+        msg.body_io.to_s.should eq(lmsg)
+      end
+    end
+  end
+
+  it "does not requeue messages on consumer close" do
+    with_channel do |ch|
+      q = ch.queue "msg_q"
+      q.publish_confirm "no requeue"
+      done = Channel(Nil).new
+      tag = q.subscribe(no_ack: false) { |_| done.send nil }
+      done.receive
+      q.unsubscribe(tag)
+      Server.vhosts["/"].queues["msg_q"].empty?.should be_true
     end
   end
 
