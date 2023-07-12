@@ -30,7 +30,7 @@ Your schedule won't allow you make code contributions? Still fine, you can:
 - This could be an easily reproducible bug or even a feature request.
 - If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). This would allow us to interactively figure out what is going on. 
 
-### [Give us some feedback](https://github.com/cloudamqp/lavinmq/issues/new)
+### [Give us some feedback](https://github.com/cloudamqp/lavinmq/discussions)
 We are also curious and happy to hear about your experience with LavinMQ. You can email us via contact@cloudamqp.com or reach us on Slack. Not sure what to write to us?
 
 - You can write to us about your first impression of LavinMQ
