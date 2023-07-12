@@ -228,11 +228,10 @@ describe LavinMQ::Server do
     with_channel do |ch|
       q = ch.queue "msg_q"
       q.publish_confirm "no requeue"
-      consumed = 0
-      tag = q.subscribe(no_ack: false) { |msg| consumed += 1 }
-      sleep 0.05
+      done = Channel(Nil).new
+      tag = q.subscribe(no_ack: false) { |msg| done.send nil }
+      done.receive
       q.unsubscribe(tag)
-      sleep 0.05
       Server.vhosts["/"].queues["msg_q"].empty?.should be_true
     end
   end 
