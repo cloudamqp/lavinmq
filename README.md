@@ -102,25 +102,7 @@ In OS X the app, [`Instruments` that's bundled with Xcode can be used for tracin
 Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/docs/README.environment).
 
 ## Contributing
-
-1. Fork, create feature branch
-1. Build with `make -j`
-1. Performance test with `bin/lavinmqperf throughput` and compare against `main`
-1. Submit pull request
-
-### Develop
-
-1. Run specs with `crystal spec`
-1. Compile and run locally with `crystal run src/lavinmq.cr -- -D /tmp/amqp`
-1. Pull js dependencies with `make js`
-1. Build API docs with `make docs` (requires `npx`)
-1. Build with `shards build`
-
-### Release
-
-1. Update `CHANGELOG.md`
-1. Bump version in `shards.yml`
-1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
+Kindly read our [contributing guide](CONTRIBUTING.md)
 
 ## LavinMQ with various plattforms
 All AMQP client libraries work with LavinMQ and there are AMQP client libraries for almost every platform on the market. Here are  guides for a couple of common plattforms. 
@@ -147,7 +129,7 @@ and about 1000 bindings/second to durable queues.
 ## Implementation
 
 LavinMQ is written in [Crystal](https://crystal-lang.org/), a modern
-language built on the LLVM, that has a Ruby-like syntax, uses an event loop
+language built on the LLVM, with a Ruby-like syntax. It uses an event loop
 library for IO, is garbage collected, adopts a CSP-like [concurrency
 model](https://crystal-lang.org/docs/guides/concurrency.html) and compiles down
 to a single binary. You can liken it to Go, but with a nicer syntax.
@@ -206,6 +188,12 @@ When `Client#read_loop` receives a Basic.Consume frame it will create a `Consume
 the queue's list of consumers. Each consumer has a `deliver_loop` fiber that will be notified
 by an internal `Channel` when new messages are available in the queue.
 
+## Getting help
+
+For questions or suggestions:
+- We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). 
+- You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
+- If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com) then reach out to [support@cloudamqp.com]
 ## Features
 
 - AMQP 0-9-1 compatible
