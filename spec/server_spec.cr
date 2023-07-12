@@ -222,7 +222,7 @@ describe LavinMQ::Server do
         msg.body_io.to_s.should eq(lmsg)
       end
     end
-  end 
+  end
 
   it "does not requeue messages on consumer close" do
     with_channel do |ch|
@@ -234,7 +234,7 @@ describe LavinMQ::Server do
       q.unsubscribe(tag)
       Server.vhosts["/"].queues["msg_q"].empty?.should be_true
     end
-  end 
+  end
 
   it "dead-letter expired messages" do
     with_channel do |ch|
