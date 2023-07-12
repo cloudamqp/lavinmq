@@ -66,7 +66,7 @@ module LavinMQ
             props = BindingDetails.hash_key({routing_key, arguments.to_h})
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
-            @log.debug do
+            Log.debug do
               binding = binding_for_props(context, e, q, props)
               "exchange '#{e.name}' bound to queue '#{q.name}' with key '#{binding}' #{ok}"
             end
@@ -104,7 +104,7 @@ module LavinMQ
               arguments = k[1] || Hash(String, AMQP::Field).new
               @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], AMQP::Table.new arguments)
               found = true
-              @log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with key '#{k}'" }
+              Log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with key '#{k}'" }
               break
             end
             context.response.status_code = found ? 204 : 404

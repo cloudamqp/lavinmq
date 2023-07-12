@@ -66,11 +66,11 @@ function argumentHelper (formID, name, e) {
 
 function argumentHelperJSON (formID, name, e) {
   const key = e.target.dataset.tag
-  const value = JSON.parse(e.target.dataset.value || '')
+  const value = JSON.parse(e.target.dataset.value || '""')
   const form = document.getElementById(formID)
   try {
     let currentValue = form.elements[name].value.trim()
-    if (currentValue.length == 0) {
+    if (currentValue.length === 0) {
       currentValue = '{}'
     }
     currentValue = JSON.parse(currentValue)
@@ -82,39 +82,39 @@ function argumentHelperJSON (formID, name, e) {
   }
 }
 
-function formatJSONargument(obj) {
+function formatJSONargument (obj) {
   const values = Object.keys(obj).map(key => `"${key}": ${JSON.stringify(obj[key])}`).join(',\n')
   return `{ ${values} }`
 }
 
-function formatTimestamp(timestamp) {
-  const date = new Date(timestamp).toISOString().split("T");
+function formatTimestamp (timestamp) {
+  const date = new Date(timestamp).toISOString().split('T')
 
-  return `${date[0]} ${date[1].split(".")[0]}`;
+  return `${date[0]} ${date[1].split('.')[0]}`
 }
 
 /**
  * @param datalistID id of the datalist element linked to input
  * @param type input content, accepts: queues, exchanges, vhosts, users
  */
-function autoCompleteDatalist(datalistID, type, vhost) {
-  HTTP.request('GET',`api/${type}/${vhost}?columns=name`).then(res => {
-    const datalist = document.getElementById(datalistID);
+function autoCompleteDatalist (datalistID, type, vhost) {
+  HTTP.request('GET', `api/${type}/${vhost}?columns=name`).then(res => {
+    const datalist = document.getElementById(datalistID)
     while (datalist.firstChild) {
-      datalist.removeChild(datalist.lastChild);
+      datalist.removeChild(datalist.lastChild)
     }
     const values = res.map(val => val.name).sort()
     values.forEach(val => {
-      const option = document.createElement("option")
+      const option = document.createElement('option')
       option.value = val
       datalist.appendChild(option)
-    });
+    })
   })
 }
 
 let loadedVhosts
 
-function fetch() {
+function fetch () {
   const vhost = window.sessionStorage.getItem('vhost')
   const url = 'api/vhosts?columns=name'
   if (!loadedVhosts) {
@@ -133,7 +133,7 @@ function fetch() {
 
 function addVhostOptions (formId, options) {
   options = options ?? {}
-  const addAllOpt = options["addAll"] ?? false
+  const addAllOpt = options.addAll ?? false
   return fetch().then(vhosts => {
     const select = document.forms[formId].elements.vhost
     while (select.options.length) {
@@ -147,7 +147,7 @@ function addVhostOptions (formId, options) {
       const err = document.createElement('span')
       err.id = 'error-msg'
       err.textContent = 'Error fetching data: Please try to refresh the page!'
-      select.parentElement.insertAdjacentElement('beforebegin',err)
+      select.parentElement.insertAdjacentElement('beforebegin', err)
       return
     }
 
@@ -163,19 +163,6 @@ function addVhostOptions (formId, options) {
     return vhosts
   })
 }
-
-addVhostOptions('user-vhost', {addAll: true}).then(() => {
-  const vhost = window.sessionStorage.getItem('vhost')
-  if (vhost) {
-    const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
-    if (opt) {
-      document.querySelector('#userMenuVhost').value = vhost
-      window.sessionStorage.setItem('vhost', vhost)
-    }
-  } else {
-    window.sessionStorage.setItem('vhost', '_all')
-  }
-})
 
 export {
   addVhostOptions,

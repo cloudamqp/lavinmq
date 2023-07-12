@@ -24,16 +24,24 @@
             <td id="tr-vcpu"></td>
           </tr>
           <tr>
-            <th>Memory usage</th>
+            <th>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Memory usage
+              <span class="prop-tooltiptext">The amount of memory LavinMQ uses relative to the available system space</span>
+              </a>
+            </th>
             <td id="tr-memory"></td>
           </tr>
           <tr>
-            <th>Average CPU usage</th>
-            <td id="tr-cpu"></td>
+            <th>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Disk usage
+              <span class="prop-tooltiptext">The amount of disk memory the system uses relative to the available system space</span>
+              </a>
+            </th>
+            <td id="tr-disk"></td>
           </tr>
           <tr>
-            <th>Disk usage</th>
-            <td id="tr-disk"></td>
+            <th>CPU Usage</th>
+            <td id="tr-cpu"></td>
           </tr>
         </table>
       </section>
@@ -65,6 +73,26 @@
       <section class="card cols-4 cols-6-md">
         <h3>Queue churn</h3>
         <div class="chart-container" id="queueChurnChart"></div>
+      </section>
+      <section class="card">
+        <h3>
+          Followers
+          <small id="followers-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="followers-error"></div>
+          <table id="followers" class="table">
+            <thead>
+              <tr>
+                <th>Remote address</th>
+                <th class="right">Sent bytes</th>
+                <th class="right">Acked bytes</th>
+                <th class="right">Lag</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </main>
     <% render "footer" %>

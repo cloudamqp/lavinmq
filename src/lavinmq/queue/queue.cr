@@ -58,6 +58,7 @@ module LavinMQ
 
     private def queue_expire_loop
       loop do
+        break unless @expires
         if @consumers.empty? && (ttl = queue_expiration_ttl)
           @log.debug { "Queue expires in #{ttl}" }
           select
@@ -125,6 +126,9 @@ module LavinMQ
     getter? closed = false
     getter state = QueueState::Running
     getter empty_change : Channel(Bool)
+    getter single_active_consumer : Client::Channel::Consumer? = nil
+    getter single_active_consumer_change = Channel(Client::Channel::Consumer).new
+    @single_active_consumer_queue = false
     @data_dir : String
 
     def initialize(@vhost : VHost, @name : String,
@@ -138,13 +142,14 @@ module LavinMQ
       @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
     end
 
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
-      MessageStore.new(data_dir)
+      replicator = @durable ? @vhost.@replicator : nil
+      MessageStore.new(data_dir, replicator)
     end
 
     private def make_data_dir : String
@@ -206,6 +211,7 @@ module LavinMQ
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
             @last_get_time = RoughTime.monotonic
+            spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
             @queue_expiration_ttl_change.try_send? nil
           end
         when "overflow"
@@ -254,6 +260,7 @@ module LavinMQ
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+      @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
     end
 
     private macro parse_header(header, type)
@@ -387,6 +394,7 @@ module LavinMQ
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
         exclusive_consumer_tag:      @exclusive ? @consumers_lock.synchronize { @consumers.first?.try(&.tag) } : nil,
+        single_active_consumer_tag:  @single_active_consumer.try &.tag,
         state:                       @state.to_s,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
@@ -802,17 +810,21 @@ module LavinMQ
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
-        notify_consumers_empty(false) if was_empty
+        if was_empty
+          @single_active_consumer = consumer if @single_active_consumer_queue
+          notify_consumers_empty(false)
+        end
       end
       @exclusive_consumer = true if consumer.exclusive
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
+      @vhost.event_tick(EventType::ConsumerAdded)
       notify_observers(:add_consumer, consumer)
     end
 
     getter? has_priority_consumers = false
 
-    def rm_consumer(consumer : Client::Channel::Consumer, basic_cancel = false)
+    def rm_consumer(consumer : Client::Channel::Consumer)
       return if @closed
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
@@ -822,6 +834,14 @@ module LavinMQ
           @log.debug { "Removing consumer with #{consumer.unacked} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
+          if @single_active_consumer == consumer
+            @single_active_consumer = @consumers.first?
+            if new_consumer = @single_active_consumer
+              while @single_active_consumer_change.try_send? new_consumer
+              end
+            end
+          end
+          @vhost.event_tick(EventType::ConsumerRemoved)
           notify_observers(:rm_consumer, consumer)
         end
       end
@@ -872,12 +892,6 @@ module LavinMQ
 
     def in_use?
       !(empty? && @consumers.empty?)
-    end
-
-    def fsync_enq
-    end
-
-    def fsync_ack
     end
 
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)

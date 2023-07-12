@@ -1,5 +1,5 @@
 name: lavinmq
-version: 1.1.2
+version: 1.1.5
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
@@ -32,6 +32,8 @@ dependencies:
     github: tbrand/router.cr
   systemd:
     github: 84codes/systemd.cr
+  lz4:
+    github: 84codes/lz4.cr
 
 development_dependencies:
   ameba:

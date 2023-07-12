@@ -97,13 +97,11 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   function findRow (rows, item) {
-    return rows.find(row => keyColumns.every(key => row.dataset[key] === item[key]))
+    return rows.find(row => keyColumns.every(key => row.dataset[key] === JSON.stringify(item[key])))
   }
 
   function setKeyAttributes (tr, item) {
-    keyColumns.forEach(function (key) {
-      tr.dataset[key] = item[key]
-    })
+    keyColumns.forEach(key => tr.dataset[key] = JSON.stringify(item[key]))
   }
 
   function renderSearch (conatiner, dataSource) {

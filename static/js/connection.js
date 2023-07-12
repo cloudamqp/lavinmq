@@ -75,7 +75,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
 
 document.querySelector('#closeConnection').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = 'api/connections/' + urlEncodedConnection
+  const url = `api/connections/${connection}`
   const headers = new window.Headers({
     'X-Reason': document.querySelector('[name=reason]').value
   })

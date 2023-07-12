@@ -34,6 +34,7 @@ arm64_task:
     cpu: 2
     memory: 4G
     greedy: true
+  install_script: apt-get update && apt-get install liblz4-dev
   spec_script: make test
 
 amd64_task:
@@ -43,4 +44,5 @@ amd64_task:
     cpu: 2
     memory: 4G
     greedy: true
+  install_script: apt-get update && apt-get install liblz4-dev
   spec_script: make test

@@ -1,4 +1,5 @@
 import * as Auth from './auth.js'
+import * as Helpers from './helpers.js'
 
 document.getElementById('username').textContent = Auth.getUsername()
 
@@ -9,6 +10,19 @@ menuButton.onclick = (e) => {
   menuButton.classList.toggle('open-menu')
   menuContent.classList.toggle('show-menu')
 }
+
+Helpers.addVhostOptions('user-vhost', { addAll: true }).then(() => {
+  const vhost = window.sessionStorage.getItem('vhost')
+  if (vhost) {
+    const opt = document.querySelector('#userMenuVhost option[value="' + vhost + '"]')
+    if (opt) {
+      document.querySelector('#userMenuVhost').value = vhost
+      window.sessionStorage.setItem('vhost', vhost)
+    }
+  } else {
+    window.sessionStorage.setItem('vhost', '_all')
+  }
+})
 
 document.getElementById('userMenuVhost').onchange = (e) => {
   window.sessionStorage.setItem('vhost', e.target.value)

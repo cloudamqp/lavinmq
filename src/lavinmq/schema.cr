@@ -6,9 +6,9 @@ module LavinMQ
 
     Log = ::Log.for("Schema")
 
-    def self.migrate(data_dir)
+    def self.migrate(data_dir, replicator) : Nil
       case v = version(data_dir)
-      when 4 then return
+      when 4
       when nil # before version 4 there was no schema_version file
         backup_dir = backup(data_dir)
         begin
@@ -20,6 +20,9 @@ module LavinMQ
         end
       else
         raise UnsupportedSchemaVersion.new(v, data_dir)
+      end
+      File.open(File.join(data_dir, "schema_version")) do |f|
+        replicator.register_file(f)
       end
     end
 
@@ -136,7 +139,7 @@ module LavinMQ
             enqs do |sp|
               vseg = @vhost_segments[sp.segment]
               vseg.seek sp.position
-              IO.copy(vseg, wfile, sp.bytesize)
+              IO.copy(vseg, wfile, sp.bytesize) == sp.bytesize || raise IO::EOFError.new
               if wfile.pos >= Config.instance.segment_size
                 wfile.close
                 wfile_id += 1

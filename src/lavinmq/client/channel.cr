@@ -184,7 +184,6 @@ module LavinMQ
             begin
               finish_publish(next_msg_body_file)
             ensure
-              next_msg_body_file.truncate
               next_msg_body_file.rewind
             end
           end
@@ -221,13 +220,7 @@ module LavinMQ
           props,
           @next_msg_size,
           body_io)
-        publish_and_return(msg)
-      rescue ex
-        unless ex.is_a? IO::Error
-          @log.warn { "Error when publishing message #{ex.inspect}" }
-        end
-        confirm_nack
-        raise ex
+        direct_reply?(msg) || publish_and_return(msg)
       ensure
         @next_msg_size = 0_u64
         @next_msg_props = nil
@@ -241,8 +234,7 @@ module LavinMQ
       record TxMessage, message : Message, mandatory : Bool, immediate : Bool
       @tx_publishes = Array(TxMessage).new
 
-      private def publish_and_return(msg) # ameba:disable Metrics/CyclomaticComplexity
-        return true if direct_reply?(msg)
+      private def publish_and_return(msg)
         if user_id = msg.properties.user_id
           if user_id != @client.user.name && !@client.user.can_impersonate?
             text = "Message's user_id property '#{user_id}' doesn't match actual user '#{@client.user.name}'"
@@ -255,51 +247,62 @@ module LavinMQ
           return
         end
 
-        @confirm_total += 1 if @confirm
-        if @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues, @confirm
-          @client.vhost.waiting4confirm(self) if @confirm
-        else
-          basic_return(msg, @next_publish_mandatory, @next_publish_immediate)
+        confirm do
+          ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
+        rescue e : Error::PreconditionFailed
+          msg.body_io.skip(msg.bodysize)
+          send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
         end
-      rescue e : Error::PreconditionFailed
-        msg.body_io.skip(msg.bodysize)
-        send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
       rescue Queue::RejectOverFlow
-        confirm_nack
+        # nack but then do nothing
       end
 
-      def confirm_nack(multiple = false)
-        return unless @confirm
+      private def confirm(&)
+        if @confirm
+          msgid = @confirm_total += 1
+          begin
+            yield
+            confirm_ack(msgid)
+          rescue ex
+            confirm_nack(msgid)
+            raise ex
+          end
+        else
+          yield
+        end
+      end
+
+      private def confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count += 1 # Stats
-        send AMQP::Frame::Basic::Nack.new(@id, @confirm_total, multiple, requeue: false)
+        send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
+      end
+
+      private def confirm_nack(msgid, multiple = false)
+        @client.vhost.event_tick(EventType::ClientPublishConfirm)
+        @confirm_count += 1 # Stats
+        send AMQP::Frame::Basic::Nack.new(@id, msgid, multiple, requeue: false)
       end
 
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
         if ch = @client.vhost.direct_reply_consumers[consumer_tag]?
-          deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
-            1_u64, false,
-            msg.exchange_name,
-            msg.routing_key)
-          ch.deliver(deliver, msg)
-          @confirm_total += 1 if @confirm
-          confirm_ack
+          confirm do
+            deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
+              1_u64, false,
+              msg.exchange_name,
+              msg.routing_key)
+            ch.deliver(deliver, msg)
+          end
           true
         else
           false
         end
       end
 
-      def confirm_ack(multiple = false)
-        return unless @confirm
-        @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count += 1 # Stats
-        send AMQP::Frame::Basic::Ack.new(@id, @confirm_total, multiple)
-      end
-
-      def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
+      private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
         @return_unroutable_count += 1
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
@@ -313,8 +316,6 @@ module LavinMQ
             msg.body_io.skip(msg.bodysize)
           end
         end
-        # basic.nack will only be delivered if an internal error occurs...
-        confirm_ack
       end
 
       def deliver(frame, msg, redelivered = false) : Nil
@@ -711,8 +712,7 @@ module LavinMQ
       private def next_msg_body_file
         @next_msg_body_file ||=
           begin
-            tmp_path = File.join(@client.vhost.data_dir, "tmp", Random::Secure.urlsafe_base64)
-            File.open(tmp_path, "w+").tap do |f|
+            File.tempfile("channel.", nil, dir: @client.vhost.data_dir).tap do |f|
               f.sync = true
               f.read_buffering = false
               f.delete
@@ -733,6 +733,7 @@ module LavinMQ
         return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         process_tx_acks
         process_tx_publishes
+        @client.vhost.sync
         send AMQP::Frame::Tx::CommitOk.new(frame.channel)
       end
 
@@ -740,17 +741,13 @@ module LavinMQ
         next_msg_body_file.rewind
         @tx_publishes.each do |tx_msg|
           tx_msg.message.timestamp = RoughTime.unix_ms
-          @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues, true) ||
-            basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate)
+          ok = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
+          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless ok
         end
         @tx_publishes.clear
-        @client.vhost.fsync
       ensure
-        next_msg_body_file.truncate
         next_msg_body_file.rewind
       end
-
-      @queues_to_fsync = Set(Queue).new
 
       private def process_tx_acks
         count = 0
@@ -767,7 +764,6 @@ module LavinMQ
                   else
                     do_ack(unack)
                   end
-                  @queues_to_fsync.add(unack.queue) unless tx_ack.requeue
                   count += 1
                 end
               else
@@ -777,14 +773,11 @@ module LavinMQ
                 else
                   do_ack(unack)
                 end
-                @queues_to_fsync.add(unack.queue) unless tx_ack.requeue
                 count += 1
               end
             end
           end
           @tx_acks.clear
-          @queues_to_fsync.each &.fsync_ack
-          @queues_to_fsync.clear
         end
         notify_has_capacity(count)
       end
@@ -793,7 +786,6 @@ module LavinMQ
         return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         @tx_publishes.clear
         @tx_acks.clear
-        next_msg_body_file.truncate # tmp file where all bodies are written to
         next_msg_body_file.rewind
         send AMQP::Frame::Tx::RollbackOk.new(frame.channel)
       end

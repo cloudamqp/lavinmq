@@ -29,27 +29,34 @@ module LavinMQ
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
-      Schema.migrate(@data_dir)
-      @users = UserStore.new(@data_dir)
-      @vhosts = VHostStore.new(@data_dir, @users)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      @replicator = Replication::Server.new
+      Schema.migrate(@data_dir, @replicator)
+      @users = UserStore.new(@data_dir, @replicator)
+      @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+    end
+
+    def followers
+      @replicator.followers
     end
 
     def stop
       return if @closed
       @closed = true
       @vhosts.each_value &.close
+      @replicator.clear
       Fiber.yield
     end
 
     def restart
       stop
       Dir.mkdir_p @data_dir
-      @users = UserStore.new(@data_dir)
-      @vhosts = VHostStore.new(@data_dir, @users)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @log)
+      Schema.migrate(@data_dir, @replicator)
+      @users = UserStore.new(@data_dir, @replicator)
+      @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
       apply_parameter
       @closed = false
       Fiber.yield
@@ -155,12 +162,17 @@ module LavinMQ
       listen(s)
     end
 
+    def listen_replication(bind, port)
+      @replicator.bind(bind, port).listen
+    end
+
     def close
       @closed = true
       @log.debug { "Closing listeners" }
       @listeners.each_key &.close
       @log.debug { "Closing vhosts" }
       @vhosts.close
+      @replicator.close
     end
 
     def add_parameter(parameter : Parameter)
@@ -272,6 +284,7 @@ module LavinMQ
 
       @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
 
+      return if closed? # Data dir can be removed already
       fs_stats = Filesystem.info(@data_dir)
       until @disk_free_log.size < log_size
         @disk_free_log.shift
@@ -372,7 +385,7 @@ module LavinMQ
     getter stats_system_collection_duration_seconds = Time::Span.new
 
     private def control_flow!
-      if @disk_free < 2_i64 * Config.instance.segment_size
+      if @disk_free < 2_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_min
         if flow?
           @log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
           flow(false)
@@ -380,7 +393,7 @@ module LavinMQ
       elsif !flow?
         @log.info { "Not low on disk space, starting flow" }
         flow(true)
-      elsif @disk_free < 3_i64 * Config.instance.segment_size
+      elsif @disk_free < 3_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_warn
         @log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
