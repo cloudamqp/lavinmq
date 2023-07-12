@@ -189,6 +189,7 @@ the queue's list of consumers. Each consumer has a `deliver_loop` fiber that wil
 by an internal `Channel` when new messages are available in the queue.
 
 ## Getting help
+
 For questions or suggestions:
 - We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). 
 - You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
