@@ -1,13 +1,8 @@
 require "spec"
 require "file_utils"
-require "amqp-client"
 require "../src/lavinmq/config"
-require "../src/lavinmq/server"
-require "../src/lavinmq/log_formatter"
-require "../src/lavinmq/http/http_server"
 require "http/client"
-require "socket"
-require "uri"
+require "amqp-client"
 
 Log.setup_from_env
 
@@ -21,12 +16,18 @@ HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
 DATA_DIR       = "/tmp/lavinmq-spec"
 
+Dir.mkdir_p DATA_DIR
 LavinMQ::Config.instance.tap do |cfg|
-  cfg.segment_size = 512 * 1024
+  cfg.data_dir = DATA_DIR
   cfg.amqp_port = AMQP_PORT
   cfg.amqps_port = AMQPS_PORT
   cfg.http_port = HTTP_PORT
+  cfg.segment_size = 512 * 1024
 end
+
+# have to be required after config
+require "../src/lavinmq/server"
+require "../src/lavinmq/http/http_server"
 
 def with_channel(**args, &)
   name = nil
@@ -86,11 +87,10 @@ end
 def start_amqp_server
   s = LavinMQ::Server.new(DATA_DIR)
   spawn { s.listen(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqp_port) }
-  cert = Dir.current + "/spec/resources/server_certificate.pem"
-  key = Dir.current + "/spec/resources/server_key.pem"
+  spawn { s.listen_replication("127.0.0.1", LavinMQ::Config.instance.replication_port) }
   ctx = OpenSSL::SSL::Context::Server.new
-  ctx.certificate_chain = cert
-  ctx.private_key = key
+  ctx.certificate_chain = "spec/resources/server_certificate.pem"
+  ctx.private_key = "spec/resources/server_key.pem"
   spawn { s.listen_tls(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqps_port, ctx) }
   s
 end

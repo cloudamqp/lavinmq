@@ -52,8 +52,10 @@ class Throughput < Perf
   @cmessages = 0
   @queue_args = AMQP::Client::Arguments.new
   @consumer_args = AMQP::Client::Arguments.new
+  @properties = AMQ::Protocol::Properties.new
   @pub_in_transaction = 0
   @ack_in_transaction = 0
+  @random_bodies = false
 
   def initialize
     super
@@ -122,12 +124,16 @@ class Throughput < Perf
       @cmessages = v.to_i
     end
     @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
-      args = JSON.parse(v).as_h
-      @queue_args = AMQP::Client::Arguments.new(args)
+      @queue_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
     end
     @parser.on("--consumer-args=JSON", "Consumer arguments as a JSON string") do |v|
-      args = JSON.parse(v).as_h
-      @consumer_args = AMQP::Client::Arguments.new(args)
+      @consumer_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
+    end
+    @parser.on("--properties=JSON", "Properties added to published messages") do |v|
+      @properties = AMQ::Protocol::Properties.from_json(JSON.parse(v))
+    end
+    @parser.on("--random-bodies", "Each message body is random") do
+      @random_bodies = true
     end
   end
 
@@ -216,7 +222,8 @@ class Throughput < Perf
 
   private def pub(done)
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-    props = AMQ::Protocol::Properties.new(delivery_mode: @persistent ? 2u8 : nil)
+    props = @properties
+    props.delivery_mode = 2u8 if @persistent
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       ch.tx_select if @pub_in_transaction > 0
@@ -225,6 +232,7 @@ class Throughput < Perf
       start = Time.monotonic
       pubs_this_second = 0
       until @stopped
+        Random::DEFAULT.random_bytes(data) if @random_bodies
         msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
         ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
         ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
@@ -252,7 +260,7 @@ class Throughput < Perf
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
-        ch.queue @queue, args: @queue_args
+        ch.queue @queue, durable: !@queue.empty?, auto_delete: @queue.empty?, args: @queue_args
       rescue
         ch = a.channel
         ch.queue(@queue, passive: true)
@@ -448,7 +456,7 @@ class ConnectionCount < Perf
     @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive=IDLE:COUNT:INTERVAL", "TCP keepalive values") do |v|
       @uri.query_params["tcp_keepalive"] = v
     end
-    maximize_fd_limit
+    puts "FD limit: #{System.maximize_fd_limit}"
   end
 
   private def connect(i)
@@ -506,13 +514,6 @@ class ConnectionCount < Perf
     else
       0
     end
-  end
-
-  private def maximize_fd_limit
-    _, fd_limit_max = System.file_descriptor_limit
-    System.file_descriptor_limit = fd_limit_max
-    fd_limit_current, _ = System.file_descriptor_limit
-    puts "FD limit: #{fd_limit_current}"
   end
 end
 

@@ -8,7 +8,7 @@
       const input = document.getElementById("message")
       const submit = document.getElementById("submit")
       const offlineQueue = []
-      const tls = window.location.scheme === "https:"
+      const tls = window.location.protocol === "https:"
       const url = `${tls ? "wss" : "ws"}://${window.location.host}`
       const amqp = new AMQPWebSocketClient(url, "/", "guest", "guest")
       amqp.onerror = (err) => {

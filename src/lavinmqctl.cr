@@ -250,23 +250,8 @@ class LavinMQCtl
 
   private def handle_response(resp, *ok)
     return if ok.includes? resp.status_code
-    case resp.status_code
-    when 401
-      puts "Access denied"
-    when 404
-      puts "Not found"
-    else
-      case resp.headers["Content-type"]?
-      when "application/json"
-        begin
-          body = JSON.parse(resp.body)
-          puts body["reason"]?
-        rescue e : JSON::ParseException # Body can be empty
-        end
-      else
-        puts resp.body
-      end
-    end
+    puts "#{resp.status_code} - #{resp.status}"
+    puts resp.body if resp.body? && !resp.headers["Content-Type"]?.try(&.starts_with?("text/html"))
     exit 1
   end
 

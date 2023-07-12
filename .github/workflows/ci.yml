@@ -71,6 +71,9 @@ jobs:
       - name: Print Crystal version
         run: crystal -v
 
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev
+
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -100,6 +103,9 @@ jobs:
     container: 84codes/crystal:latest-ubuntu-20.04
 
     steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev
+
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -125,7 +131,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 openjdk-13-jre-headless
+          sudo apt-get install -y make libevent-2.1-7 openjdk-13-jre-headless liblz4-1
 
       - uses: actions/download-artifact@v3
         with:
@@ -149,7 +155,7 @@ jobs:
         run: |
           cd rabbitmq-java-client
           make deps
-          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTests -Drabbitmqctl.bin=../bin/lavinmqctl
+          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
 
   bunny-test:
     name: Bunny client test
@@ -160,7 +166,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-dev
+          sudo apt-get install -y libevent-dev liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v3

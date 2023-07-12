@@ -2,6 +2,7 @@ require "../mfile"
 require "../segment_position"
 require "log"
 require "file_utils"
+require "../replication/server"
 
 module LavinMQ
   class Queue
@@ -16,7 +17,6 @@ module LavinMQ
     class MessageStore
       Log = ::Log.for("MessageStore")
       @segments = Hash(UInt32, MFile).new
-      @acks = Hash(UInt32, MFile).new
       @deleted = Hash(UInt32, Array(UInt32)).new
       @segment_msg_count = Hash(UInt32, UInt32).new
       @requeued = Deque(SegmentPosition).new
@@ -25,12 +25,12 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@data_dir : String)
+      def initialize(@data_dir : String, @replicator : Replication::Server?)
+        @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk
         load_stats_from_segments
         delete_unused_segments
-        unmap_segments
         @wfile_id = @segments.last_key
         @wfile = @segments.last_value
         @rfile_id = @segments.first_key
@@ -148,6 +148,7 @@ module LavinMQ
         afile = @acks[sp.segment]
         begin
           afile.write_bytes sp.position
+          @replicator.try &.append(afile.path, sp.position)
 
           # if all msgs in a segment are deleted then delete the segment
           return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -156,8 +157,14 @@ module LavinMQ
           if ack_count == msg_count
             Log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
-            @acks.delete(sp.segment).try &.delete.close
-            @segments.delete(sp.segment).try &.delete.close
+            if a = @acks.delete(sp.segment)
+              a.delete.close
+              @replicator.try &.delete_file(a.path)
+            end
+            if seg = @segments.delete(sp.segment)
+              seg.delete.close
+              @replicator.try &.delete_file(seg.path)
+            end
             @segment_msg_count.delete(sp.segment)
             @deleted.delete(sp.segment)
           end
@@ -181,6 +188,8 @@ module LavinMQ
       def delete
         close
         FileUtils.rm_rf @data_dir
+        @segments.each_value { |f| @replicator.try &.delete_file(f.path) }
+        @acks.each_value { |f| @replicator.try &.delete_file(f.path) }
       end
 
       def empty?
@@ -202,6 +211,7 @@ module LavinMQ
       private def select_next_read_segment : MFile?
         # Expect @segments to be ordered
         if id = @segments.each_key.find { |sid| sid > @rfile_id }
+          @rfile.unmap # unmap current rfile, hopefully won't read much more from it
           @rfile_id = id
           @rfile = @segments[id]
         end
@@ -210,48 +220,58 @@ module LavinMQ
       private def write_to_disk(msg) : SegmentPosition
         wfile = @wfile
         if wfile.capacity < wfile.size + msg.bytesize
-          wfile.truncate(wfile.size) # won't write more to this, so truncate/unmap the remainder
           wfile = open_new_segment(msg.bytesize)
         end
-        sp = SegmentPosition.make(@wfile_id, wfile.size.to_u32, msg)
+        wfile_id = @wfile_id
+        sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
         wfile.write_bytes msg
-        @segment_msg_count[@wfile_id] += 1
+        fr = Replication::Server::Follower::FileRange.new(wfile, sp.position.to_i32, (wfile.size - sp.position).to_i32)
+        @replicator.try &.append(wfile.path, fr)
+        @segment_msg_count[wfile_id] += 1
         sp
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        @wfile.unmap if @segments.size > 1 # unmap last mfile to save mmap's, if reader is further behind
+        @wfile.unmap unless @wfile == @rfile
         next_id = @wfile_id + 1
         path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
         wfile = MFile.new(path, capacity)
-        SchemaVersion.prefix(wfile, :message)
+        wfile.write_bytes Schema::VERSION
         wfile.pos = 4
+        @replicator.try &.register_file wfile
+        @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
-        @segment_msg_count[next_id] = 0u32
-        @acks[next_id] = open_ack_file(next_id, capacity)
         @wfile = @segments[next_id] = wfile
+        @segment_msg_count[next_id] = 0u32
+        wfile
       end
 
-      private def open_ack_file(id, segment_capacity) : MFile
-        max_msgs_per_segment = segment_capacity // BytesMessage::MIN_BYTESIZE
-        capacity = (max_msgs_per_segment + 1) * sizeof(UInt32)
+      private def open_ack_file(id) : MFile
         path = File.join(@data_dir, "acks.#{id.to_s.rjust(10, '0')}")
-        @acks[id] = MFile.new(path, capacity)
+        capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
+        mfile = MFile.new(path, capacity, writeonly: true)
+        @replicator.try &.register_file mfile
+        mfile
       end
 
       private def load_deleted_from_disk
-        @acks.each do |seg, afile|
+        Dir.each_child(@data_dir) do |child|
+          next unless child.starts_with? "acks."
+          seg = child[5, 10].to_u32
           acked = Array(UInt32).new
-          loop do
-            pos = UInt32.from_io(afile, IO::ByteFormat::SystemEndian)
-            if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
-              afile.resize(afile.pos - 4)
+          File.open(File.join(@data_dir, child)) do |file|
+            loop do
+              pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
+              if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
+                file.truncate(file.pos - 4)
+                break
+              end
+              acked << pos
+            rescue IO::EOFError
               break
             end
-            acked << pos
-          rescue IO::EOFError
-            break
+            @replicator.try &.register_file(file)
           end
           @deleted[seg] = acked.sort! unless acked.empty?
         end
@@ -277,14 +297,15 @@ module LavinMQ
                  else
                    MFile.new(path)
                  end
+          @replicator.try &.register_file file
           if was_empty
-            SchemaVersion.prefix(file, :message)
+            file.write_bytes Schema::VERSION
+            @replicator.try &.append path, Schema::VERSION
           else
             SchemaVersion.verify(file, :message)
           end
           file.pos = 4
           @segments[seg] = file
-          @acks[seg] = open_ack_file(seg, file.capacity)
         end
       end
 
@@ -296,7 +317,7 @@ module LavinMQ
             pos = mfile.pos
             raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
             ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
-            raise IO::EOFError.new if ts.zero? # This means that the rest of the file is zero, so truncate it
+            break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
 
             bytesize = BytesMessage.skip(mfile)
             count += 1
@@ -314,6 +335,7 @@ module LavinMQ
             raise Error.new(mfile, cause: ex)
           end
           mfile.pos = 4
+          mfile.unmap # will be mmap on demand
           @segment_msg_count[seg] = count
         end
       end
@@ -325,16 +347,15 @@ module LavinMQ
 
           if @segment_msg_count[seg] == @deleted[seg]?.try(&.size)
             Log.info { "Deleting unused segment #{seg}" }
-            @acks.delete(seg).try &.delete.close
+            if ack = @acks.delete(seg)
+              ack.delete.close
+              @replicator.try &.delete_file(ack.path)
+            end
             mfile.delete.close
+            @replicator.try &.delete_file(mfile.path)
             true
           end
         end
-      end
-
-      # Unmap to save mmap's, will be remapped on demand
-      private def unmap_segments
-        @segments.values.each &.unmap
       end
 
       private def deleted?(seg, pos) : Bool

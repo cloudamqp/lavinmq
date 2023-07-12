@@ -6,7 +6,7 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@server : LavinMQ::Server, @log : Log)
+      def initialize(@server : LavinMQ::Server)
       end
 
       def call(context)

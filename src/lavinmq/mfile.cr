@@ -1,16 +1,14 @@
 lib LibC
-  MS_ASYNC       = 0x0001
-  MREMAP_MAYMOVE =      1
+  MS_ASYNC       = 1
+  MREMAP_MAYMOVE = 1
   {% if flag?(:linux) %}
-    MS_SYNC     = 0x0004
-    MADV_REMOVE =      9
+    MS_SYNC = 0x0004
+    fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   {% else %}
     MS_SYNC = 0x0010
   {% end %}
   fun munmap(addr : Void*, len : SizeT) : Int
-  fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   fun msync(addr : Void*, len : SizeT, flags : Int) : Int
-  fun truncate(path : Char*, len : OffT) : Int
 end
 
 # Memory mapped file
@@ -27,12 +25,14 @@ class MFile < IO
   getter path : String
   getter fd : Int32
   @buffer = Pointer(UInt8).null
+  @deleted = false
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
-  def initialize(@path : String, capacity : Int? = nil)
+  def initialize(@path : String, capacity : Int? = nil, @writeonly = false)
     @readonly = capacity.nil?
+    raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
     @fd = open_fd
     @size = file_size
     @capacity = capacity ? Math.max(capacity.to_i64, @size) : @size
@@ -57,6 +57,10 @@ class MFile < IO
     end
   end
 
+  def inspect(io : IO)
+    io << "#<" << self.class << ": " << "@path=" << @path << " @size=" << @size << ">"
+  end
+
   private def open_fd
     flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
     perms = 0o644
@@ -77,17 +81,20 @@ class MFile < IO
     stat.st_blocks.to_i64 * 512
   end
 
-  private def mmap : Pointer(UInt8)
-    return Pointer(UInt8).null if @capacity.zero?
-    protection = LibC::PROT_READ
-    protection |= LibC::PROT_WRITE unless @readonly
+  private def mmap(length = @capacity) : Pointer(UInt8)
+    return Pointer(UInt8).null if length.zero?
+    protection = case
+                 when @readonly  then LibC::PROT_READ
+                 when @writeonly then LibC::PROT_WRITE
+                 else                 LibC::PROT_READ | LibC::PROT_WRITE
+                 end
     flags = LibC::MAP_SHARED
-    ptr = LibC.mmap(nil, @capacity, protection, flags, @fd, 0)
+    ptr = LibC.mmap(nil, length, protection, flags, @fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
-    ptr.as(UInt8*)
+    addr = ptr.as(UInt8*)
+    advise(MFile::Advice::Sequential, addr, 0, length) unless @writeonly
+    addr
   end
-
-  @deleted = false
 
   def delete : self
     code = LibC.unlink(@path.check_no_null_byte)
@@ -117,14 +124,36 @@ class MFile < IO
     msync(buffer, @size, LibC::MS_ASYNC)
   end
 
-  def fsync
+  def msync
     msync(buffer, @size, LibC::MS_SYNC)
+  end
+
+  def fsync : Nil
+    ret = LibC.fsync(@fd)
+    raise IO::Error.from_errno("Error syncing file") if ret != 0
   end
 
   # unload the memory mapping, will be remapped on demand
   def unmap : Nil
     munmap
     @buffer = Pointer(UInt8).null
+  end
+
+  def unmapped? : Bool
+    @buffer.null?
+  end
+
+  # Copies the file to another IO
+  # Won't mmap the file if it's unmapped already
+  def copy_to(output : IO, size = @size) : Int64
+    if unmapped? # don't remap unmapped files
+      io = IO::FileDescriptor.new(@fd, blocking: false, close_on_finalize: false)
+      io.rewind
+      IO.copy(io, output, size) == size || raise IO::EOFError.new
+    else
+      output.write to_slice(0, size)
+    end
+    size.to_i64
   end
 
   # mmap on demand
@@ -143,6 +172,17 @@ class MFile < IO
     return if len.zero?
     code = LibC.msync(addr, len, flag)
     raise RuntimeError.from_errno("msync") if code < 0
+  end
+
+  private def mremap(new_len, addr = @buffer, old_len = @capacity) : Pointer(UInt8)
+    {% if flag?(:linux) %}
+      ptr = LibC.mremap(addr, old_len, new_len, LibC::MREMAP_MAYMOVE)
+      raise IO::Error.from_errno("mremap") if ptr == LibC::MAP_FAILED
+      ptr.as(UInt8*)
+    {% else %}
+      munmap(addr, old_len)
+      mmap(addr, new_len)
+    {% end %}
   end
 
   def finalize
@@ -205,16 +245,18 @@ class MFile < IO
   end
 
   def to_slice
+    raise IO::Error.new("MFile closed") if @closed
     Bytes.new(buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
+    raise IO::Error.new("MFile closed") if @closed
     raise IO::EOFError.new if pos + size > @size
     Bytes.new(buffer + pos, size, read_only: true)
   end
 
-  def advise(advice : Advice, offset = 0, length = @capacity)
-    if LibC.madvise(buffer + offset, length, advice) != 0
+  def advise(advice : Advice, addr = buffer, offset = 0, length = @capacity) : Nil
+    if LibC.madvise(addr + offset, length, advice) != 0
       raise IO::Error.from_errno("madvise")
     end
   end
@@ -244,6 +286,16 @@ class MFile < IO
     raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
+  end
+
+  private def expand(new_size) : Pointer(UInt8)
+    raise ArgumentError.new("new size smaller or equal than current") if new_size <= @capacity
+    new_size = new_size.to_i64
+    code = LibC.ftruncate(@fd, new_size)
+    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    @buffer = mremap(new_size, buffer, @capacity).tap do
+      @capacity = new_size
+    end
   end
 
   def rename(new_path)

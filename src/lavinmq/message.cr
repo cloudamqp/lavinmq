@@ -1,12 +1,14 @@
+require "amq-protocol"
+
 module LavinMQ
   # Messages read from message store (mmap filed) and being delivered to consumers
   struct BytesMessage
     getter timestamp, exchange_name, routing_key, properties, bodysize, body
 
-    MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8
+    MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
     def initialize(@timestamp : Int64, @exchange_name : String,
-                   @routing_key : String, @properties : AMQP::Properties,
+                   @routing_key : String, @properties : AMQ::Protocol::Properties,
                    @bodysize : UInt64, @body : Bytes)
     end
 
@@ -42,16 +44,16 @@ module LavinMQ
       skipped += io.skip(sizeof(UInt64))                             # ts
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
-      skipped += AMQP::Properties.skip(io, format)
+      skipped += AMQ::Protocol::Properties.skip(io, format)
       skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
       skipped
     end
 
     def self.from_bytes(bytes, format = IO::ByteFormat::SystemEndian) : self
       ts = format.decode(Int64, bytes[0, 8]); pos = 8
-      ex = AMQP::ShortString.from_bytes(bytes + pos); pos += 1 + ex.bytesize
-      rk = AMQP::ShortString.from_bytes(bytes + pos); pos += 1 + rk.bytesize
-      pr = AMQP::Properties.from_bytes(bytes + pos, format); pos += pr.bytesize
+      ex = AMQ::Protocol::ShortString.from_bytes(bytes + pos); pos += 1 + ex.bytesize
+      rk = AMQ::Protocol::ShortString.from_bytes(bytes + pos); pos += 1 + rk.bytesize
+      pr = AMQ::Protocol::Properties.from_bytes(bytes + pos, format); pos += pr.bytesize
       sz = format.decode(UInt64, bytes[pos, 8]); pos += 8
       body = bytes[pos, sz]
       BytesMessage.new(ts, ex, rk, pr, sz, body)
@@ -59,8 +61,8 @@ module LavinMQ
 
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
-      io.write_bytes AMQP::ShortString.new(@exchange_name), format
-      io.write_bytes AMQP::ShortString.new(@routing_key), format
+      io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
+      io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
       io.write_bytes @bodysize, format
       io.write @body
@@ -73,12 +75,12 @@ module LavinMQ
     getter exchange_name, routing_key, properties, bodysize, body_io
 
     def initialize(@timestamp : Int64, @exchange_name : String,
-                   @routing_key : String, @properties : AMQP::Properties,
+                   @routing_key : String, @properties : AMQ::Protocol::Properties,
                    @bodysize : UInt64, @body_io : IO)
     end
 
     def initialize(@exchange_name : String, @routing_key : String,
-                   body : String, @properties = AMQP::Properties.new)
+                   body : String, @properties = AMQ::Protocol::Properties.new)
       @timestamp = RoughTime.unix_ms
       @bodysize = body.bytesize.to_u64
       @body_io = IO::Memory.new(body)
@@ -105,8 +107,8 @@ module LavinMQ
 
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
-      io.write_bytes AMQP::ShortString.new(@exchange_name), format
-      io.write_bytes AMQP::ShortString.new(@routing_key), format
+      io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
+      io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
       io.write_bytes @properties, format
       io.write_bytes @bodysize, format
       if io_mem = @body_io.as?(IO::Memory)

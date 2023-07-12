@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Replication support, followers can connect and stream data from a leader in real time, enabling hot-standby use-cases
+- Config variables for free_disk_min and free_disk_warn
+- Support for adding custom properties in `lavinmqperf throughput --properties '{"headers": {"a": 1}}'`
+
+### Changed
+
+- Temporary message files (per channel) are not truncated on publish, so performance for transactions are up 10x, and publishing messages larger than frame_max too
+- Modifying defintions (declaring/deleting queues/exchanges etc) is now synchrous and thread safe.
+- Message segments aren't ftruncated until server is cloded, as it's a slow operation
+- SEGV signal always generate coredumps now (no custom signal handler for SEGV)
+- Boehm GC upgraded to version 8.2.4 (from 8.2.2)
+
+### Fixed
+
+- Message segments are agressivly unmapped to decrease memory usage
+
+
+## [1.1.5] - 2023-06-23
+
+### Fixed
+
+- Prevent memory leaks from consumer fibers which are waiting for empty queues etc.
+
+## [1.1.4] - 2023-06-22
+
+### Changed
+
+- fsync on transaction commit, but not on publish confirm
+
+### Fixed
+
+- Don't allow creating policies with wrongly typed defintions
+- Javascript bugs in the UI
+- Allow importing definitions where entities lacks the vhost property
+- Export vhost parameters when exporting a single vhost
+- Redirect to login page when cookie expires in UI
+
+### Added
+
+- Single Active Consumer queue support
+- Exponential backoff for shovel reconnects
+- Consumer churn rate metrics
+- Quicker boot time after crash
+- UI view for consumers
+
+## [1.1.3] - 2023-05-22
+
+### Added
+
+- Added churn_rates to /api/overview call [#517](https://github.com/cloudamqp/lavinmq/pull/517)
+
+### Changed
+
+- Improve RAM usage by only spawning queue_expiration loop when it's needed [#512](https://github.com/cloudamqp/lavinmq/pull/512)
+- Better handling of JSON arguments in UI [#513](https://github.com/cloudamqp/lavinmq/pull/513)
+- Load debug symbols by default
+
+### Fixed
+
+- Fixed some specs
+
 ## [1.1.2] - 2023-04-27
 
 ### Fixed

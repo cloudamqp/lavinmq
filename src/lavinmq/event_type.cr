@@ -13,5 +13,7 @@ module LavinMQ
     ClientPublishConfirm
     ClientRedeliver
     ClientReject
+    ConsumerAdded
+    ConsumerRemoved
   end
 end

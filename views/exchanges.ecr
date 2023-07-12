@@ -38,19 +38,39 @@
           <select name="type" required></select>
         </label>
         <label>
-          <span>Durable</span>
+          <span>
+            <a class="prop-tooltip" data-tag="alternate-exchange">Durable
+              <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
+                ensuring their availability and preventing data loss.</span>
+            </a>
+          </span>
           <input type="checkbox" name="durable" value="1">
         </label>
         <label>
-          <span>Auto-delete</span>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
+          <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
+          are no longer in use, freeing up system resources.</span>
+          </a>
+          </span>
           <input type="checkbox" name="auto_delete" value="1">
         </label>
         <label>
-          <span>Internal</span>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Internal
+          <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
+          use within the messaging system and are not intended for direct interaction with external components.</span>
+          </a>
+          </span>
           <input type="checkbox" name="internal" value="1">
         </label>
         <label>
-          <span>Delayed</span>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Delayed
+          <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
+          messages, allowing for delayed processing or scheduling of tasks.</span>
+          </a>
+          </span>
           <input type="checkbox" name="delayed" value="1">
         </label>
         <label>

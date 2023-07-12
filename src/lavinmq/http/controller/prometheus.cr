@@ -262,7 +262,7 @@ module LavinMQ
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
-                        :queue_declared, :queue_deleted}
+                        :queue_declared, :queue_deleted, :consumer_added, :consumer_removed}
 
       private def vhost_stats(vhosts)
         {% for sm in SERVER_METRICS %}
@@ -308,6 +308,14 @@ module LavinMQ
                       value: stats[:queue_deleted],
                       type:  "counter",
                       help:  "Total number of queues deleted"})
+        writer.write({name:  "detailed_consumers_added_total",
+                      value: stats[:consumer_added],
+                      type:  "counter",
+                      help:  "Total number of consumers added"})
+        writer.write({name:  "detailed_consumers_removed_total",
+                      value: stats[:consumer_removed],
+                      type:  "counter",
+                      help:  "Total number of consumers removed"})
       end
 
       private def detailed_queue_coarse_metrics(vhosts, writer)

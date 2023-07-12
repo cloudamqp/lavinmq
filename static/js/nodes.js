@@ -1,6 +1,8 @@
 import * as HTTP from './http.js'
 import * as Chart from './chart.js'
 import * as Helpers from './helpers.js'
+import * as Table from './table.js'
+import { DataSource } from './datasource.js'
 
 const numFormatter = new Intl.NumberFormat()
 let url = 'api/nodes'
@@ -186,7 +188,26 @@ const connectionChurnChart = Chart.render('connectionChurnChart', '/s')
 const channelChurnChart = Chart.render('channelChurnChart', '/s')
 const queueChurnChart = Chart.render('queueChurnChart', '/s')
 
-const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 10 ** 6).toFixed(2)
+const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
+
+const followersDataSource = new (class extends DataSource {
+  constructor() { super({autoReloadTimeout: 0, useQueryState: false}) }
+  update(items) { this.items = items }
+  reload() { }
+})
+const followersTableOpts = {
+  dataSource: followersDataSource,
+  keyColumns: ['remote_address'],
+  countId: 'followers-count'
+}
+const followersTable = Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
+  if (firstRender) {
+    Table.renderCell(tr, 0, item.remote_address)
+  }
+  Table.renderCell(tr, 1, humanizeBytes(item.sent_bytes), 'right')
+  Table.renderCell(tr, 2, humanizeBytes(item.acked_bytes), 'right')
+  Table.renderCell(tr, 3, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
+})
 
 function updateCharts (response) {
   if(response[0].mem_used !== undefined) {
@@ -243,5 +264,29 @@ function updateCharts (response) {
     }
     Chart.update(queueChurnChart, queueChurnStats)
   }
+  followersDataSource.update(response[0].followers)
 }
+
+function humanizeBytes(bytes, si=false, dp=1) {
+  const thresh = si ? 1000 : 1024;
+
+  if (Math.abs(bytes) < thresh) {
+    return bytes + ' B';
+  }
+
+  const units = si 
+    ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'] 
+    : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+  let u = -1;
+  const r = 10**dp;
+
+  do {
+    bytes /= thresh;
+    ++u;
+  } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1);
+
+
+  return bytes.toFixed(dp) + ' ' + units[u];
+}
+
 start(updateCharts)

@@ -275,6 +275,9 @@ module LavinMQ
       @state = State::Stopped
       @error : String?
       @message_count : UInt64 = 0
+      @retries : Int64 = 0
+      RETRY_THRESHOLD =  10
+      MAX_DELAY       = 300
 
       getter name, vhost
 
@@ -301,6 +304,7 @@ module LavinMQ
           break if terminated?
           @log.info { "started" }
           @state = State::Running
+          @retries = 0
           @source.each do |msg|
             @message_count += 1
             @destination.push(msg, @source)
@@ -316,16 +320,25 @@ module LavinMQ
           end
           @log.error(exception: ex) { ex.message }
           @error = ex.message
-          sleep @reconnect_delay.seconds
+          exponential_reconnect_delay
         rescue ex
           break if terminated?
           @state = State::Error
           @log.error(exception: ex) { ex.message }
           @error = ex.message
-          sleep @reconnect_delay.seconds
+          exponential_reconnect_delay
         end
       ensure
         terminate
+      end
+
+      def exponential_reconnect_delay
+        @retries += 1
+        if @retries > RETRY_THRESHOLD
+          sleep Math.min(MAX_DELAY, @reconnect_delay ** (@retries - RETRY_THRESHOLD))
+        else
+          sleep @reconnect_delay
+        end
       end
 
       def details_tuple

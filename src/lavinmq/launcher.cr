@@ -6,22 +6,30 @@ require "./server"
 require "./http/http_server"
 require "./log_formatter"
 require "./in_memory_backend"
+require "./data_dir_lock"
 
 module LavinMQ
   class Launcher
     Log = ::Log.for "launcher"
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
-    @lock_file : File?
+    @data_dir_lock : DataDirLock?
 
     def initialize(@config : LavinMQ::Config)
       reload_logger
 
       print_environment_info
       print_max_map_count
-      Launcher.maximize_fd_limit
+      fd_limit = System.maximize_fd_limit
+      Log.info { "FD limit: #{fd_limit}" }
+      if fd_limit < 1025
+        Log.warn { "The file descriptor limit is very low, consider raising it." }
+        Log.warn { "You need one for each connection and two for each durable queue, and some more." }
+      end
       Dir.mkdir_p @config.data_dir
-      @lock_file = acquire_lock if @config.data_dir_lock?
+      if @config.data_dir_lock?
+        @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
+      end
       @amqp_server = LavinMQ::Server.new(@config.data_dir)
       @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
@@ -33,11 +41,13 @@ module LavinMQ
     def run
       listen
       SystemD.notify_ready
-      hostname = System.hostname.to_slice
-      loop do
-        GC.collect
-        sleep 10
-        @lock_file.try &.write_at(hostname, 0)
+      if lock = @data_dir_lock
+        lock.poll
+      else
+        loop do
+          GC.collect
+          sleep 30
+        end
       end
     end
 
@@ -123,6 +133,10 @@ module LavinMQ
         end
       end
 
+      if replication_bind = @config.replication_bind
+        spawn @amqp_server.listen_replication(replication_bind, @config.replication_port), name: "Replication listener"
+      end
+
       unless @config.unix_path.empty?
         spawn @amqp_server.listen_unix(@config.unix_path), name: "AMQP listening at #{@config.unix_path}"
       end
@@ -142,17 +156,6 @@ module LavinMQ
       @http_server.bind_internal_unix
       spawn(name: "HTTP listener") do
         @http_server.not_nil!.listen
-      end
-    end
-
-    def self.maximize_fd_limit
-      _, fd_limit_max = System.file_descriptor_limit
-      System.file_descriptor_limit = fd_limit_max
-      fd_limit_current, _ = System.file_descriptor_limit
-      Log.info { "FD limit: #{fd_limit_current}" }
-      if fd_limit_current < 1025
-        Log.warn { "The file descriptor limit is very low, consider raising it." }
-        Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
     end
 
@@ -191,7 +194,7 @@ module LavinMQ
         Log.info { "Shutting down gracefully..." }
         @http_server.close
         @amqp_server.close
-        @lock_file.try &.close
+        @data_dir_lock.try &.release
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         exit 0
@@ -208,42 +211,7 @@ module LavinMQ
       Signal::HUP.trap { reload_server }
       Signal::INT.trap { shutdown_server }
       Signal::TERM.trap { shutdown_server }
-      {% if flag?(:release) %}
-        Signal::SEGV.reset # Let the OS gnerate a coredump in release mode
-      {% end %}
-    end
-
-    # Make sure that only one instance is using the data directory
-    # Can work as a poor mans cluster where the master nodes aquires
-    # a file lock on a shared file system like NFS
-    private def acquire_lock : File
-      lock = File.open(File.join(@config.data_dir, ".lock"), "w+")
-      lock.sync = true
-      lock.read_buffering = false
-      begin
-        lock.flock_exclusive(blocking: false)
-      rescue
-        Log.info { "Data directory locked by '#{lock.gets_to_end}'" }
-        Log.info { "Waiting for file lock to be released" }
-        lock.flock_exclusive(blocking: true)
-        Log.info { "Lock acquired" }
-      end
-      lock.truncate
-      lock.print System.hostname
-      lock.fsync
-      lock
-    end
-
-    # write to the lock file to detect lost lock
-    # See "Lost locks" in `man 2 fcntl`
-    private def hold_lock(lock)
-      hostname = System.hostname.to_slice
-      loop do
-        sleep 30
-        lock.write_at hostname, 0
-      end
-    rescue ex : IO::Error
-      abort "ERROR: Lost lock! #{ex.inspect}"
+      Signal::SEGV.reset # Let the OS generate a coredump
     end
 
     private def create_tls_context

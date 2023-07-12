@@ -18,7 +18,7 @@ function request (method, path, options = {}) {
         var error = { status: response.status, reason: response.statusText }
         return response.json()
           .then(json => { error.reason = json.reason })
-          .finally(() => { throw new HTTPError(error.status, error.reason) })
+          .finally(() => { standardErrorHandler(error) })
       } else { return response.json().catch(() => null) }
     })
 }

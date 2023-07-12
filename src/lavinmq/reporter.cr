@@ -5,7 +5,6 @@ module LavinMQ
       puts_size_capacity s.@vhosts
       s.vhosts.each do |_, vh|
         puts "VHost #{vh.name}"
-        puts_size_capacity vh.@awaiting_confirm, 4
         puts_size_capacity vh.@exchanges, 4
         puts_size_capacity vh.@queues, 4
         vh.queues.each do |_, q|

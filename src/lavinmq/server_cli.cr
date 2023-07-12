@@ -56,6 +56,15 @@ module LavinMQ
         parser.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
           config.guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
+        parser.on("-F LEADER-URI", "--follow=LEADER-URI", "Follow/replicate a leader node") do |v|
+          config.replication_follow = URI.parse(v)
+        end
+        parser.on("--replication-port=PORT", "Listen for replication followers on this port (default: 5679)") do |v|
+          config.replication_port = v.to_i
+        end
+        parser.on("--replication-bind=BIND", "Listen for replication followers on this address (default: none)") do |v|
+          config.replication_bind = v
+        end
         parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end
     end
@@ -69,6 +78,8 @@ module LavinMQ
         STDERR.puts @parser
         exit 2
       end
+    rescue ex
+      abort ex.message
     end
   end
 end
