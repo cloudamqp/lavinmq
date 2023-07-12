@@ -19,7 +19,7 @@ Begin with installing Crystal. Refer to
 [Crystal's installation documentation](https://crystal-lang.org/install/)
 on how to install Crystal.
 
-Clone the git repository and build the project. 
+Clone the git repository and build the project.
 
 ```sh
 git clone git@github.com:cloudamqp/lavinmq.git
@@ -60,9 +60,9 @@ sudo dnf install lavinmq
 
 ## Usage
 
-LavinMQ only requires one argument, and it's a path to a data directory. 
+LavinMQ only requires one argument, and it's a path to a data directory.
 
-Run LavinMQ with: 
+Run LavinMQ with:
 `lavinmq -D /var/lib/lavinmq`
 
 More configuration options can be viewed with `-h`,
@@ -105,7 +105,7 @@ Memory garbage collection can be diagnosed with [boehm-gc environment variables]
 Kindly read our [contributing guide](CONTRIBUTING.md)
 
 ## LavinMQ with various plattforms
-All AMQP client libraries work with LavinMQ and there are AMQP client libraries for almost every platform on the market. Here are  guides for a couple of common plattforms. 
+All AMQP client libraries work with LavinMQ and there are AMQP client libraries for almost every platform on the market. Here are  guides for a couple of common plattforms.
 
 1. [Ruby](https://lavinmq.com/documentation/ruby-sample-code)
 2. [Node.js](https://lavinmq.com/documentation/nodejs-sample-code)
@@ -138,12 +138,12 @@ Instead of trying to cache messages in RAM, we write all messages as fast as we 
 disk and let the OS cache do the caching.
 
 Each queues is backed by a message store on disk, which is just a series of files (segments),
-by default 8MB each. Message segments are memory-mapped files allocated using the mmap syscall. 
-However, to prevent unnecessary memory usage, we unmap these files and free up the allocated 
+by default 8MB each. Message segments are memory-mapped files allocated using the mmap syscall.
+However, to prevent unnecessary memory usage, we unmap these files and free up the allocated
 memory when they are not in use. When a file needs to be written or read, we re-map it
-and use only the memory needed for that specific segment. Each incoming message 
-is appended to the last segment, prefixed with a timestamp, its exchange name, routing key 
-and message headers. 
+and use only the memory needed for that specific segment. Each incoming message
+is appended to the last segment, prefixed with a timestamp, its exchange name, routing key
+and message headers.
 
 When a message is being consumed it reads sequentially from the segments.
 Each acknowledged (or rejected) message position in the segment is written to an "ack" file
@@ -191,7 +191,7 @@ by an internal `Channel` when new messages are available in the queue.
 ## Getting help
 
 For questions or suggestions:
-- We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). 
+- We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg).
 - You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
 - If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com) then reach out to [support@cloudamqp.com]
 ## Features
@@ -241,7 +241,7 @@ LavinMQ supports replication between a leader server and one or more followers. 
 
 ### Replication configuration
 
-A shared secret is used to allow nodes in a cluster to communicate, make sure to that the `.replication_secret` file is the same in all data directores of all nodes.
+A shared secret is used to allow nodes in a cluster to communicate, make sure that the `.replication_secret` file is the same in all data directores of all nodes.
 
 Then enable the replication listener on the leader:
 
