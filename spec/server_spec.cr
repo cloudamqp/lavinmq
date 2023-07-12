@@ -229,7 +229,7 @@ describe LavinMQ::Server do
       q = ch.queue "msg_q"
       q.publish_confirm "no requeue"
       done = Channel(Nil).new
-      tag = q.subscribe(no_ack: false) { |msg| done.send nil }
+      tag = q.subscribe(no_ack: false) { |_| done.send nil }
       done.receive
       q.unsubscribe(tag)
       Server.vhosts["/"].queues["msg_q"].empty?.should be_true
