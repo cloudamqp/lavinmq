@@ -192,7 +192,7 @@ by an internal `Channel` when new messages are available in the queue.
 For questions or suggestions:
 - We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). 
 - You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
-
+- If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com) then reach out to [support@cloudamqp.com]
 ## Features
 
 - AMQP 0-9-1 compatible
