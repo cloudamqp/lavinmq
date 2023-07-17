@@ -79,7 +79,7 @@ describe LavinMQ::StreamQueue do
         q = ch.queue(q_name, args: tbl_max_length)
         ch.prefetch 1
         50.times do |i|
-          q.publish "m#{i}"
+          q.publish_confirm "m#{i}"
         end
       end
 

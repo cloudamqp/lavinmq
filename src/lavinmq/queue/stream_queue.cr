@@ -36,8 +36,8 @@ module LavinMQ
       raise ex
     end
 
-    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool #TODO: does basic_get make sense for stream queues?
-      #raise NotImplementedError.new("Basic get not implemented for stream queues")
+    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool # TODO: does basic_get make sense for stream queues?
+      # raise NotImplementedError.new("Basic get not implemented for stream queues")
       false
     end
 
@@ -60,7 +60,6 @@ module LavinMQ
           next
         end
 
-        sp = env.segment_position
         yield env # deliver the message
         return true
       end
@@ -74,10 +73,7 @@ module LavinMQ
     def ack(sp : SegmentPosition) : Nil
     end
 
-    # do nothing?
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || @closed
-      true
     end
 
     def last_offset : Int64
