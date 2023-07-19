@@ -20,7 +20,7 @@ const consumerTableOpts = {
   keyColumns: ['consumer_tag'],
   countId: 'consumer-count'
 }
-const consumersTable = Table.renderTable('table', consumerTableOpts, function (tr, item, all) {
+Table.renderTable('table', consumerTableOpts, function (tr, item, all) {
   if (!all) return
   Table.renderCell(tr, 0, item.consumer_tag)
   const queueLink = document.createElement('a')
