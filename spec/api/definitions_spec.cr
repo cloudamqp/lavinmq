@@ -314,6 +314,17 @@ describe LavinMQ::HTTP::Server do
       body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
     end
 
+    it "does not export exclusive queues" do
+      # Declare exclusive queue with amqp client
+      with_channel do |ch|
+        ch.queue("", exclusive: true)
+        response = get("/api/definitions/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["queues"].as_a.empty?.should be_true
+      end
+    end
+
     it "exports exchanges" do
       Server.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
       response = get("/api/definitions/%2f")
