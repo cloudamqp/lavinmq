@@ -55,7 +55,7 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
       usersTable.reload()
       DOM.toast(toastText)
       evt.target.reset()
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 document.querySelector('#dataTags').onclick = e => {

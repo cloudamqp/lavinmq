@@ -42,7 +42,7 @@ function updateExchange () {
       policyLink.textContent = item.policy
       document.getElementById('e-policy').appendChild(policyLink)
     }
-  }).catch(HTTP.standardErrorHandler)
+  })
 }
 updateExchange()
 
@@ -68,7 +68,6 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       const url = 'api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
       HTTP.request('DELETE', url)
         .then(() => { tr.parentNode.removeChild(tr) })
-        .catch(HTTP.standardErrorHandler)
     }
 
     const destinationLink = document.createElement('a')
@@ -127,7 +126,6 @@ document.querySelector('#deleteExchange').addEventListener('submit', function (e
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'exchanges' })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 

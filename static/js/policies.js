@@ -41,7 +41,6 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
     if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
       HTTP.request('DELETE', url)
         .then(() => tr.parentNode.removeChild(tr))
-        .catch(HTTP.standardErrorHandler)
     }
   }
   const editBtn = document.createElement('button')
@@ -72,7 +71,7 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
     .then(() => {
       policiesTable.reload()
       evt.target.reset()
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelperJSON('createPolicy', 'definition', e)

@@ -43,7 +43,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
       .then(() => {
         tr.parentNode.removeChild(tr)
         DOM.toast(`Upstream ${item.name} deleted`)
-      }).catch(HTTP.standardErrorHandler)
+      })
   }
   const editBtn = document.createElement('button')
   editBtn.classList.add('btn-secondary')
@@ -94,5 +94,5 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
       upstreamsTable.reload()
       evt.target.reset()
       DOM.toast(`Upstream ${name} saved`)
-    }).catch(HTTP.standardErrorHandler)
+    })
 })

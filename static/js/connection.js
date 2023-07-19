@@ -44,7 +44,7 @@ function updateConnection (all) {
         infoEl.textContent = cp.information || ''
       }
     }
-  }).catch(HTTP.standardErrorHandler)
+  })
 }
 updateConnection(true)
 setInterval(updateConnection, 5000)
@@ -81,5 +81,4 @@ document.querySelector('#closeConnection').addEventListener('submit', function (
   })
   HTTP.request('DELETE', url, { headers })
     .then(() => { window.location = 'connections' })
-    .catch(HTTP.standardErrorHandler)
 })

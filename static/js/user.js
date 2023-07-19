@@ -15,7 +15,7 @@ function updateUser () {
       document.getElementById('tags').textContent = item.tags
       document.getElementById('hasPassword').textContent = hasPassword
       tagHelper(item.tags)
-    }).catch(HTTP.standardErrorHandler)
+    })
 }
 
 function tagHelper (tags) {
@@ -45,7 +45,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
       HTTP.request('DELETE', url)
         .then(() => {
           tr.parentNode.removeChild(tr)
-        }).catch(HTTP.standardErrorHandler)
+        })
     }
     const editBtn = document.createElement('button')
     editBtn.classList.add('btn-secondary')
@@ -75,7 +75,7 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
     .then(() => {
       permissionsTable.reload()
       evt.target.reset()
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 document.querySelector('[name=remove_password]').addEventListener('change', function () {
@@ -108,7 +108,7 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
       evt.target.reset()
       pwd.disabled = false
       pwd.required = true
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 document.querySelector('#dataTags').onclick = e => {
@@ -121,7 +121,6 @@ document.querySelector('#deleteUser').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'users' })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 

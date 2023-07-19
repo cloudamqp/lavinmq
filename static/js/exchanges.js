@@ -74,7 +74,7 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
       exchangeTable.reload()
       DOM.toast('Exchange ' + exchange + ' created')
       evt.target.reset()
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 document.querySelector('#dataTags').onclick = e => {
