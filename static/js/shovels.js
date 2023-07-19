@@ -103,7 +103,7 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
         .then(() => {
           tr.parentNode.removeChild(tr)
           DOM.toast(`Shovel ${item.name} deleted`)
-        }).catch(HTTP.standardErrorHandler)
+        })
     }
   }
   const editBtn = document.createElement('button')
@@ -164,7 +164,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       dataSource.reload()
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 // function updateAutocomplete (e, id) {

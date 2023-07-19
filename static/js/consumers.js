@@ -42,7 +42,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
     HTTP.request('DELETE', actionPath)
       .then(() => {
         DOM.toast('Consumer cancelled')
-      }).catch(HTTP.standardErrorHandler)
+      })
   })
 
   Table.renderCell(tr, 0, item.queue.vhost)

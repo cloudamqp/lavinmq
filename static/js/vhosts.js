@@ -41,5 +41,5 @@ document.querySelector('#createVhost').addEventListener('submit', function (evt)
     .then(() => {
       vhostTable.reload()
       evt.target.reset()
-    }).catch(HTTP.standardErrorHandler)
+    })
 })

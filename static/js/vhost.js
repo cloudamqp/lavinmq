@@ -40,7 +40,6 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
       const url = 'api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
       HTTP.request('DELETE', url)
         .then(() => tr.parentNode.removeChild(tr))
-        .catch(HTTP.standardErrorHandler)
     }
     const userLink = document.createElement('a')
     userLink.href = `user#name=${encodeURIComponent(item.user)}`
@@ -93,7 +92,7 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
     .then(() => {
       permissionsTable.reload()
       evt.target.reset()
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 document.forms.setLimits.addEventListener('submit', function (evt) {
@@ -105,9 +104,7 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
   Promise.all([
     HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
     HTTP.request('PUT', maxQueuesUrl, { body: maxQueuesBody })
-  ])
-    .then(fetchLimits)
-    .catch(HTTP.standardErrorHandler)
+  ]).then(fetchLimits)
 })
 
 document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
@@ -116,7 +113,6 @@ document.querySelector('#deleteVhost').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'vhosts' })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 document.querySelector('#resetVhost').addEventListener('submit', function (evt) {
@@ -125,6 +121,5 @@ document.querySelector('#resetVhost').addEventListener('submit', function (evt) 
   if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
     HTTP.request('POST', url)
       .then(() => { window.location = 'vhost#name=' + urlEncodedVhost })
-      .catch(HTTP.standardErrorHandler)
   }
 })

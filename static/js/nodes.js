@@ -23,7 +23,7 @@ function update (cb) {
     if (cb) {
       cb(response)
     }
-  }).catch(HTTP.standardErrorHandler)
+  })
 }
 
 function render (data) {

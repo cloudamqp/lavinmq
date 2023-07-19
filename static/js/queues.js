@@ -129,7 +129,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
       queuesTable.reload()
       evt.target.reset()
       Dom.toast('Queue ' + queue + ' created')
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')

@@ -51,7 +51,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
       .then(() => {
         DOM.toast('Consumer cancelled')
         updateQueue(false)
-      }).catch(HTTP.standardErrorHandler)
+      })
   })
   Table.renderCell(tr, 0, channelLink)
   Table.renderCell(tr, 1, item.consumer_tag)
@@ -137,7 +137,7 @@ function updateQueue (all) {
           qArgs.appendChild(document.createElement('div')).textContent = `${arg}: ${item.arguments[arg]}`
         }
       }
-    }).catch(HTTP.standardErrorHandler)
+    })
 }
 updateQueue(true)
 setInterval(updateQueue, 5000)
@@ -162,7 +162,6 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
       HTTP.request('DELETE', url)
         .then(() => { tr.parentNode.removeChild(tr) })
-        .catch(HTTP.standardErrorHandler)
     }
     const exchangeLink = document.createElement('a')
     exchangeLink.href = `exchange#vhost=${urlEncodedVhost}&name=${e}`
@@ -278,7 +277,7 @@ document.querySelector('#moveMessages').addEventListener('submit', function (evt
     .then(() => {
       evt.target.reset()
       DOM.toast('Moving messages to ' + dest)
-    }).catch(HTTP.standardErrorHandler)
+    })
 })
 
 document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
@@ -292,7 +291,6 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
-      .catch(HTTP.standardErrorHandler)
     document.getElementById('ms-date-time').textContent = '-'
     document.getElementById('snapshotTable').setAttribute('hidden', null)
   }
@@ -304,7 +302,6 @@ document.querySelector('#deleteQueue').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'queues' })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 
@@ -317,7 +314,6 @@ pauseQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue paused!')
         handleQueueState('paused')
       })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 
@@ -330,7 +326,6 @@ resumeQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue resumed!')
         handleQueueState('running')
       })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 
@@ -377,7 +372,6 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
         document.getElementById('ms-date-time').textContent = Helpers.formatTimestamp(new Date())
         document.getElementById('snapshotTable').removeAttribute('hidden')
       })
-      .catch(HTTP.standardErrorHandler)
   }
 })
 
