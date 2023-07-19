@@ -191,7 +191,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
-    }).catch(HTTP.alertErrorHandler)
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -211,7 +211,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     .then(() => {
       DOM.toast('Published message to ' + queue)
       updateQueue(false)
-    }).catch(HTTP.alertErrorHandler)
+    })
 })
 
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -251,7 +251,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         msgNode.classList.remove('hide')
         messagesContainer.appendChild(msgNode)
       }
-    }).catch(HTTP.alertErrorHandler)
+    })
 })
 
 document.querySelector('#moveMessages').addEventListener('submit', function (evt) {

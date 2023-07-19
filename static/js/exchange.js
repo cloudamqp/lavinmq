@@ -99,7 +99,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     .then(() => {
       bindingsTable.reload()
       evt.target.reset()
-    }).catch(HTTP.alertErrorHandler)
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -119,7 +119,6 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     .then(res => {
       DOM.toast('Published message to ' + exchange + (res.routed ? '.' : ', but not routed.'))
     })
-    .catch(HTTP.alertErrorHandler)
 })
 
 document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
