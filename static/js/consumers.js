@@ -38,7 +38,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
   cancelForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
-    if (!confirm('Are you sure?')) return false
+    if (!window.confirm('Are you sure?')) return false
     HTTP.request('DELETE', actionPath)
       .then(() => {
         DOM.toast('Consumer cancelled')

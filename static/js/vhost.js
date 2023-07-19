@@ -13,15 +13,15 @@ HTTP.request('GET', vhostUrl).then(item => {
   document.getElementById('total').textContent = item.messages.toLocaleString()
 })
 
-function fetchLimits() {
+function fetchLimits () {
   HTTP.request('GET', 'api/vhost-limits/' + urlEncodedVhost).then(arr => {
     const limits = arr[0] || { value: {} }
-    const maxConnections = limits.value["max-connections"] || ""
+    const maxConnections = limits.value['max-connections'] || ''
     document.getElementById('max-connections').textContent = maxConnections.toLocaleString()
-    document.forms.setLimits["max-connections"].value = maxConnections
-    const maxQueues = limits.value["max-queues"] || ""
+    document.forms.setLimits['max-connections'].value = maxConnections
+    const maxQueues = limits.value['max-queues'] || ''
     document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
-    document.forms.setLimits["max-queues"].value = maxQueues
+    document.forms.setLimits['max-queues'].value = maxQueues
   })
 }
 fetchLimits()
@@ -99,15 +99,15 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
 document.forms.setLimits.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const maxConnectionsUrl = 'api/vhost-limits/' + urlEncodedVhost + '/max-connections'
-  const maxConnectionsBody = { value: Number(this["max-connections"].value || -1) }
+  const maxConnectionsBody = { value: Number(this['max-connections'].value || -1) }
   const maxQueuesUrl = 'api/vhost-limits/' + urlEncodedVhost + '/max-queues'
-  const maxQueuesBody = { value: Number(this["max-queues"].value || -1) }
+  const maxQueuesBody = { value: Number(this['max-queues'].value || -1) }
   Promise.all([
     HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
     HTTP.request('PUT', maxQueuesUrl, { body: maxQueuesBody })
-  ]).
-    then(fetchLimits).
-    catch(HTTP.standardErrorHandler)
+  ])
+    .then(fetchLimits)
+    .catch(HTTP.standardErrorHandler)
 })
 
 document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {

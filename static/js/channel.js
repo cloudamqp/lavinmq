@@ -10,10 +10,10 @@ let vhost = null
 document.title = channel + ' | LavinMQ'
 
 const consumersDataSource = new (class extends DataSource {
-  constructor() { super({autoReloadTimeout: 0, useQueryState: false}) }
-  setConsumers(consumers) { this.items = consumers }
-  reload() { }
-})
+  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  setConsumers (consumers) { this.items = consumers }
+  reload () { }
+})()
 
 const consumerTableOpts = {
   dataSource: consumersDataSource,
@@ -51,7 +51,7 @@ function updateChannel (all) {
       const connectionLink = document.createElement('a')
       connectionLink.href = `connection#name=${encodeURIComponent(item.connection_details.name)}`
       connectionLink.textContent = item.connection_details.name
-      document.getElementById("ch-connection").appendChild(connectionLink)
+      document.getElementById('ch-connection').appendChild(connectionLink)
       document.getElementById('ch-prefetch').textContent = item.prefetch_count
       document.getElementById('ch-mode').textContent = `${item.confirm ? 'C' : ''}`
       document.getElementById('ch-global-prefetch').textContent = item.global_prefetch_count
@@ -60,4 +60,3 @@ function updateChannel (all) {
 }
 updateChannel(true)
 setInterval(updateChannel, 5000)
-

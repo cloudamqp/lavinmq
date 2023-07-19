@@ -31,4 +31,3 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
   Table.renderCell(tr, 5, Helpers.formatNumber(item.prefetch_count), 'right')
   Table.renderCell(tr, 6, Helpers.formatNumber(item.messages_unacknowledged), 'right')
 })
-

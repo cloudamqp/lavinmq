@@ -18,17 +18,17 @@ document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
-  constructor() { super({autoReloadTimeout: 0, useQueryState: false}) }
-  setConsumers(consumers) { this.items = consumers }
-  reload() { }
+  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  setConsumers (consumers) { this.items = consumers }
+  reload () { }
 }
 const consumersDataSource = new ConsumersDataSource()
 const consumersTableOpts = {
-  keyColumns: ["consumer_tag", "channel_details"],
+  keyColumns: ['consumer_tag', 'channel_details'],
   countId: 'consumer-count',
   dataSource: consumersDataSource
 }
-const consumersTable = Table.renderTable('table', consumersTableOpts, function (tr, item) {
+Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const channelLink = document.createElement('a')
   channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
@@ -46,10 +46,10 @@ const consumersTable = Table.renderTable('table', consumersTableOpts, function (
   const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
   cancelForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
-    if (!confirm("Are you sure?")) return false
+    if (!window.confirm('Are you sure?')) return false
     HTTP.request('DELETE', actionPath)
       .then(() => {
-        DOM.toast(`Consumer cancelled`)
+        DOM.toast('Consumer cancelled')
         updateQueue(false)
       }).catch(HTTP.standardErrorHandler)
   })
@@ -61,11 +61,11 @@ const consumersTable = Table.renderTable('table', consumersTableOpts, function (
   Table.renderCell(tr, 5, cancelForm, 'center')
 })
 
-const loadMoreConsumersBtn = document.getElementById("load-more-consumers");
+const loadMoreConsumersBtn = document.getElementById('load-more-consumers')
 loadMoreConsumersBtn.addEventListener('click', (e) => {
-  consumerListLength += 10;
+  consumerListLength += 10
   updateQueue(true)
-});
+})
 
 function handleQueueState (state) {
   document.getElementById('q-state').textContent = state
@@ -96,8 +96,8 @@ function updateQueue (all) {
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
       document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
-      const total_avg_bytes = item.messages != 0 ? (item.unacked_bytes + item.ready_bytes)/item.messages : 0
-      document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(total_avg_bytes) + 'B'
+      const totalAvgBytes = item.messages !== 0 ? (item.unacked_bytes + item.ready_bytes) / item.messages : 0
+      document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
       document.getElementById('q-ready').textContent = Helpers.formatNumber(item.ready)
       document.getElementById('q-ready-bytes').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
@@ -105,8 +105,8 @@ function updateQueue (all) {
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
-      loadMoreConsumersBtn.classList.toggle("visible", hasMoreConsumers)
-      if(hasMoreConsumers) {
+      loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
+      if (hasMoreConsumers) {
         loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
       }
       if (all) {
@@ -121,20 +121,20 @@ function updateQueue (all) {
           const policyLink = document.createElement('a')
           policyLink.href = `policies#name=${encodeURIComponent(item.policy)}&vhost=${encodeURIComponent(item.vhost)}`
           policyLink.textContent = item.policy
-          document.getElementById("q-policy").appendChild(policyLink)
+          document.getElementById('q-policy').appendChild(policyLink)
         }
         if (item.operator_policy) {
           const policyLink = document.createElement('a')
           policyLink.href = `operator-policies#name=${encodeURIComponent(item.operator_policy)}&vhost=${encodeURIComponent(item.vhost)}`
           policyLink.textContent = item.operator_policy
-          document.getElementById("q-operator-policy").appendChild(policyLink)
+          document.getElementById('q-operator-policy').appendChild(policyLink)
         }
         if (item.effective_policy_definition) {
-          document.getElementById("q-effective-policy-definition").textContent = DOM.jsonToText(item.effective_policy_definition)
+          document.getElementById('q-effective-policy-definition').textContent = DOM.jsonToText(item.effective_policy_definition)
         }
         const qArgs = document.getElementById('q-arguments')
         for (const arg in item.arguments) {
-          qArgs.appendChild(document.createElement("div")).textContent = `${arg}: ${item.arguments[arg]}`
+          qArgs.appendChild(document.createElement('div')).textContent = `${arg}: ${item.arguments[arg]}`
         }
       }
     }).catch(HTTP.standardErrorHandler)
@@ -169,7 +169,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     exchangeLink.textContent = item.source
     Table.renderCell(tr, 0, exchangeLink)
     Table.renderCell(tr, 1, item.routing_key)
-    const pre = document.createElement("pre")
+    const pre = document.createElement('pre')
     pre.textContent = JSON.stringify(item.arguments || {})
     Table.renderCell(tr, 2, pre)
     Table.renderCell(tr, 3, btn, 'right')
@@ -232,7 +232,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
       }
       updateQueue(false)
       const messagesContainer = document.getElementById('messages')
-      messagesContainer.textContent = ""
+      messagesContainer.textContent = ''
       const template = document.getElementById('message-template')
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i]
@@ -263,7 +263,7 @@ document.querySelector('#moveMessages').addEventListener('submit', function (evt
   const name = 'Move ' + queue + ' to ' + dest
   const url = 'api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(name)
   const body = {
-    name: name,
+    name,
     value: {
       'src-uri': uri,
       'src-queue': queue,
@@ -283,9 +283,9 @@ document.querySelector('#moveMessages').addEventListener('submit', function (evt
 
 document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  let params = ""
-  let countElem = evt.target.querySelector("input[name='count']")
-  if(countElem && countElem.value) {
+  let params = ''
+  const countElem = evt.target.querySelector("input[name='count']")
+  if (countElem && countElem.value) {
     params = `?count=${countElem.value}`
   }
   const url = `api/queues/${urlEncodedVhost}/${urlEncodedQueue}/contents${params}`
@@ -293,8 +293,8 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
       .catch(HTTP.standardErrorHandler)
-    document.getElementById('ms-date-time').textContent = "-"
-    document.getElementById('snapshotTable').setAttribute("hidden", null)
+    document.getElementById('ms-date-time').textContent = '-'
+    document.getElementById('snapshotTable').setAttribute('hidden', null)
   }
 })
 
@@ -349,8 +349,8 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
         document.getElementById('ms-q-unacked-max-bytes').textContent = Helpers.nFormatter(item.unacked_max_bytes) + 'B'
         document.getElementById('ms-q-total').textContent = Helpers.formatNumber(item.messages)
         document.getElementById('ms-q-total-bytes').textContent = Helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
-        const total_avg_bytes = item.messages != 0 ? (item.unacked_bytes + item.ready_bytes)/item.messages : 0
-        document.getElementById('ms-q-total-avg-bytes').textContent = Helpers.nFormatter(total_avg_bytes) + 'B'
+        const totalAvgBytes = item.messages !== 0 ? (item.unacked_bytes + item.ready_bytes) / item.messages : 0
+        document.getElementById('ms-q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
         document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(0) + 'B'
         if (item.ready_max_bytes > item.unacked_max_bytes) {
           document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(item.ready_max_bytes) + 'B'
@@ -358,24 +358,24 @@ messageSnapshotForm.addEventListener('submit', function (evt) {
           document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(item.unacked_max_bytes) + 'B'
         }
         document.getElementById('ms-q-total-min-bytes').textContent = Helpers.nFormatter(0) + 'B'
-        let total_min_bytes = 0
-        if (item.ready_min_bytes != 0 && item.unacked_min_bytes == 0) {
-          total_min_bytes = item.ready_min_bytes
-        } else if (item.unacked_min_bytes != 0 && item.ready_min_bytes == 0) {
-          total_min_bytes = item.unacked_min_bytes
+        let totalMinBytes = 0
+        if (item.ready_min_bytes !== 0 && item.unacked_min_bytes === 0) {
+          totalMinBytes = item.ready_min_bytes
+        } else if (item.unacked_min_bytes !== 0 && item.ready_min_bytes === 0) {
+          totalMinBytes = item.unacked_min_bytes
         } else if (item.ready_min_bytes < item.unacked_min_bytes) {
-          total_min_bytes = item.ready_min_bytes
+          totalMinBytes = item.ready_min_bytes
         } else if (item.unacked_min_bytes < item.ready_min_bytes) {
-          total_min_bytes = item.unacked_min_bytes
+          totalMinBytes = item.unacked_min_bytes
         }
-        document.getElementById('ms-q-total-min-bytes').textContent = Helpers.nFormatter(total_min_bytes) + 'B'
+        document.getElementById('ms-q-total-min-bytes').textContent = Helpers.nFormatter(totalMinBytes) + 'B'
         document.getElementById('ms-q-ready').textContent = Helpers.formatNumber(item.ready)
         document.getElementById('ms-q-ready-bytes').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
         document.getElementById('ms-q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
         document.getElementById('ms-q-ready-min-bytes').textContent = Helpers.nFormatter(item.ready_min_bytes) + 'B'
         document.getElementById('ms-q-ready-max-bytes').textContent = Helpers.nFormatter(item.ready_max_bytes) + 'B'
         document.getElementById('ms-date-time').textContent = Helpers.formatTimestamp(new Date())
-        document.getElementById('snapshotTable').removeAttribute("hidden")
+        document.getElementById('snapshotTable').removeAttribute('hidden')
       })
       .catch(HTTP.standardErrorHandler)
   }

@@ -37,17 +37,17 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
   const url = 'api/users/' + username
   let toastText = `User created: '${username}'`
   const trs = document.querySelectorAll('#table tbody tr')
-  trs.forEach((tr) =>  {
+  trs.forEach((tr) => {
     if (username === tr.getAttribute('data-name')) {
       window.confirm(`Are you sure? This will update existing user: '${username}'`)
       toastText = `Upated existing user: '${username}'`
-      if (data.get('tags') === "") { data.set('tags', tr.childNodes[1].textContent) }
+      if (data.get('tags') === '') { data.set('tags', tr.childNodes[1].textContent) }
     }
   })
   const body = {
     tags: data.get('tags')
   }
-  if (data.get('password') != "") {
+  if (data.get('password') !== '') {
     body.password = data.get('password')
   }
   HTTP.request('PUT', url, { body })

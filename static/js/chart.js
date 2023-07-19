@@ -101,7 +101,7 @@ function createDataset (key, color, fill) {
   return {
     key,
     label,
-    fill: fill,
+    fill,
     type: 'line',
     steppedLine: false,
     lineTension: 0.3,
@@ -126,21 +126,21 @@ function addToDataset (dataset, data, date) {
   fixDatasetLength(dataset)
 }
 
-function fillDatasetVoids(dataset) {
+function fillDatasetVoids (dataset) {
   let prevPoint = dataset.data[0]
   let moreIter = false
-  dataset.data.forEach((point,i) => {
+  dataset.data.forEach((point, i) => {
     const timeDiff = point.x.getTime() - prevPoint.x.getTime()
-    if (timeDiff >= POLLING_RATE*2) {
-      dataset.data.splice(i ,0 ,{"x": new Date(point.x.getTime() - POLLING_RATE), y: null})
-      moreIter = timeDiff >= POLLING_RATE*3
+    if (timeDiff >= POLLING_RATE * 2) {
+      dataset.data.splice(i, 0, { x: new Date(point.x.getTime() - POLLING_RATE), y: null })
+      moreIter = timeDiff >= POLLING_RATE * 3
     }
     prevPoint = point
   })
   moreIter && fillDatasetVoids(dataset)
 }
 
-function fixDatasetLength(dataset) {
+function fixDatasetLength (dataset) {
   const now = new Date()
   dataset.data.forEach((point) => {
     now > point.x.getTime() + X_AXIS_LENGTH && dataset.data.shift()

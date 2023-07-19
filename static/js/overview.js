@@ -10,13 +10,13 @@ const dataChart = Chart.render('dataChart', 'bytes/s')
 const rateChart = Chart.render('rateChart', 'msgs/s')
 
 function updateCharts (response) {
-  let msgStats = {
+  const msgStats = {
     messages_ready: response.queue_totals.messages_ready,
     messages_unacked: response.queue_totals.messages_unacknowledged,
     messages_ready_log: response.queue_totals.messages_ready_log,
-    messages_unacked_log: response.queue_totals.messages_unacknowledged_log,
+    messages_unacked_log: response.queue_totals.messages_unacknowledged_log
   }
-  Chart.update(msgChart, msgStats, "origin")
+  Chart.update(msgChart, msgStats, 'origin')
   Chart.update(rateChart, response.message_stats)
 
   const dataStats = {
@@ -27,12 +27,12 @@ function updateCharts (response) {
 }
 
 start(updateCharts)
-Helpers.addVhostOptions('importDefinitions', {addAll: true})
+Helpers.addVhostOptions('importDefinitions', { addAll: true })
 document.querySelector('#importDefinitions').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const body = new window.FormData(this)
   let url = 'api/definitions/'
-  if(body.get('vhost') === '_all') {
+  if (body.get('vhost') === '_all') {
     url += 'upload'
   } else {
     url += encodeURIComponent(body.get('vhost')) + '/upload'
@@ -44,7 +44,7 @@ document.querySelector('#importDefinitions').addEventListener('submit', function
   })
 })
 
-Helpers.addVhostOptions('exportDefinitions', {addAll: true})
+Helpers.addVhostOptions('exportDefinitions', { addAll: true })
 document.querySelector('#exportDefinitions').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const body = new window.FormData(this)

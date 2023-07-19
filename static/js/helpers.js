@@ -153,12 +153,12 @@ function addVhostOptions (formId, options) {
 
     const selectedVhost = window.sessionStorage.getItem('vhost')
     if (addAllOpt) {
-      select.add(new Option('All', '_all', true, false))
+      select.add(new window.Option('All', '_all', true, false))
     }
     const collator = new Intl.Collator()
     vhosts.sort((a, b) => collator.compare(a.name, b.name))
     vhosts.forEach(vhost => {
-      select.add(new Option(vhost.name, vhost.name, false, vhost.name === selectedVhost))
+      select.add(new window.Option(vhost.name, vhost.name, false, vhost.name === selectedVhost))
     })
     return vhosts
   })

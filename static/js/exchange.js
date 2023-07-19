@@ -26,21 +26,21 @@ function updateExchange () {
     document.getElementById('e-features').textContent = features
     document.getElementById('e-type').textContent = item.type
     document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
-    let argList = document.createElement('div')
-    let args = Object.keys(item.arguments).forEach(key => {
-      if (key == 'x-delayed-exchange' && item.arguments[key] === false) {
+    const argList = document.createElement('div')
+    Object.keys(item.arguments).forEach(key => {
+      if (key === 'x-delayed-exchange' && item.arguments[key] === false) {
         return
       }
-      let el = document.createElement('div');
-      el.textContent = key + " = " + item.arguments[key];
+      const el = document.createElement('div')
+      el.textContent = key + ' = ' + item.arguments[key]
       argList.appendChild(el)
     })
-    document.getElementById("e-arguments").appendChild(argList)
+    document.getElementById('e-arguments').appendChild(argList)
     if (item.policy) {
       const policyLink = document.createElement('a')
       policyLink.href = 'policies#name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
       policyLink.textContent = item.policy
-      document.getElementById("e-policy").appendChild(policyLink)
+      document.getElementById('e-policy').appendChild(policyLink)
     }
   }).catch(HTTP.standardErrorHandler)
 }
@@ -64,7 +64,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       const s = encodeURIComponent(item.source)
       const d = encodeURIComponent(item.destination)
       const p = encodeURIComponent(item.properties_key)
-      const t = item.destination_type == "exchange" ? "e" : "q"
+      const t = item.destination_type === 'exchange' ? 'e' : 'q'
       const url = 'api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
       HTTP.request('DELETE', url)
         .then(() => { tr.parentNode.removeChild(tr) })
@@ -132,12 +132,12 @@ document.querySelector('#deleteExchange').addEventListener('submit', function (e
   }
 })
 
-function updateAutocomplete(val) {
+function updateAutocomplete (val) {
   const type = val === 'q' ? 'queues' : 'exchanges'
-  Helpers.autoCompleteDatalist("exchange-dest-list", type, urlEncodedVhost)
+  Helpers.autoCompleteDatalist('exchange-dest-list', type, urlEncodedVhost)
 }
 updateAutocomplete('q')
-document.getElementById("dest-type").onchange = (e) => updateAutocomplete(e.target.value)
+document.getElementById('dest-type').onchange = (e) => updateAutocomplete(e.target.value)
 
 document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)

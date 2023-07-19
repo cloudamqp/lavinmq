@@ -28,7 +28,7 @@ const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
       Table.renderCell(tr, 3, Helpers.formatNumber(item.messages_unacknowledged), 'center')
       Table.renderCell(tr, 4, Helpers.formatNumber(item.messages), 'center')
     }).catch(e => {
-      Table.toggleDisplayError("table", e.status === 403 ? 'You need administrator role to see this view' : e.body)
+      Table.toggleDisplayError('table', e.status === 403 ? 'You need administrator role to see this view' : e.body)
     })
 })
 

@@ -15,9 +15,9 @@ function jsonToText (obj) {
   return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '').trim()
 }
 
-function toast (text, type = "success") {
+function toast (text, type = 'success') {
   // Delete all previous toasts
-  document.querySelectorAll(".toast").forEach(t => t.parentNode.removeChild(t))
+  document.querySelectorAll('.toast').forEach(t => t.parentNode.removeChild(t))
 
   const d = document.createElement('div')
   d.classList.add(type)

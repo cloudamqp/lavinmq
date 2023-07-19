@@ -1,7 +1,7 @@
 import * as HTTP from './http.js'
 
 class QueryState {
-  constructor() {
+  constructor () {
     this._state = {
       page: 1,
       page_size: 100,
@@ -11,16 +11,16 @@ class QueryState {
     }
   }
 
-  get name() { return this._state.name }
-  set name(value) { this._state.name = value }
-  get page() { return this._state.page }
-  set page(value) { this._state.page = parseInt(value) }
-  get page_size() { return this._state.page_size }
-  set page_size(value) { this._state.page_size = parseInt(value) }
-  get sort() { return this._state.sort }
-  set sort(value) { this._state.sort = value }
-  get sort_reverse() { return this._state.sort_reverse }
-  set sort_reverse(value) {
+  get name () { return this._state.name }
+  set name (value) { this._state.name = value }
+  get page () { return this._state.page }
+  set page (value) { this._state.page = parseInt(value) }
+  get page_size () { return this._state.page_size }
+  set page_size (value) { this._state.page_size = parseInt(value) }
+  get sort () { return this._state.sort }
+  set sort (value) { this._state.sort = value }
+  get sort_reverse () { return this._state.sort_reverse }
+  set sort_reverse (value) {
     if (typeof value === 'boolean') {
       this._state.sort_reverse = value
     } else {
@@ -28,7 +28,7 @@ class QueryState {
     }
   }
 
-  update(values) {
+  update (values) {
     Object.getOwnPropertyNames(values).forEach(key => {
       if (Object.hasOwn(this._state, key)) {
         this[key] = values[key]
@@ -36,7 +36,7 @@ class QueryState {
     })
   }
 
-  toJSON() {
+  toJSON () {
     return this._state
   }
 }
@@ -67,7 +67,8 @@ class DataSource {
     let cachedState
     this._lastLoadedUrl = ''
     if (this._opts.useQueryState) {
-      if (cachedState = window.sessionStorage.getItem(this._cacheKey)) {
+      cachedState = window.sessionStorage.getItem(this._cacheKey)
+      if (cachedState) {
         try {
           cachedState = JSON.parse(cachedState)
           this._setState(cachedState)
@@ -83,34 +84,34 @@ class DataSource {
     }
   }
 
-  _setStateFromHash() {
+  _setStateFromHash () {
     const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
     this._setState(urlParams)
   }
 
-  _setState(properties = {}) {
+  _setState (properties = {}) {
     this._queryState = new QueryState()
     this._queryState.update(properties)
   }
 
-  get page() { return this._queryState.page }
-  set page(value) { this._queryState.page = value }
-  get pageSize() { return this._queryState.page_size }
-  set pageSize(value) { this._queryState.page_size = value }
-  set sortKey(value) { this._queryState.sort = value }
-  get sortKey() { return this._queryState.sort }
-  set reverseOrder(value) {  this._queryState.sort_reverse = value }
-  get reverseOrder() { return this._queryState.sort_reverse }
-  set searchTerm(value) { this._queryState.name = value }
-  get searchTerm() { return this._queryState.name }
+  get page () { return this._queryState.page }
+  set page (value) { this._queryState.page = value }
+  get pageSize () { return this._queryState.page_size }
+  set pageSize (value) { this._queryState.page_size = value }
+  set sortKey (value) { this._queryState.sort = value }
+  get sortKey () { return this._queryState.sort }
+  set reverseOrder (value) { this._queryState.sort_reverse = value }
+  get reverseOrder () { return this._queryState.sort_reverse }
+  set searchTerm (value) { this._queryState.name = value }
+  get searchTerm () { return this._queryState.name }
 
-  get filteredCount() { return this._filteredCount }
-  get itemCount() { return this._itemCount }
-  get pageCount() { return this._pageCount }
-  get totalCount() { return this._totalCount }
-  get items() { return this._items }
+  get filteredCount () { return this._filteredCount }
+  get itemCount () { return this._itemCount }
+  get pageCount () { return this._pageCount }
+  get totalCount () { return this._totalCount }
+  get items () { return this._items }
 
-  set items(data) {
+  set items (data) {
     if ('items' in data) {
       this._queryState.page = data.page
       this._queryState.page_size = data.page_size
@@ -126,10 +127,6 @@ class DataSource {
       this._pageCount = 1
     }
     this.emit('update')
-  }
-
-  queryParams() {
-    throw "Not implemented"
   }
 
   reload (args) {
@@ -149,26 +146,26 @@ class DataSource {
     })
   }
 
-  reset() {
+  reset () {
     this._setState()
   }
 
-  _enqueueReload() {
+  _enqueueReload () {
     if (this._opts.autoReloadTimeout > 0) {
       clearTimeout(this._reloadTimer)
       this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
     }
   }
 
-  emit(eventName, args) {
-    this._events.dispatchEvent(new CustomEvent(eventName, { detail: args }))
+  emit (eventName, args) {
+    this._events.dispatchEvent(new window.CustomEvent(eventName, { detail: args }))
   }
 
-  on(eventName, listener) {
+  on (eventName, listener) {
     this._events.addEventListener(eventName, listener)
   }
 
-  queryParams(params) {
+  queryParams (params) {
     params ??= new URLSearchParams()
     if (this.page > 0) {
       params.set('page', this.page)
@@ -197,14 +194,13 @@ class DataSource {
     return params
   }
 
-  get _cacheKey() {
+  get _cacheKey () {
     return `${window.location.pathname.split('/').pop()}-queryState`
   }
-
 }
 
 class UrlDataSource extends DataSource {
-  constructor(url, opts) {
+  constructor (url, opts) {
     super(opts)
     if (url.startsWith('http')) {
       this.url = new URL(url)
@@ -213,13 +209,13 @@ class UrlDataSource extends DataSource {
     }
   }
 
-  _fullApiUrl() {
-    let url = new URL(this.url)
+  _fullApiUrl () {
+    const url = new URL(this.url)
     url.search = this.queryParams()
     return url
   }
 
-  _reload(opts = {}) {
+  _reload (opts = {}) {
     const url = this._fullApiUrl()
     if (this._opts.useQueryState) {
       if (opts.updateState !== false) {
@@ -227,9 +223,9 @@ class UrlDataSource extends DataSource {
         const query = new URLSearchParams(documentUrl.hash.substring(1))
         this.queryParams(query)
         documentUrl.hash = query
-        if (window.location.hash.length <= 1 || this._lastLoadedUrl == '') {
+        if (window.location.hash.length <= 1 || this._lastLoadedUrl === '') {
           window.history.replaceState(null, '', documentUrl)
-        } else if (this._lastLoadedUrl != url.toString()) {
+        } else if (this._lastLoadedUrl !== url.toString()) {
           window.history.pushState(null, '', documentUrl)
         }
       }
