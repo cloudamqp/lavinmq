@@ -163,7 +163,7 @@ module LavinMQ
         @log.error { ex.inspect_with_backtrace }
         send_frame_error(ex.message)
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+        @log.debug { "Lost connection, while reading (#{ex.inspect_with_backtrace})" } unless closed?
         break
       rescue ex : Exception
         @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
