@@ -113,6 +113,7 @@ module LavinMQ
       io.write_bytes @bodysize, format
       if io_mem = @body_io.as?(IO::Memory)
         io.write(io_mem.to_slice)
+        io_mem.pos = @bodysize # necessary for rewinding in Vhost#publish
       else
         copied = IO.copy(@body_io, io, @bodysize)
         if copied != @bodysize

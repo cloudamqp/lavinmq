@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Messages larger than frame_max, routed to multiple queues, were only written to the first queue, and corrupted the others
 - Message segments are agressivly unmapped to decrease memory usage
-
 
 ## [1.1.5] - 2023-06-23
 

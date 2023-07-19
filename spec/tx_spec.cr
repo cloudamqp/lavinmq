@@ -22,6 +22,35 @@ describe "Transactions" do
       end
     end
 
+    it "can be commited to multiple queues" do
+      with_channel do |ch|
+        ch.tx_select
+        q1 = ch.queue
+        q2 = ch.queue
+        q1.bind("amq.fanout", "")
+        q2.bind("amq.fanout", "")
+        x = ch.exchange("amq.fanout", "fanout")
+        2.times do |i|
+          x.publish i.to_s * 200_000, ""
+          ch.basic_publish("", "", "")
+        end
+        q1.get.should be_nil
+        ch.tx_commit
+        2.times do |i|
+          if msg = q1.get
+            msg.body_io.to_s.should eq i.to_s * 200_000
+          else
+            msg.should_not be_nil
+          end
+          if msg = q2.get
+            msg.body_io.to_s.should eq i.to_s * 200_000
+          else
+            msg.should_not be_nil
+          end
+        end
+      end
+    end
+
     it "can be rollbacked" do
       with_channel do |ch|
         ch.tx_select

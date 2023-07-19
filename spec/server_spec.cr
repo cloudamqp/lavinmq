@@ -1007,4 +1007,52 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  it "can publish large messages to multiple queues" do
+    with_channel do |ch|
+      q1 = ch.queue
+      q2 = ch.queue
+      q1.bind("amq.fanout", "")
+      q2.bind("amq.fanout", "")
+      2.times do |i|
+        ch.basic_publish_confirm(i.to_s * 200_000, "amq.fanout", "")
+      end
+      2.times do |i|
+        if msg = q1.get
+          msg.body_io.to_s.should eq i.to_s * 200_000
+        else
+          msg.should_not be_nil
+        end
+        if msg = q2.get
+          msg.body_io.to_s.should eq i.to_s * 200_000
+        else
+          msg.should_not be_nil
+        end
+      end
+    end
+  end
+
+  it "can publish small messages to multiple queues" do
+    with_channel do |ch|
+      q1 = ch.queue
+      q2 = ch.queue
+      q1.bind("amq.fanout", "")
+      q2.bind("amq.fanout", "")
+      2.times do |i|
+        ch.basic_publish_confirm(i.to_s * 200, "amq.fanout", "")
+      end
+      2.times do |i|
+        if msg = q1.get
+          msg.body_io.to_s.should eq i.to_s * 200
+        else
+          msg.should_not be_nil
+        end
+        if msg = q2.get
+          msg.body_io.to_s.should eq i.to_s * 200
+        else
+          msg.should_not be_nil
+        end
+      end
+    end
+  end
 end
