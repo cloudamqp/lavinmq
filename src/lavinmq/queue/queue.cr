@@ -428,6 +428,7 @@ module LavinMQ
 
     def publish(msg : Message) : Bool
       return false if @state.closed?
+      @log.debug { "Publishing msg.body_io.pos=#{msg.body_io.pos}" }
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)

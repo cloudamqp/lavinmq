@@ -39,6 +39,7 @@ module LavinMQ
 
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
+        Log.debug { "Pushing msg to segment msg.body_io.pos=#{msg.body_io.pos}" }
         sp = write_to_disk(msg)
         was_empty = @size.zero?
         @bytesize += sp.bytesize
@@ -224,6 +225,7 @@ module LavinMQ
         end
         wfile_id = @wfile_id
         sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
+        Log.debug { "Writing msg to segment msg.body_io.pos=#{msg.body_io.pos}" }
         wfile.write_bytes msg
         fr = Replication::Server::Follower::FileRange.new(wfile, sp.position.to_i32, (wfile.size - sp.position).to_i32)
         @replicator.try &.append(wfile.path, fr)

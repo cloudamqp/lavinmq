@@ -113,7 +113,7 @@ module LavinMQ
       headers = properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
       headers.try(&.delete("BCC"))
-      # @log.debug { "publish queues#found=#{found_queues.size}" }
+      @log.debug { "publish queues#found=#{found_queues.size}" }
       if found_queues.empty?
         ex.unroutable_count += 1
         return false

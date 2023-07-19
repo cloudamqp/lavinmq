@@ -1,9 +1,12 @@
 require "amq-protocol"
+require "log"
 
 module LavinMQ
   # Messages read from message store (mmap filed) and being delivered to consumers
   struct BytesMessage
     getter timestamp, exchange_name, routing_key, properties, bodysize, body
+
+    Log = ::Log.for(self)
 
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
@@ -114,8 +117,10 @@ module LavinMQ
       if io_mem = @body_io.as?(IO::Memory)
         io.write(io_mem.to_slice)
       else
-        @body_io.rewind
+        Log.debug { "Copying #{bodysize} bytes from body_io at pos=#{@body_io.pos}" }
         copied = IO.copy(@body_io, io, @bodysize)
+        @body_io.rewind
+        Log.debug { "Copied #{copied} bytes from body_io at pos=#{@body_io.pos}" }
         if copied != @bodysize
           raise IO::Error.new("Could only write #{copied} of #{@bodysize} bytes to message store")
         end
