@@ -75,7 +75,7 @@ if (raw) {
     console.error('Error parsing data from sessionStorage', e)
   }
 } else {
-  update(render)
+  update(render(data))
 }
 
 function cacheKey () {
