@@ -52,6 +52,20 @@ jobs:
       - name: Run ameba
         run: ameba/bin/ameba
 
+  js-lint:
+    name: Lint javascript
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: latest
+      - name: Setup node
+        run: npm install -g standard
+      - name: Run standard
+        run: standard static/js
+
   api-lint:
     name: Lint and build HTTP API documentation
     runs-on: ubuntu-latest

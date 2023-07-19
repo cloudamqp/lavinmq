@@ -74,6 +74,7 @@ deps: js lib docs
 .PHONY: lint
 lint: lib
 	lib/ameba/bin/ameba src/
+	standard static/js
 
 .PHONY: test
 test: lib
