@@ -304,6 +304,7 @@ module LavinMQ
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
         @return_unroutable_count += 1
+        msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
@@ -743,6 +744,8 @@ module LavinMQ
           tx_msg.message.timestamp = RoughTime.unix_ms
           ok = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
           basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless ok
+          # skip to next msg body in the next_msg_body_file
+          tx_msg.message.body_io.seek(tx_msg.message.bodysize, IO::Seek::Current)
         end
         @tx_publishes.clear
       ensure

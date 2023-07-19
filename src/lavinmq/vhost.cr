@@ -105,6 +105,8 @@ module LavinMQ
     # True if it also succesfully wrote to one or more queues
     # False if no queue was able to receive the message because they're
     # closed
+    # The position of the msg.body_io should be at the start of the body
+    # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
                 visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
@@ -124,6 +126,7 @@ module LavinMQ
         if q.publish(msg)
           ex.publish_out_count += 1
           ok += 1
+          msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         end
       end
       ok > 0
