@@ -90,6 +90,7 @@ document.querySelector('[name=remove_password]').addEventListener('change', func
 })
 document.querySelector('#updateUser').addEventListener('submit', function (evt) {
   evt.preventDefault()
+  const pwd = document.querySelector('[name=password]')
   const data = new window.FormData(this)
   const url = 'api/users/' + urlEncodedUsername
   const body = {
