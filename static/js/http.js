@@ -40,14 +40,6 @@ function standardErrorHandler (e) {
   throw e
 }
 
-function notFoundErrorHandler (e) {
-  if (e.status === 404) {
-    window.location.assign('404')
-  } else {
-    standardErrorHandler(e)
-  }
-}
-
 export {
-  request, standardErrorHandler, notFoundErrorHandler, alertErrorHandler
+  request
 }
