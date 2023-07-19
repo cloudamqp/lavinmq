@@ -114,6 +114,7 @@ module LavinMQ
       if io_mem = @body_io.as?(IO::Memory)
         io.write(io_mem.to_slice)
       else
+        @body_io.rewind
         copied = IO.copy(@body_io, io, @bodysize)
         if copied != @bodysize
           raise IO::Error.new("Could only write #{copied} of #{@bodysize} bytes to message store")
