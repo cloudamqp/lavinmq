@@ -48,7 +48,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   const editBtn = document.createElement('button')
   editBtn.classList.add('btn-secondary')
   editBtn.textContent = 'Edit'
-  editBtn.onclick = function() {
+  editBtn.onclick = function () {
     Form.editItem('#createUpstream', item)
   }
   buttons.append(editBtn, deleteBtn)
@@ -58,10 +58,10 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
 const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000, countId: 'links-count' }
 
 Table.renderTable('linksTable', linksOpts, (tr, item) => {
-  const resourceDiv = document.createElement("span")
+  const resourceDiv = document.createElement('span')
   resourceDiv.textContent = item.resource
-  resourceDiv.appendChild(document.createElement("br"))
-  resourceDiv.appendChild(document.createElement("small")).textContent = item.type
+  resourceDiv.appendChild(document.createElement('br'))
+  resourceDiv.appendChild(document.createElement('small')).textContent = item.type
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   Table.renderCell(tr, 2, decodeURI(item.uri))

@@ -4,7 +4,6 @@ import { UrlDataSource } from './datasource.js'
 
 function renderTable (id, options = {}, renderRow) {
   const countId = options.countId ?? 'pagename-label'
-  const url = options.url
   const dataSource = options.dataSource ?? new UrlDataSource(options.url)
   const table = document.getElementById(id)
   const container = table.parentElement
@@ -37,11 +36,7 @@ function renderTable (id, options = {}, renderRow) {
   })
   dataSource.reload()
 
-  function strToBool(str){
-    return str === 'true' ? true : false
-  }
-
-  function on(event, args) {
+  function on (event, args) {
     events.addEventListener(event, args)
   }
 
@@ -55,12 +50,12 @@ function renderTable (id, options = {}, renderRow) {
     document.getElementById(countId).textContent = totalCount
     const t = document.getElementById(id).tBodies[0]
     if (!Array.isArray(items) || items.length === 0) {
-      t.textContent = ""
-      const tr = t.appendChild(document.createElement("tr"))
-      const td = tr.appendChild(document.createElement("td"))
+      t.textContent = ''
+      const tr = t.appendChild(document.createElement('tr'))
+      const td = tr.appendChild(document.createElement('td'))
       td.colSpan = 100
-      td.classList.add("center")
-      td.textContent = "Nope, nothing to see here."
+      td.classList.add('center')
+      td.textContent = 'Nope, nothing to see here.'
       return
     }
 
@@ -93,7 +88,7 @@ function renderTable (id, options = {}, renderRow) {
     while (rowsToDelete-- > 0) {
       t.deleteRow(t.rows.length - 1)
     }
-    events.dispatchEvent(new CustomEvent('updated'))
+    events.dispatchEvent(new window.CustomEvent('updated'))
   }
 
   function findRow (rows, item) {
@@ -101,22 +96,22 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   function setKeyAttributes (tr, item) {
-    keyColumns.forEach(key => tr.dataset[key] = JSON.stringify(item[key]))
+    keyColumns.forEach(key => { tr.dataset[key] = JSON.stringify(item[key]) })
   }
 
   function renderSearch (conatiner, dataSource) {
-    const form = document.createElement("form")
-    form.classList.add("form")
-    form.addEventListener("submit", (e) => { e.preventDefault() })
-    const filterInput = document.createElement("input")
-    filterInput.classList.add("filter-table")
-    filterInput.placeholder = "Filter regex"
+    const form = document.createElement('form')
+    form.classList.add('form')
+    form.addEventListener('submit', (e) => { e.preventDefault() })
+    const filterInput = document.createElement('input')
+    filterInput.classList.add('filter-table')
+    filterInput.placeholder = 'Filter regex'
     filterInput.value = dataSource.searchTerm ?? ''
     form.appendChild(filterInput)
     container.insertBefore(form, container.children[0])
     container.addEventListener('keyup', e => {
       if (!e.target.classList.contains('filter-table')) return true
-      if (e.key == 'Enter') {
+      if (e.key === 'Enter') {
         dataSource.reset()
         dataSource.searchTerm = e.target.value
         reload()
@@ -158,9 +153,9 @@ function buildCells (tr, index) {
     tr.insertCell(-1)
     index--
   }
-  let tbl = tr.parentElement.parentElement
-  let colHeader = tbl.querySelectorAll(`tr > *:nth-child(${target})`)[0]
-  if (colHeader.classList.contains("hide")) {
+  const tbl = tr.parentElement.parentElement
+  const colHeader = tbl.querySelectorAll(`tr > *:nth-child(${target})`)[0]
+  if (colHeader.classList.contains('hide')) {
     tr.cells[tr.cells.length - 1].classList.add('hide')
   }
   return tr.cells[tr.cells.length - 1]

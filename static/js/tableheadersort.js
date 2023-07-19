@@ -1,9 +1,9 @@
-function create(table, dataSource) {
+function create (table, dataSource) {
   let sortKey = dataSource.sortKey
-  function update() {
+  function update () {
     table.querySelectorAll('th[data-sort-key]').forEach(function (cell) {
       cell.classList.remove('sorting_asc', 'sorting_desc')
-      if (cell.dataset.sortKey == dataSource.sortKey) {
+      if (cell.dataset.sortKey === dataSource.sortKey) {
         cell.classList.add(dataSource.reverseOrder ? 'sorting_desc' : 'sorting_asc')
       }
     })

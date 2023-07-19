@@ -1,12 +1,13 @@
 class Pagination {
   #container = null
   #dataSource = null
-  constructor(container, dataSource) {
+  constructor (container, dataSource) {
     this.#container = container
     this.#dataSource = dataSource
     this.#dataSource.on('update', this.update.bind(this))
   }
-  #makeLink(toPage, label = toPage, opts = {}) {
+
+  #makeLink (toPage, label = toPage, opts = {}) {
     const div = document.createElement('div')
     div.classList.add('page-item')
     if (opts.class && opts.class.length > 0) {
@@ -18,8 +19,8 @@ class Pagination {
       tag = 'span'
     }
     const button = document.createElement(tag)
-    button.textContent  = label
-    let params = this.#dataSource.queryParams()
+    button.textContent = label
+    const params = this.#dataSource.queryParams()
     params.set('page', toPage)
     div.appendChild(button)
     if (opts.disabled !== true) {
@@ -33,10 +34,11 @@ class Pagination {
     }
     return div
   }
-  update() {
+
+  update () {
     let active
-    let page = this.#dataSource.page
-    let pages = this.#dataSource.pageCount
+    const page = this.#dataSource.page
+    const pages = this.#dataSource.pageCount
     let pageCutLow = page - 1
     let pageCutHigh = page + 1
     if (pages <= 1) {
@@ -47,7 +49,7 @@ class Pagination {
 
     const links = []
 
-    const prevLink = this.#makeLink(page - 1, 'Previous', {class: 'previous', disabled: (page === 1)})
+    const prevLink = this.#makeLink(page - 1, 'Previous', { class: 'previous', disabled: (page === 1) })
     links.push(prevLink)
     if (pages < 6) {
       for (let p = 1; p <= pages; p++) {
@@ -68,7 +70,7 @@ class Pagination {
       if (page > 2) {
         links.push(this.#makeLink(1))
         if (page > 3) {
-          links.push(this.#makeLink(2, '…', {class: 'out-of-range'}))
+          links.push(this.#makeLink(2, '…', { class: 'out-of-range' }))
         }
       }
       for (let p = pageCutLow; p <= pageCutHigh; p++) {
@@ -79,23 +81,23 @@ class Pagination {
           continue
         }
         active = page === p ? 'active' : ''
-        links.push(this.#makeLink(p, p, {class: active}))
+        links.push(this.#makeLink(p, p, { class: active }))
       }
       if (page < pages - 1) {
         if (page < pages - 2) {
-          links.push(this.#makeLink(pages - 1, '…', {class: 'out-of-range'}))
+          links.push(this.#makeLink(pages - 1, '…', { class: 'out-of-range' }))
         }
         links.push(this.#makeLink(pages))
       }
     }
-    const nextLink = this.#makeLink(page + 1, 'Next', {class: 'next', disabled: (page === pages)})
+    const nextLink = this.#makeLink(page + 1, 'Next', { class: 'next', disabled: (page === pages) })
     links.push(nextLink)
     while (this.#container.firstChild) this.#container.removeChild(this.#container.firstChild)
     links.forEach(l => this.#container.appendChild(l))
   }
 }
 
-function create() {
+function create () {
   return new Pagination(...arguments)
 }
 

@@ -3,11 +3,11 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Form from './form.js'
-import { UrlDataSource} from './datasource.js'
+import { UrlDataSource } from './datasource.js'
 
 // this module is only included from /policies and /operator-policies
-const base_url = `api${document.location.pathname}`
-let url = base_url
+const baseUrl = `api${document.location.pathname}`
+let url = baseUrl
 
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
@@ -37,7 +37,7 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
   deleteBtn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
-    const url = `${base_url}/${vhost}/${name}`
+    const url = `${baseUrl}/${vhost}/${name}`
     if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
       HTTP.request('DELETE', url)
         .then(() => tr.parentNode.removeChild(tr))
@@ -47,9 +47,9 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
   const editBtn = document.createElement('button')
   editBtn.classList.add('btn-secondary')
   editBtn.textContent = 'Edit'
-  editBtn.onclick = function() {
+  editBtn.onclick = function () {
     Form.editItem('#createPolicy', item, {
-      'definition': item => Helpers.formatJSONargument(item.definition || {})
+      definition: item => Helpers.formatJSONargument(item.definition || {})
     })
   }
   buttons.append(editBtn, deleteBtn)
@@ -61,7 +61,7 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
   const data = new window.FormData(this)
   const name = encodeURIComponent(data.get('name').trim())
   const vhost = encodeURIComponent(data.get('vhost'))
-  const url = `${base_url}/${vhost}/${name}`
+  const url = `${baseUrl}/${vhost}/${name}`
   const body = {
     pattern: data.get('pattern').trim(),
     definition: DOM.parseJSON(data.get('definition')),
@@ -78,4 +78,4 @@ document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelperJSON('createPolicy', 'definition', e)
 }
 
-Helpers.addVhostOptions('createPolicy');
+Helpers.addVhostOptions('createPolicy')

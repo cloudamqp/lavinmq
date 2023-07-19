@@ -6,7 +6,7 @@ import * as Table from './table.js'
 Helpers.addVhostOptions('addExchange')
 
 HTTP.request('GET', 'api/overview').then(function (response) {
-  const exchangeTypes = response['exchange_types']
+  const exchangeTypes = response.exchange_types
   const select = document.forms.addExchange.elements.type
   exchangeTypes.forEach(type => {
     const opt = document.createElement('option')

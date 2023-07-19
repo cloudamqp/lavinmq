@@ -18,16 +18,16 @@ function updateUser () {
     }).catch(HTTP.standardErrorHandler)
 }
 
-function tagHelper(tags) {
+function tagHelper (tags) {
   const vals = tags.split(',')
-  vals.forEach((val) =>  {
-    const currentVal = document.querySelector(`[name=tags]`).value
-    document.querySelector(`[name=tags]`).value = currentVal ? currentVal + ', ' + val : val
+  vals.forEach((val) => {
+    const currentVal = document.querySelector('[name=tags]').value
+    document.querySelector('[name=tags]').value = currentVal ? currentVal + ', ' + val : val
   })
 }
 
 const permissionsUrl = 'api/users/' + urlEncodedUsername + '/permissions'
-const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0, countId: "permissions-count" }
+const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0, countId: 'permissions-count' }
 const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
   Table.renderCell(tr, 2, item.write)
@@ -50,7 +50,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const editBtn = document.createElement('button')
     editBtn.classList.add('btn-secondary')
     editBtn.innerText = 'Edit'
-    editBtn.onclick = function() {
+    editBtn.onclick = function () {
       Form.editItem('#setPermission', item)
     }
     buttons.append(editBtn, deleteBtn)
@@ -97,13 +97,13 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
   }
   if (data.get('remove_password') === 'on') {
     body.password_hash = ''
-  } else if (data.get('password') != "") {
+  } else if (data.get('password') !== '') {
     body.password = data.get('password')
   }
   HTTP.request('PUT', url, { body })
     .then(() => {
       updateUser()
-      DOM.toast("User updated")
+      DOM.toast('User updated')
       evt.target.reset()
       pwd.disabled = false
       pwd.required = true
@@ -129,4 +129,3 @@ document.addEventListener('DOMContentLoaded', _ => {
   document.querySelector('#pagename-label').textContent = user
   updateUser()
 })
-

@@ -3,17 +3,17 @@ import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Form from './form.js'
-import { UrlDataSource, DataSource } from './datasource.js'
+import { UrlDataSource } from './datasource.js'
 
 Helpers.addVhostOptions('createShovel')
 
-function renderState(item) {
+function renderState (item) {
   if (item.error) {
     const state = document.createElement('a')
-    state.classList.add("arg-tooltip")
+    state.classList.add('arg-tooltip')
     state.appendChild(document.createTextNode(item.state))
     const tooltip = document.createElement('span')
-    tooltip.classList.add("tooltiptext")
+    tooltip.classList.add('tooltiptext')
     tooltip.textContent = item.error
     state.appendChild(tooltip)
     return state
@@ -21,7 +21,6 @@ function renderState(item) {
     return item.state
   }
 }
-
 
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/parameters/shovel'
@@ -33,11 +32,12 @@ if (vhost && vhost !== '_all') {
 }
 
 class ShovelsDataSource extends UrlDataSource {
-  constructor(url, statusUrl) {
+  constructor (url, statusUrl) {
     super(url)
     this.statusUrl = statusUrl
   }
-  _reload() {
+
+  _reload () {
     const p1 = super._reload()
     const p2 = HTTP.request('GET', this.statusUrl)
 
@@ -55,32 +55,32 @@ class ShovelsDataSource extends UrlDataSource {
 }
 const dataSource = new ShovelsDataSource(url, statusUrl)
 const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, dataSource }
-const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
+Table.renderTable('table', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
-  const srcDiv = document.createElement("span")
+  const srcDiv = document.createElement('span')
   if (item.value['src-queue']) {
     srcDiv.textContent = item.value['src-queue']
-    srcDiv.appendChild(document.createElement("br"))
-    srcDiv.appendChild(document.createElement("small")).textContent = "queue"
+    srcDiv.appendChild(document.createElement('br'))
+    srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
   } else {
     srcDiv.textContent = item.value['src-queue']
-    srcDiv.appendChild(document.createElement("br"))
-    srcDiv.appendChild(document.createElement("small")).textContent = "queue"
+    srcDiv.appendChild(document.createElement('br'))
+    srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
   }
   Table.renderCell(tr, 3, srcDiv)
   Table.renderCell(tr, 4, item.value['src-prefetch-count'])
   Table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
-  const dest = document.createElement("span")
+  const dest = document.createElement('span')
   if (item.value['dest-queue']) {
     dest.textContent = item.value['dest-queue']
-    dest.appendChild(document.createElement("br"))
-    dest.appendChild(document.createElement("small")).textContent = "queue"
+    dest.appendChild(document.createElement('br'))
+    dest.appendChild(document.createElement('small')).textContent = 'queue'
   } else if (item.value['dest-exchange']) {
     dest.textContent = item.value['dest-exchange']
-    dest.appendChild(document.createElement("br"))
-    dest.appendChild(document.createElement("small")).textContent = "exchange"
+    dest.appendChild(document.createElement('br'))
+    dest.appendChild(document.createElement('small')).textContent = 'exchange'
   } else {
     dest.textContent = 'http'
   }
@@ -89,8 +89,8 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
-  const btns = document.createElement("div")
-  btns.classList.add("buttons")
+  const btns = document.createElement('div')
+  btns.classList.add('buttons')
   const deleteBtn = document.createElement('button')
   deleteBtn.classList.add('btn-danger')
   deleteBtn.textContent = 'Delete'
@@ -107,15 +107,15 @@ const shovelsTable = Table.renderTable('table', tableOptions, (tr, item, all) =>
     }
   }
   const editBtn = document.createElement('button')
-  editBtn.classList.add("btn-secondary")
+  editBtn.classList.add('btn-secondary')
   editBtn.textContent = 'Edit'
   editBtn.onclick = function () {
-    Form.editItem("#createShovel", item, {
-      'src-type': (item) => item.value['src-queue'] ? "queue" : "exchange",
-      'dest-type': (item) => item.value['dest-queue'] ? "queue" : "exchange",
+    Form.editItem('#createShovel', item, {
+      'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
+      'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
       'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
       'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
-     })
+    })
   }
   btns.append(editBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
@@ -126,9 +126,9 @@ document.querySelector('[name=src-type]').addEventListener('change', function ()
 })
 
 document.querySelector('[name=dest-uri]').addEventListener('change', function () {
-  let is_http = this.value.startsWith("http")
+  const isHttp = this.value.startsWith('http')
   document.querySelectorAll('.amqp-dest-field').forEach(e => {
-    e.classList.toggle('hide', is_http)
+    e.classList.toggle('hide', isHttp)
   })
 })
 
@@ -167,11 +167,11 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
     }).catch(HTTP.standardErrorHandler)
 })
 
-function updateAutocomplete(e, id) {
-  const type = e === 'queue' ? 'queues' : 'exchanges'
-  Helpers.autoCompleteDatalist(id, type)
-}
-//updateAutocomplete('queue', 'shovel-src-list')
-//updateAutocomplete('queue', 'shovel-dest-list')
-//document.getElementById("createShovel").elements["src-type"].onchange = (e) => updateAutocomplete(e.target.value, 'shovel-src-list')
-//document.getElementById("createShovel").elements["dest-type"].onchange = (e) => updateAutocomplete(e.target.value, 'shovel-dest-list')
+// function updateAutocomplete (e, id) {
+//   const type = e === 'queue' ? 'queues' : 'exchanges'
+//   Helpers.autoCompleteDatalist(id, type)
+// }
+// updateAutocomplete('queue', 'shovel-src-list')
+// updateAutocomplete('queue', 'shovel-dest-list')
+// document.getElementById("createShovel").elements["src-type"].onchange = (e) => updateAutocomplete(e.target.value, 'shovel-src-list')
+// document.getElementById("createShovel").elements["dest-type"].onchange = (e) => updateAutocomplete(e.target.value, 'shovel-dest-list')

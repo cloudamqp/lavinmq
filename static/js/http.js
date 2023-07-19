@@ -2,8 +2,8 @@ function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
   const opts = {
-    method: method,
-    headers: headers,
+    method,
+    headers
   }
   if (body instanceof window.FormData) {
     headers.delete('Content-Type') // browser will set to multipart with boundary
@@ -15,7 +15,7 @@ function request (method, path, options = {}) {
   return window.fetch(path, opts)
     .then(response => {
       if (!response.ok) {
-        var error = { status: response.status, reason: response.statusText }
+        const error = { status: response.status, reason: response.statusText }
         return response.json()
           .then(json => { error.reason = json.reason })
           .finally(() => { standardErrorHandler(error) })
@@ -31,7 +31,7 @@ function standardErrorHandler (e) {
   if (e.status === 404) {
     console.warn(`Not found: ${e.message}`)
   } else if (e.status === 401) {
-    window.location.assign("login")
+    window.location.assign('login')
   } else if (e.body) {
     alertErrorHandler(e)
   } else {
@@ -45,14 +45,6 @@ function notFoundErrorHandler (e) {
     window.location.assign('404')
   } else {
     standardErrorHandler(e)
-  }
-}
-
-class HTTPError extends Error {
-  constructor (status, body) {
-    super(`${status}: ${body}`)
-    this.status = status
-    this.body = body
   }
 }
 
