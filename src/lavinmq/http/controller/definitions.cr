@@ -277,6 +277,7 @@ module LavinMQ
           json.array do
             vhosts.each_value do |v|
               v.queues.each_value do |q|
+                next if q.exclusive
                 {
                   "name":        q.name,
                   "vhost":       q.vhost.name,
