@@ -24,16 +24,16 @@ function request (method, path, options = {}) {
 }
 
 function alertErrorHandler (e) {
-  window.alert(e.body || e.message)
+  window.alert(e.body || e.message || e.reason)
 }
 
 function standardErrorHandler (e) {
   if (e.status === 404) {
     console.warn(`Not found: ${e.message}`)
   } else if (e.status === 401) {
-    window.location.assign('login')
-  } else if (e.body) {
-    alertErrorHandler(e)
+    return window.location.assign('login')
+  } else if (e.body || e.message || e.reason) {
+    return alertErrorHandler(e)
   } else {
     console.error(e)
   }
