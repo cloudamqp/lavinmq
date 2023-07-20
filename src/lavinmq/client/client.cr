@@ -24,12 +24,12 @@ module LavinMQ
     getter heartbeat_timeout : UInt16
     getter auth_mechanism : String
     getter client_properties : AMQP::Table
-    # getter log : Log
     getter remote_address : Socket::IPAddress
 
-    @connected_at : Int64
+    @connected_at = RoughTime.unix_ms
+    @channels = Hash(UInt16, Client::Channel).new
+    @exclusive_queues = Array(Queue).new
     @heartbeat_interval_ms : Int64?
-    # @remote_address : Socket::IPAddress
     @local_address : Socket::IPAddress
     @running = true
     @last_recv_frame = RoughTime.monotonic
@@ -57,9 +57,6 @@ module LavinMQ
                           " name=#{name}"
                         end
       @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
-      @connected_at = RoughTime.unix_ms
-      @channels = Hash(UInt16, Client::Channel).new
-      @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
