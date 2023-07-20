@@ -304,18 +304,14 @@ module LavinMQ
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
         @return_unroutable_count += 1
-        msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
+          msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         elsif mandatory
           retrn = AMQP::Frame::Basic::Return.new(@id, 312_u16, "NO_ROUTE", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
-        else
-          @log.debug { "Skipping body of non read message #{msg.body_io.class}" }
-          unless msg.body_io.is_a?(File)
-            msg.body_io.skip(msg.bodysize)
-          end
+          msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         end
       end
 
