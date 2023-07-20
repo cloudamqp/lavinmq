@@ -1,8 +1,8 @@
 ARG build_image=84codes/crystal:latest-fedora-38
 
 FROM $build_image AS builder
-RUN dnf install -y --nodocs --setopt=install_weak_deps=False --repo=fedora,updates \
-    rpmdevtools rpmlint systemd-rpm-macros nodejs-npm make help2man lz4-devel
+RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
+    rpmdevtools rpmlint systemd-rpm-macros /usr/bin/npm make help2man lz4-devel
 RUN rpmdev-setuptree
 COPY lavinmq.spec /root/rpmbuild/SPECS/
 ARG version
