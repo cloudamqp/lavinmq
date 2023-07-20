@@ -32,8 +32,6 @@ module LavinMQ
         end
       rescue ::Channel::ClosedError
         break
-      rescue ex
-        @log.error { "Unexpected exception in expire_loop: #{ex.inspect_with_backtrace}" }
       end
     end
 
