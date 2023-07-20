@@ -2,10 +2,7 @@ require "./shovel"
 
 module LavinMQ
   class ShovelStore
-    @log : Log
-
     def initialize(@vhost : VHost)
-      @log = Log.for "ShovelStore[vhost=#{@vhost.name}]"
       @shovels = Hash(String, Shovel::Runner).new
     end
 
@@ -30,7 +27,7 @@ module LavinMQ
       dest = destination(name, config, ack_mode, delete_after, prefetch)
       shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
       @shovels[name] = shovel
-      spawn(shovel.run, name: "Shovel '#{name}'")
+      spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
       shovel
     rescue KeyError
       raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
@@ -39,7 +36,6 @@ module LavinMQ
     def delete(name)
       if shovel = @shovels.delete name
         shovel.terminate
-        @log.info { "Shovel '#{name}' Deleted" }
         shovel
       end
     end
