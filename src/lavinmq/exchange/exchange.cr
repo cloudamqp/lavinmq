@@ -22,7 +22,6 @@ module LavinMQ
 
     @alternate_exchange : String?
     @delayed_queue : Queue?
-    @log : Log
     @deleted = false
 
     rate_stats({"publish_in", "publish_out", "unroutable"})
@@ -37,14 +36,12 @@ module LavinMQ
       @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
         h[k] = Set(Exchange).new
       end
-      @log = Log.for "exchange[vhost=#{@vhost.name} name=#{@name}]"
       handle_arguments
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       clear_policy
       Policy.merge_definitions(policy, operator_policy).each do |k, v|
-        @log.debug { "Applying policy #{k}: #{v}" }
         # TODO: Support persitent exchange as policy
         case k
         when "alternate-exchange"
@@ -126,7 +123,6 @@ module LavinMQ
       return unless @delayed
       q_name = "amq.delayed.#{@name}"
       raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-      @log.debug { "Declaring delayed queue: #{name}" }
       arguments = Hash(String, AMQP::Field){
         "x-dead-letter-exchange" => @name,
         "auto-delete"            => @auto_delete,
@@ -162,7 +158,6 @@ module LavinMQ
       @deleted = true
       @delayed_queue.try &.delete
       @vhost.delete_exchange(@name)
-      @log.info { "Deleted" }
       notify_observers(:delete)
     end
 
@@ -189,9 +184,7 @@ module LavinMQ
       return false unless x_delay
       x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
       x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
-      should_delay = x_death.nil? || (x_death["queue"]? != "amq.delayed.#{@name}")
-      @log.debug { "should_delay_message? #{should_delay}" }
-      should_delay
+      x_death.nil? || (x_death["queue"]? != "amq.delayed.#{@name}")
     end
 
     def exchange_matches(routing_key : String, headers = nil, &blk : Exchange -> _)
