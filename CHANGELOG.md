@@ -9,9 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [1.1.6] - 2023-07-20
+
+### Added
+
 - Replication support, followers can connect and stream data from a leader in real time, enabling hot-standby use-cases
 - Config variables for free_disk_min and free_disk_warn
 - Support for adding custom properties in `lavinmqperf throughput --properties '{"headers": {"a": 1}}'`
+- Support for random bodies in `lavinmqperf --random-bodies`
 
 ### Changed
 
@@ -24,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Messages larger than frame_max, routed to multiple queues, were only written to the first queue, and corrupted the others
-- Message segments are agressivly unmapped to decrease memory usage
+- Message segments are aggressively unmapped to decrease memory usage
+- Exclusive queues are no longer included in definitions export
+- UI error handling simplified
 
 ## [1.1.5] - 2023-06-23
 
@@ -200,7 +211,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0-beta.9] - 2023-02-22
 
-### Changed 
+### Changed
 
 - Side menu in manager is now more responsive to smaller browser windows [#437](https://github.com/cloudamqp/lavinmq/pull/437)
 - Updated Chart.js version form v2.9.4 to v4.0.1 [#426](https://github.com/cloudamqp/lavinmq/pull/426)
@@ -274,14 +285,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - lavinmqperf queue-churn uses random queue names for parallel runs
 
 ## [1.0.0-beta.6] - 2022-11-10
- 
+
 ### Fixed
 
 - Improved user handling ([#400](https://github.com/cloudamqp/lavinmq/pull/400))
 - BasicRecover w/ requeue should return all unacked messages to the queues ([#398](https://github.com/cloudamqp/lavinmq/pull/398))
 - Don't include basic_get messages when limiting global prefetch
- 
-### Added 
+
+### Added
 
 - Support for AMQP transactions ([#403](https://github.com/cloudamqp/lavinmq/pull/403))
 - support for set_permissions to lavinmqctl ([#397](https://github.com/cloudamqp/lavinmq/pull/397))
@@ -291,7 +302,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Keep same Logger for server restarts ([#399](https://github.com/cloudamqp/lavinmq/pull/399))
 
-
 ## [1.0.0-beta.5] - 2022-11-02
 
 ### Changed
@@ -300,7 +310,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Selects the selected vhost as default when creating queue ([#394](https://github.com/cloudamqp/lavinmq/pull/394)) 
+- Selects the selected vhost as default when creating queue ([#394](https://github.com/cloudamqp/lavinmq/pull/394))
 - Add number of persistent messages in queue response ([#390](https://github.com/cloudamqp/lavinmq/pull/390))
 
 ## [1.0.0-beta.4] - 2022-10-18
@@ -412,6 +422,7 @@ Measure and log time it takes to collect metrics in stats_loop ([#371](https://g
 - Fix stuck deliver_loop by yielding once in a while
 
 ## [1.0.0-alpha.32] - 2021-10-27
+
 ### Added
 
 - On `USR1` print segments referenced by each queue
@@ -421,6 +432,7 @@ Measure and log time it takes to collect metrics in stats_loop ([#371](https://g
 - Added `lavinmqctl` and `lavinmqperf` binaries to Docker images
 - Packages and images built with Crystal 1.2.1 and LLVM 10
 - Keep debug symbols in Docker builds
+
 ### Fixed
 
 - MFile (mmap) unmap pointer bug
@@ -429,10 +441,12 @@ Measure and log time it takes to collect metrics in stats_loop ([#371](https://g
 - Memory reporting on BSD/Mac, value was kbyte but handled as byte
 - Assertions against acking wrong messages
 - Handle IO::Error exceptions in read_loop
+
 ### Changed
 
 - Unix domain socket default location changed to `/dev/shm/lavinmq-http.sock` on Linux
 - Don't log if client EOF on connect, such as healthchecks
+
 ## [1.0.0-alpha.31] - 2021-06-28
 
 ### Fixed
@@ -479,7 +493,7 @@ Measure and log time it takes to collect metrics in stats_loop ([#371](https://g
 
 ### Added
 
-- WebSocket support, for use with https://github.com/cloudamqp/amqp-client.js
+- WebSocket support, for use with <https://github.com/cloudamqp/amqp-client.js>
 
 ### Changed
 
