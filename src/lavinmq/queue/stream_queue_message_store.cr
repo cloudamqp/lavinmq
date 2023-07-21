@@ -46,31 +46,35 @@ module LavinMQ
         end
 
         loop do
-          rfile = @segments[consumer.segment] || @segments.first_value
-
+          rfile = @segments[consumer.segment]
           if consumer.pos == rfile.size # EOF?
-            consumer.segment = select_next_read_segment(consumer) || consumer.segment
+            consumer.segment = next_read_segment(consumer) || return nil
             consumer.pos = 4_u32
             next
           end
-          rfile.pos = consumer.pos
+          Log.debug { "deleted pos in segment=#{@deleted[consumer.segment].size}" }
+          if deleted?(consumer.segment, consumer.pos)
+            rfile.pos = consumer.pos
+            BytesMessage.skip(rfile)
+            consumer.pos = rfile.pos.to_u32
+            next
+          end
 
+          Log.debug { "seg=#{consumer.segment} pos=#{consumer.pos}" }
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
-
+          sp = SegmentPosition.make(consumer.segment, consumer.pos, msg)
+          consumer.pos += sp.bytesize
           msg_offset = offset_from_headers(msg.properties.headers)
-          pos = consumer.pos
-          consumer.pos += msg.bytesize
           next if msg_offset < consumer.offset
           consumer.offset = msg_offset
 
-          sp = SegmentPosition.make(consumer.segment, pos, msg)
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile || @segments[consumer.segment], cause: ex)
         end
       end
 
-      private def select_next_read_segment(consumer) : UInt32?
+      private def next_read_segment(consumer) : UInt32?
         @segments.each_key.find { |sid| sid > consumer.segment }
       end
 
@@ -83,6 +87,21 @@ module LavinMQ
         @size += 1
         @new_messages.try_send? true # push to queue for all consumers
         sp
+      end
+
+      def delete(sp) : Nil
+        super
+        Log.debug { "Deleting #{sp}" }
+        @size -= 1
+        @bytesize -= sp.bytesize
+        pos = sp.position
+        deleted_positions = @deleted[sp.segment]
+        # insert sorted
+        if idx = deleted_positions.bsearch_index { |dpos| dpos >= pos }
+          deleted_positions.insert(idx, pos)
+        else
+          deleted_positions << pos
+        end
       end
 
       def add_offset_header(msg, offset)

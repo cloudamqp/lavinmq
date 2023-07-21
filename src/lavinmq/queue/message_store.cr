@@ -17,7 +17,7 @@ module LavinMQ
     class MessageStore
       Log = ::Log.for("MessageStore")
       @segments = Hash(UInt32, MFile).new
-      @deleted = Hash(UInt32, Array(UInt32)).new
+      @deleted = Hash(UInt32, Array(UInt32)).new { |h, k| h[k] = Array(UInt32).new }
       @segment_msg_count = Hash(UInt32, UInt32).new
       @requeued = Deque(SegmentPosition).new
       @closed = false
