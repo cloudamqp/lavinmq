@@ -71,31 +71,29 @@ describe LavinMQ::StreamQueue do
     # end
 
     it "messages should be removed if max-length set" do
-      opts_max_length = {"x-queue-type" => "stream", "x-max-length" => 10, "durable" => true}
-      tbl_max_length = LavinMQ::AMQP::Table.new(opts_max_length)
+      q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-length": 1})
       q_name = "pub_and_consume_4"
       count = 0
       with_channel do |ch|
-        q = ch.queue(q_name, args: tbl_max_length)
-        ch.prefetch 1
-        50.times do |i|
+        q = ch.queue(q_name, args: q_args)
+        5.times do |i|
           q.publish_confirm "m#{i}"
         end
+        queue_stats = ch.queue_declare(q_name, passive: true)
+        queue_stats[:message_count].should eq 1
       end
 
-      last_header = LavinMQ::AMQP::Table.new({"x-stream-offset" => 0})
       with_channel do |ch|
-        q = ch.queue(q_name, args: tbl_max_length)
+        q = ch.queue(q_name, passive: true)
         ch.prefetch 1
-        subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset" => 0})
-        q.subscribe(args: subscriber_args) do |msg|
+        q.subscribe(args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+          p msg.body_io.to_s
           count += 1
           msg.ack
-          last_header = msg.properties.headers
         end
+        sleep 0.1
+        count.should eq 1
       end
-      count.should eq 10
-      puts last_header
     end
   end
 end
