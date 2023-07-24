@@ -59,7 +59,6 @@ module LavinMQ
             consumer.pos = 4_u32
             next
           end
-          Log.debug { "deleted pos in segment=#{@deleted[consumer.segment].size}" }
           if deleted?(consumer.segment, consumer.pos)
             rfile.pos = consumer.pos
             BytesMessage.skip(rfile)
@@ -67,7 +66,6 @@ module LavinMQ
             next
           end
 
-          Log.debug { "seg=#{consumer.segment} pos=#{consumer.pos}" }
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
           sp = SegmentPosition.make(consumer.segment, consumer.pos, msg)
           consumer.pos += sp.bytesize
