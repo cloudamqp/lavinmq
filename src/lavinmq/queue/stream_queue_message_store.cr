@@ -55,6 +55,7 @@ module LavinMQ
         loop do
           rfile = @segments[consumer.segment]
           if consumer.pos == rfile.size # EOF?
+            rfile.unmap
             consumer.segment = next_read_segment(consumer) || return nil
             consumer.pos = 4_u32
             next
