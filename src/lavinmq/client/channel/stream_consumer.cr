@@ -41,7 +41,7 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if empty?
+          if stream_queue.last_offset <= @offset
             @log.debug { "Waiting for queue not to be empty" }
             select
             when stream_queue.new_messages.receive
@@ -52,11 +52,7 @@ module LavinMQ
           end
         end
 
-        def empty?
-          stream_queue.last_offset <= @offset
-        end
-
-        def stream_queue : StreamQueue
+        private def stream_queue : StreamQueue
           @queue.as(StreamQueue)
         end
 
