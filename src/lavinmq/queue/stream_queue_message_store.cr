@@ -38,15 +38,6 @@ module LavinMQ
         end
       end
 
-      class DefaultPosition
-        include StreamPosition
-
-        private def initialize
-        end
-
-        Instance = self.new
-      end
-
       def shift?(consumer : StreamPosition = DefaultPosition::Instance) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         return if @last_offset <= consumer.offset
 
@@ -133,6 +124,15 @@ module LavinMQ
 
       private def open_ack_file(id, segment_capacity) : MFile?
         nil
+      end
+
+      private class DefaultPosition
+        include StreamPosition
+
+        private def initialize
+        end
+
+        Instance = self.new
       end
     end
   end
