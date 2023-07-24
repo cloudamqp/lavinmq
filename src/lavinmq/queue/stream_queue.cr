@@ -56,19 +56,11 @@ module LavinMQ
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
+    private def get(consumer : StreamPosition, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
-      loop do # retry if msg expired
-        env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || break
-        if has_expired?(env.message) # guarantee to not deliver expired messages
-          expire_msg(env, :expired)
-          next
-        end
-
-        yield env # deliver the message
-        return true
-      end
-      false
+      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
+      yield env # deliver the message
+      true
     rescue ex : MessageStore::Error
       @log.error(exception: ex) { "Queue closed due to error" }
       close
