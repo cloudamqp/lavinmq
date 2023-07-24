@@ -1,3 +1,4 @@
+require "./stdlib/openssl"
 require "./lavinmq/version"
 require "./lavinmq/config"
 require "./lavinmq/http/constants"
