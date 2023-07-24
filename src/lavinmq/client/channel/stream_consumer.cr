@@ -1,16 +1,15 @@
 require "log"
+require "./consumer"
+require "../../segment_position"
 require "../../sortable_json"
 require "../../error"
+require "../../queue/stream_queue_message_store"
 
 module LavinMQ
   class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        property segment = 1_u32
-        property offset = 0_i64
-        property pos = 4_u32
-        getter requeued = Deque(SegmentPosition).new
-        property segment, pos, offset
+        include StreamQueue::StreamPosition
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
           @offset = stream_offset(@frame)

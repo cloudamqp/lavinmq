@@ -361,7 +361,9 @@ module LavinMQ
       end
 
       private def deleted?(seg, pos) : Bool
+        Log.debug { "deleted: #{@deleted}" }
         if del = @deleted[seg]?
+          Log.debug { "deleted poss: #{del} is=#{pos} there?" }
           del.bsearch { |dpos| dpos >= pos } == pos
         else
           false

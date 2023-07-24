@@ -3,6 +3,13 @@ require "../client/channel/consumer"
 
 module LavinMQ
   class StreamQueue < Queue
+    module StreamPosition
+      property segment = 1_u32
+      property offset = 0_i64
+      property pos = 4_u32
+      getter requeued = Deque(SegmentPosition).new
+    end
+
     class StreamQueueMessageStore < MessageStore
       getter last_offset = 0_i64
       getter new_messages = Channel(Bool).new
@@ -31,7 +38,16 @@ module LavinMQ
         end
       end
 
-      def shift?(consumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      class DefaultPosition
+        include StreamPosition
+
+        private def initialize
+        end
+
+        Instance = self.new
+      end
+
+      def shift?(consumer : StreamPosition = DefaultPosition::Instance) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         return if @last_offset <= consumer.offset
 
         raise ClosedError.new if @closed
