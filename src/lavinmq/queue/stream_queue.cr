@@ -1,6 +1,5 @@
 require "./durable_queue"
 require "./stream_queue_message_store"
-require "../client/channel/consumer"
 
 module LavinMQ
   class StreamQueue < Queue
@@ -10,12 +9,20 @@ module LavinMQ
       stream_queue_msg_store.new_messages
     end
 
+    private def message_expire_loop
+      # StreamQueues doesn't handle message expiration
+    end
+
+    private def queue_expire_loop
+      # StreamQueues doesn't handle queue expiration
+    end
+
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
       @msg_store = StreamQueueMessageStore.new(data_dir, replicator)
     end
 
-    def stream_queue_msg_store : StreamQueueMessageStore
+    private def stream_queue_msg_store : StreamQueueMessageStore
       @msg_store.as(StreamQueueMessageStore)
     end
 
@@ -39,7 +46,7 @@ module LavinMQ
       false
     end
 
-    def consume_get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
+    def consume_get(consumer : StreamPosition, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
