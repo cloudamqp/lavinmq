@@ -678,7 +678,7 @@ module LavinMQ
 
     # If nil is returned it means that the delivery limit is reached
     def consume_get(consumer, & : Envelope -> Nil) : Bool
-      get(consumer.no_ack) do |env|
+      get(consumer.no_ack?) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -815,7 +815,7 @@ module LavinMQ
           notify_consumers_empty(false)
         end
       end
-      @exclusive_consumer = true if consumer.exclusive
+      @exclusive_consumer = true if consumer.exclusive?
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
@@ -830,7 +830,7 @@ module LavinMQ
         deleted = @consumers.delete consumer
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
         if deleted
-          @exclusive_consumer = false if consumer.exclusive
+          @exclusive_consumer = false if consumer.exclusive?
           @log.debug { "Removing consumer with #{consumer.unacked} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }

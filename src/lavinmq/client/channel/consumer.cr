@@ -9,8 +9,8 @@ module LavinMQ
         include SortableJSON
         getter tag : String
         getter priority : Int32
-        getter exclusive : Bool
-        getter no_ack : Bool
+        getter? exclusive : Bool
+        getter? no_ack : Bool
         getter channel, queue
         getter prefetch_count = 0u16
         getter unacked = 0_u32

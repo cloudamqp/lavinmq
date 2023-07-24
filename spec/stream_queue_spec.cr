@@ -54,7 +54,7 @@ describe LavinMQ::StreamQueue do
         end
 
         ch.prefetch 1
-        2.times do |i|
+        2.times do
           subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset" => 0})
           q.subscribe(args: subscriber_args) do |msg|
             count += 1
@@ -87,7 +87,6 @@ describe LavinMQ::StreamQueue do
         q = ch.queue(q_name, passive: true)
         ch.prefetch 1
         q.subscribe(args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
-          p msg.body_io.to_s
           count += 1
           msg.ack
         end
