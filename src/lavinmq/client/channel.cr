@@ -352,9 +352,6 @@ module LavinMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          unless frame.no_wait
-            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
-          end
           c = if q.is_a? StreamQueue
                 StreamConsumer.new(self, q, frame)
               else
@@ -362,6 +359,9 @@ module LavinMQ
               end
           @consumers.push(c)
           q.add_consumer(c)
+          unless frame.no_wait
+            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+          end
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
