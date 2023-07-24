@@ -60,12 +60,9 @@ module LavinMQ
           @queue.as(StreamQueue)
         end
 
-        def reject(unack, requeue)
-          @requeued.push(unack.sp) if requeue
-        end
-
-        def requeue(sp)
-          @requeued.push sp
+        def reject(sp, requeue : Bool)
+          super
+          @requeued.push(sp) if requeue
         end
 
         private def stream_offset(frame) : Int64?

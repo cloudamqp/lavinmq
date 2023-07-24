@@ -568,7 +568,7 @@ module LavinMQ
 
       private def do_reject(requeue, unack)
         if c = unack.consumer
-          c.reject(unack, requeue)
+          c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
@@ -599,7 +599,7 @@ module LavinMQ
             @unacked.each do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
-                consumer.reject(unack)
+                consumer.reject(unack.sp, requeue: true)
               end
               unack.queue.reject(unack.sp, requeue: true)
             end

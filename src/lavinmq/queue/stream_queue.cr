@@ -5,8 +5,6 @@ require "../client/channel/consumer"
 module LavinMQ
   class StreamQueue < Queue
     @durable = true
-    @exclusive_consumer = false
-    @no_ack = true
 
     def new_messages : Channel(Bool)
       stream_queue_msg_store.new_messages
