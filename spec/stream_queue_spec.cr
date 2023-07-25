@@ -8,7 +8,7 @@ describe LavinMQ::StreamQueue do
   describe "Consume" do
     it "should get message with offset 2" do
       q_name = "pub_and_consume"
-      header = LavinMQ::AMQP::Table.new({"x-stream-offset" => 2})
+      header = LavinMQ::AMQP::Table.new({"x-stream-offset": 2})
       with_channel do |ch|
         q = ch.queue(q_name, args: tbl)
         10.times do |i|
@@ -16,7 +16,7 @@ describe LavinMQ::StreamQueue do
         end
 
         ch.prefetch 1
-        subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset" => 2})
+        subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset": 2})
         tag = q.subscribe(no_ack: true, args: subscriber_args) do |msg|
           msg.properties.headers.should eq header
         end

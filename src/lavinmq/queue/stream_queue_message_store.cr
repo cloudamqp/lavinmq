@@ -70,6 +70,7 @@ module LavinMQ
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
           sp = SegmentPosition.make(consumer.segment, consumer.pos, msg)
           consumer.pos += sp.bytesize
+          # FIXME: once we've reached the offset there's no need to read it again
           msg_offset = offset_from_headers(msg.properties.headers)
           next if msg_offset < consumer.offset
           consumer.offset = msg_offset
@@ -86,12 +87,11 @@ module LavinMQ
 
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
-        offset = @last_offset += 1
-        msg = add_offset_header(msg, offset)
+        msg = add_offset_header(msg, @last_offset += 1)
         sp = write_to_disk(msg)
         @bytesize += sp.bytesize
         @size += 1
-        @new_messages.try_send? true # push to queue for all consumers
+        @new_messages.try_send? true
         sp
       end
 
@@ -110,19 +110,17 @@ module LavinMQ
         end
       end
 
-      def add_offset_header(msg, offset)
-        headers = msg.properties.headers || @offset_header
-        headers["x-stream-offset"] = offset.as(AMQ::Protocol::Field)
-        msg.properties.headers = headers
+      private def add_offset_header(msg, offset : Int64)
+        if headers = msg.properties.headers
+          headers["x-stream-offset"] = offset
+        else
+          msg.properties.headers = ::AMQ::Protocol::Table.new({"x-stream-offset": offset})
+        end
         msg
       end
 
-      def offset_from_headers(headers)
-        headers ? headers["x-stream-offset"].as(Int64) : 0_i64
-      end
-
-      private def open_ack_file(id, segment_capacity) : MFile?
-        nil
+      private def offset_from_headers(headers) : Int64
+        headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
       end
 
       private class DefaultPosition

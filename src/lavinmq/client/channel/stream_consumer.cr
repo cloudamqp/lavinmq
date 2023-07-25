@@ -61,22 +61,15 @@ module LavinMQ
           @requeued.push(sp) if requeue
         end
 
-        private def stream_offset(frame) : Int64?
-          offset = 0_i64
-          if offset_arg = frame.arguments["x-stream-offset"]?
-            case offset_arg     # TODO: support timestamps
-            when "first"        # offset = 0
-            when "next", "last" # last should be last "chunk", but we don't support that yet
-              offset = stream_queue.last_offset
-            when offset_int = offset_arg.as?(Int)
-              offset = (offset_int || 0).to_i64 # FIX ME!
-            else
-              raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
-            end
+        private def stream_offset(frame) : Int64
+          case offset = frame.arguments["x-stream-offset"]?
+          when Nil, "first"   then 0i64
+          when "next", "last" then stream_queue.last_offset
+          when Int            then offset.to_i64
+            # TODO: support timestamps
           else
-            offset = stream_queue.last_offset
+            raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
           end
-          offset
         end
       end
     end

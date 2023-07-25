@@ -29,10 +29,6 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
     end
 
-    def offset : UInt64?
-      @properties.headers.try(&.fetch("x-stream-offset", nil).as?(UInt64))
-    end
-
     def dlrk : String?
       @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
     end
@@ -41,6 +37,10 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
     rescue OverflowError
       nil
+    end
+
+    def offset : UInt64?
+      @properties.headers.try(&.fetch("x-stream-offset", nil).as?(UInt64))
     end
 
     def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt64
