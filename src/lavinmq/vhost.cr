@@ -24,21 +24,18 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, gc_runs, gc_timing, users
+      direct_reply_consumers, connections, dir, users
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @gc_loop = Channel(Nil).new(1)
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
-    @gc_runs = 0
-    @gc_timing = Hash(String, Float64).new { |h, k| h[k] = 0 }
     @log : Log
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)

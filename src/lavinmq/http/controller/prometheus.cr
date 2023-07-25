@@ -244,21 +244,6 @@ module LavinMQ
                       value: @amqp_server.stats_system_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
-        vhosts.each do |vhost|
-          labels = {name: vhost.name}
-          writer.write({name:   "gc_runs_total",
-                        value:  vhost.gc_runs,
-                        labels: labels,
-                        type:   "counter",
-                        help:   "Number of GC runs"})
-          vhost.gc_timing.each do |k, v|
-            writer.write({name:   "gc_time_#{k.downcase.tr(" ", "_")}",
-                          value:  v,
-                          labels: labels,
-                          type:   "counter",
-                          help:   "GC time spent in #{k}"})
-          end
-        end
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
