@@ -12,3 +12,4 @@ shard.override.yml
 config.ini
 *.pem
 perf.data*
+massif.*
