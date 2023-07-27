@@ -62,9 +62,9 @@ module LavinMQ
 
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
-          consumer.pos += sp.bytesize
           msg_offset = offset_from_headers(msg.properties.headers)
           break if msg_offset >= consumer.offset
+          consumer.pos += sp.bytesize
         rescue ex
           raise Error.new(rfile || @segments[consumer.segment], cause: ex)
         end
