@@ -41,7 +41,6 @@ module LavinMQ
 
       # Used once when a consumer is started, populates `segment` and `position` by iterating through segments
       def find_offset(consumer : StreamPosition = DefaultPosition::Instance) : Nil
-        Log.info { "Looking for offset #{consumer.offset} for #{consumer}" }
         raise ClosedError.new if @closed
         raise "Consumer should not have requeued msgs at this point" unless consumer.requeued.empty?
         return if @last_offset <= consumer.offset
