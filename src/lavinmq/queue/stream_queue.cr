@@ -9,6 +9,10 @@ module LavinMQ
       stream_queue_msg_store.new_messages
     end
 
+    def find_offset(consumer : StreamPosition = DefaultPosition::Instance) : Nil
+      stream_queue_msg_store.find_offset(consumer)
+    end
+
     private def message_expire_loop
       # StreamQueues doesn't handle message expiration
     end

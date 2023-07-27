@@ -11,7 +11,7 @@ module LavinMQ
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @has_dlx : Bool, @priority : UInt8, @delay : UInt32)
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @has_dlx = false, @priority = 0u8, @delay = 0u32)
     end
 
     def self.make(segment : UInt32, position : UInt32, msg)
@@ -38,7 +38,7 @@ module LavinMQ
     def self.from_i64(i : Int64)
       seg = i.bits(32..)
       pos = i.bits(0..31)
-      SegmentPosition.new(seg.to_u32, pos.to_u32, 0u32, false, 0u8, 0u32)
+      SegmentPosition.new(seg.to_u32, pos.to_u32, 0u32)
     end
   end
 end
