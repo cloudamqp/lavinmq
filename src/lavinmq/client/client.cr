@@ -407,9 +407,9 @@ module LavinMQ
           send AMQP::Frame::Heartbeat.new
         end
       end
-    rescue frame : Error::UnexpectedFrame
-      @log.error { "#{frame.inspect}, unexpected frame" }
-      close_channel(frame, 505_u16, "UNEXPECTED_FRAME")
+    rescue ex : Error::UnexpectedFrame
+      @log.error { ex.inspect }
+      close_channel(ex.frame, 505_u16, "UNEXPECTED_FRAME - #{ex.frame.class.name}")
     end
 
     private def cleanup
@@ -444,7 +444,7 @@ module LavinMQ
       !@running
     end
 
-    def close_channel(frame, code, text)
+    def close_channel(frame : AMQ::Protocol::Frame, code, text)
       return close_connection(frame, code, text) if frame.channel.zero?
       case frame
       when AMQ::Protocol::Frame::Method
@@ -455,7 +455,7 @@ module LavinMQ
       @channels.delete(frame.channel).try &.close
     end
 
-    def close_connection(frame, code, text)
+    def close_connection(frame : AMQ::Protocol::Frame?, code, text)
       @log.info { "Closing, #{text}" }
       case frame
       when AMQ::Protocol::Frame::Method
