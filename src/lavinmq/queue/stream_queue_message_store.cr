@@ -13,7 +13,6 @@ module LavinMQ
     class StreamQueueMessageStore < MessageStore
       getter last_offset = 0_i64
       getter new_messages = Channel(Bool).new
-      @offset_header = ::AMQ::Protocol::Table.new({"x-stream-offset" => 0_i64.as(AMQ::Protocol::Field)})
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
