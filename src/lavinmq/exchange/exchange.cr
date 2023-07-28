@@ -42,7 +42,6 @@ module LavinMQ
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       clear_policy
       Policy.merge_definitions(policy, operator_policy).each do |k, v|
-        # TODO: Support persitent exchange as policy
         case k
         when "alternate-exchange"
           @alternate_exchange ||= v.as_s?
