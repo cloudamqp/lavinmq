@@ -45,8 +45,9 @@ module LavinMQ
       raise ex
     end
 
+    # Stream queues does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      raise NotImplementedError.new("Stream queues does not support basic_get")
+      false
     end
 
     def consume_get(consumer : StreamPosition, & : Envelope -> Nil) : Bool
