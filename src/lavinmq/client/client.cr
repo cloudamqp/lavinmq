@@ -488,9 +488,20 @@ module LavinMQ
       close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
     end
 
-    def send_not_implemented(frame)
-      @log.error { "#{frame.inspect}, not implemented" }
-      close_connection(frame, 540_u16, "NOT_IMPLEMENTED")
+    def send_not_implemented(frame, text = nil)
+      @log.error { "#{frame.inspect}, not implemented reason=\"#{text}\"" }
+      close_channel(frame, 540_u16, "NOT_IMPLEMENTED - #{text}")
+    end
+
+    def send_not_implemented(ex : AMQ::Protocol::Error::NotImplemented)
+      text = "NOT_IMPLEMENTED"
+      if ex.channel.zero?
+        send AMQP::Frame::Connection::Close.new(540, text, ex.class_id, ex.method_id)
+        @running = false
+      else
+        send AMQP::Frame::Channel::Close.new(ex.channel, 540, text, ex.class_id, ex.method_id)
+        @channels.delete(ex.channel).try &.close
+      end
     end
 
     def send_internal_error(message)
