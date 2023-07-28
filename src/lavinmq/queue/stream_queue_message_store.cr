@@ -46,9 +46,9 @@ module LavinMQ
         return if @last_offset <= consumer.offset
         # Requeue will be empty
         loop do
-          rfile = @segments[consumer.segment]
-          if consumer.pos == rfile.size # EOF?
-            rfile.unmap
+          rfile = @segments[consumer.segment]?
+          if rfile.nil? || consumer.pos == rfile.size
+            rfile.unmap if rfile
             consumer.segment = next_read_segment(consumer) || return nil
             consumer.pos = 4_u32
             next
@@ -66,7 +66,11 @@ module LavinMQ
           break if msg_offset >= consumer.offset
           consumer.pos += sp.bytesize
         rescue ex
-          raise Error.new(rfile || @segments[consumer.segment], cause: ex)
+          if rfile
+            raise Error.new(rfile, cause: ex)
+          else
+            raise ex
+          end
         end
       end
 
@@ -85,9 +89,9 @@ module LavinMQ
         end
 
         loop do
-          rfile = @segments[consumer.segment]
-          if consumer.pos == rfile.size # EOF?
-            rfile.unmap
+          rfile = @segments[consumer.segment]?
+          if rfile.nil? || consumer.pos == rfile.size
+            rfile.unmap if rfile
             consumer.segment = next_read_segment(consumer) || return nil
             consumer.pos = 4_u32
             next
@@ -100,7 +104,11 @@ module LavinMQ
 
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
-          raise Error.new(rfile || @segments[consumer.segment], cause: ex)
+          if rfile
+            raise Error.new(rfile, cause: ex)
+          else
+            raise ex
+          end
         end
       end
 
