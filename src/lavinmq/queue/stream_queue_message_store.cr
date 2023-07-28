@@ -132,12 +132,14 @@ module LavinMQ
         super
       end
 
+      # Drop full segments when max_length or max_length_bytes are met
       private def drop_overflow
         if ml = @max_length
           total_msgs = @segment_msg_count.each_value.sum
           @segment_msg_count.reject! do |seg_id, count|
             break if ml >= total_msgs
             total_msgs -= count
+            break if total_msgs < ml # don't drop below max length
             @segments.delete(seg_id).try &.delete.close
             true
           end
@@ -148,6 +150,7 @@ module LavinMQ
           @segments.reject! do |seg_id, mfile|
             break if mlb >= total_bytes
             total_bytes -= mfile.size
+            break if total_bytes < mlb # don't drop below max length bytes
             mfile.delete.close
             @segment_msg_count.delete(seg_id)
             true
