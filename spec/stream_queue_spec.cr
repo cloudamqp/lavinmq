@@ -2,8 +2,7 @@ require "./spec_helper"
 require "./../src/lavinmq/queue"
 
 describe LavinMQ::StreamQueue do
-  opts = {"x-queue-type" => "stream"}
-  tbl = LavinMQ::AMQP::Table.new(opts)
+  tbl = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
   describe "Consume" do
     it "should get message with offset 2" do
@@ -34,7 +33,7 @@ describe LavinMQ::StreamQueue do
         end
 
         ch2.prefetch 1
-        subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset" => 0})
+        subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset": 0})
 
         q.subscribe(args: subscriber_args) do |msg|
           count += 1
@@ -55,7 +54,7 @@ describe LavinMQ::StreamQueue do
 
         ch.prefetch 1
         2.times do
-          subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset" => 0})
+          subscriber_args = AMQP::Client::Arguments.new({"x-stream-offset": 0})
           q.subscribe(args: subscriber_args) do |msg|
             count += 1
             msg.ack
