@@ -13,6 +13,8 @@ module LavinMQ
     class StreamQueueMessageStore < MessageStore
       getter last_offset = 0_i64
       getter new_messages = Channel(Bool).new
+      property max_length : Int32? = nil
+      property max_length_bytes : Int64? = nil
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
@@ -123,6 +125,34 @@ module LavinMQ
         @size += 1
         @new_messages.try_send? true
         sp
+      end
+
+      private def open_new_segment(next_msg_size = 0) : MFile
+        drop_overflow
+        super
+      end
+
+      private def drop_overflow
+        if ml = @max_length
+          total_msgs = @segment_msg_count.each_value.sum
+          @segment_msg_count.reject! do |seg_id, count|
+            break if ml >= total_msgs
+            total_msgs -= count
+            @segments.delete(seg_id).try &.delete.close
+            true
+          end
+        end
+
+        if mlb = @max_length_bytes
+          total_bytes = @segments.each_value.sum &.size
+          @segments.reject! do |seg_id, mfile|
+            break if mlb >= total_bytes
+            total_bytes -= mfile.size
+            mfile.delete.close
+            @segment_msg_count.delete(seg_id)
+            true
+          end
+        end
       end
 
       def delete(sp) : Nil

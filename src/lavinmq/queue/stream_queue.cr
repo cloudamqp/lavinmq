@@ -81,6 +81,10 @@ module LavinMQ
       stream_queue_msg_store.last_offset
     end
 
+    private def drop_overflow : Nil
+      # Overflow handling is done in StreamQueueMessageStore#push
+    end
+
     private def handle_arguments
       super
       if @dlx
