@@ -94,4 +94,16 @@ describe LavinMQ::StreamQueue do
       end
     end
   end
+
+  it "doesn't support basic_get" do
+    q_name = "stream_basic_get"
+    with_channel do |ch|
+      q = ch.queue(q_name, args: tbl)
+      q.publish_confirm "foobar"
+
+      expect_raises(AMQP::Client::Channel::ClosedException, /NOT_IMPLEMENTED.*basic_get/) do
+        ch.basic_get(q_name, no_ack: false)
+      end
+    end
+  end
 end
