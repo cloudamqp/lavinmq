@@ -5,6 +5,20 @@ module LavinMQ
   class StreamQueue < Queue
     @durable = true
 
+    private def handle_arguments
+      super
+      stream_queue_msg_store.max_length = @max_length
+      stream_queue_msg_store.max_length_bytes = @max_length_bytes
+      stream_queue_msg_store.drop_overflow
+    end
+
+    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+      super
+      stream_queue_msg_store.max_length = @max_length
+      stream_queue_msg_store.max_length_bytes = @max_length_bytes
+      stream_queue_msg_store.drop_overflow
+    end
+
     def new_messages : Channel(Bool)
       stream_queue_msg_store.new_messages
     end

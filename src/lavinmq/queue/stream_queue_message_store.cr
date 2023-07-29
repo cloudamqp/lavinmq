@@ -13,17 +13,18 @@ module LavinMQ
     class StreamQueueMessageStore < MessageStore
       getter last_offset = 0_i64
       getter new_messages = Channel(Bool).new
-      property max_length : Int32? = nil
+      property max_length : Int64? = nil
       property max_length_bytes : Int64? = nil
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
-        set_last_offset
+        @last_offset = get_last_offset
         find_offset
+        drop_overflow
       end
 
-      # Set last_offset to last message offset
-      private def set_last_offset : Nil
+      private def get_last_offset : Int64
+        return 0i64 if @size.zero?
         bytesize = 0_u32
         mfile = @segments.last_value
         loop do
@@ -32,32 +33,24 @@ module LavinMQ
           break
         end
 
-        begin
-          mfile.seek(mfile.pos - bytesize, IO::Seek::Set)
-          msg = BytesMessage.from_bytes(mfile.to_slice + mfile.pos)
-          @last_offset = offset_from_headers(msg.properties.headers)
-        rescue IndexError
-        end
+        mfile.seek(mfile.pos - bytesize, IO::Seek::Set)
+        msg = BytesMessage.from_bytes(mfile.to_slice + mfile.pos)
+        offset_from_headers(msg.properties.headers)
       end
 
-      # Used once when a consumer is started, populates `segment` and `position` by iterating through segments
+      # Used once when a consumer is started
+      # Populates `segment` and `position` by iterating through segments
+      # until `offset` is found
       def find_offset(consumer : StreamPosition = DefaultPosition::Instance) : Nil
         raise ClosedError.new if @closed
-        raise "Consumer should not have requeued msgs at this point" unless consumer.requeued.empty?
         return if @last_offset <= consumer.offset
-        # Requeue will be empty
+        raise "Consumer should not have requeued msgs at this point" unless consumer.requeued.empty?
         loop do
           rfile = @segments[consumer.segment]?
           if rfile.nil? || consumer.pos == rfile.size
             rfile.unmap if rfile
             consumer.segment = next_read_segment(consumer) || return nil
             consumer.pos = 4_u32
-            next
-          end
-          if deleted?(consumer.segment, consumer.pos)
-            rfile.pos = consumer.pos
-            BytesMessage.skip(rfile)
-            consumer.pos = rfile.pos.to_u32
             next
           end
 
@@ -67,15 +60,11 @@ module LavinMQ
           break if msg_offset >= consumer.offset
           consumer.pos += sp.bytesize
         rescue ex
-          if rfile
-            raise Error.new(rfile, cause: ex)
-          else
-            raise ex
-          end
+          raise rfile ? Error.new(rfile, cause: ex) : ex
         end
       end
 
-      def shift?(consumer : StreamPosition = DefaultPosition::Instance) : Envelope?
+      def shift?(consumer : StreamPosition = DefaultPosition::Instance) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         return if @last_offset <= consumer.offset
 
@@ -105,11 +94,7 @@ module LavinMQ
 
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex
-          if rfile
-            raise Error.new(rfile, cause: ex)
-          else
-            raise ex
-          end
+          raise rfile ? Error.new(rfile, cause: ex) : ex
         end
       end
 
@@ -132,42 +117,34 @@ module LavinMQ
         super
       end
 
-      private def drop_overflow
+      def drop_overflow
         if ml = @max_length
-          total_msgs = @segment_msg_count.each_value.sum
-          @segment_msg_count.reject! do |seg_id, count|
-            break if ml >= total_msgs
-            total_msgs -= count
-            @segments.delete(seg_id).try &.delete.close
+          @segments.reject! do |seg_id, mfile|
+            break if ml >= @size || mfile == @wfile
+            count = @segment_msg_count.delete(seg_id) || raise KeyError.new
+            @size -= count
+            @bytesize -= mfile.size
+            mfile.delete.close
+            @replicator.try &.delete_file(mfile.path)
             true
           end
         end
 
         if mlb = @max_length_bytes
-          total_bytes = @segments.each_value.sum &.size
           @segments.reject! do |seg_id, mfile|
-            break if mlb >= total_bytes
-            total_bytes -= mfile.size
+            break if mlb >= @bytesize || mfile == @wfile
+            count = @segment_msg_count.delete(seg_id) || raise KeyError.new
+            @size -= count
+            @bytesize -= mfile.size
             mfile.delete.close
-            @segment_msg_count.delete(seg_id)
+            @replicator.try &.delete_file(mfile.path)
             true
           end
         end
       end
 
       def delete(sp) : Nil
-        super
-        Log.debug { "Deleting #{sp}" }
-        @size -= 1
-        @bytesize -= sp.bytesize
-        pos = sp.position
-        deleted_positions = @deleted[sp.segment]
-        # insert sorted
-        if idx = deleted_positions.bsearch_index { |dpos| dpos >= pos }
-          deleted_positions.insert(idx, pos)
-        else
-          deleted_positions << pos
-        end
+        raise "Only full segments should be deleted"
       end
 
       private def add_offset_header(msg, offset : Int64)

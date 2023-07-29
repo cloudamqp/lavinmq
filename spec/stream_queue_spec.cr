@@ -66,31 +66,31 @@ describe LavinMQ::StreamQueue do
   end
 
   describe "Expiration" do
-    # it "messages should expire with time" do
-    # end
-
-    it "messages should be removed if max-length set" do
-      q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-length": 1})
+    it "segments should be removed if max-length set" do
       q_name = "pub_and_consume_4"
-      count = 0
       with_channel do |ch|
-        q = ch.queue(q_name, args: q_args)
-        5.times do |i|
-          q.publish_confirm "m#{i}"
+        args = {"x-queue-type": "stream", "x-max-length": 1}
+        q = ch.queue(q_name, args: AMQP::Client::Arguments.new(args))
+        data = Bytes.new(1_000_000)
+        10.times do
+          q.publish_confirm data
         end
-        queue_stats = ch.queue_declare(q_name, passive: true)
-        queue_stats[:message_count].should eq 1
+        count = ch.queue_declare(q_name, passive: true)[:message_count]
+        count.should be < 10
       end
+    end
 
+    it "segments should be removed if max-length-bytes set" do
+      q_name = "pub_and_consume_4"
       with_channel do |ch|
-        q = ch.queue(q_name, passive: true)
-        ch.prefetch 1
-        q.subscribe(args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
-          count += 1
-          msg.ack
+        args = {"x-queue-type": "stream", "x-max-length-bytes": 100_000}
+        q = ch.queue(q_name, args: AMQP::Client::Arguments.new(args))
+        data = Bytes.new(100_000)
+        20.times do
+          q.publish_confirm data
         end
-        sleep 0.1
-        count.should eq 1
+        count = ch.queue_declare(q_name, passive: true)[:message_count]
+        count.should be < 20
       end
     end
   end
