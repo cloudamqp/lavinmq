@@ -1,5 +1,4 @@
 require "./durable_queue"
-require "../client/channel/consumer"
 
 module LavinMQ
   class StreamQueue < Queue
@@ -19,7 +18,6 @@ module LavinMQ
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
         @last_offset = get_last_offset
-        find_offset
         drop_overflow
       end
 
@@ -41,30 +39,36 @@ module LavinMQ
       # Used once when a consumer is started
       # Populates `segment` and `position` by iterating through segments
       # until `offset` is found
-      def find_offset(consumer : StreamPosition = DefaultPosition::Instance) : Nil
+      def find_offset(offset : Int64) : Tuple(UInt32, UInt32)
         raise ClosedError.new if @closed
-        return if @last_offset <= consumer.offset
-        raise "Consumer should not have requeued msgs at this point" unless consumer.requeued.empty?
+        if @last_offset <= offset
+          segment = @segments.last_key
+          pos = @segments.last_value.size.to_u32
+          return {segment, pos}
+        end
+        segment = @segments.first_key
+        pos = 4_u32
         loop do
-          rfile = @segments[consumer.segment]?
-          if rfile.nil? || consumer.pos == rfile.size
+          rfile = @segments[segment]?
+          if rfile.nil? || pos == rfile.size
             rfile.unmap if rfile
-            consumer.segment = next_read_segment(consumer) || return nil
-            consumer.pos = 4_u32
+            segment = next_read_segment(segment) || break
+            pos = 4_u32
             next
           end
 
-          msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
-          sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
+          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+          sp = SegmentPosition.new(segment, pos, msg.bytesize.to_u32)
           msg_offset = offset_from_headers(msg.properties.headers)
-          break if msg_offset >= consumer.offset
-          consumer.pos += sp.bytesize
+          break if msg_offset >= offset
+          pos += sp.bytesize
         rescue ex
           raise rfile ? Error.new(rfile, cause: ex) : ex
         end
+        {segment, pos}
       end
 
-      def shift?(consumer : StreamPosition = DefaultPosition::Instance) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer : StreamPosition) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         return if @last_offset <= consumer.offset
 
@@ -82,7 +86,7 @@ module LavinMQ
           rfile = @segments[consumer.segment]?
           if rfile.nil? || consumer.pos == rfile.size
             rfile.unmap if rfile
-            consumer.segment = next_read_segment(consumer) || return nil
+            consumer.segment = next_read_segment(consumer.segment) || return nil
             consumer.pos = 4_u32
             next
           end
@@ -98,8 +102,8 @@ module LavinMQ
         end
       end
 
-      private def next_read_segment(consumer) : UInt32?
-        @segments.each_key.find { |sid| sid > consumer.segment }
+      private def next_read_segment(segment) : UInt32?
+        @segments.each_key.find { |sid| sid > segment }
       end
 
       def push(msg) : SegmentPosition
@@ -158,14 +162,6 @@ module LavinMQ
 
       private def offset_from_headers(headers) : Int64
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
-      end
-
-      private class DefaultPosition
-        include StreamPosition
-
-        private def initialize; end
-
-        Instance = self.new
       end
     end
   end

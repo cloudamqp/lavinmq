@@ -5,13 +5,6 @@ module LavinMQ
   class StreamQueue < Queue
     @durable = true
 
-    private def handle_arguments
-      super
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
-    end
-
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       super
       stream_queue_msg_store.max_length = @max_length
@@ -23,8 +16,8 @@ module LavinMQ
       stream_queue_msg_store.new_messages
     end
 
-    def find_offset(consumer : StreamPosition = DefaultPosition::Instance) : Nil
-      stream_queue_msg_store.find_offset(consumer)
+    def find_offset(offset : Int64) : Tuple(UInt32, UInt32)
+      stream_queue_msg_store.find_offset(offset)
     end
 
     private def message_expire_loop
@@ -51,7 +44,6 @@ module LavinMQ
         @msg_store.push(msg)
         @publish_count += 1
       end
-      drop_overflow
       true
     rescue ex : MessageStore::Error
       @log.error(exception: ex) { "Queue closed due to error" }
@@ -96,7 +88,7 @@ module LavinMQ
     end
 
     private def drop_overflow : Nil
-      # Overflow handling is done in StreamQueueMessageStore#push
+      # Overflow handling is done in StreamQueueMessageStore
     end
 
     private def handle_arguments
@@ -119,6 +111,9 @@ module LavinMQ
       if @single_active_consumer_queue
         raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for stream queues")
       end
+      stream_queue_msg_store.max_length = @max_length
+      stream_queue_msg_store.max_length_bytes = @max_length_bytes
+      stream_queue_msg_store.drop_overflow
     end
   end
 end

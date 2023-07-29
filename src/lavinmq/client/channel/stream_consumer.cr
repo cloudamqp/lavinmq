@@ -13,7 +13,7 @@ module LavinMQ
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
           @offset = stream_offset(@frame)
-          stream_queue.find_offset(self)
+          @segment, @pos = stream_queue.find_offset(@offset)
           super
         end
 
