@@ -41,7 +41,7 @@ module LavinMQ
 
         def prefetch_count=(prefetch_count : UInt16)
           @prefetch_count = prefetch_count
-          notify_hash_capacity(@prefetch_count > @unacked)
+          notify_has_capacity(@prefetch_count > @unacked)
         end
 
         private def deliver_loop
@@ -177,7 +177,7 @@ module LavinMQ
 
         getter has_capacity = ::Channel(Bool).new
 
-        private def notify_hash_capacity(value)
+        private def notify_has_capacity(value)
           while @has_capacity.try_send? value
           end
         end
@@ -185,7 +185,7 @@ module LavinMQ
         def deliver(msg, sp, redelivered = false, recover = false)
           unless @no_ack || recover
             @unacked += 1
-            notify_hash_capacity(false) if @unacked == @prefetch_count
+            notify_has_capacity(false) if @unacked == @prefetch_count
           end
           persistent = msg.properties.delivery_mode == 2_u8
           # @log.debug { "Getting delivery tag" }
@@ -201,13 +201,13 @@ module LavinMQ
         def ack(sp)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notify_hash_capacity(true) if was_full
+          notify_has_capacity(true) if was_full
         end
 
         def reject(sp)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notify_hash_capacity(true) if was_full
+          notify_has_capacity(true) if was_full
         end
 
         def cancel
