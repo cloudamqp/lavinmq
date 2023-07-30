@@ -52,7 +52,7 @@ module LavinMQ
           rfile = @segments[segment]?
           if rfile.nil? || pos == rfile.size
             rfile.unmap if rfile
-            segment = next_read_segment(segment) || break
+            segment = @segments.each_key.find { |sid| sid > segment } || break
             pos = 4_u32
             next
           end
@@ -68,9 +68,8 @@ module LavinMQ
         {segment, pos}
       end
 
-      def shift?(consumer : StreamPosition) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer : StreamPosition) : Envelope?
         raise ClosedError.new if @closed
-        return if @last_offset <= consumer.offset
 
         if sp = consumer.requeued.shift?
           segment = @segments[sp.segment]
@@ -82,28 +81,30 @@ module LavinMQ
           end
         end
 
-        loop do
-          rfile = @segments[consumer.segment]?
-          if rfile.nil? || consumer.pos == rfile.size
-            rfile.unmap if rfile
-            consumer.segment = next_read_segment(consumer.segment) || return nil
-            consumer.pos = 4_u32
-            next
-          end
-          # only head is deleted, no need to check if msgs are deleted in the middle
+        return if @last_offset <= consumer.offset
+        rfile = @segments[consumer.segment]? || next_segment(consumer) || return nil
+        if consumer.pos == rfile.size # EOF
+          rfile.unmap
+          rfile = next_segment(consumer) || return nil
+        end
+        begin
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
           consumer.offset += 1
 
-          return Envelope.new(sp, msg, redelivered: false)
+          Envelope.new(sp, msg, redelivered: false)
         rescue ex
-          raise rfile ? Error.new(rfile, cause: ex) : ex
+          raise Error.new(rfile, cause: ex)
         end
       end
 
-      private def next_read_segment(segment) : UInt32?
-        @segments.each_key.find { |sid| sid > segment }
+      private def next_segment(consumer) : MFile?
+        if seg_id = @segments.each_key.find { |sid| sid > consumer.segment }
+          consumer.segment = seg_id
+          consumer.pos = 4u32
+          @segments[seg_id]
+        end
       end
 
       def push(msg) : SegmentPosition
