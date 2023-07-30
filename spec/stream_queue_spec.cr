@@ -106,4 +106,22 @@ describe LavinMQ::StreamQueue do
       end
     end
   end
+
+  it "can requeue msgs per consumer" do
+    with_channel do |ch|
+      q = ch.queue("stream-requeue", args: stream_queue_args)
+      q.publish_confirm "foobar"
+
+      msgs = Channel(AMQP::Client::DeliverMessage).new
+      ch.prefetch 1
+      q.subscribe(no_ack: false) do |msg|
+        msgs.send msg
+      end
+      msg = msgs.receive
+      msg.body_io.to_s.should eq "foobar"
+      msg.reject(requeue: true)
+      msg = msgs.receive
+      msg.body_io.to_s.should eq "foobar"
+    end
+  end
 end
