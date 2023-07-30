@@ -662,10 +662,8 @@ module LavinMQ
 
       def next_delivery_tag(queue : Queue, sp, persistent, no_ack, consumer) : UInt64
         @unack_lock.synchronize do
-          tag = @delivery_tag += 1
-          unless no_ack
-            @unacked.push Unack.new(tag, queue, sp, persistent, consumer)
-          end
+          tag = @delivery_tag &+= 1
+          @unacked.push Unack.new(tag, queue, sp, persistent, consumer) unless no_ack
           tag
         end
       end
