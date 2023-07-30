@@ -42,16 +42,20 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if stream_queue.last_offset <= @offset
+          if stream_queue.last_offset <= @offset && @requeued.empty?
             @log.debug { "Waiting for queue not to be empty" }
             select
             when stream_queue.new_messages.receive
               @log.debug { "Queue is not empty" }
+            when @has_requeued.receive
+              @log.debug { "Got a requeued message" }
             when @notify_closed.receive
             end
             return true
           end
         end
+
+        @has_requeued = ::Channel(Nil).new
 
         private def stream_queue : StreamQueue
           @queue.as(StreamQueue)
@@ -59,7 +63,10 @@ module LavinMQ
 
         def reject(sp, requeue : Bool)
           super
-          @requeued.push(sp) if requeue
+          if requeue
+            @requeued.push(sp)
+            @has_requeued.try_send? nil if @requeued.size == 1
+          end
         end
 
         private def stream_offset(frame) : Int64
