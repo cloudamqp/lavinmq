@@ -2,14 +2,14 @@ require "./spec_helper"
 require "./../src/lavinmq/queue"
 
 describe LavinMQ::StreamQueue do
-  tbl = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
+  stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
   describe "Consume" do
     it "should get message with offset 2" do
       q_name = "pub_and_consume"
       header = LavinMQ::AMQP::Table.new({"x-stream-offset": 2})
       with_channel do |ch|
-        q = ch.queue(q_name, args: tbl)
+        q = ch.queue(q_name, args: stream_queue_args)
         10.times do |i|
           q.publish "m#{i}"
         end
@@ -27,7 +27,7 @@ describe LavinMQ::StreamQueue do
       q_name = "pub_and_consume_2"
       count = 0
       with_channel do |ch2|
-        q = ch2.queue(q_name, args: tbl)
+        q = ch2.queue(q_name, args: stream_queue_args)
         10.times do |i|
           q.publish "m#{i}"
         end
@@ -47,7 +47,7 @@ describe LavinMQ::StreamQueue do
       q_name = "pub_and_consume_3"
       count = 0
       with_channel do |ch|
-        q = ch.queue(q_name, args: tbl)
+        q = ch.queue(q_name, args: stream_queue_args)
         10.times do |i|
           q.publish "m#{i}"
         end
@@ -98,7 +98,7 @@ describe LavinMQ::StreamQueue do
   it "doesn't support basic_get" do
     q_name = "stream_basic_get"
     with_channel do |ch|
-      q = ch.queue(q_name, args: tbl)
+      q = ch.queue(q_name, args: stream_queue_args)
       q.publish_confirm "foobar"
 
       expect_raises(AMQP::Client::Channel::ClosedException, /NOT_IMPLEMENTED.*basic_get/) do
