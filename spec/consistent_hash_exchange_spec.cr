@@ -5,6 +5,7 @@ describe "Consistent Hash Exchange" do
   describe "Hasher" do
     # weight/replicas = binding key as INT
     # hash on queue name
+    # no-op
     it "should return nil if empty" do
       ch = ConsistentHasher(String).new
       ch.get("1").should be_nil
