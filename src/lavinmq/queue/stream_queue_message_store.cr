@@ -10,10 +10,10 @@ module LavinMQ
     end
 
     class StreamQueueMessageStore < MessageStore
-      getter last_offset = 0_i64
       getter new_messages = Channel(Bool).new
       property max_length : Int64? = nil
       property max_length_bytes : Int64? = nil
+      @last_offset : Int64
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super

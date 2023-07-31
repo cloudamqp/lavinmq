@@ -83,10 +83,6 @@ module LavinMQ
     def reject(sp : SegmentPosition, requeue : Bool)
     end
 
-    def last_offset : Int64
-      stream_queue_msg_store.last_offset
-    end
-
     private def drop_overflow : Nil
       # Overflow handling is done in StreamQueueMessageStore
     end

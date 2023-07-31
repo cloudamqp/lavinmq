@@ -39,10 +39,6 @@ module LavinMQ
       nil
     end
 
-    def offset : UInt64?
-      @properties.headers.try(&.fetch("x-stream-offset", nil).as?(UInt64))
-    end
-
     def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt64
       skipped = 0_u64
       skipped += io.skip(sizeof(UInt64))                             # ts
