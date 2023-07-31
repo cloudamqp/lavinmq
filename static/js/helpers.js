@@ -67,14 +67,10 @@ function argumentHelper (formID, name, e) {
 function argumentHelperJSON (formID, name, e) {
   const key = e.target.dataset.tag
   let value
-  if (formID === 'declare' && name === 'arguments') {
-    try {
-      value = JSON.parse(e.target.dataset.value || '""')
-    } catch (ex) {
-      value = e.target.dataset.value
-    }
-  } else {
+  try {
     value = JSON.parse(e.target.dataset.value || '""')
+  } catch (ex) {
+    value = e.target.dataset.value
   }
   const form = document.getElementById(formID)
   try {
