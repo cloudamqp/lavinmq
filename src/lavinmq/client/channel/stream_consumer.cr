@@ -12,9 +12,19 @@ module LavinMQ
         include StreamQueue::StreamPosition
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
+          validate_preconditions
           @offset = stream_offset(@frame)
           @segment, @pos = stream_queue.find_offset(@offset)
           super
+        end
+
+        private def validate_preconditions
+          if @frame.no_ack
+            raise Error::PreconditionFailed.new("Stream consumers must acknowledge messages")
+          end
+          if @channel.prefetch_count.zero?
+            raise Error::PreconditionFailed.new("Stream consumers must have a prefetch limit")
+          end
         end
 
         private def deliver_loop
