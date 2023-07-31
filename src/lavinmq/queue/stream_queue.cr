@@ -16,7 +16,7 @@ module LavinMQ
       stream_queue_msg_store.new_messages
     end
 
-    def find_offset(offset : Int64) : Tuple(UInt32, UInt32)
+    def find_offset(offset) : Tuple(UInt32, UInt32)
       stream_queue_msg_store.find_offset(offset)
     end
 

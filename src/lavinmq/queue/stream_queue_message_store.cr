@@ -3,7 +3,7 @@ require "./durable_queue"
 module LavinMQ
   class StreamQueue < Queue
     module StreamPosition
-      property offset = 0_i64
+      property? end_of_queue = false
       property segment = 1_u32
       property pos = 4_u32
       getter requeued = Deque(SegmentPosition).new
@@ -39,29 +39,40 @@ module LavinMQ
       # Used once when a consumer is started
       # Populates `segment` and `position` by iterating through segments
       # until `offset` is found
-      def find_offset(offset : Int64) : Tuple(UInt32, UInt32)
+      def find_offset(offset) : Tuple(UInt32, UInt32)
         raise ClosedError.new if @closed
-        if @last_offset <= offset
-          segment = @segments.last_key
-          pos = @segments.last_value.size.to_u32
-          return {segment, pos}
+        case offset
+        when "first", nil then {@segments.first_key, 4u32}
+        when "next"       then {@segments.last_key, @segments.last_value.size.to_u32}
+        when "last"       then {@segments.last_key, 4u32}
+        when Time         then find_offset_in_messages(offset)
+        when Int
+          if offset >= @last_offset
+            {@segments.last_key, @segments.last_value.size.to_u32}
+          else
+            find_offset_in_messages(offset)
+          end
+        else raise "Unsupported offset type #{offset.class}"
         end
+      end
+
+      private def find_offset_in_messages(offset : Int | Time) : Tuple(UInt32, UInt32)
         segment = @segments.first_key
-        pos = 4_u32
+        pos = 4u32
         loop do
           rfile = @segments[segment]?
           if rfile.nil? || pos == rfile.size
             rfile.unmap if rfile
             segment = @segments.each_key.find { |sid| sid > segment } || break
+            rfile = @segments[segment]
             pos = 4_u32
-            next
           end
-
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-          sp = SegmentPosition.new(segment, pos, msg.bytesize.to_u32)
-          msg_offset = offset_from_headers(msg.properties.headers)
-          break if msg_offset >= offset
-          pos += sp.bytesize
+          case offset
+          in Int  then break if offset <= offset_from_headers(msg.properties.headers)
+          in Time then break if offset <= Time.unix_ms(msg.timestamp)
+          end
+          pos += msg.bytesize
         rescue ex
           raise rfile ? Error.new(rfile, cause: ex) : ex
         end
@@ -81,7 +92,6 @@ module LavinMQ
           end
         end
 
-        return if @last_offset <= consumer.offset
         rfile = @segments[consumer.segment]? || next_segment(consumer) || return nil
         if consumer.pos == rfile.size # EOF
           rfile.unmap
@@ -91,7 +101,6 @@ module LavinMQ
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
-          consumer.offset += 1
 
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
@@ -104,6 +113,9 @@ module LavinMQ
           consumer.segment = seg_id
           consumer.pos = 4u32
           @segments[seg_id]
+        else
+          consumer.end_of_queue = true
+          nil
         end
       end
 

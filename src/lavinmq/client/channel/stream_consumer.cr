@@ -11,19 +11,29 @@ module LavinMQ
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
         include StreamQueue::StreamPosition
 
-        def initialize(@channel : Client::Channel, @queue : StreamQueue, @frame : AMQP::Frame::Basic::Consume)
-          validate_preconditions
-          @offset = stream_offset(@frame)
-          @segment, @pos = stream_queue.find_offset(@offset)
+        def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
+          validate_preconditions(frame)
+          offset = frame.arguments["x-stream-offset"]?
+          @segment, @pos = stream_queue.find_offset(offset)
           super
         end
 
-        private def validate_preconditions
-          if @frame.no_ack
+        private def validate_preconditions(frame)
+          if frame.exclusive
+            raise Error::PreconditionFailed.new("Stream consumers must not be exclusive")
+          end
+          if frame.no_ack
             raise Error::PreconditionFailed.new("Stream consumers must acknowledge messages")
           end
           if @channel.prefetch_count.zero?
             raise Error::PreconditionFailed.new("Stream consumers must have a prefetch limit")
+          end
+          if frame.arguments.has_key? "x-priority"
+            raise Error::PreconditionFailed.new("x-priority not supported on stream queues")
+          end
+          case frame.arguments["x-stream-offset"]?
+          when Nil, Int, Time, "first", "next", "last"
+          else raise Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
           end
         end
 
@@ -52,7 +62,7 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if stream_queue.last_offset <= @offset && @requeued.empty?
+          if end_of_queue? && @requeued.empty?
             @log.debug { "Waiting for queue not to be empty" }
             select
             when stream_queue.new_messages.receive
@@ -76,17 +86,6 @@ module LavinMQ
           if requeue
             @requeued.push(sp)
             @has_requeued.try_send? nil if @requeued.size == 1
-          end
-        end
-
-        private def stream_offset(frame) : Int64
-          case offset = frame.arguments["x-stream-offset"]?
-          when Nil, "first"   then 0i64
-          when "next", "last" then stream_queue.last_offset
-          when Int            then offset.to_i64
-            # TODO: support timestamps
-          else
-            raise Error::PreconditionFailed.new("x-stream-offset must be an integer, first, next or last")
           end
         end
       end
