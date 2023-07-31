@@ -114,26 +114,31 @@ describe LavinMQ::Client::Channel::Consumer do
     it "should accept any integer as x-priority" do
       with_channel do |ch|
         q = ch.queue
-        args = AMQP::Client::Arguments.new({"x-priority" => Int8::MIN})
-        tag = q.subscribe(args: args) { |_| }
-        q.unsubscribe(tag)
+        q.subscribe(args: AMQP::Client::Arguments.new({"x-priority": Int8::MIN})) { |_| }
+        q.subscribe(args: AMQP::Client::Arguments.new({"x-priority": Int16::MAX})) { |_| }
+        q.subscribe(args: AMQP::Client::Arguments.new({"x-priority": 1i64})) { |_| }
+      end
 
-        q = ch.queue
-        args = AMQP::Client::Arguments.new({"x-priority" => Int16::MAX})
-        tag = q.subscribe(args: args) { |_| }
-        q.unsubscribe(tag)
-
-        q = ch.queue
-        args = AMQP::Client::Arguments.new({"x-priority" => 1i64})
-        tag = q.subscribe(args: args) { |_| }
-        q.unsubscribe(tag)
-
+      with_channel do |ch|
         expect_raises(AMQP::Client::Channel::ClosedException, /out of bounds/) do
           q = ch.queue
-          args = AMQP::Client::Arguments.new({"x-priority" => Int64::MAX})
-          tag = q.subscribe(args: args) { |_| }
-          q.unsubscribe(tag)
-          ch.prefetch 1
+          q.subscribe(args: AMQP::Client::Arguments.new({"x-priority": Int64::MAX})) { |_| }
+        end
+      end
+    end
+
+    it "should not accept any thing but integers as x-priority" do
+      with_channel do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, /must be an integer/) do
+          q = ch.queue
+          q.subscribe(args: AMQP::Client::Arguments.new({"x-priority": "a"})) { |_| }
+        end
+      end
+
+      with_channel do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, /must be an integer/) do
+          q = ch.queue
+          q.subscribe(args: AMQP::Client::Arguments.new({"x-priority": 0.1})) { |_| }
         end
       end
     end

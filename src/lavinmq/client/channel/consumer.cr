@@ -223,17 +223,13 @@ module LavinMQ
         end
 
         private def consumer_priority(frame) : Int32
-          priority = 0
-          if frame.arguments.has_key? "x-priority"
-            prio_arg = frame.arguments["x-priority"]
-            prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
-            begin
-              priority = prio_int.to_i
-            rescue OverflowError
-              raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
-            end
+          case prio = frame.arguments["x-priority"]?
+          when nil then 0
+          when Int then prio.to_i32
+          else          raise Error::PreconditionFailed.new("x-priority must be an integer")
           end
-          priority
+        rescue OverflowError
+          raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
         end
 
         def details_tuple
