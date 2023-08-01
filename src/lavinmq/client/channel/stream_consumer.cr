@@ -28,6 +28,9 @@ module LavinMQ
           if @channel.prefetch_count.zero?
             raise Error::PreconditionFailed.new("Stream consumers must have a prefetch limit")
           end
+          unless @channel.global_prefetch_count.zero?
+            raise Error::PreconditionFailed.new("Stream consumers does not support global prefetch limit")
+          end
           if frame.arguments.has_key? "x-priority"
             raise Error::PreconditionFailed.new("x-priority not supported on stream queues")
           end
@@ -43,7 +46,6 @@ module LavinMQ
             wait_for_capacity
             loop do
               raise ClosedError.new if @closed
-              next if wait_for_global_capacity
               next if wait_for_queue_ready
               next if wait_for_paused_queue
               next if wait_for_flow
