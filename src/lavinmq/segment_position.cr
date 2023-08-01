@@ -28,17 +28,5 @@ module LavinMQ
       io << @segment.to_s.rjust(10, '0')
       io << @position.to_s.rjust(10, '0')
     end
-
-    # Used in persistent exchange for offset reference
-    def to_i64 : Int64
-      ((segment.to_i64 << 32) | position).to_i64
-    end
-
-    # Used in persistent exchange for offset reference
-    def self.from_i64(i : Int64)
-      seg = i.bits(32..)
-      pos = i.bits(0..31)
-      SegmentPosition.new(seg.to_u32, pos.to_u32, 0u32)
-    end
   end
 end
