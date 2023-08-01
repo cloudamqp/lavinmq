@@ -347,6 +347,8 @@ module LavinMQ
 
           if @segment_msg_count[seg] == @deleted[seg]?.try(&.size)
             Log.info { "Deleting unused segment #{seg}" }
+            @segment_msg_count.delete seg
+            @deleted.delete seg
             if ack = @acks.delete(seg)
               ack.delete.close
               @replicator.try &.delete_file(ack.path)
