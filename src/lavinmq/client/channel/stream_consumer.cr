@@ -1,9 +1,5 @@
-require "log"
 require "./consumer"
 require "../../segment_position"
-require "../../sortable_json"
-require "../../error"
-require "../../queue/stream_queue_message_store"
 
 module LavinMQ
   class Client
