@@ -127,28 +127,28 @@ module LavinMQ
       end
 
       def drop_overflow
-        if ml = @max_length
-          @segments.reject! do |seg_id, mfile|
-            break if ml >= @size || mfile == @wfile
-            count = @segment_msg_count.delete(seg_id) || raise KeyError.new
-            @size -= count
-            @bytesize -= mfile.size
-            mfile.delete.close
-            @replicator.try &.delete_file(mfile.path)
-            true
+        if max_length = @max_length
+          drop_segments_until do
+            max_length >= @size
           end
         end
-
-        if mlb = @max_length_bytes
-          @segments.reject! do |seg_id, mfile|
-            break if mlb >= @bytesize || mfile == @wfile
-            count = @segment_msg_count.delete(seg_id) || raise KeyError.new
-            @size -= count
-            @bytesize -= mfile.size
-            mfile.delete.close
-            @replicator.try &.delete_file(mfile.path)
-            true
+        if max_bytes = @max_length_bytes
+          drop_segments_until do
+            max_bytes >= @bytesize
           end
+        end
+      end
+
+      private def drop_segments_until(& : MFile -> Bool)
+        @segments.reject! do |seg_id, mfile|
+          next if mfile == @wfile
+          break if yield mfile
+          count = @segment_msg_count.delete(seg_id) || raise KeyError.new
+          @size -= count
+          @bytesize -= mfile.size
+          mfile.delete.close
+          @replicator.try &.delete_file(mfile.path)
+          true
         end
       end
 
