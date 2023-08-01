@@ -53,6 +53,23 @@ describe LavinMQ::StreamQueue do
         end
       end
     end
+
+    it "consumer gets new messages as they arrive" do
+      with_channel do |ch|
+        ch.prefetch 1
+        args = {"x-queue-type": "stream"}
+        q = ch.queue("stream-consume", args: AMQP::Client::Arguments.new(args))
+        q.publish "1"
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false) do |msg|
+          msg.ack
+          msgs.send(msg)
+        end
+        msgs.receive.body_io.to_s.should eq "1"
+        q.publish "2"
+        msgs.receive.body_io.to_s.should eq "2"
+      end
+    end
   end
 
   describe "Expiration" do
