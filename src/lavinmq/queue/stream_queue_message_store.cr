@@ -8,7 +8,7 @@ module LavinMQ
       property max_length_bytes : Int64?
       property max_age : Time::Span | Time::MonthSpan | Nil
       @last_offset : Int64
-      @segments_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
+      @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
@@ -119,7 +119,7 @@ module LavinMQ
         sp = write_to_disk(msg)
         @bytesize += sp.bytesize
         @size += 1
-        @segments_last_ts[sp.segment] = msg.timestamp
+        @segment_last_ts[sp.segment] = msg.timestamp
         @new_messages.try_send? true
         sp
       end
@@ -143,7 +143,7 @@ module LavinMQ
         if max_age = @max_age
           min_ts = RoughTime.utc - max_age
           drop_segments_while do |seg_id|
-            last_ts = @segments_last_ts[seg_id]
+            last_ts = @segment_last_ts[seg_id]
             Time.unix_ms(last_ts) < min_ts
           end
         end
@@ -153,13 +153,17 @@ module LavinMQ
         @segments.reject! do |seg_id, mfile|
           break unless yield seg_id
           count = @segment_msg_count.delete(seg_id) || raise KeyError.new
-          @segments_last_ts.delete(seg_id)
+          @segment_last_ts.delete(seg_id)
           @size -= count
           @bytesize -= mfile.size - 4
           mfile.delete.close
           @replicator.try &.delete_file(mfile.path)
           true
         end
+      end
+
+      private def update_stat_per_msg(seg, ts)
+        @segment_last_ts[seg] = last_ts
       end
 
       def delete(sp) : Nil
