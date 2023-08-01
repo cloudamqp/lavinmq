@@ -1,4 +1,5 @@
 require "./durable_queue"
+require "../client/channel/stream_consumer"
 require "./stream_queue_message_store"
 
 module LavinMQ
@@ -56,7 +57,7 @@ module LavinMQ
       false
     end
 
-    def consume_get(consumer : StreamPosition, & : Envelope -> Nil) : Bool
+    def consume_get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
@@ -66,7 +67,7 @@ module LavinMQ
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(consumer : StreamPosition, & : Envelope -> Nil) : Bool
+    private def get(consumer : Client::Channel::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
       yield env # deliver the message

@@ -9,7 +9,10 @@ module LavinMQ
   class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        include StreamQueue::StreamPosition
+        property? end_of_queue = false
+        property segment = 1_u32
+        property pos = 4_u32
+        getter requeued = Deque(SegmentPosition).new
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
           validate_preconditions(frame)

@@ -1,14 +1,7 @@
-require "./durable_queue"
+require "./stream_queue"
 
 module LavinMQ
   class StreamQueue < Queue
-    module StreamPosition
-      property? end_of_queue = false
-      property segment = 1_u32
-      property pos = 4_u32
-      getter requeued = Deque(SegmentPosition).new
-    end
-
     class StreamQueueMessageStore < MessageStore
       getter new_messages = Channel(Bool).new
       property max_length : Int64? = nil
@@ -79,7 +72,7 @@ module LavinMQ
         {segment, pos}
       end
 
-      def shift?(consumer : StreamPosition) : Envelope?
+      def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if sp = consumer.requeued.shift?
