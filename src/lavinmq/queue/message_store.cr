@@ -18,7 +18,7 @@ module LavinMQ
       Log = ::Log.for("MessageStore")
       @segments = Hash(UInt32, MFile).new
       @deleted = Hash(UInt32, Array(UInt32)).new
-      @segment_msg_count = Hash(UInt32, UInt32).new
+      @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
       @requeued = Deque(SegmentPosition).new
       @closed = false
       getter bytesize = 0u64
@@ -243,7 +243,6 @@ module LavinMQ
         @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
-        @segment_msg_count[next_id] = 0u32
         wfile
       end
 

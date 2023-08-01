@@ -226,7 +226,6 @@ module LavinMQ
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
-        else nil
         end
       end
       @policy = policy
