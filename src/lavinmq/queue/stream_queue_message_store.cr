@@ -101,7 +101,6 @@ module LavinMQ
           msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
-
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile, cause: ex)
